@@ -1,2 +1,2 @@
-# MCOV
-Machine Classification of Variables (MCOV)
+# tesstran
+Pipeline to find transients in the TESS data
