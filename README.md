@@ -1,2 +1,2 @@
-# tesstran
-Pipeline to find transients in the TESS data
+# ctlc
+Classifier for TESS light curves
