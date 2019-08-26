@@ -9,7 +9,7 @@ import h5py
 import astroquery.mast
 from astroquery.mast import Tesscut
 from astropy.coordinates import SkyCoord
-import tcat
+import tcat.util
 
 import time as timemodu
 
@@ -59,16 +59,13 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import astroquery
 #
 #import astropy
+import astropy.wcs
 #from astropy.wcs import WCS
 #from astropy import units as u
 #from astropy.io import fits
 #import astropy.time
-#from astropy.coordinates import SkyCoord
 
 import multiprocessing
-
-#import eleanor
-
 
 
 def plot_embe(gdat, lcurflat, X_embedded, strg, titl):
@@ -110,7 +107,7 @@ def plot_anim(gdat, cntp, strgvarb, cmap='Greys_r', strgtitlbase='', boolresi=Fa
         path = gdat.pathdata + '%s_%s_%05d.pdf' % (strgvarb, gdat.strgcntp, t)
         plot_imag(gdat, cntp[:, :, t], path=path, strgvarb=strgvarb, cmap=cmap, strgtitl=strgtitl, \
                                         indxsideyposoffs=indxsideyposoffs, indxsidexposoffs=indxsidexposoffs, boolresi=boolresi, vmin=vmin, vmax=vmax)
-    os.system('convert -density 300 -delay 10 %s%s_%s_*.pdf %s%s_%s.gif' % (gdat.pathdata, strgvarb, gdat.strgcntp, gdat.pathdata, strgvarb, gdat.strgcntp))
+    os.system('convert -density 300 -delay 50 %s%s_%s_*.pdf %s%s_%s.gif' % (gdat.pathdata, strgvarb, gdat.strgcntp, gdat.pathdata, strgvarb, gdat.strgcntp))
     ### delete the frame plots
     path = gdat.pathdata + '%s_%s_*.pdf' % (strgvarb, gdat.strgcntp)
     #os.system('rm %s' % path)
@@ -181,7 +178,6 @@ def init( \
          rasctarg=None, \
          decltarg=None, \
          labltarg=None, \
-         strgtarg=None, \
          numbside=None, \
          **args \
         ):
@@ -213,6 +209,7 @@ def init( \
     
     if gdat.datatype == 'mock':
         gdat.trueclastype = 'catg'
+    
 
     #star = eleanor.Source(tic=38846515, sector=1, tc=True)
 
@@ -234,6 +231,8 @@ def init( \
     ## make folders 
     os.system('mkdir -p %s' % gdat.pathdatafilt)
     
+    gdat.boolsupe = False
+
     if pathfile is None:
         if numbside is None:
             strgmode = 'full'
@@ -241,14 +240,15 @@ def init( \
             strgmode = 'targ'
     else:
         strgmode = 'file'
-        
+    
+    # reference catalog
+    gdat.numbrefr = 1
+
     random_state = 42
 
     timeexpo = 1426.
     
     if strgmode == 'targ':
-        from astroquery.mast import Tesscut
-        from astropy.coordinates import SkyCoord
         cutout_coord = SkyCoord(rasctarg, decltarg, unit="deg")
         listhdundata = Tesscut.get_cutouts(cutout_coord, gdat.numbside)
         sector_table = Tesscut.get_sectors(SkyCoord(gdat.rasctarg, gdat.decltarg, unit="deg"))
@@ -281,6 +281,7 @@ def init( \
         
         # settings
         ## plotting
+        gdat.strgffim = 'ffim'
         ### number of pixels along a postage stamp plot
         gdat.numbsideplot = 11
         gdat.cntpscaltype = 'asnh'
@@ -319,9 +320,9 @@ def init( \
                         lcur = np.empty((gdat.numbdata, gdat.numbtime, gdat.numbfeat))
                     tmag = objtfile['LightCurve/AperturePhotometry/Aperture_002/RawMagnitude'][()]
                     if k == 0:
-                        gdat.indxtime = np.arange(gdat.numbtime)
+                        gdat.indxtimetemp = np.arange(gdat.numbtime)
                     indxtimegood = np.where(np.isfinite(tmag))[0]
-                    indxtimenann = np.setdiff1d(gdat.indxtime, indxtimegood)
+                    indxtimenann = np.setdiff1d(gdat.indxtimetemp, indxtimegood)
                     lcur[k, :, 0] = 10**(-(tmag - np.median(tmag[indxtimegood])) / 2.5)
                     listindxtimebadd.append(indxtimenann)
                     fracdatanann[k] = indxtimenann.size / float(gdat.numbtime)
@@ -330,7 +331,7 @@ def init( \
             listindxtimebadd = np.unique(listindxtimebadd)
             listindxtimebadd = np.concatenate((listindxtimebadd, np.arange(100)))
             listindxtimebadd = np.concatenate((listindxtimebadd, gdat.numbtime / 2 + np.arange(100)))
-            listindxtimegood = np.setdiff1d(gdat.indxtime, listindxtimebadd)
+            listindxtimegood = np.setdiff1d(gdat.indxtimetemp, listindxtimebadd)
             #listhdundata = fits.open(pathfile)
             print('Filtering the data...')
             # filter the data
@@ -373,7 +374,7 @@ def init( \
                 gdat.trueindxdataoutl = gdat.numbobjtoutl
 
         gdat.numbtime = gdat.time.size
-        
+        gdat.indxtime = np.arange(gdat.numbtime) 
         if (~np.isfinite(lcur)).any():
             raise Exception('')
 
@@ -393,7 +394,7 @@ def init( \
             listlabltrue = np.zeros(gdat.numbdata, dtype=int)
             if gdat.trueclastype == 'outl':
                 numbinli = gdat.numbdata - gdat.numbsour
-                numboutl = gdat.numbsour
+                gdat.truenumboutl = gdat.numbsour
         
         # plot the data
         figr, axis = plt.subplots(10, 4)
@@ -428,6 +429,7 @@ def init( \
             numbtimeoldd = gdat.numbtime
             gdat.numbtime = gdat.numbtimerebn
             numbtimebins = numbtimeoldd / gdat.numbtime
+            gdat.facttimerebn = numbtimebins
             cntpmemoneww = np.zeros((numbsidememo, numbsidememo, gdat.numbtime)) - 1.
             timeneww = np.zeros(gdat.numbtime)
             for t in range(gdat.numbtime):
@@ -441,7 +443,8 @@ def init( \
             gdat.time = timeneww[gdat.indxtimegood]
             gdat.numbtime = gdat.indxtimegood.size
             gdat.indxtime = np.arange(gdat.numbtime)
-        
+        else:
+            gdat.facttimerebn = 1
         # calculate derived maps
         ## RMS image
 
@@ -505,6 +508,8 @@ def init( \
             indxdatanega = np.setdiff1d(indxdata, indxdataposi)
             numbposi = indxdataposi.size
             gdat.numbpositext = min(200, numbposi)
+
+            numboutl = indxdataposi.size
 
             listscor.append(scor)
             listlablmodl.append(lablmodl)
@@ -587,22 +592,53 @@ def init( \
                         indx = gdat.indxdatascorsort[k]
                     else:
                         indx = gdat.indxdatascorsort[gdat.numbdata-k-1]
-                    if not isinstance(indx, int):
+                    if not np.isscalar(indx):
+                        print('indx')
+                        print(type(indx))
+                        print(indx)
                         indx = indx[0]
                     
                     # plot the postage stamp animation
                     if gdat.datatype == 'obsd':
-                        if l == 0:
-                            catalogData = astroquery.mast.Catalogs.query_object(int(liststrgtici[indx]), catalog="TIC")
+                        labltarg = 'TIC: %s' % liststrgtici[indx]
+                        if False and l == 0:
+                            gdat.strgtarg = '%012d' % int(liststrgtici[indx])
+                            
+                            #try:
+                            # get the catalog near the target
+                            #catalogData = astroquery.mast.Catalogs.query_object(int(liststrgtici[indx]), radius='2m', catalog='Gaia')
+                            catalogData = astroquery.mast.Catalogs.query_object(int(liststrgtici[indx]), radius='2m', catalog='TIC')
                             rasctarg = catalogData[0]['ra']
                             decltarg = catalogData[0]['dec']
+                            print('decltarg')
+                            print(decltarg)
+                            print(catalogData[0]['ra'])
+                            # get cut-out data
                             cutout_coord = SkyCoord(rasctarg, decltarg, unit="deg")
                             listhdundata = Tesscut.get_cutouts(cutout_coord, gdat.numbsideplot)
                             #gdat.listtime = listhdundata[o][1].data['TIME']
                             cntpdata = 30. * 60. * listhdundata[o][1].data['FLUX'].swapaxes(0, 2).swapaxes(0, 1)[None, :, :, :]
+                            
+                            # transform RA and DEC to pixel coordinates
+                            skyyfitttemp = np.empty((catalogData[:]['ra'].size, 2))
+                            skyyfitttemp[:, 0] = catalogData[:]['ra']
+                            skyyfitttemp[:, 1] = catalogData[:]['dec']
+                            objtwcss = astropy.wcs.WCS(listhdundata[o][2].header)
+                            posifitttemp = objtwcss.all_world2pix(skyyfitttemp, 0)
+                            posifitttemp = posifitttemp[np.where((posifitttemp[:, 0] < gdat.numbsideplot - 0.5) & (posifitttemp[:, 0] > 0) & \
+                                                                 (posifitttemp[:, 1] < gdat.numbsideplot - 0.5) & (posifitttemp[:, 1] > 0))[0], :]
+                            # make a reference catalog
+                            gdat.catlrefr = [{}]
+                            gdat.catlrefr[0]['xpos'] = posifitttemp[:, 0]
+                            gdat.catlrefr[0]['ypos'] = posifitttemp[:, 1]
+                                
+                            #except:
+                            #    rasctarg = np.random.random(10) * gdat.numbsideplot
+                            #    decltarg = np.random.random(10) * gdat.numbsideplot
+                            #    cntpdata = np.random.randn(gdat.numbtime * gdat.numbsideplot**2).reshape((1, \
+                            #                                                                gdat.numbsideplot, gdat.numbsideplot, gdat.numbtime))
+                            #    print('MAST catalog retriieval failed. Using dummy images and catalogs.')
                             cntpresi = cntpdata - np.median(cntpdata, 2)
-                            #plot_cntpwrap(gdat, cntp, indxtimework, o, strgsecc, boolresi=False, strgtemp='data', indxpixlcolr=None, indxstarcolr=None)
-                            print('hey')
                             for a in range(2):
                                 if a == 0:
                                     cntptemp = cntpdata
@@ -610,7 +646,8 @@ def init( \
                                 else:
                                     cntptemp = cntpresi
                                     boolresi = True
-                                plot_cntpwrap(gdat, cntptemp, gdat.indxtime, o, strgsecc, boolresi=boolresi)
+                                tcat.util.plot_cntpwrap(gdat, cntptemp, gdat.indxtime[::4], o, strgsecc, lcur=X[indx, :], time=gdat.time, \
+                                                                                                                    boolresi=boolresi, labltarg=labltarg)
                     
                     axis[k][l].plot(gdat.time, X[indx, :], color='black', ls='', marker='o', markersize=1)
                     if gdat.datatype == 'obsd':
@@ -651,316 +688,315 @@ def init( \
             c += 1
                 
                 
-            # clustering with pyod
-            # fraction of outliers
-            fracoutl = 0.25
+        # clustering with pyod
+        # fraction of outliers
+        fracoutl = 0.25
+        
+        # initialize a set of detectors for LSCP
+        detector_list = [LOF(n_neighbors=5), LOF(n_neighbors=10), LOF(n_neighbors=15),
+                         LOF(n_neighbors=20), LOF(n_neighbors=25), LOF(n_neighbors=30),
+                         LOF(n_neighbors=35), LOF(n_neighbors=40), LOF(n_neighbors=45),
+                         LOF(n_neighbors=50)]
+        
+        # Show the statics of the data
+        # Define nine outlier detection tools to be compared
+        classifiers = {
+            'Angle-based Outlier Detector (ABOD)':
+                ABOD(contamination=fracoutl),
+            'Cluster-based Local Outlier Factor (CBLOF)':
+                CBLOF(contamination=fracoutl,
+                      check_estimator=False, random_state=random_state),
+            'Feature Bagging':
+                FeatureBagging(LOF(n_neighbors=35),
+                               contamination=fracoutl,
+                               random_state=random_state),
+            #'Histogram-base Outlier Detection (HBOS)': HBOS(
+            #    contamination=fracoutl),
+            'Isolation Forest': IForest(contamination=fracoutl,
+                                        random_state=random_state),
+            'K Nearest Neighbors (KNN)': KNN(
+                contamination=fracoutl),
+            'Average KNN': KNN(method='mean',
+                               contamination=fracoutl),
+            # 'Median KNN': KNN(method='median',
+            #                   contamination=fracoutl),
+            'Local Outlier Factor (LOF)':
+                LOF(n_neighbors=35, contamination=fracoutl),
+            # 'Local Correlation Integral (LOCI)':
+            #     LOCI(contamination=fracoutl),
             
-            # initialize a set of detectors for LSCP
-            detector_list = [LOF(n_neighbors=5), LOF(n_neighbors=10), LOF(n_neighbors=15),
-                             LOF(n_neighbors=20), LOF(n_neighbors=25), LOF(n_neighbors=30),
-                             LOF(n_neighbors=35), LOF(n_neighbors=40), LOF(n_neighbors=45),
-                             LOF(n_neighbors=50)]
+            #'Minimum Covariance Determinant (MCD)': MCD(
+            #    contamination=fracoutl, random_state=random_state),
             
-            # Show the statics of the data
-            # Define nine outlier detection tools to be compared
-            classifiers = {
-                'Angle-based Outlier Detector (ABOD)':
-                    ABOD(contamination=fracoutl),
-                'Cluster-based Local Outlier Factor (CBLOF)':
-                    CBLOF(contamination=fracoutl,
-                          check_estimator=False, random_state=random_state),
-                'Feature Bagging':
-                    FeatureBagging(LOF(n_neighbors=35),
-                                   contamination=fracoutl,
-                                   random_state=random_state),
-                #'Histogram-base Outlier Detection (HBOS)': HBOS(
-                #    contamination=fracoutl),
-                'Isolation Forest': IForest(contamination=fracoutl,
-                                            random_state=random_state),
-                'K Nearest Neighbors (KNN)': KNN(
-                    contamination=fracoutl),
-                'Average KNN': KNN(method='mean',
-                                   contamination=fracoutl),
-                # 'Median KNN': KNN(method='median',
-                #                   contamination=fracoutl),
-                'Local Outlier Factor (LOF)':
-                    LOF(n_neighbors=35, contamination=fracoutl),
-                # 'Local Correlation Integral (LOCI)':
-                #     LOCI(contamination=fracoutl),
-                
-                #'Minimum Covariance Determinant (MCD)': MCD(
-                #    contamination=fracoutl, random_state=random_state),
-                
-                'One-class SVM (OCSVM)': OCSVM(contamination=fracoutl),
-                'Principal Component Analysis (PCA)': PCA(
-                    contamination=fracoutl, random_state=random_state, standardization=False),
-                # 'Stochastic Outlier Selection (SOS)': SOS(
-                #     contamination=fracoutl),
-                'Locally Selective Combination (LSCP)': LSCP(
-                    detector_list, contamination=fracoutl,
-                    random_state=random_state)
-            }
-            
-            return
-            raise Exception('')
+            'One-class SVM (OCSVM)': OCSVM(contamination=fracoutl),
+            'Principal Component Analysis (PCA)': PCA(
+                contamination=fracoutl, random_state=random_state, standardization=False),
+            # 'Stochastic Outlier Selection (SOS)': SOS(
+            #     contamination=fracoutl),
+            'Locally Selective Combination (LSCP)': LSCP(
+                detector_list, contamination=fracoutl,
+                random_state=random_state)
+        }
+        
+        # Fit the model
+        plt.figure(figsize=(15, 12))
+        for i, (clf_name, clf) in enumerate(classifiers.items()):
 
-            # Fit the model
-            plt.figure(figsize=(15, 12))
-            for i, (clf_name, clf) in enumerate(classifiers.items()):
-
-                # fit the data and tag outliers
-                clf.fit(X)
-                scores_pred = clf.decision_function(X) * -1
-                y_pred = clf.predict(X)
-                threshold = np.percentile(scores_pred, 100 * fracoutl)
+            # fit the data and tag outliers
+            clf.fit(X)
+            scores_pred = clf.decision_function(X) * -1
+            y_pred = clf.predict(X)
+            threshold = np.percentile(scores_pred, 100 * fracoutl)
+            if gdat.boolsupe:
                 n_errors = np.where(y_pred != listlabltrue)[0].size
-                # plot the levels lines and the points
-                #if i == 1:
-                #    continue
-                #Z = clf.decision_function(np.c_[xx.ravel(), yy.ravel()]) * -1
-                #Z = Z.reshape(xx.shape)
-                Z = np.zeros((100, 100))
-                subplot = plt.subplot(3, 4, i + 1)
-                subplot.contourf(xx, yy, Z, #levels=np.linspace(Z.min(), threshold, 7),
-                                 cmap=plt.cm.Blues_r)
-                subplot.contourf(xx, yy, Z, cmap=plt.cm.Blues_r)
-                a = subplot.contour(xx, yy, Z, levels=[threshold],
-                                    linewidths=2, colors='red')
-                subplot.contourf(xx, yy, Z, #levels=[threshold, Z.max()],
-                                 colors='orange')
-                b = subplot.scatter(X[:-numboutl, 0], X[:-numboutl, 1], c='green', s=20, edgecolor='k')
-                c = subplot.scatter(X[-numboutl:, 0], X[-numboutl:, 1], c='purple', s=20, edgecolor='k')
-                subplot.axis('tight')
-                subplot.legend(
-                    [a.collections[0], b, c],
-                    ['learned decision function', 'true inliers', 'true outliers'],
-                    prop=matplotlib.font_manager.FontProperties(size=10),
-                    loc='lower right')
+            # plot the levels lines and the points
+            #if i == 1:
+            #    continue
+            #Z = clf.decision_function(np.c_[xx.ravel(), yy.ravel()]) * -1
+            #Z = Z.reshape(xx.shape)
+            Z = np.zeros((100, 100))
+            subplot = plt.subplot(3, 4, i + 1)
+            subplot.contourf(xx, yy, Z, #levels=np.linspace(Z.min(), threshold, 7),
+                             cmap=plt.cm.Blues_r)
+            subplot.contourf(xx, yy, Z, cmap=plt.cm.Blues_r)
+            a = subplot.contour(xx, yy, Z, levels=[threshold],
+                                linewidths=2, colors='red')
+            subplot.contourf(xx, yy, Z, #levels=[threshold, Z.max()],
+                             colors='orange')
+            b = subplot.scatter(X[:-numboutl, 0], X[:-numboutl, 1], c='green', s=20, edgecolor='k')
+            c = subplot.scatter(X[-numboutl:, 0], X[-numboutl:, 1], c='purple', s=20, edgecolor='k')
+            subplot.axis('tight')
+            subplot.legend(
+                [a.collections[0], b, c],
+                ['learned decision function', 'true inliers', 'true outliers'],
+                prop=matplotlib.font_manager.FontProperties(size=10),
+                loc='lower right')
+            if gdat.boolsupe:
                 subplot.set_xlabel("%d. %s (errors: %d)" % (i + 1, clf_name, n_errors))
-                subplot.set_xlim(limtproj)
-                subplot.set_ylim(limtproj)
-            plt.subplots_adjust(0.04, 0.1, 0.96, 0.94, 0.1, 0.26)
-            plt.suptitle("Outlier detection")
-            path = gdat.pathimag + 'pyod.png'
-            print('Writing to %s...' % path)
-            plt.savefig(path, dpi=300)
-            plt.close()
+            subplot.set_xlim(limtproj)
+            subplot.set_ylim(limtproj)
+        plt.subplots_adjust(0.04, 0.1, 0.96, 0.94, 0.1, 0.26)
+        plt.suptitle("Outlier detection")
+        path = gdat.pathimag + 'pyod.png'
+        print('Writing to %s...' % path)
+        plt.savefig(path, dpi=300)
+        plt.close()
 
-            
-            default_base = {'quantile': .3,
-                            'eps': .3,
-                            'damping': .9,
-                            'preference': -200,
-                            'n_neighbors': 10,
-                            'n_clusters': 3,
-                            'min_samples': 20,
-                            'xi': 0.05,
-                            'min_cluster_size': 0.1}
-            
-            # update parameters with dataset-specific values
-            
-            algo_params = {'damping': .77, 'preference': -240,
-                 'quantile': .2, 'n_clusters': 2,
-                 'min_samples': 20, 'xi': 0.25}
+        
+        default_base = {'quantile': .3,
+                        'eps': .3,
+                        'damping': .9,
+                        'preference': -200,
+                        'n_neighbors': 10,
+                        'n_clusters': 3,
+                        'min_samples': 20,
+                        'xi': 0.05,
+                        'min_cluster_size': 0.1}
+        
+        # update parameters with dataset-specific values
+        
+        algo_params = {'damping': .77, 'preference': -240,
+             'quantile': .2, 'n_clusters': 2,
+             'min_samples': 20, 'xi': 0.25}
 
-            params = default_base.copy()
-            params.update(algo_params)
+        params = default_base.copy()
+        params.update(algo_params)
+        
+        # normalize dataset for easier parameter selection
+        X = StandardScaler().fit_transform(X)
+        
+        # estimate bandwidth for mean shift
+        bandwidth = cluster.estimate_bandwidth(X, quantile=params['quantile'])
+        
+        # connectivity matrix for structured Ward
+        connectivity = kneighbors_graph(
+            X, n_neighbors=params['n_neighbors'], include_self=False)
+        # make connectivity symmetric
+        connectivity = 0.5 * (connectivity + connectivity.T)
+        
+        ms = cluster.MeanShift(bandwidth=bandwidth, bin_seeding=True)
+        two_means = cluster.MiniBatchKMeans(n_clusters=params['n_clusters'])
+        ward = cluster.AgglomerativeClustering(n_clusters=params['n_clusters'], linkage='ward', connectivity=connectivity)
+        spectral = cluster.SpectralClustering(n_clusters=params['n_clusters'], eigen_solver='arpack', affinity="nearest_neighbors")
+        dbscan = cluster.DBSCAN(eps=params['eps'])
+        
+        #optics = cluster.OPTICS(min_samples=params['min_samples'],
+        #                        xi=params['xi'],
+        #                        min_cluster_size=params['min_cluster_size'])
+        
+        affinity_propagation = cluster.AffinityPropagation(damping=params['damping'], preference=params['preference'])
+        average_linkage = cluster.AgglomerativeClustering(linkage="average", affinity="cityblock", \
+                                                                            n_clusters=params['n_clusters'], connectivity=connectivity)
+        birch = cluster.Birch(n_clusters=params['n_clusters'])
+        gmm = mixture.GaussianMixture(n_components=params['n_clusters'], covariance_type='full')
+        
+        clustering_algorithms = (
+            ('MiniBatchKMeans', two_means),
+            ('AffinityPropagation', affinity_propagation),
+            ('MeanShift', ms),
+            ('SpectralClustering', spectral),
+            ('Ward', ward),
+            ('AgglomerativeClustering', average_linkage),
+            ('DBSCAN', dbscan),
+            #('OPTICS', optics),
+            ('Birch', birch),
+            ('GaussianMixture', gmm)
+        )
+        
+        figr, axis = plt.subplots(1, numbmeth)
+        k = 0
+        for name, algorithm in clustering_algorithms:
+            t0 = timemodu.time()
             
-            # normalize dataset for easier parameter selection
-            X = StandardScaler().fit_transform(X)
+            # catch warnings related to kneighbors_graph
+            with warnings.catch_warnings():
+                #warnings.filterwarnings(
+                #    "ignore",
+                #    message="the number of connected components of the " +
+                #    "connectivity matrix is [0-9]{1,2}" +
+                #    " > 1. Completing it to avoid stopping the tree early.",
+                #    category=UserWarning)
+                #warnings.filterwarnings(
+                #    "ignore",
+                #    message="Graph is not fully connected, spectral embedding" +
+                #    " may not work as expected.",
+                #    category=UserWarning)
+                algorithm.fit(X)
+        
+            t1 = timemodu.time()
+            if hasattr(algorithm, 'labels_'):
+                lablmodl = algorithm.labels_.astype(np.int)
+            else:
+                lablmodl = algorithm.predict(X)
             
-            # estimate bandwidth for mean shift
-            bandwidth = cluster.estimate_bandwidth(X, quantile=params['quantile'])
-            
-            # connectivity matrix for structured Ward
-            connectivity = kneighbors_graph(
-                X, n_neighbors=params['n_neighbors'], include_self=False)
-            # make connectivity symmetric
-            connectivity = 0.5 * (connectivity + connectivity.T)
-            
-            ms = cluster.MeanShift(bandwidth=bandwidth, bin_seeding=True)
-            two_means = cluster.MiniBatchKMeans(n_clusters=params['n_clusters'])
-            ward = cluster.AgglomerativeClustering(n_clusters=params['n_clusters'], linkage='ward', connectivity=connectivity)
-            spectral = cluster.SpectralClustering(n_clusters=params['n_clusters'], eigen_solver='arpack', affinity="nearest_neighbors")
-            dbscan = cluster.DBSCAN(eps=params['eps'])
-            
-            #optics = cluster.OPTICS(min_samples=params['min_samples'],
-            #                        xi=params['xi'],
-            #                        min_cluster_size=params['min_cluster_size'])
-            
-            affinity_propagation = cluster.AffinityPropagation(damping=params['damping'], preference=params['preference'])
-            average_linkage = cluster.AgglomerativeClustering(linkage="average", affinity="cityblock", \
-                                                                                n_clusters=params['n_clusters'], connectivity=connectivity)
-            birch = cluster.Birch(n_clusters=params['n_clusters'])
-            gmm = mixture.GaussianMixture(n_components=params['n_clusters'], covariance_type='full')
-            
-            clustering_algorithms = (
-                ('MiniBatchKMeans', two_means),
-                ('AffinityPropagation', affinity_propagation),
-                ('MeanShift', ms),
-                ('SpectralClustering', spectral),
-                ('Ward', ward),
-                ('AgglomerativeClustering', average_linkage),
-                ('DBSCAN', dbscan),
-                #('OPTICS', optics),
-                ('Birch', birch),
-                ('GaussianMixture', gmm)
-            )
-            
-            figr, axis = plt.subplots(1, numbmeth)
-            k = 0
-            for name, algorithm in clustering_algorithms:
-                t0 = timemodu.time()
-                
-                # catch warnings related to kneighbors_graph
-                with warnings.catch_warnings():
-                    #warnings.filterwarnings(
-                    #    "ignore",
-                    #    message="the number of connected components of the " +
-                    #    "connectivity matrix is [0-9]{1,2}" +
-                    #    " > 1. Completing it to avoid stopping the tree early.",
-                    #    category=UserWarning)
-                    #warnings.filterwarnings(
-                    #    "ignore",
-                    #    message="Graph is not fully connected, spectral embedding" +
-                    #    " may not work as expected.",
-                    #    category=UserWarning)
-                    algorithm.fit(X)
-            
-                t1 = timemodu.time()
-                if hasattr(algorithm, 'labels_'):
-                    lablmodl = algorithm.labels_.astype(np.int)
-                else:
-                    lablmodl = algorithm.predict(X)
-                
 
-                axis[k].set_title(name, size=18)
-            
-                colors = np.array(list(islice(cycle(['#377eb8', '#ff7f00', '#4daf4a',
-                                                     '#f781bf', '#a65628', '#984ea3',
-                                                     '#999999', '#e41a1c', '#dede00']),
-                                              int(max(lablmodl) + 1))))
-                # add black color for outliers (if any)
-                colors = np.append(colors, ["#000000"])
-                axis[k].scatter(X[:, 0], X[:, 1], s=10, color=colors[lablmodl])
-            
-                axis[k].set_xlim(-2.5, 2.5)
-                axis[k].set_ylim(-2.5, 2.5)
-                axis[k].set_xticks(())
-                axis[k].set_yticks(())
-                axis[k].text(.99, .01, ('%.2fs' % (t1 - t0)).lstrip('0'),
-                         transform=plt.gca().transAxes, size=15,
-                         horizontalalignment='right')
-                k += 1
-                listlablmodl.append(lablmodl)
-            path = gdat.pathimag + 'clus.pdf'
+            axis[k].set_title(name, size=18)
+        
+            colors = np.array(list(islice(cycle(['#377eb8', '#ff7f00', '#4daf4a',
+                                                 '#f781bf', '#a65628', '#984ea3',
+                                                 '#999999', '#e41a1c', '#dede00']),
+                                          int(max(lablmodl) + 1))))
+            # add black color for outliers (if any)
+            colors = np.append(colors, ["#000000"])
+            axis[k].scatter(X[:, 0], X[:, 1], s=10, color=colors[lablmodl])
+        
+            axis[k].set_xlim(-2.5, 2.5)
+            axis[k].set_ylim(-2.5, 2.5)
+            axis[k].set_xticks(())
+            axis[k].set_yticks(())
+            axis[k].text(.99, .01, ('%.2fs' % (t1 - t0)).lstrip('0'),
+                     transform=plt.gca().transAxes, size=15,
+                     horizontalalignment='right')
+            k += 1
+            listlablmodl.append(lablmodl)
+        path = gdat.pathimag + 'clus.pdf'
+        print('Writing to %s...' % path)
+        plt.savefig(path)
+        plt.close()
+
+
+        # Random 2D projection using a random unitary matrix
+        rp = random_projection.SparseRandomProjection(n_components=2)
+        X_projected = rp.fit_transform(lcurflat)
+        plot_embe(gdat, lcurflat, X_projected, 'rand', "Random Projection")
+        
+        # Projection on to the first 2 principal components
+        t0 = timemodl.time()
+        X_pca = decomposition.TruncatedSVD(n_components=2).fit_transform(lcurflat)
+        plot_embe(gdat, lcurflat, X_pca, 'pcaa', "Principal Components projection (time %.2fs)" % (timemodl.time() - t0))
+        
+        # Projection on to the first 2 linear discriminant components
+        #X2 = lcurflat.copy()
+        #X2.flat[::lcurflat.shape[1] + 1] += 0.01  # Make X invertible
+        #t0 = timemodl.time()
+        #X_lda = discriminant_analysis.LinearDiscriminantAnalysis(n_components=2).fit_transform(X2, y)
+        #plot_embe(gdat, lcurflat, X_lda, 'ldap', "Linear Discriminant projection (time %.2fs)" % (timemodl.time() - t0))
+        
+        # t-SNE embedding dataset
+        tsne = manifold.TSNE(n_components=2, random_state=0, perplexity=30)
+        t0 = timemodl.time()
+        X_tsne = tsne.fit_transform(lcurflat)
+        plot_embe(gdat, lcurflat, X_tsne, 'tsne0030', "t-SNE embedding with perplexity 30")
+        
+        # t-SNE embedding dataset
+        tsne = manifold.TSNE(n_components=2, random_state=0, perplexity=5)
+        t0 = timemodl.time()
+        X_tsne = tsne.fit_transform(lcurflat)
+        plot_embe(gdat, lcurflat, X_tsne, 'tsne0005', "t-SNE embedding with perplexity 5")
+        
+        # Isomap projection dataset
+        t0 = timemodl.time()
+        X_iso = manifold.Isomap(n_neighbors, n_components=2).fit_transform(lcurflat)
+        plot_embe(gdat, lcurflat, X_iso, 'isop', "Isomap projection (time %.2fs)" % (timemodl.time() - t0))
+        
+        # Locally linear embedding dataset
+        clf = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2, method='standard')
+        t0 = timemodl.time()
+        X_lle = clf.fit_transform(lcurflat)
+        plot_embe(gdat, lcurflat, X_lle, 'llep', "Locally Linear Embedding (time %.2fs)" % (timemodl.time() - t0))
+        
+        # Modified Locally linear embedding dataset
+        clf = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2, method='modified')
+        t0 = timemodl.time()
+        X_mlle = clf.fit_transform(lcurflat)
+        plot_embe(gdat, lcurflat, X_mlle, 'mlle', "Modified Locally Linear Embedding (time %.2fs)" % (timemodl.time() - t0))
+        
+        # HLLE embedding dataset
+        clf = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2, method='hessian')
+        t0 = timemodl.time()
+        X_hlle = clf.fit_transform(lcurflat)
+        plot_embe(gdat, lcurflat, X_hlle, 'hlle', "Hessian Locally Linear Embedding (time %.2fs)" % (timemodl.time() - t0))
+        
+        # LTSA embedding dataset
+        clf = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2, method='ltsa')
+        t0 = timemodl.time()
+        X_ltsa = clf.fit_transform(lcurflat)
+        plot_embe(gdat, lcurflat, X_ltsa, 'ltsa', "Local Tangent Space Alignment (time %.2fs)" % (timemodl.time() - t0))
+        
+        # MDS  embedding dataset
+        clf = manifold.MDS(n_components=2, n_init=1, max_iter=100)
+        t0 = timemodl.time()
+        X_mds = clf.fit_transform(lcurflat)
+        plot_embe(gdat, lcurflat, X_mds, 'mdse', "MDS embedding (time %.2fs)" % (timemodl.time() - t0))
+        
+        # Random Trees embedding dataset
+        hasher = ensemble.RandomTreesEmbedding(n_estimators=200, random_state=0, max_depth=5)
+        t0 = timemodl.time()
+        X_transformed = hasher.fit_transform(lcurflat)
+        pca = decomposition.TruncatedSVD(n_components=2)
+        X_reduced = pca.fit_transform(X_transformed)
+        plot_embe(gdat, lcurflat, X_reduced, 'rfep', "Random forest embedding (time %.2fs)" % (timemodl.time() - t0))
+        
+        # Spectral embedding dataset
+        embedder = manifold.SpectralEmbedding(n_components=2, random_state=0, eigen_solver="arpack")
+        t0 = timemodl.time()
+        X_se = embedder.fit_transform(lcurflat)
+        plot_embe(gdat, lcurflat, X_se, 'csep', "Spectral embedding (time %.2fs)" % (timemodl.time() - t0))
+        
+        # NCA projection dataset
+        #nca = neighbors.NeighborhoodComponentsAnalysis(n_components=2, random_state=0)
+        #t0 = timemodl.time()
+        #X_nca = nca.fit_transform(lcurflat, y)
+        #plot_embe(gdat, lcurflat, X_nca, 'ncap', "NCA embedding (time %.2fs)" % (timemodl.time() - t0))
+
+        figr, axis = plt.subplots(figsize=(12, 6))
+        
+        for strgvarb in ['diff']:
+            figr, axis = plt.subplots(figsize=(12, 6))
+            #if strgvarb == 'diff':
+            #    varbtemp = np.arcsinh(dictpara[strgvarb])
+            #else:
+            #    varbtemp = dictpara[strgvarb]
+            varbtemp = dictpara[strgvarb]
+            vmin = -1
+            vmax = 1
+            objtimag = axis.imshow(varbtemp, interpolation='nearest', cmap='Greens', vmin=vmin, vmax=vmax)
+            plt.colorbar(objtimag)
+            plt.tight_layout()
+            path = gdat.pathimag + '%s_%s.pdf' % (strgvarb, gdat.strgcntp)
             print('Writing to %s...' % path)
             plt.savefig(path)
             plt.close()
-
-
-            # Random 2D projection using a random unitary matrix
-            rp = random_projection.SparseRandomProjection(n_components=2)
-            X_projected = rp.fit_transform(lcurflat)
-            plot_embe(gdat, lcurflat, X_projected, 'rand', "Random Projection")
-            
-            # Projection on to the first 2 principal components
-            t0 = timemodl.time()
-            X_pca = decomposition.TruncatedSVD(n_components=2).fit_transform(lcurflat)
-            plot_embe(gdat, lcurflat, X_pca, 'pcaa', "Principal Components projection (time %.2fs)" % (timemodl.time() - t0))
-            
-            # Projection on to the first 2 linear discriminant components
-            #X2 = lcurflat.copy()
-            #X2.flat[::lcurflat.shape[1] + 1] += 0.01  # Make X invertible
-            #t0 = timemodl.time()
-            #X_lda = discriminant_analysis.LinearDiscriminantAnalysis(n_components=2).fit_transform(X2, y)
-            #plot_embe(gdat, lcurflat, X_lda, 'ldap', "Linear Discriminant projection (time %.2fs)" % (timemodl.time() - t0))
-            
-            # t-SNE embedding dataset
-            tsne = manifold.TSNE(n_components=2, random_state=0, perplexity=30)
-            t0 = timemodl.time()
-            X_tsne = tsne.fit_transform(lcurflat)
-            plot_embe(gdat, lcurflat, X_tsne, 'tsne0030', "t-SNE embedding with perplexity 30")
-            
-            # t-SNE embedding dataset
-            tsne = manifold.TSNE(n_components=2, random_state=0, perplexity=5)
-            t0 = timemodl.time()
-            X_tsne = tsne.fit_transform(lcurflat)
-            plot_embe(gdat, lcurflat, X_tsne, 'tsne0005', "t-SNE embedding with perplexity 5")
-            
-            # Isomap projection dataset
-            t0 = timemodl.time()
-            X_iso = manifold.Isomap(n_neighbors, n_components=2).fit_transform(lcurflat)
-            plot_embe(gdat, lcurflat, X_iso, 'isop', "Isomap projection (time %.2fs)" % (timemodl.time() - t0))
-            
-            # Locally linear embedding dataset
-            clf = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2, method='standard')
-            t0 = timemodl.time()
-            X_lle = clf.fit_transform(lcurflat)
-            plot_embe(gdat, lcurflat, X_lle, 'llep', "Locally Linear Embedding (time %.2fs)" % (timemodl.time() - t0))
-            
-            # Modified Locally linear embedding dataset
-            clf = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2, method='modified')
-            t0 = timemodl.time()
-            X_mlle = clf.fit_transform(lcurflat)
-            plot_embe(gdat, lcurflat, X_mlle, 'mlle', "Modified Locally Linear Embedding (time %.2fs)" % (timemodl.time() - t0))
-            
-            # HLLE embedding dataset
-            clf = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2, method='hessian')
-            t0 = timemodl.time()
-            X_hlle = clf.fit_transform(lcurflat)
-            plot_embe(gdat, lcurflat, X_hlle, 'hlle', "Hessian Locally Linear Embedding (time %.2fs)" % (timemodl.time() - t0))
-            
-            # LTSA embedding dataset
-            clf = manifold.LocallyLinearEmbedding(n_neighbors, n_components=2, method='ltsa')
-            t0 = timemodl.time()
-            X_ltsa = clf.fit_transform(lcurflat)
-            plot_embe(gdat, lcurflat, X_ltsa, 'ltsa', "Local Tangent Space Alignment (time %.2fs)" % (timemodl.time() - t0))
-            
-            # MDS  embedding dataset
-            clf = manifold.MDS(n_components=2, n_init=1, max_iter=100)
-            t0 = timemodl.time()
-            X_mds = clf.fit_transform(lcurflat)
-            plot_embe(gdat, lcurflat, X_mds, 'mdse', "MDS embedding (time %.2fs)" % (timemodl.time() - t0))
-            
-            # Random Trees embedding dataset
-            hasher = ensemble.RandomTreesEmbedding(n_estimators=200, random_state=0, max_depth=5)
-            t0 = timemodl.time()
-            X_transformed = hasher.fit_transform(lcurflat)
-            pca = decomposition.TruncatedSVD(n_components=2)
-            X_reduced = pca.fit_transform(X_transformed)
-            plot_embe(gdat, lcurflat, X_reduced, 'rfep', "Random forest embedding (time %.2fs)" % (timemodl.time() - t0))
-            
-            # Spectral embedding dataset
-            embedder = manifold.SpectralEmbedding(n_components=2, random_state=0, eigen_solver="arpack")
-            t0 = timemodl.time()
-            X_se = embedder.fit_transform(lcurflat)
-            plot_embe(gdat, lcurflat, X_se, 'csep', "Spectral embedding (time %.2fs)" % (timemodl.time() - t0))
-            
-            # NCA projection dataset
-            #nca = neighbors.NeighborhoodComponentsAnalysis(n_components=2, random_state=0)
-            #t0 = timemodl.time()
-            #X_nca = nca.fit_transform(lcurflat, y)
-            #plot_embe(gdat, lcurflat, X_nca, 'ncap', "NCA embedding (time %.2fs)" % (timemodl.time() - t0))
-
-            figr, axis = plt.subplots(figsize=(12, 6))
-            
-            for strgvarb in ['diff']:
-                figr, axis = plt.subplots(figsize=(12, 6))
-                #if strgvarb == 'diff':
-                #    varbtemp = np.arcsinh(dictpara[strgvarb])
-                #else:
-                #    varbtemp = dictpara[strgvarb]
-                varbtemp = dictpara[strgvarb]
-                vmin = -1
-                vmax = 1
-                objtimag = axis.imshow(varbtemp, interpolation='nearest', cmap='Greens', vmin=vmin, vmax=vmax)
-                plt.colorbar(objtimag)
-                plt.tight_layout()
-                path = gdat.pathimag + '%s_%s.pdf' % (strgvarb, gdat.strgcntp)
-                print('Writing to %s...' % path)
-                plt.savefig(path)
-                plt.close()
     
 
 def retr_timeexec():
