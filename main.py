@@ -346,9 +346,9 @@ def init( \
             
         indxinitfile = 0
         indxfinlfile = 2000
-        numbchun = np.round(numbfile / 2000.)
-        numbfilechuntemp = np.empty(numbchun, dtype=int)
-        numbfilechun[:-1] = numbfilechuntemp
+        numbchun = np.round(numbfile / 2000.).astype(int)
+        numbfilechun = np.empty(numbchun, dtype=int)
+        numbfilechun[:-1] = numbfile / numbchun
         numbfilechun[-1] = numbfile - numbfilechun[0] * (numbchun - 1)
         print('numbfilechun')
         print(numbfilechun)
