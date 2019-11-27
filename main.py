@@ -10,7 +10,7 @@ import astroquery.mast
 from astroquery.mast import Tesscut
 from astropy.coordinates import SkyCoord
 from astroquery.simbad import Simbad
-import tcat.util
+import tcat.main
 
 import time as timemodu
 
@@ -45,6 +45,9 @@ from pyod.models.ocsvm import OCSVM
 from pyod.models.pca import PCA
 from pyod.models.sos import SOS
 from pyod.models.lscp import LSCP
+
+# own 
+import tesstarg.util
 
 import scipy.signal
 from scipy import interpolate
@@ -173,12 +176,14 @@ def init( \
          listisec=None, \
          listicam=None, \
          listiccd=None, \
-         extrtype='qlop', \
+         # light curve extraction type
+         extrtype='spoc', \
          targtype='slen', \
          pathfile=None, \
          datatype='obsd', \
          rasctarg=None, \
          decltarg=None, \
+         verbtype=1, \
          labltarg=None, \
          numbside=None, \
          **args \
@@ -191,22 +196,20 @@ def init( \
     # preliminary setup
     # construct the global object 
     gdat = tdpy.util.gdatstrt()
-    #for attr, valu in locals().iteritems():
-    #    if '__' not in attr and attr != 'gdat':
-    #        setattr(gdat, attr, valu)
+    for attr, valu in locals().iteritems():
+        if '__' not in attr and attr != 'gdat':
+            setattr(gdat, attr, valu)
     
     # copy all provided inputs to the global object
-    #for strg, valu in args.iteritems():
-    #    setattr(gdat, strg, valu)
+    for strg, valu in args.iteritems():
+        setattr(gdat, strg, valu)
     
-    gdat.datatype = datatype
-
     # string for date and time
     gdat.strgtimestmp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     
     print('CTLC initialized at %s...' % gdat.strgtimestmp)
     
-    #if ((listicam is not None or listiccd is not None) and listtici is not None):
+    #if ((icam is not None or iccd is not None) and listtici is not None):
     #    raise Exception('')
     
     if gdat.datatype == 'mock':
@@ -221,17 +224,13 @@ def init( \
     ## read PCAT path environment variable
     gdat.pathbase = os.environ['CTLC_DATA_PATH'] + '/'
     gdat.pathdata = gdat.pathbase + 'data/'
-    gdat.pathimag = gdat.pathbase + 'imag/'
+    gdat.pathimagbase = gdat.pathbase + 'imag/'
     ## define paths
-    #gdat.pathdataorig = '/pdo/qlp-data/orbit-%d/ffi/cam%d/ccd%d/FITS/' % (isec, icam, iccd)
     gdat.pathdataorig = gdat.pathdata + 'ffis/'
-    gdat.pathdatafilt = gdat.pathdata + 'filt/'
     gdat.pathdatainit = gdat.pathdata + 'init/'
     gdat.pathdatainitimag = gdat.pathdatainit + 'imag/'
     gdat.pathdatainitanim = gdat.pathdatainit + 'anim/'
     gdat.pathdatacomm = gdat.pathdata + 'comm/'
-    ## make folders 
-    os.system('mkdir -p %s' % gdat.pathdatafilt)
     
     gdat.boolsupe = False
 
@@ -250,150 +249,180 @@ def init( \
 
     timeexpo = 1426.
     
-    if strgmode == 'targ':
-        cutout_coord = SkyCoord(rasctarg, decltarg, unit="deg")
-        listhdundata = Tesscut.get_cutouts(cutout_coord, gdat.numbside)
-        sector_table = Tesscut.get_sectors(SkyCoord(gdat.rasctarg, gdat.decltarg, unit="deg"))
-        listisec = sector_table['sector'].data
-        listicam = sector_table['camera'].data
-        listiccd = sector_table['ccd'].data
+    np.random.seed(45)
+
+    gdat.numbfeat = 1
+
+    gdat.numbtimerebn = None#30
     
-        if len(listhdundata) == 0:
-            raise Exception('TESSCut could not find any data.')
+    # settings
+    ## plotting
+    gdat.strgffim = 'ffim'
+    gdat.strgfext = 'png'
+    ### number of pixels along a postage stamp plot
+    gdat.numbsideplot = 11
+    gdat.cntpscaltype = 'asnh'
+    if pathfile is not None and gdat.datatype == 'mock':
+        raise Exception('')
     
-    numbsect = len(listisec)
-    indxsect = np.arange(numbsect)
-    for o in indxsect:
-
-        # check inputs
-        strgsecc = '%02d%d%d' % (listisec[o], listicam[o], listiccd[o])
-        print('Sector: %d' % listisec[o])
-        print('Camera: %d' % listicam[o])
-        print('CCD: %d' % listiccd[o])
-        
-        isec = listisec[o]
-
-        verbtype = 1
-        
-        np.random.seed(45)
-
+    # grid of flux space
+    minmproj = 0.1
+    maxmproj = 2
+    limtproj = [minmproj, maxmproj]
+    arry = np.linspace(minmproj, maxmproj, 100)
+    xx, yy = np.meshgrid(arry, arry)
+    
+    magtminm = 12.
+    magtmaxm = 19.
+    
+    # get data
+    # inject signal
+    if gdat.datatype == 'mock':
+        gdat.numbtime = 50
         gdat.numbfeat = 1
+        gdat.numbdata = 100
+        gdat.truenumbclas = 2
+        gdat.trueindxclas = np.arange(gdat.truenumbclas)
+        gdat.numbobjtclas = 100
+        gdat.numbdata = gdat.numbobjtclas * gdat.truenumbclas
+        gdat.time = np.arange(gdat.numbtime).astype(float)
+        lcur = np.random.randn(gdat.numbdata * gdat.numbtime * gdat.numbfeat).reshape((gdat.numbdata, gdat.numbtime, gdat.numbfeat))
+        gdat.numbtime = gdat.time.size
+        gdat.indxobjtclas = np.arange(gdat.numbobjtclas)
+        truemagt = np.empty((gdat.numbdata, gdat.numbtime))
+        truecntp = np.empty((gdat.numbdata, gdat.numbtime))
+        for l in gdat.trueindxclas:
+            for n in gdat.indxobjtclas:
+                a = n + l * gdat.numbobjtclas
+                if l == 0:
+                    truemagt[a, :] = np.random.rand() * 5 + 15.
+                if l == 1:
+                    timenorm = -0.5 + (gdat.time / np.amax(gdat.time)) + 2. * (np.random.random() - 0.5)
+                    objtrand = scipy.stats.skewnorm.pdf(timenorm, 4)
+                    objtrand /= np.amax(objtrand)
+                    truemagt[a, :] = 8. + 6. * (2. - objtrand)
+        truecntp = 10**((20.424 - truemagt) / 2.5)
+        truecntp *= 1. + 1e-3 * np.random.randn(gdat.numbdata * gdat.numbtime).reshape((gdat.numbdata, gdat.numbtime))
+        truecntp /= np.mean(truecntp, 1)[:, None]
+        lcur[:, :, 0] = truecntp
+        gdat.truemagtmean = np.mean(truemagt, 0)
+        gdat.truemagtstdv = np.std(truemagt, 0)
+        gdat.indxtime = np.arange(gdat.numbtime)
+        if gdat.trueclastype == 'outl':
+            gdat.trueindxdataoutl = gdat.numbobjtoutl
 
-        gdat.numbtimerebn = None#30
+    gdat.numbsect = len(gdat.listisec)
+    gdat.indxsect = np.arange(gdat.numbsect)
+    for o in gdat.indxsect:
+        strgsecc = '%02d%d%d' % (gdat.listisec[o], gdat.listicam[o], gdat.listiccd[o])
+        print('Sector: %d' % gdat.listisec[o])
+        print('Camera: %d' % gdat.listicam[o])
+        print('CCD: %d' % gdat.listiccd[o])
+        print('strgsecc')
+        print(strgsecc)
         
-        # settings
-        ## plotting
-        gdat.strgffim = 'ffim'
-        gdat.strgfext = 'png'
-        ### number of pixels along a postage stamp plot
-        gdat.numbsideplot = 11
-        gdat.cntpscaltype = 'asnh'
-        if pathfile is not None and gdat.datatype == 'mock':
-            raise Exception('')
-        
-        # grid of flux space
-        minmproj = 0.1
-        maxmproj = 2
-        limtproj = [minmproj, maxmproj]
-        arry = np.linspace(minmproj, maxmproj, 100)
-        xx, yy = np.meshgrid(arry, arry)
-        
-        magtminm = 12.
-        magtmaxm = 19.
-        
-        # get data
-        # inject signal
-        if gdat.datatype == 'mock':
-            gdat.numbtime = 50
-            gdat.numbfeat = 1
-            gdat.numbdata = 100
-            gdat.truenumbclas = 2
-            gdat.trueindxclas = np.arange(gdat.truenumbclas)
-            gdat.numbobjtclas = 100
-            gdat.numbdata = gdat.numbobjtclas * gdat.truenumbclas
-            gdat.time = np.arange(gdat.numbtime).astype(float)
-            lcur = np.random.randn(gdat.numbdata * gdat.numbtime * gdat.numbfeat).reshape((gdat.numbdata, gdat.numbtime, gdat.numbfeat))
-            gdat.numbtime = gdat.time.size
-            gdat.indxobjtclas = np.arange(gdat.numbobjtclas)
-            truemagt = np.empty((gdat.numbdata, gdat.numbtime))
-            truecntp = np.empty((gdat.numbdata, gdat.numbtime))
-            for l in gdat.trueindxclas:
-                for n in gdat.indxobjtclas:
-                    a = n + l * gdat.numbobjtclas
-                    if l == 0:
-                        truemagt[a, :] = np.random.rand() * 5 + 15.
-                    if l == 1:
-                        timenorm = -0.5 + (gdat.time / np.amax(gdat.time)) + 2. * (np.random.random() - 0.5)
-                        objtrand = scipy.stats.skewnorm.pdf(timenorm, 4)
-                        objtrand /= np.amax(objtrand)
-                        truemagt[a, :] = 8. + 6. * (2. - objtrand)
-            truecntp = 10**((20.424 - truemagt) / 2.5)
-            truecntp *= 1. + 1e-3 * np.random.randn(gdat.numbdata * gdat.numbtime).reshape((gdat.numbdata, gdat.numbtime))
-            truecntp /= np.mean(truecntp, 1)[:, None]
-            lcur[:, :, 0] = truecntp
-            gdat.truemagtmean = np.mean(truemagt, 0)
-            gdat.truemagtstdv = np.std(truemagt, 0)
-            gdat.indxtime = np.arange(gdat.numbtime)
-            if gdat.trueclastype == 'outl':
-                gdat.trueindxdataoutl = gdat.numbobjtoutl
+        gdat.pathimag = gdat.pathimagbase + 'sector-%d/cam%d/ccd%d/' % (gdat.listisec[o], gdat.listicam[o], gdat.listiccd[o])
+        cmnd = 'mkdir -p %s' % gdat.pathimag
+        os.system(cmnd)
 
         if gdat.datatype == 'obsd':
             print('Reading files...')
-            path = gdat.pathdata + 'qlop/'
-            liststrgfile = fnmatch.filter(os.listdir(path), '*.h5')
+            gdat.pathsect = gdat.pathdata + 'lcur/%s/sector-%d/cam%d/ccd%d/' % (gdat.extrtype, gdat.listisec[o], gdat.listicam[o], gdat.listiccd[o])
+            print('gdat.pathsect')
+            print(gdat.pathsect)
+            liststrgfile = fnmatch.filter(os.listdir(gdat.pathsect), '*.fits')
             numbfile = len(liststrgfile)
             print('Number of light curves: %s' % numbfile)
-            
-        indxinitfile = 0
-        indxfinlfile = 2000
+            if numbfile == 0:
+                raise Exception('')
+            liststrgfile = np.array(liststrgfile)
+    
         numbchun = np.round(numbfile / 2000.).astype(int)
         numbfilechun = np.empty(numbchun, dtype=int)
         numbfilechun[:-1] = numbfile / numbchun
         numbfilechun[-1] = numbfile - numbfilechun[0] * (numbchun - 1)
         print('numbfilechun')
         print(numbfilechun)
+        print('np.sum(numbfilechun)')
+        print(np.sum(numbfilechun))
 
         indxchun = np.arange(numbchun)
+        cntr = 0
         for j in indxchun: 
-            indxfilechun = np.arange(numbfilechun[j])
+                
+            indxfilechun = np.arange(cntr, np.sum(numbfilechun[:j+1]))
+            
+            print('Chunck number %d' % j)
 
-            indxfileinit += 2000
-            indxfilefinl = min(indxfinlfile, 2000)
-
+            pathlcursort = gdat.pathimag + 'lcursort_outd_%s_%s_%04d.%s' % (gdat.strgcntp, 'louf', j, gdat.strgfext)
+            cntr += np.sum(numbfilechun[j])
+            if os.path.exists(pathlcursort):
+                continue
+            print('indxfilechun')
+            summgene(indxfilechun)
             if gdat.datatype == 'obsd':
-                liststrgfile = liststrgfile[:2000]
                 
                 liststrgtici = []
-                for strgfile in liststrgfile:
+                for strgfile in liststrgfile[indxfilechun]:
                     liststrgtici.append(strgfile[:-3])
 
-                gdat.numbdata = len(liststrgfile)
+                gdat.numbdata = len(liststrgfile[indxfilechun])
                 fracdatanann = np.empty(gdat.numbdata)
                 listindxtimebadd = []
-                for k, strgfile in enumerate(liststrgfile):
-                    with h5py.File(path + strgfile, 'r') as objtfile:
+                for k, strgfile in enumerate(liststrgfile[indxfilechun]):
+                    if k % 1000 == 0:
+                        print('k')
+                        print(k)
+                    if gdat.extrtype == 'spoc':
+                        pathlcur = gdat.pathsect + strgfile
+                        arrypdcc, indxtimequalgood, indxtimenanngood = tesstarg.util.read_tesskplr_file(pathlcur, \
+                                                                        typeinst='tess', strgtype='PDCSAP_FLUX', boolmaskqual=False, boolmasknann=False)
+                        arrypdcc = arrypdcc[indxtimequalgood, :] = np.nan
+                        gdat.time = arrypdcc[:, 0]
+                        print('gdat.time')
+                        summgene(gdat.time)
                         if k == 0:
-                            gdat.time = objtfile['LightCurve/BJD'][()]
                             gdat.numbtime = gdat.time.size
                             lcur = np.empty((gdat.numbdata, gdat.numbtime, gdat.numbfeat))
-                        tmag = objtfile['LightCurve/AperturePhotometry/Aperture_002/RawMagnitude'][()]
-                        if k == 0:
-                            gdat.indxtimetemp = np.arange(gdat.numbtime)
-                        indxtimegood = np.where(np.isfinite(tmag))[0]
-                        indxtimenann = np.setdiff1d(gdat.indxtimetemp, indxtimegood)
-                        lcur[k, :, 0] = 10**(-(tmag - np.median(tmag[indxtimegood])) / 2.5)
-                        listindxtimebadd.append(indxtimenann)
-                        fracdatanann[k] = indxtimenann.size / float(gdat.numbtime)
+                        print('lcur')
+                        summgene(lcur)
+                        lcur[k, :, 0] = arrypdcc[:, 1]
+                    if gdat.extrtype == 'qlop':
+                        with h5py.File(gdat.pathsect + strgfile, 'r') as objtfile:
+                            gdat.time = objtfile['LightCurve/BJD'][()]
+                            if k == 0:
+                                gdat.numbtime = gdat.time.size
+                                lcur = np.empty((gdat.numbdata, gdat.numbtime, gdat.numbfeat))
+                                print('gdat.numbtime')
+                                print(gdat.numbtime)
+                            tmag = objtfile['LightCurve/AperturePhotometry/Aperture_002/RawMagnitude'][()]
+                            if tmag.size != gdat.numbtime:
+                                print('k')
+                                print(k)
+                                print('strgfile')
+                                print(strgfile)
+                                print('Different number of time bins.')
+                                print
+                                tmag = np.ones(gdat.numbtime)
+                            if k == 0:
+                                gdat.indxtimetemp = np.arange(gdat.numbtime)
+                            indxtimegood = np.where(np.isfinite(tmag))[0]
+                            indxtimenann = np.setdiff1d(gdat.indxtimetemp, indxtimegood)
+                            lcur[k, :, 0] = 10**(-(tmag - np.nanmedian(tmag[indxtimegood])) / 2.5)
+                            listindxtimebadd.append(indxtimenann)
+                            fracdatanann[k] = indxtimenann.size / float(gdat.numbtime)
+                
 
                 listindxtimebadd = np.concatenate(listindxtimebadd)
                 listindxtimebadd = np.unique(listindxtimebadd)
+                
                 listindxtimebadd = np.concatenate((listindxtimebadd, np.arange(100)))
                 listindxtimebadd = np.concatenate((listindxtimebadd, gdat.numbtime / 2 + np.arange(100)))
                 listindxtimegood = np.setdiff1d(gdat.indxtimetemp, listindxtimebadd)
-                #listhdundata = fits.open(pathfile)
-                print('Filtering the data...')
+                
+                #print('Masking out the data...')
                 # filter the data
-                gdat.time = gdat.time[listindxtimegood]
+                #gdat.time = gdat.time[listindxtimegood]
                 lcur = lcur[:, listindxtimegood, :]
             
             gdat.numbtime = gdat.time.size
@@ -404,9 +433,11 @@ def init( \
             if gdat.datatype == 'obsd':
                 # plot the fraction of data that is NaN
                 figr, axis = plt.subplots(figsize=(6, 4))
-                axis.hist(fracdatanann)
+                axis.hist(fracdatanann, bins=100)
+                axis.set_yscale('log')
                 axis.set_xlabel('$f_{nan}$')
                 axis.set_ylabel('$N(f_{nan})$')
+                plt.tight_layout()
                 path = gdat.pathimag + 'histfracdatanann_%s.%s' % (gdat.strgcntp, gdat.strgfext)
                 print('Writing to %s...' % path)
                 plt.savefig(path)
@@ -444,10 +475,9 @@ def init( \
             numbtimefilt = min(9, gdat.numbtime)
             if numbtimefilt % 2 == 0:
                 numbtimefilt -= 1
-            print('Performing the temporal median filter...')
             
             # rebin in time
-            if gdat.numbtimerebn is not None and gdat.numbtime > gdat.numbtimerebn:
+            if False and gdat.numbtimerebn is not None and gdat.numbtime > gdat.numbtimerebn:
                 print('Rebinning in time...')
                 numbtimeoldd = gdat.numbtime
                 gdat.numbtime = gdat.numbtimerebn
@@ -474,7 +504,6 @@ def init( \
             strgtype = 'tsne'
 
             lcuravgd = np.empty(gdat.numbtime)
-            cntr = 0
             prevfrac = -1
             k = 0
             
@@ -495,13 +524,13 @@ def init( \
             
             print('Perform outlier detection using sklearn...')
             # define outlier/anomaly detection methods to be compared
-            listobjtalgoanom = [
+            listobjtalgooutd = [
                                 #('osvm', "One-Class SVM", svm.OneClassSVM(nu=fracoutl, kernel="rbf", gamma=0.1)), \
-                                ('ifor', "Isolation Forest", IsolationForest(contamination=fracoutl)), \
+                                #('ifor', "Isolation Forest", IsolationForest(contamination=fracoutl)), \
                                 ('louf', "Local Outlier Factor", LocalOutlierFactor(n_neighbors=gdat.numbneig, contamination=fracoutl))
                                ]
             
-            numbmeth = len(listobjtalgoanom)
+            numbmeth = len(listobjtalgooutd)
             indxmeth = np.arange(numbmeth)
             
             listindxsideyposaccp = []
@@ -513,22 +542,22 @@ def init( \
             limt = [np.amin(gdat.datatran), np.amax(gdat.datatran)]
             
             c = 0
-            for strg, name, objtalgoanom in listobjtalgoanom:
+            for strg, name, objtalgooutd in listobjtalgooutd:
                 t0 = timemodu.time()
                 
-                objtalgoanom.fit(gdat.datatran)
+                objtalgooutd.fit(gdat.datatran)
                 t1 = timemodu.time()
             
                 # fit the data and tag outliers
                 if name == 'Local Outlier Factor':
-                    scor = objtalgoanom.negative_outlier_factor_
+                    scor = objtalgooutd.negative_outlier_factor_
                 else:
-                    scor = objtalgoanom.decision_function(gdat.datatran)
+                    scor = objtalgooutd.decision_function(gdat.datatran)
                 if name == "Local Outlier Factor":
                     lablmodl = np.zeros(gdat.numbdata)
                     lablmodl[np.where(scor < scorthrs)[0]] = 1.
                 else:
-                    lablmodl = objtalgoanom.fit(gdat.datatran).predict(gdat.datatran)
+                    lablmodl = objtalgooutd.fit(gdat.datatran).predict(gdat.datatran)
                 
                 indxdataposi = np.where(lablmodl == 1)[0]
                 indxdatanega = np.setdiff1d(indxdata, indxdataposi)
@@ -541,25 +570,26 @@ def init( \
                 listlablmodl.append(lablmodl)
                 
                 gdat.indxdatascorsort = np.argsort(listscor[c])
-
-                # make plots
-                ## labeled marginal distributions
-                figr, axis = plt.subplots(numbtimeplotscat - 1, numbtimeplotscat - 1, figsize=(10, 10))
-                for t in gdat.indxtime[:numbtimeplotscat-1]:
-                    for tt in gdat.indxtime[:numbtimeplotscat-1]:
-                        if t < tt:
-                            axis[t][tt].axis('off')
-                            continue
-                        axis[t][tt].scatter(gdat.datatran[indxdatanega, t+1], gdat.datatran[indxdatanega, tt], s=20, color='r', alpha=0.3)#*listscor[c])
-                        axis[t][tt].scatter(gdat.datatran[indxdataposi, t+1], gdat.datatran[indxdataposi, tt], s=20, color='b', alpha=0.3)#*listscor[c])
-                        axis[t][tt].set_ylim(limt)
-                        axis[t][tt].set_xlim(limt)
-                        #axis[t][tt].set_xticks(())
-                        #axis[t][tt].set_yticks(())
-                path = gdat.pathimag + 'pmar_outd_sklr_%s_%s.%s' % (gdat.strgcntp, strg, gdat.strgfext)
-                print('Writing to %s...' % path)
-                plt.savefig(path)
-                plt.close()
+                
+                if False:
+                    # make plots
+                    ## labeled marginal distributions
+                    figr, axis = plt.subplots(numbtimeplotscat - 1, numbtimeplotscat - 1, figsize=(10, 10))
+                    for t in gdat.indxtime[:numbtimeplotscat-1]:
+                        for tt in gdat.indxtime[:numbtimeplotscat-1]:
+                            if t < tt:
+                                axis[t][tt].axis('off')
+                                continue
+                            axis[t][tt].scatter(gdat.datatran[indxdatanega, t+1], gdat.datatran[indxdatanega, tt], s=20, color='r', alpha=0.3)#*listscor[c])
+                            axis[t][tt].scatter(gdat.datatran[indxdataposi, t+1], gdat.datatran[indxdataposi, tt], s=20, color='b', alpha=0.3)#*listscor[c])
+                            axis[t][tt].set_ylim(limt)
+                            axis[t][tt].set_xlim(limt)
+                            #axis[t][tt].set_xticks(())
+                            #axis[t][tt].set_yticks(())
+                    path = gdat.pathimag + 'pmar_outd_%s_%s.%s' % (gdat.strgcntp, strg, gdat.strgfext)
+                    print('Writing to %s...' % path)
+                    plt.savefig(path)
+                    plt.close()
                 
                 # plot data with colors based on predicted class
                 figr, axis = plt.subplots(10, 4)
@@ -588,7 +618,7 @@ def init( \
                         if b != 0:
                             axis[a][b].set_yticks([])
                 plt.subplots_adjust(hspace=0, wspace=0)
-                path = gdat.pathimag + 'lcurpred_outd_sklr_%s_%s.%s' % (gdat.strgcntp, strg, gdat.strgfext)
+                path = gdat.pathimag + 'lcurpred_outd_%s_%s.%s' % (gdat.strgcntp, strg, gdat.strgfext)
                 print('Writing to %s...' % path)
                 plt.savefig(path)
                 plt.close()
@@ -603,7 +633,7 @@ def init( \
                 axis.set_xlabel('$S$')
                 axis.set_ylabel('$N(S)$')
                 axis.set_yscale('log')
-                path = gdat.pathimag + 'histscor_outd_sklr_%s_%s.%s' % (gdat.strgcntp, strg, gdat.strgfext)
+                path = gdat.pathimag + 'histscor_outd_%s_%s.%s' % (gdat.strgcntp, strg, gdat.strgfext)
                 print('Writing to %s...' % path)
                 plt.savefig(path)
                 plt.close()
@@ -631,7 +661,7 @@ def init( \
                                 gdat.strgtarg = '%012d' % int(liststrgtici[indx])
                                 
                                 # get the catalog near the target
-                                catalogData = astroquery.mast.Catalogs.query_object(int(liststrgtici[indx]), radius='2m', catalog='TIC')
+                                catalogData = astroquery.mast.Catalogs.query_object(int(liststrgtici[indx]), radius='0.1m', catalog='TIC')
                                 rasctarg = catalogData[0]['ra']
                                 decltarg = catalogData[0]['dec']
                                     
@@ -696,8 +726,7 @@ def init( \
                         if k != gdat.numbdataplotsort - 1:
                             axis[k][l].set_xticks([])
                 plt.subplots_adjust(hspace=0.2, wspace=0)
-                path = gdat.pathimag + 'lcursort_outd_sklr_%s_%s.%s' % (gdat.strgcntp, strg, gdat.strgfext)
-                print('Writing to %s...' % path)
+                print('Writing to %s...' % pathlcursort)
                 plt.savefig(path)
                 plt.close()
             
@@ -781,7 +810,7 @@ def init( \
                 detector_list, contamination=fracoutl,
                 random_state=random_state)
         }
-       
+        
         print('Fitting outlier detection models using Pyod...')
 
         # Fit the model
@@ -1032,22 +1061,8 @@ def init( \
             plt.close()
     
 
-def retr_timeexec():
-    # input PCAT speed per 100x100 pixel region
-    timeregi = 30. # [min]
-    
-    # number of time frames in each region
-    numbtser = 13.7 * 4 * 24 * 60. / 30.
-    
-    timeregitser = numbtser * timeregi / 60. / 24 # [day]
-    timeffim = 16.8e6 / 1e4 * timeregi # [day]
-    timesegm = 4. * timeffim / 7. # [week]
-    timefsky = 26 * timesegm / 7. # [week]
-    
-    print('Full frame, full sky: %d weeks per 1000 cores' % (timefsky / 1000.))
-
-
 def plot_peri(): 
+    
     ## plot Lomb Scargle periodogram
     figr, axis = plt.subplots(figsize=(12, 4))
     axis.set_ylabel('Power')
@@ -1098,16 +1113,17 @@ def plot_catl(gdat, axis, indxsideyposoffs=0, indxsidexposoffs=0):
                                                                                                 alpha=0.1, size=5, color='g', ha='center', va='center')
 
 
-def cnfg_defa():
+def cnfg_obsdsing():
    
-    listisec = [9]
+    listisec = [16]
     listicam = [1]
     listiccd = [1]
     init( \
          listisec=listisec, \
          listicam=listicam, \
          listiccd=listiccd, \
-         extrtype='qlop')
+         #extrtype='qlop', \
+         )
 
 
 def cnfg_mock():
@@ -1122,13 +1138,6 @@ def cnfg_mock():
          datatype='mock', \
          extrtype='qlop')
 
-
-def cnfg_sect():
-    
-    for isec in range(9, 10):
-        for icam in range(4, 5):
-            for iccd in range(2, 3):
-                init(isec, icam, iccd)
 
 globals().get(sys.argv[1])()
 
