@@ -377,6 +377,9 @@ def init( \
                         pathlcur = gdat.pathsect + strgfile
                         arrypdcc, indxtimequalgood, indxtimenanngood = tesstarg.util.read_tesskplr_file(pathlcur, \
                                                                         typeinst='tess', strgtype='PDCSAP_FLUX', boolmaskqual=False, boolmasknann=False)
+                        print('arrypdcc')
+                        summgene(arrypdcc)
+                        print
                         arrypdcc = arrypdcc[indxtimequalgood, :] = np.nan
                         gdat.time = arrypdcc[:, 0]
                         print('gdat.time')
