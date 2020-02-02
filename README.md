@@ -1,2 +1,1 @@
-# ctlc
-Classifier for TESS Light Curves
+# CTLC (Classifier for TESS Light Curve)
