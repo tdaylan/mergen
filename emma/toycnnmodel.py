@@ -5,12 +5,22 @@
 # * CNN works well for identifying simple patterns within data
 # * effective when interesting features are shorter(fixed-length) sigments,
 #   location within the segment is not very relevant
+#
+# TO DO (+done, -notdone)
+# - add colors to histogram
+# + try with more noise (4 different noise levels)
+# - 10, 20 epochs?
+# + integer on xaxis (for vs. epochs plot)
+# + make noise an input
+#   + 1) no noise 2) exterme noise 3) comparable to signal (signal = 1 sigma)
+# - precision, recall vs epoch plot?
+# - add x, y labels!
 
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 import keras
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, Reshape
+from keras.layers import Dense, Dropout, Reshape, Activation
 from keras.layers import Embedding
 from keras.layers import Conv1D, GlobalAveragePooling1D, MaxPooling1D
 import numpy as np
@@ -23,11 +33,12 @@ import matplotlib.pyplot as plt
 
 # :: inputs ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+num_classes = 1
 batch_size  = 2000   # >> 1000 lightcurves for each class
-test_size   = 50      # >> 25 for each class
-num_classes = 2
-epochs      = 1
+test_size   = 50      # >> 50 for each class
+epochs      = 5
 input_dim   = 100     # >> number of data points in light curve
+noise       = [0.2, 0.4, 1., 1.4]    # >> signal height is 1.
 
 # >> flare gaussian
 height = 20.
@@ -36,66 +47,16 @@ stdev  = 10.
 xmax   = 30.
 
 # >> output filenames
-fname_test = "./testdata2.png"
+fname_test = "./testdata021920.png"
 fname_fig  = "./latentspace2.png"
-
 
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def gaussian(num_data, a, b, c):
+def gaussian(x, a, b, c):
     '''a = height, b = position of center, c = stdev'''
-    x = np.linspace(0, xmax, num_data)
-    return  a * np.exp(-(x-b)**2 / 2*c**2) + np.random.normal(size=(num_data))
+    return  a * np.exp(-(x-b)**2 / 2*c**2)
 
-# -- generate data -------------------------------------------------------------
-
-# >> generate training data
-#    >> x_train shape (1000, 100)
-#    >> y_train shape (1000, 2)
-
-# >> make 1000 straight lines (feature = 0)
-x_train_0 = np.random.normal(size = (int(batch_size/2), input_dim)) + 1.0
-y_train_0 = np.zeros((int(batch_size/2), num_classes))
-y_train_0[:,0] = 1.
-
-# >> make 1000 gaussians (feature = 1)
-x_train_1 = np.zeros((int(batch_size/2), input_dim))
-for i in range(int(batch_size/2)):
-    x_train_1[i] = gaussian(input_dim, a = height, b = center, c = stdev)
-y_train_1 = np.zeros((int(batch_size/2), num_classes))
-y_train_1[:,1] = 1.
-
-x_train = np.concatenate((x_train_0, x_train_1), axis=0)
-y_train = np.concatenate((y_train_0, y_train_1), axis=0)
-
-# >> generate test data
-x_test_0 = np.random.normal(size = (test_size, input_dim)) + 1.0
-y_test_0 = np.zeros((test_size, num_classes))
-y_test_0[:,0] = 1.
-x_test_1 = np.zeros((test_size, input_dim))
-for i in range(test_size):
-    x_test_1[i] = gaussian(input_dim, a = height, b = center, c = stdev)
-y_test_1 = np.zeros((test_size, num_classes))
-y_test_1[:,1] = 1.
-
-x_test = np.concatenate((x_test_0, x_test_1), axis=0)
-y_test = np.concatenate((y_test_0, y_test_1), axis=0)
-
-# >> plot test data
-plt.ion()
-plt.figure(0)
-plt.title('Input light curves')
-plt.plot(np.linspace(0, xmax, input_dim), x_test[0], '-',
-         label = 'class 0: flat')
-n = int(test_size/2)
-plt.plot(np.linspace(0, xmax, input_dim), x_test[int(test_size)], '-',
-         label = 'class 1: flare')
-plt.xlabel('spatial frequency')
-plt.ylabel('intensity')
-plt.legend()
-plt.savefig(fname_test)
-
-# -- make model ----------------------------------------------------------------
+# :: make model ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 model = Sequential() # >> linear stack of layers
 model.add(Reshape((input_dim, 1), input_shape=(input_dim,)))
@@ -130,21 +91,160 @@ model.add(Dropout(0.5))
 # >> fully connected layer w/ softmax activation: reduction to a matrix with
 #    height 2 (done by matrix multiplication)
 # >> output value will represent probability for each class
-model.add(Dense(num_classes, activation='softmax'))
+if num_classes == 2:
+    model.add(Dense(num_classes, activation='softmax'))
+else:
+    model.add(Dense(1))
+    model.add(Activation('sigmoid'))
+
 print(model.summary())
 
-# -- validation ----------------------------------------------------------------
+# :: generate data :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-model.compile(loss='categorical_crossentropy', optimizer='adam',
-              metrics=['accuracy'])
+# >> generate training data
+#    >> x_train shape (1000, 100)
+#    >> y_train shape (1000, 2)
 
-model.fit(x_train, y_train, epochs = 1, batch_size = 32,
-          validation_data = (x_test, y_test))
+# -- training data -------------------------------------------------------------
 
-y_predict = model.predict(x_test, verbose = 0)
-print('Prediction: ', y_predict)
-print('Actual: ', y_test)
-pdb.set_trace()
+# >> make 1000 straight lines (feature = 0)
+x_train_0 = np.zeros((int(batch_size/2), input_dim))
+y_train_0 = np.zeros((int(batch_size/2), num_classes))
+if num_classes == 2:
+    y_train_0[:,0] = 1.
+else:
+    y_train_0[:,0] = 0.
+
+# >> make 1000 gaussians (feature = 1)
+x_train_1 = np.zeros((int(batch_size/2), input_dim))
+x = np.linspace(0, xmax, input_dim)
+for i in range(int(batch_size/2)):
+    x_train_1[i] = gaussian(x, a = height, b = center, c = stdev)
+y_train_1 = np.zeros((int(batch_size/2), num_classes))
+if num_classes == 2:
+    y_train_1[:,1] = 1.
+else:
+    y_train_1[:,0] = 1.
+
+# -- test data -----------------------------------------------------------------
+
+# >> generate test data
+# x_test_0 = np.random.normal(size = (test_size, input_dim))
+x_test_0 = np.zeros((test_size, input_dim))
+y_test_0 = np.zeros((test_size, num_classes))
+if num_classes == 2:
+    y_test_0[:,0] = 1.
+else:
+    y_test_0[:,0] = 0.
+x_test_1 = np.zeros((test_size, input_dim))
+for i in range(test_size):
+    x_test_1[i] = gaussian(x, a = height, b = center, c = stdev)
+y_test_1 = np.zeros((test_size, num_classes))
+if num_classes == 2:
+    y_test_1[:,1] = 1.
+else:
+    y_test_1[:,0] = 1.
+
+# -- normalizing and plotting --------------------------------------------------
+    
+for j in range(len(noise)):
+    # >> normalizing train data
+    x_train = np.concatenate((x_train_0, x_train_1), axis=0)
+    x_train = x_train/np.amax(x_train) + 1.0 + np.random.normal(scale = noise[j],
+                                                                size = np.shape(x_train))
+    y_train = np.concatenate((y_train_0, y_train_1), axis=0)
+
+    # >> normalizing test data
+    x_test = np.concatenate((x_test_0, x_test_1), axis=0)
+    x_test = x_test/np.amax(x_test) + 1.0 + np.random.normal(scale = noise[j],
+                                                             size = np.shape(x_test))
+    y_test = np.concatenate((y_test_0, y_test_1), axis=0)
+
+    # >> plot train data
+    plt.ion()
+    plt.figure(j)
+    plt.title('Noise: ' + str(noise[j]))
+    plt.clf()
+    x = np.linspace(0, xmax, input_dim)
+    if num_classes == 2:
+        inds0 = np.nonzero(y_test[:,0] == 1.)[0] # >> indices for class 0 (flat)
+        inds1 = np.nonzero(y_test[:,1] == 1.)[0] # >> indices for class 1 (peak)
+    else:
+        inds0 = np.nonzero(y_test[:,0] == 0.)[0]
+        inds1 = np.nonzero(y_test[:,0] == 1.)[0]
+    for i in inds0:
+        plt.plot(x, x_test[i], 'r-', alpha=0.1)
+    for i in inds1:
+        plt.plot(x, x_test[i], 'b-', alpha=0.1)
+    plt.xlabel('time [days]')
+    plt.ylabel('relative flux')
+    plt.savefig(fname_test, dpi = 200)
+
+    # -- validation ----------------------------------------------------------------
+
+    # >> 'categorical_crossentropy': expects binary matrices(1s and 0s) of shape
+    #    (samples, classes)
+    if num_classes == 2:
+        model.compile(loss='categorical_crossentropy', optimizer='adam',
+                      metrics=['accuracy'])
+    else:
+        model.compile(loss='mse', optimizer='rmsprop',
+                      metrics=['accuracy'])
+    history = model.fit(x_train, y_train, epochs = epochs, batch_size = 32,
+                        validation_data = (x_test, y_test))
+
+    
+    # # >> plotting accuracy
+    # plt.figure(20+j)
+    # plt.title('Noise: ' + str(noise[j]))
+    # plt.plot(history.history['accuracy'])
+    # # plt.plot(history.history['val_accuracy'])
+    # plt.ylabel('accuracy')
+    # plt.xlabel('epoch')
+    # plt.xticks(range(epochs))
+    # # plt.legend(['train', 'test'], loc='upper left')
+
+    # # >> plotting loss
+    # plt.figure(30+j)
+    # plt.title('Noise: ' + str(noise[j]))
+    # plt.plot(history.history['loss'])
+    # # plt.plot(history.history['val_loss'])
+    # plt.ylabel('loss')
+    # plt.xlabel('epoch')
+    # plt.xticks(range(epochs))
+    # # plt.legend(['train', 'test'], loc='upper left')
+
+    y_predict = model.predict(x_test, verbose = 0)
+    print('Prediction: ', y_predict)
+    print('Actual: ', y_test)
+
+    # >> plot y_predict
+    plt.figure(40+j)
+    plt.title('Noise: ' + str(noise[j]))
+    plt.clf()
+    if num_classes == 2:
+        plt.plot(y_predict[:,0][inds0], y_predict[:,1][inds0], 'r.',
+                 label='Class 0: flat')
+        plt.plot(y_predict[:,0][inds1], y_predict[:,1][inds1], 'b.',
+                 label='Class 1: peak')
+        plt.legend()
+    else:
+        # N, bins, patches = ax.hist(data, edgecolor='white', linewidth=1)
+
+        # for k in range(0,3):
+        #     patches[k].set_facecolor('b')
+        # for k in range(3,5):    
+        #     patches[k].set_facecolor('r')
+        # for k in range(5, len(patches)):
+        #     patches[k].set_facecolor('black')
+        # >> histogram
+        plt.xlabel('p0')
+        plt.ylabel('N(p0)')
+        plt.hist(y_predict[:,0], bins = 300)
+        # plt.plot(y_predict[:,0][inds0], 'r.')
+        # plt.plot(y_predict[:,0][inds1], 'b.')
+        #plt.show()
+
 
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
