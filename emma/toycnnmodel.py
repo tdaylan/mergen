@@ -178,9 +178,9 @@ for j in range(len(noise)):
         plt.plot(x, x_test[i], 'b-', alpha=0.1)
     plt.xlabel('time [days]')
     plt.ylabel('relative flux')
-    plt.savefig(fname_test, dpi = 200)
+    plt.savefig('Test data, noise: ' + str(noise[j]) + '.png', dpi = 200)
 
-    # -- validation ----------------------------------------------------------------
+    # :: validation ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
     # >> 'categorical_crossentropy': expects binary matrices(1s and 0s) of shape
     #    (samples, classes)
@@ -193,7 +193,7 @@ for j in range(len(noise)):
     history = model.fit(x_train, y_train, epochs = epochs, batch_size = 32,
                         validation_data = (x_test, y_test))
 
-    
+    # -- plots vs. epochs ------------------------------------------------------
     # # >> plotting accuracy
     # plt.figure(20+j)
     # plt.title('Noise: ' + str(noise[j]))
@@ -214,15 +214,16 @@ for j in range(len(noise)):
     # plt.xticks(range(epochs))
     # # plt.legend(['train', 'test'], loc='upper left')
 
+    # -- plot histogram --------------------------------------------------------
     y_predict = model.predict(x_test, verbose = 0)
     print('Prediction: ', y_predict)
     print('Actual: ', y_test)
 
     # >> plot y_predict
-    plt.figure(40+j)
-    plt.title('Noise: ' + str(noise[j]))
-    plt.clf()
     if num_classes == 2:
+        plt.figure(40+j)
+        plt.title('Noise: ' + str(noise[j]))
+        plt.clf()
         plt.plot(y_predict[:,0][inds0], y_predict[:,1][inds0], 'r.',
                  label='Class 0: flat')
         plt.plot(y_predict[:,0][inds1], y_predict[:,1][inds1], 'b.',
@@ -238,9 +239,17 @@ for j in range(len(noise)):
         # for k in range(5, len(patches)):
         #     patches[k].set_facecolor('black')
         # >> histogram
-        plt.xlabel('p0')
-        plt.ylabel('N(p0)')
-        plt.hist(y_predict[:,0], bins = 300)
+        fig, ax = plt.subplots()
+        # want y_predict to have shape (2, 50)
+        ax.set_title('Noise: ' + str(noise[j]))
+        ax.set_xlabel('p0')
+        ax.set_ylabel('N(p0)')
+        ax.hist([y_predict[:,0][inds0], y_predict[:,0][inds1]],
+                300,
+                color=['red', 'blue'], label=['flat', 'peak'])
+        plt.savefig('Histogram, noise: ' + str(noise[j]) + '.png')
+
+        # plt.hist(y_predict[:,0], bins = 300)
         # plt.plot(y_predict[:,0][inds0], 'r.')
         # plt.plot(y_predict[:,0][inds1], 'b.')
         #plt.show()
