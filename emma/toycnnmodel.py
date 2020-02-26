@@ -33,12 +33,14 @@ import matplotlib.pyplot as plt
 
 # :: inputs ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-num_classes = 1
-batch_size  = 2000   # >> 1000 lightcurves for each class
-test_size   = 50      # >> 50 for each class
+num_classes = 1    
+batch_size  = 1000   # >> 1000 lightcurves for each class
+test_size   = 500      # >> 50 for each class
 epochs      = 5
 input_dim   = 100     # >> number of data points in light curve
-noise       = [0.2, 0.4, 1., 1.4]    # >> signal height is 1.
+noise       = [0.2, 0.4, 1.]    # >> signal height is 1.
+
+all_noise   = False
 
 # >> flare gaussian
 height = 20.
@@ -46,9 +48,12 @@ center = 15.
 stdev  = 10.
 xmax   = 30.
 
+n_bins = 75
+
 # >> output filenames
 fname_test = "./testdata021920.png"
 fname_fig  = "./latentspace2.png"
+output_dir = "./plots2:26:20/"
 
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -108,7 +113,7 @@ print(model.summary())
 # -- training data -------------------------------------------------------------
 
 # >> make 1000 straight lines (feature = 0)
-x_train_0 = np.zeros((int(batch_size/2), input_dim))
+x_train_0 = np.ones((int(batch_size/2), input_dim))
 y_train_0 = np.zeros((int(batch_size/2), num_classes))
 if num_classes == 2:
     y_train_0[:,0] = 1.
@@ -116,54 +121,80 @@ else:
     y_train_0[:,0] = 0.
 
 # >> make 1000 gaussians (feature = 1)
-x_train_1 = np.zeros((int(batch_size/2), input_dim))
-x = np.linspace(0, xmax, input_dim)
-for i in range(int(batch_size/2)):
-    x_train_1[i] = gaussian(x, a = height, b = center, c = stdev)
-y_train_1 = np.zeros((int(batch_size/2), num_classes))
-if num_classes == 2:
-    y_train_1[:,1] = 1.
+if all_noise:
+    x_train_1 = np.ones((int(batch_size/2), input_dim))
+    y_train_1 = np.zeros((int(batch_size/2), num_classes))
+    if num_classes == 2:
+        y_train_1[:,1] = 1.
+    else:
+        y_train_1[:,0] = 1.
 else:
-    y_train_1[:,0] = 1.
+    x_train_1 = np.ones((int(batch_size/2), input_dim))
+    x = np.linspace(0, xmax, input_dim)
+    for i in range(int(batch_size/2)):
+        x_train_1[i] = gaussian(x, a = height, b = center, c = stdev) + 1.
+    y_train_1 = np.zeros((int(batch_size/2), num_classes))
+    if num_classes == 2:
+        y_train_1[:,1] = 1.
+    else:
+        y_train_1[:,0] = 1.
 
 # -- test data -----------------------------------------------------------------
 
 # >> generate test data
+
+# >> flat
 # x_test_0 = np.random.normal(size = (test_size, input_dim))
-x_test_0 = np.zeros((test_size, input_dim))
+x_test_0 = np.ones((test_size, input_dim))
 y_test_0 = np.zeros((test_size, num_classes))
 if num_classes == 2:
     y_test_0[:,0] = 1.
 else:
     y_test_0[:,0] = 0.
-x_test_1 = np.zeros((test_size, input_dim))
-for i in range(test_size):
-    x_test_1[i] = gaussian(x, a = height, b = center, c = stdev)
-y_test_1 = np.zeros((test_size, num_classes))
-if num_classes == 2:
-    y_test_1[:,1] = 1.
-else:
-    y_test_1[:,0] = 1.
 
+# >> peak
+if all_noise:
+    x_test_1 = np.ones((test_size, input_dim))
+    y_test_1 = np.zeros((test_size, num_classes))
+    if num_classes == 2:
+        y_test_1[:,1] = 1.
+    else:
+        y_test_1[:,0] = 1.
+else:    
+    x_test_1 = np.ones((test_size, input_dim))
+    for i in range(test_size):
+        x_test_1[i] = gaussian(x, a = height, b = center, c = stdev) + 1.
+    y_test_1 = np.zeros((test_size, num_classes))
+    if num_classes == 2:
+        y_test_1[:,1] = 1.
+    else:
+        y_test_1[:,0] = 1.
+
+# >> create array to hold history
+# his = []
+
+
+        
 # -- normalizing and plotting --------------------------------------------------
     
 for j in range(len(noise)):
     # >> normalizing train data
     x_train = np.concatenate((x_train_0, x_train_1), axis=0)
-    x_train = x_train/np.amax(x_train) + 1.0 + np.random.normal(scale = noise[j],
+    x_train = x_train/np.amax(x_train) + np.random.normal(scale = noise[j],
                                                                 size = np.shape(x_train))
     y_train = np.concatenate((y_train_0, y_train_1), axis=0)
 
     # >> normalizing test data
     x_test = np.concatenate((x_test_0, x_test_1), axis=0)
-    x_test = x_test/np.amax(x_test) + 1.0 + np.random.normal(scale = noise[j],
+    x_test = x_test/np.amax(x_test) + np.random.normal(scale = noise[j],
                                                              size = np.shape(x_test))
     y_test = np.concatenate((y_test_0, y_test_1), axis=0)
 
     # >> plot train data
     plt.ion()
     plt.figure(j)
-    plt.title('Noise: ' + str(noise[j]))
+    if all_noise: plt.title('No peak')
+    else: plt.title('Noise: ' + str(noise[j]))
     plt.clf()
     x = np.linspace(0, xmax, input_dim)
     if num_classes == 2:
@@ -178,7 +209,8 @@ for j in range(len(noise)):
         plt.plot(x, x_test[i], 'b-', alpha=0.1)
     plt.xlabel('time [days]')
     plt.ylabel('relative flux')
-    plt.savefig('Test data, noise: ' + str(noise[j]) + '.png', dpi = 200)
+    if all_noise: plt.savefig(output_dir + 'Test_data_no_peak.png')
+    else: plt.savefig(output_dir + 'Test_data_noise' + str(noise[j]) + '.png', dpi = 200)
 
     # :: validation ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -189,30 +221,36 @@ for j in range(len(noise)):
                       metrics=['accuracy'])
     else:
         model.compile(loss='mse', optimizer='rmsprop',
-                      metrics=['accuracy'])
+                      metrics=['accuracy', keras.metrics.Precision(),
+                               keras.metrics.Recall()])
     history = model.fit(x_train, y_train, epochs = epochs, batch_size = 32,
                         validation_data = (x_test, y_test))
 
+    # pdb.set_trace()
     # -- plots vs. epochs ------------------------------------------------------
-    # # >> plotting accuracy
+    # >> plotting accuracy
     # plt.figure(20+j)
+    plt.figure(10)
     # plt.title('Noise: ' + str(noise[j]))
-    # plt.plot(history.history['accuracy'])
-    # # plt.plot(history.history['val_accuracy'])
-    # plt.ylabel('accuracy')
-    # plt.xlabel('epoch')
-    # plt.xticks(range(epochs))
-    # # plt.legend(['train', 'test'], loc='upper left')
+    plt.plot(history.history['accuracy'], label = 'Noise: ' + str(noise[j]))
+    # plt.plot(history.history['val_accuracy'])
+    # plt.legend(['train', 'test'], loc='upper left')
 
-    # # >> plotting loss
+    # >> plotting loss
     # plt.figure(30+j)
+    plt.figure(11)
     # plt.title('Noise: ' + str(noise[j]))
-    # plt.plot(history.history['loss'])
-    # # plt.plot(history.history['val_loss'])
-    # plt.ylabel('loss')
-    # plt.xlabel('epoch')
-    # plt.xticks(range(epochs))
-    # # plt.legend(['train', 'test'], loc='upper left')
+    plt.plot(history.history['loss'], label = 'Noise: ' + str(noise[j]))
+    # plt.plot(history.history['val_loss'])
+    # plt.legend(['train', 'test'], loc='upper left')
+
+    plt.figure(12)
+    plt.plot(history.history[list(history.history.keys())[-2]],
+             label = 'Noise: ' + str(noise[j]))
+
+    plt.figure(13)
+    plt.plot(history.history[list(history.history.keys())[-1]],
+             label = 'Noise: ' + str(noise[j]))
 
     # -- plot histogram --------------------------------------------------------
     y_predict = model.predict(x_test, verbose = 0)
@@ -229,6 +267,13 @@ for j in range(len(noise)):
         plt.plot(y_predict[:,0][inds1], y_predict[:,1][inds1], 'b.',
                  label='Class 1: peak')
         plt.legend()
+
+        fig, ax = plt.subplots()
+        ax.set_xlabel('p0')
+        ax.set_ylabel('N(p0)')
+        ax.hist([y_predict[:,0][inds0], y_predict[:,1][inds1]], n_bins,
+                color = ['red', 'blue'], label = ['flat', 'peak'])
+        ax.set_xlim(left=0., right=1.)
     else:
         # N, bins, patches = ax.hist(data, edgecolor='white', linewidth=1)
 
@@ -245,15 +290,45 @@ for j in range(len(noise)):
         ax.set_xlabel('p0')
         ax.set_ylabel('N(p0)')
         ax.hist([y_predict[:,0][inds0], y_predict[:,0][inds1]],
-                300,
+                n_bins,
                 color=['red', 'blue'], label=['flat', 'peak'])
-        plt.savefig('Histogram, noise: ' + str(noise[j]) + '.png')
+        if all_noise: plt.savefig(output_dir + 'Histogram_no_peak.png')
+        else: plt.savefig(output_dir + 'Histogram_noise' + str(noise[j]) + '.png')
 
         # plt.hist(y_predict[:,0], bins = 300)
         # plt.plot(y_predict[:,0][inds0], 'r.')
         # plt.plot(y_predict[:,0][inds1], 'b.')
         #plt.show()
 
+
+plt.figure(10)
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.xticks(range(epochs))
+plt.legend()
+plt.savefig(output_dir + 'accuracy_vs_epoch.png')
+
+
+plt.figure(11)
+plt.ylabel('loss')
+plt.xlabel('epoch')
+plt.xticks(range(epochs))
+plt.legend()
+plt.savefig(output_dir + 'loss_vs_epoch.png')
+
+plt.figure(12)
+plt.ylabel('precision')
+plt.xlabel('epoch')
+plt.xticks(range(epochs))
+plt.legend()
+plt.savefig(output_dir + 'precision_vs_epoch.png')
+
+plt.figure(13)
+plt.ylabel('recall')
+plt.xlabel('epoch')
+plt.xticks(range(epochs))
+plt.legend()
+plt.savefig(output_dir + 'recall_vs_epoch.png')
 
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
