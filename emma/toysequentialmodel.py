@@ -1,3 +1,5 @@
+# !! deprecated !!
+
 # simple sequential model (classify flares)
 # feb. 2020
 # adapted from https://keras.io/getting-started/sequential-model-guide/
