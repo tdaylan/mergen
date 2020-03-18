@@ -1,8 +1,9 @@
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# 
 # Pipeline to test models in modellibrary.py. Generates artificial data of
 # flat lines and gaussians with some noise.
-# Feb. 2020
-
-
+# emma feb 2020
+#
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 import keras
@@ -30,7 +31,7 @@ training_size  = 10000  # >> training_size for each class
 test_size   = 10   # >> test_size/2 for each class
 epochs      = 5
 input_dim   = 100    # >> number of data points in light curve
-noise = [0., 0.2]
+noise = [0.]
 # noise       = [0.2, 0.4, 1., 'all_noise']    # >> given as a fraction of signal
                                              #    height
                                              # >> 'all_noise' => random signal
@@ -50,7 +51,8 @@ n_bins = 75
 
 # >> output filenames
 # output_dir = "./"
-output_dir = "./plots031520/"
+output_dir = "./plots031820-8/"
+prefix = "meanlambda-training50000-"
 
 all_gaus = False
 
@@ -78,16 +80,10 @@ ax4 = ax3.twinx()
 
 # :: generate data :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-# >> generate training data
-#    >> x_train shape (1000, 100)
-#    >> y_train shape (1000, 2)
-
-
-# -- normalizing and plotting --------------------------------------------------
 for j in range(len(noise)):
-    # -- training data -------------------------------------------------------------
+    # -- training data ---------------------------------------------------------
 
-    # >> make 1000 straight lines (feature = 0)
+    # >> no peak
     if all_gaus:
         x_train_0 = np.ones((int(training_size/2), input_dim))
         x = np.linspace(0, xmax, input_dim)
@@ -106,7 +102,7 @@ for j in range(len(noise)):
         else:
             y_train_0[:,0] = 0.
 
-    # >> make 1000 gaussians (feature = 1)
+    # >> with peak
     if noise[j] == "all_noise":
         x_train_1 = np.ones((int(training_size/2), input_dim))
         y_train_1 = np.zeros((int(training_size/2), num_classes))
@@ -127,10 +123,7 @@ for j in range(len(noise)):
 
     # -- test data -----------------------------------------------------------------
 
-    # >> generate test data
-
-    # >> flat
-    # x_test_0 = np.random.normal(size = (test_size, input_dim))
+    # >> no peak
     if all_gaus:
         x_test_0 = np.ones((test_size, input_dim))
         for i in range(test_size):
@@ -148,7 +141,7 @@ for j in range(len(noise)):
         else:
             y_test_0[:,0] = 0.
 
-    # >> peak
+    # >> with peak
     if noise[j] == "all_noise":
         x_test_1 = np.ones((test_size, input_dim))
         y_test_1 = np.zeros((test_size, num_classes))
@@ -171,6 +164,7 @@ for j in range(len(noise)):
     else:
         noise_level = noise[j]
 
+    # -- normalizing data and plotting -----------------------------------------
     # >> normalizing train data
     x_train = np.concatenate((x_train_0, x_train_1), axis=0)
     x_train = x_train/np.amax(x_train) + np.random.normal(scale = noise_level,
@@ -184,7 +178,7 @@ for j in range(len(noise)):
     y_test = np.concatenate((y_test_0, y_test_1), axis=0)
 
     # >> plot train data
-    plt.ion()
+    # plt.ion()
     plt.figure(j)
     plt.title('Noise: ' + str(noise[j]))
     plt.clf()
@@ -202,6 +196,7 @@ for j in range(len(noise)):
     plt.xlabel('time [days]')
     plt.ylabel('relative flux')
     plt.savefig(output_dir + 'Test_data_noise' + str(noise[j]) + '.png', dpi = 200)
+    plt.close()
 
     # >> reshape data to (1000, 100, 1)
     if reshape:
@@ -214,20 +209,12 @@ for j in range(len(noise)):
 
     for n in range(len(latent_dims)):
         latentDim = latent_dims[n]
-        # model = ml.simpleautoencoder(input_dim = input_dim)
         if auto:
-            # model, encoder = ml.autoencoder(input_dim=input_dim, kernel_size = 10)
-            # model = ml.autoencoder2(input_dim=input_dim, kernel_size = 10)
-            # model = ml.autoencoder3(input_dim=input_dim, latentDim = latentDim)
-            model = ml.autoencoder4(input_dim=input_dim, latentDim = latentDim)
-            # act_index = [1,3,5,8,11,13,15]
-            # act_index = [1,4,7,10,14,17,20]
-            # layer_index = [1,3,5,11,13,15]
-            # layer_index = [1,4,7,14,17,20]
-            layer_index = np.nonzero(['conv' in x.name for x in model.layers])[0]
+            model = ml.autoencoder5(input_dim=input_dim, latentDim = latentDim)
+            layer_index = np.nonzero(['conv' in x.name or 'lambda' in x.name for x in model.layers])[0]
             bottleneck_ind = np.nonzero(['dense' in x.name for x in \
                                          model.layers])[0][0]
-            act_index = list(layer_index).append(bottleneck_ind)
+            act_index = list(layer_index) + [bottleneck_ind]
         elif cnn:
             model  = ml.simplecnn(input_dim, num_classes)
 
@@ -290,8 +277,9 @@ for j in range(len(noise)):
                 ax.hist([y_predict[:,0][inds0], y_predict[:,0][inds1]],
                         n_bins,
                         color=['red', 'blue'], label=['flat', 'peak'])
-                plt.savefig(output_dir + 'Histogram_noise' + \
+                plt.savefig(output_dir + prefix + 'Histogram_noise' + \
                             str(noise[j]) + '.png')
+                plt.close(fig)
 
         if auto:
             # -- plot decoded data ---------------------------------------------
@@ -299,8 +287,9 @@ for j in range(len(noise)):
             plt.figure(40 + j)
             for k in range(np.shape(y_predict)[0]):
                 plt.plot(x, y_predict[k][:,0], '-', alpha=0.1)
-            plt.savefig(output_dir + 'latentdim' + str(latentDim) + \
+            plt.savefig(output_dir + prefix + 'latentdim' + str(latentDim) + \
                         'decoded_noise' + str(noise[j]) + '.png')
+            plt.close()
 
             # -- plot 8 input vs. output ---------------------------------------
             print('plotting input vs. output')
@@ -313,8 +302,9 @@ for j in range(len(noise)):
                 axes[1,k].plot(x, y_predict[test_size + k][:,0])
             axes[0,0].set_ylabel('input')
             axes[1,0].set_ylabel('output')
-            plt.savefig(output_dir + 'latentdim' + str(latentDim) + 'noise' + \
+            plt.savefig(output_dir + prefix + 'latentdim' + str(latentDim) + 'noise' + \
                         str(noise[j]) + 'input_output' + '.png')
+            plt.close(fig)
 
             # -- visualizing intermediate activations --------------------------
 
@@ -326,17 +316,19 @@ for j in range(len(noise)):
                     activations = activation_model.predict(x_test)
                     # act_index = [1,3,5,8,11,13,15]
                     # act_index = [1,4,7,10,14,17,20]
-                    pdb.set_trace()
 
                 if l == 1:
                     activations = activation_model.predict(x_train)
                     act_index = [bottleneck_ind]
                 for a in act_index:
                     activation = activations[a]
-                    if a == bottleneck_ind: # a == 8:
+                    if np.shape(activation)[1] == 1:
                         nrows = 1
                         ncols = 1
-                    elif np.shape(activation)[2] == bottleneck_ind:
+                    elif np.shape(activation)[2] == 1: # a == 8:
+                        nrows = 1
+                        ncols = 1
+                    elif np.shape(activation)[2] == 8:
                         nrows = 1
                         ncols = 8
                     else:
@@ -368,29 +360,37 @@ for j in range(len(noise)):
                                                      activation[k][:,b],
                                                      'b', alpha = 0.1)
                     if l == 0:
-                        fig.savefig(output_dir + 'latentdim' + str(latentDim) +\
+                        fig.savefig(output_dir + prefix + 'latentdim' + str(latentDim) +\
                                     'noise' + str(noise[j]) + \
                                     layer_outputs[a].name.split('/')[0] +\
                                     'x_test'+ '.png')
+                        plt.close(fig)
 
                     if l == 1:
-                        fig.savefig(output_dir + 'latentdim' + str(latentDim) +\
+                        fig.savefig(output_dir + prefix + 'latentdim' + str(latentDim) +\
                                     'noise' + str(noise[j]) + \
                                     layer_outputs[a].name.split('/')[0] +\
                                     'x_train'+'.png')
+                        plt.close(fig)
 
             # -- visualizing kernel x filter for each layer --------------------
             # layer_index = [1,3,5,11,13,15]
             # layer_index = [1,4,7,14,17,20]
-            pdb.set_trace()
-            for a in layer_index:
-                filters, biases = model.layers[a].get_weights()
-                plt.figure()
-                plt.imshow(np.reshape(filters, (np.shape(filters)[0],
-                                                np.shape(filters)[2])))
-                plt.savefig(output_dir + 'latentdim' + str(latentDim) + \
-                            'noise' + str(noise[j]) + \
-                            model.layers[a].name + 'fspace.png')
+            kernel_vis = False
+            if kernel_vis:
+                for a in layer_index:
+                    filters, biases = model.layers[a].get_weights()
+                    plt.figure()
+                    if a == layer_index[-1]:
+                        plt.imshow(np.reshape(filters, (np.shape(filters)[0],
+                                                        np.shape(filters)[1])))
+                    else:
+                        plt.imshow(np.reshape(filters, (np.shape(filters)[0],
+                                                        np.shape(filters)[2])))
+                    plt.savefig(output_dir + prefix + 'latentdim' + str(latentDim) + \
+                                'noise' + str(noise[j]) + \
+                                model.layers[a].name + 'fspace.png')
+                    plt.close()
 
     # -- vs. epochs plots ------------------------------------------------------
 
@@ -401,7 +401,8 @@ for j in range(len(noise)):
     ax1.set_xticks(range(epochs))
     ax1.legend(loc = 'upper left', fontsize = 'x-small')
     ax2.legend(loc = 'upper right', fontsize = 'x-small')
-    fig1.savefig(output_dir + 'accuracy_loss_vs_epoch.png')
+    fig1.savefig(output_dir + prefix + 'accuracy_loss_vs_epoch.png')
+    plt.close(fig1)
 
     ax3.set_xlabel('epoch')
     ax3.set_ylabel('precision')
@@ -409,7 +410,8 @@ for j in range(len(noise)):
     ax3.set_xticks(range(epochs))
     ax3.legend(loc = 'upper right', fontsize = 'x-small')
     ax4.legend(loc = 'lower right', fontsize = 'x-small')
-    fig3.savefig(output_dir + 'recall_precision_vs_epoch.png')
+    fig3.savefig(output_dir + prefix + 'recall_precision_vs_epoch.png')
+    plt.close(fig3)
 
 
     
