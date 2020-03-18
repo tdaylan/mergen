@@ -1,3 +1,4 @@
+# !! deprecated !!
 # autoencoder
 # https://blog.keras.io/building-autoencoders-in-keras.html
 # https://towardsdatascience.com/autoencoders-for-the-compression-of-stock-market-data-28e8c1a2da3e
