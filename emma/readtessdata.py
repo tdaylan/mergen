@@ -17,7 +17,7 @@ from itertools import groupby
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 fitspath = './tessdata_lc/'
-output_dir = './lightcurves031620/'
+output_dir = './lightcurves031820/'
 
 fnames_all = os.listdir(fitspath)
 fnames = fnmatch.filter(fnames_all, '*fits*')
@@ -41,6 +41,12 @@ for file in fnames:
     # >> get data
     time = f[1].data['TIME']
     i = f[1].data['PDCSAP_FLUX']
+
+    # >> plot
+    # fig, ax = plt.subplots(1,1)
+    # ax.plot(time, i, '.')
+    # plt.savefig(output_dir + file[14:-5] + '.png')
+    # plt.close(fig)
 
     # -- find small nan gaps ---------------------------------------------------
     # >> adapted from https://gist.github.com/alimanfoo/
@@ -72,20 +78,20 @@ for file in fnames:
                                                 i[np.nonzero(~np.isnan(i))])
     intensity.append(i_interp)
 
-    # # >> plot
-    # fig, ax = plt.subplots(1,1)
-    # ax.plot(time, i_interp, '.')
-    # plt.savefig(output_dir + file[14:-5] + 'interpolated' + '.png')
-
 # -- remove orbit nan gap ------------------------------------------------------
 intensity = np.array(intensity)
-nan_inds = np.nonzero(np.prod(np.isnan(np.array(intensity)), axis = 0))
+# nan_inds = np.nonzero(np.prod(np.isnan(intensity)==False), axis = 0))
+nan_inds = np.nonzero(np.prod(np.isnan(intensity)==False, axis = 0) == False)
 time = np.delete(time, nan_inds)
 intensity = np.delete(intensity, nan_inds, 1)
 
+# >> save as txt file
+np.savetxt('tessdatasector20-time.txt', time, delimiter = ',')
+np.savetxt('tessdatasector20-intensity.csv', intensity, delimiter=',', fmt='%d')
+
 # -- plot ----------------------------------------------------------------------
-for i in range(np.shape(intensity)[0]):
-    fig, ax = plt.subplots(1,1)
-    ax.plot(time, intensity[i], '.')
-    plt.savefig(output_dir + fnames[i][14:-5] + 'interpolated' + '.png')
-    plt.close(fig)
+# for i in range(np.shape(intensity)[0]):
+    # fig, ax = plt.subplots(1,1)
+    # ax.plot(time, intensity[i], '.')
+    # plt.savefig(output_dir + fnames[i][14:-5] + 'interpolated' + '.png')
+    # plt.close(fig)
