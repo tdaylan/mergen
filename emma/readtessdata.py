@@ -19,18 +19,31 @@ from itertools import groupby
 fitspath = './tessdata_lc/'
 output_dir = './lightcurves031820/'
 
-fnames_all = os.listdir(fitspath)
-fnames = fnmatch.filter(fnames_all, '*fits*')
-# fnames = ['./tessdata_lc/tess2019357164649-s0020-0000000004287518-0165-s_lc.fits']
-# fnames = ['./tessdata_lc/tess2019357164649-s0020-0000000004132133-0165-s_lc.fits',
-#           './tessdata_lc/tess2019357164649-s0020-0000000004244059-0165-s_lc.fits']
+# fnames_all = os.listdir(fitspath)
+# fnames = fnmatch.filter(fnames_all, '*fits*')
+# # >> remove buggy fits file (interrupted download)
+# fnames.pop(fnames.index('tess2019357164649-s0020-0000000156168236-0165-s_lc.fits'))
 
-# >> remove buggy fits file (interrupted download)
-fnames.pop(fnames.index('tess2019357164649-s0020-0000000156168236-0165-s_lc.fits'))
+fnames = ['tess2019357164649-s0020-0000000004287518-0165-s_lc.fits',
+          'tess2019357164649-s0020-0000000004305219-0165-s_lc.fits',
+          'tess2019357164649-s0020-0000000009264019-0165-s_lc.fits',
+          'tess2019357164649-s0020-0000000011673333-0165-s_lc.fits',
+          'tess2019357164649-s0020-0000000015863853-0165-s_lc.fits',
+          'tess2019357164649-s0020-0000000051238317-0165-s_lc.fits',
+          'tess2019357164649-s0020-0000000099725941-0165-s_lc.fits',
+          'tess2019357164649-s0020-0000000130158361-0165-s_lc.fits',
+          'tess2019357164649-s0020-0000000004375248-0165-s_lc.fits',
+          'tess2019357164649-s0020-0000000081210712-0165-s_lc.fits',
+          'tess2019357164649-s0020-0000000053335431-0165-s_lc.fits',
+          'tess2019357164649-s0020-0000000160160991-0165-s_lc.fits']
+classified = True
+classes = np.array([1., 1., 2., 2., 3., 4., 4., 4., 1., 2., 3., 4.])
 
 interp_tol = 20. / (24*60) # >> interpolate small gaps (less than 20 minutes)
 
 intensity = []
+prefix = '12lightcurves-'
+
 
 for file in fnames:
     # -- open file -------------------------------------------------------------
@@ -86,8 +99,11 @@ time = np.delete(time, nan_inds)
 intensity = np.delete(intensity, nan_inds, 1)
 
 # >> save as txt file
-np.savetxt('tessdatasector20-time.txt', time, delimiter = ',')
-np.savetxt('tessdatasector20-intensity.csv', intensity, delimiter=',', fmt='%d')
+# np.savetxt('tessdatasector20-time.txt', time, delimiter = ',')
+# np.savetxt('tessdatasector20-intensity.csv', intensity, delimiter=',', fmt='%d')
+np.savetxt(prefix + 'time.txt', time, delimiter = ',')
+np.savetxt(prefix + 'intensity.csv', intensity, delimiter = ',', fmt = '%d')
+np.savetxt(prefix + 'classification.txt', classes, delimiter = ',')
 
 # -- plot ----------------------------------------------------------------------
 # for i in range(np.shape(intensity)[0]):
