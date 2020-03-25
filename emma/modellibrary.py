@@ -10,6 +10,8 @@
 # :: models ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 import pdb
+import matplotlib.pyplot as plt
+import numpy as np
 
 def simplecnn(input_dim = 100, num_classes = 1):
     '''
@@ -133,7 +135,7 @@ def autoencoder(input_dim = 18954, kernel_size = 3):
                         metrics=['accuracy', keras.metrics.Precision(),
                                  keras.metrics.Recall()])
     
-    return autoencoder, encoder
+    return autoencoder
 
 def simpleautoencoder(input_dim = 100, encoding_dim=3):
     from keras.layers import Input, Dense
@@ -457,6 +459,83 @@ def autoencoder6(input_dim=100, kernel_size=3, latentDim=1, strides=1,
     return autoencoder
     
 
+def autoencoder7(x_train, x_val, y_val, params):
+    '''
+    Adapted from autoencoder5, able to run with talos.
+    '''
+    # from keras.layers import Reshape
+    from keras.layers import Input, Dense, Conv1D, MaxPooling1D, UpSampling1D
+    from keras.layers import Flatten, Reshape, Lambda, BatchNormalization
+    from keras.models import Model
+    import keras.metrics
+    import pdb
+    import numpy as np
+
+    import tensorflow as tf
+
+    input_dim = np.shape(x_train)[1]
+    k1 = int(np.ceil(input_dim/2))
+    k2 = int(np.ceil(input_dim/(2**2)))
+    k3 = int(np.ceil(input_dim/(2**3)))
+
+    # if normalize: input_window = BatchNormalization(input_shape=(input_dim,1))
+    input_window = Input(shape=(input_dim, 1))
+    x = Conv1D(params['filter_num'][0], kernel_size, activation=params['activation'],
+               padding="same",
+               strides=strides)(input_window)
+    x = MaxPooling1D(2, padding="same")(x)
+    x = Lambda(lambda x: tf.math.reduce_max(x, axis=2, keepdims = True),
+               output_shape=(k1, 1))(x)
+    x = Conv1D(filter_num[1], kernel_size, activation='relu', padding="same",
+               strides=strides)(x)
+    x = MaxPooling1D(2, padding="same")(x)
+    x = Lambda(lambda x: tf.math.reduce_max(x, axis=2, keepdims = True),
+               output_shape=(k2, 1))(x)
+    x = Conv1D(filter_num[2], kernel_size, activation='relu', padding="same",
+               strides=strides)(x)
+    x = MaxPooling1D(2, padding="same")(x)
+    x = Flatten()(x)
+    encoded = Dense(latentDim)(x)
+
+    # k = int(np.ceil(input_dim/(2**3)))
+    x = Dense(k3*8)(encoded)
+    x = Reshape((k3, 8))(x)
+    # pdb.set_trace()
+    # x = tf.math.reduce_mean(x,axis=2,keepdims=True)
+    x = Lambda(lambda x: tf.math.reduce_max(x, axis=2, keepdims = True),
+               output_shape=(k3, 1))(x)
+    x = Conv1D(filter_num[3], kernel_size, activation='relu', padding="same",
+               strides=strides)(x)
+    x = UpSampling1D(2)(x)
+    # x = tf.math.reduce_mean(x,axis=2,keepdims=True)
+    x = Lambda(lambda x: tf.math.reduce_max(x, axis=2, keepdims = True),
+               output_shape=(k2, 1))(x)
+    x = Conv1D(filter_num[4], kernel_size, activation='relu', padding='same',
+               strides=strides)(x)
+    x = UpSampling1D(2)(x)
+    # x = tf.math.reduce_mean(x,axis=2,keepdims=True)
+    x = Lambda(lambda x: tf.math.reduce_max(x, axis=2, keepdims = True),
+               output_shape=(k1, 1))(x)
+    x = Conv1D(filter_num[5], kernel_size, activation='relu', padding="same",
+               strides=strides)(x)
+    x = UpSampling1D(2)(x)
+    # x = tf.math.reduce_mean(x,axis=2,keepdims=True)
+    x = Lambda(lambda x: tf.math.reduce_max(x, axis=2, keepdims = True),
+               output_shape=(input_dim, 1))(x)
+    decoded = Conv1D(1, kernel_size, activation='sigmoid', padding='same',
+                     strides=strides)(x)
+    
+    autoencoder = Model(input_window, decoded)
+    
+    print(autoencoder.summary())
+
+    # !! optimizer adadelta ?
+    autoencoder.compile(optimizer = 'adadelta', loss='binary_crossentropy',
+                        metrics=['accuracy', keras.metrics.Precision(),
+                                 keras.metrics.Recall()])
+    
+    return autoencoder
+
 # :: artificial data :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def gaussian(x, a, b, c):
@@ -534,3 +613,66 @@ def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
                       
 
 
+def get_activations(model, model_inputs, print_shape_only=False, layer_name=None):
+    print('----- activations -----')
+    activations = []
+    inp = model.input
+
+    model_multi_inputs_cond = True
+    if not isinstance(inp, list):
+        # only one input! let's wrap it in a list.
+        inp = [inp]
+        model_multi_inputs_cond = False
+
+    outputs = [layer.output for layer in model.layers if
+               layer.name == layer_name or layer_name is None]  # all layer outputs
+
+    funcs = [K.function(inp + [K.learning_phase()], [out]) for out in outputs]  # evaluation functions
+
+    if model_multi_inputs_cond:
+        list_inputs = []
+        list_inputs.extend(model_inputs)
+        list_inputs.append(0.)
+    else:
+        list_inputs = [model_inputs, 0.]
+
+
+    print(list_inputs)
+    layer_outputs = [func(list_inputs)[0] for func in funcs]
+    for layer_activations in layer_outputs:
+        activations.append(layer_activations)
+        if print_shape_only:
+            print(layer_activations.shape)
+        else:
+            print(layer_activations)
+    return activations
+
+
+# :: plotting ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+def corner_plot(data, n_bins = 40):
+    '''Creates corner plot for data with shape (test_size, latentDim).
+    '''
+    latentDim = np.shape(data)[1]
+
+    fig, axes = plt.subplots(nrows = latentDim, ncols = latentDim)
+
+    # >> deal with 1 latent dimension case
+    if latentDim == 1:
+        axes.hist(np.reshape(activation, np.shape(activation)[0]), n_bins)
+        axes.set_ylabel('phi1')
+        axes.set_ylabel('frequency')
+    else:
+        # >> row 1 column 1 is first latent dimension (phi1)
+        for i in range(latentDim):
+            axes[i,i].hist(activation[:,i], n_bins)
+            for j in range(i):
+                H, xedges, yedges = np.histogram2d(activation[:,j],
+                                                   activation[:,i], n_bins)
+                axes[i, j].imshow(H, extent=[xedges[0], xedges[-1], yedges[0],
+                                             yedges[-1]])
+
+            # >> x and y labels
+            axes[0,i].ylabel('phi' + str(i))
+            axes[i, latentDim].xlabel('phi' + str(i))
+    return fig, axes
