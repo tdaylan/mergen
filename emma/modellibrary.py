@@ -946,6 +946,9 @@ def autoencoder19(x_train, x_test, params):
 
     autoencoder = Model(input_img, decoded)
     print(autoencoder.summary())
+
+    # TODO make learning size in optimizer a parameter
+    #      (optimizer is fcn not string)
     
     autoencoder.compile(optimizer=params['optimizer'], loss=params['losses'],
                         metrics=['accuracy', keras.metrics.Precision(),
@@ -1009,6 +1012,60 @@ def autoencoder20(hp):
     
     return autoencoder
 
+def autoencoder21(x_train, x_test, params):
+    '''Adapted from autoencoder19 but replace lambda/reshape layers with max_pool
+    '''
+    from keras.layers import Input, Conv1D, MaxPooling1D, UpSampling1D, Lambda
+    from keras.layers import Reshape, Dense, Flatten, Dropout
+    from keras.models import Model
+    from keras import optimizers
+    import keras.metrics
+    import keras.backend as K
+
+    input_dim = np.shape(x_train)[1]
+    num_iter = int((params['num_conv_layers'] - 1)/2)
+    
+    input_img = Input(shape = (input_dim, 1))
+    x = Conv1D(params['num_filters'][0], params['kernel_size'],
+               activation=params['activation'], padding='same')(input_img)
+    for i in range(num_iter):
+        x = MaxPooling1D(2, padding='same')(x)
+        x = Dropout(params['dropout'])(x)
+        x = MaxPooling1D(params['num_filters'][i],
+                         data_format='channels_first')(x)
+        x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
+                   activation=params['activation'], padding='same')(x)
+    x = MaxPooling1D(params['num_filters'][i], data_format='channels_first')(x)
+    x = Flatten()(x)
+    encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
+
+    x = Dense(int(input_dim/(2**(i+1))))(encoded)
+    x = Reshape((int(input_dim/(2**(i+1))), 1))(x)
+    for i in range(num_iter):
+        x = Conv1D(params['num_filters'][num_iter+1], params['kernel_size'],
+                   activation=params['activation'], padding='same')(x)
+        x = UpSampling1D(2)(x)
+        x = Dropout(0.1)(x)
+        x = MaxPooling1D(params['num_filters'][num_iter+1],
+                         data_format='channels_first')(x)
+    decoded = Conv1D(1, params['kernel_size'],
+                     activation=params['last_activation'], padding='same')(x)
+
+    autoencoder = Model(input_img, decoded)
+    print(autoencoder.summary())
+
+        
+    autoencoder.compile(optimizer=params['optimizer'], loss=params['losses'],
+                        metrics=['accuracy', keras.metrics.Precision(),
+                                 keras.metrics.Recall()])
+
+    
+    history = autoencoder.fit(x_train, x_train, epochs=params['epochs'],
+                              batch_size=params['batch_size'], shuffle=True,
+                              validation_data=(x_test, x_test))
+    
+    return history, autoencoder
+
 
 # :: artificial data :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -1070,7 +1127,7 @@ def signal_data(training_size = 10000, test_size = 100, input_dim = 100,
     return x_train, y_train, x_test, y_test
 
 def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
-                   noise_level = 0.):
+                   noise_level = 0., min0max1=True, reshape=False):
     import numpy as np
 
     x = np.empty((training_size + test_size, input_dim))
@@ -1078,7 +1135,10 @@ def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
     l = int(np.shape(x)[0]/2)
     
     # >> no peak data
-    x = np.ones(np.shape(x))
+    if min0max1:
+        x = np.zeros(np.shape(x))
+    else:
+        x = np.ones(np.shape(x))
     y = 0.
 
     # >> add noise
@@ -1089,6 +1149,10 @@ def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
     y_train = np.concatenate((y[:int(training_size/2)], y[l:-int(test_size/2)]))
     x_test = np.concatenate((x[int(training_size/2):l], x[-int(test_size/2):]))
     y_test = np.concatenate((y[int(training_size/2):l], y[-int(test_size/2):]))
+
+    if reshape:
+        x_train = np.reshape(x_train, (np.shape(x_train)[0], np.shape(x_train)[1], 1))
+        x_test = np.reshape(x_test, (np.shape(x_test)[0], np.shape(x_test)[1], 1))
     
     return x_train, y_train, x_test, y_test
 
@@ -1131,32 +1195,45 @@ def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
 
 
 
-def corner_plot(activation, n_bins = 40):
+def corner_plot(activation, n_bins = 50, log = True):
     '''Creates corner plot for intermediate activation with shape 
     (test_size, latentDim).
     '''
+    from matplotlib.colors import LogNorm
     latentDim = np.shape(activation)[1]
 
     fig, axes = plt.subplots(nrows = latentDim, ncols = latentDim,
-                             figsize = (14, 10))
+                             figsize = (10, 10))
 
     # >> deal with 1 latent dimension case
     if latentDim == 1:
-        axes.hist(np.reshape(activation, np.shape(activation)[0]), n_bins)
+        axes.hist(np.reshape(activation, np.shape(activation)[0]), n_bins,
+                  log=log)
         axes.set_ylabel('phi1')
         axes.set_ylabel('frequency')
     else:
         # >> row 1 column 1 is first latent dimension (phi1)
         for i in range(latentDim):
-            axes[i,i].hist(activation[:,i], n_bins)
+            axes[i,i].hist(activation[:,i], n_bins, log=log)
+            axes[i,i].set_aspect(aspect=1)
             for j in range(i):
-                H, xedges, yedges = np.histogram2d(activation[:,j],
-                                                   activation[:,i], n_bins)
-                axes[i, j].imshow(H)
+                if log:
+                    norm = LogNorm()
+                axes[i,j].hist2d(activation[:,j], activation[:,i],
+                                 bins=n_bins, norm=norm)
+                # >> remove axis frame of empty plots
+                axes[latentDim-1-i, latentDim-1-j].axis('off')
 
             # >> x and y labels
             axes[i,0].set_ylabel('phi' + str(i))
             axes[latentDim-1,i].set_xlabel('phi' + str(i))
+
+        # >> removing axis
+        for ax in axes.flatten():
+            ax.set_xticks([])
+            ax.set_yticks([])
+        plt.subplots_adjust(hspace=0, wspace=0)
+
     return fig, axes
 
 def kernel_filter_plot(model, layer_index):
@@ -1179,7 +1256,7 @@ def split_data(fname, train_test_ratio = 0.9, cutoff=16336, normalize=True):
         # >> divide by median so centered around 1
         medians = np.median(intensity, axis = 1)
         medians = np.reshape(medians, (np.shape(medians)[0], 1))
-        medians = np.repeat(medians, 16336, axis = 1)
+        medians = np.repeat(medians, cutoff, axis = 1)
         # medians = np.resize(medians, (np.shape(medians)[0], 1))
         # medians = np.repeat(medians, np.shape(intensity)[1], axis = 1)
         # intensity = np.divide(intensity, medians)
@@ -1199,43 +1276,201 @@ def split_data(fname, train_test_ratio = 0.9, cutoff=16336, normalize=True):
     return x_train, x_test
 
 # --
-plot = False
-if plot:
-    x_predict = model.predict(x_test)
-    import matplotlib.pyplot as plt
-    import numpy as np
-    plt.figure()
-    plt.plot(np.linspace(0, 30, 128), x_predict[0])
-    plt.plot(np.linspace(0, 30, 128), x_predict[-1])
-    plt.show()
+# plot = False
+# if plot:
+#     x_predict = model.predict(x_test)
+#     import matplotlib.pyplot as plt
+#     import numpy as np
+#     plt.figure()
+#     plt.plot(np.linspace(0, 30, 128), x_predict[0])
+#     plt.plot(np.linspace(0, 30, 128), x_predict[-1])
+#     plt.show()
 
 
-def input_output_plot(x, x_test, x_predict, inds = [0, -14, -10]):
-    fig, axes = plt.subplots(nrows=2, ncols=len(inds), figsize=(8*1.5,3*1.5),
-                             sharey = True)
-    for i in range(len(inds)):
-        axes[0, i].plot(x, x_test[inds[i]][:,0], '.', label='input')
-        axes[1, i].plot(x, x_predict[inds[i]][:,0], '.', label='output')
-        axes[0, i].set_xlabel('time [days]')
-        axes[1, i].set_xlabel('time [days]')
-    axes[0, 0].set_ylabel('relative flux')
-    axes[1, 0].set_ylabel('relative flux')
-    axes[0, 1].set_title('input', fontsize=16)
-    axes[1, 1].set_title('output', fontsize=16)
+def input_output_plot(x, x_test, x_predict, out = '', reshape = True,
+                      inds = [0, -14, -10, 1, 2], addend = 0.5, sharey=False):
+    '''Can only handle len(inds) divisible by 3 or 5'''
+    if len(inds) % 5 == 0:
+        ncols = 5
+    elif len(inds) % 3 == 0:
+        ncols = 3
+    ngroups = int(len(inds)/ncols)
+    nrows = int(3*ngroups)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(8*1.6, 3*1.3*3), sharey=sharey)
+    for i in range(ncols):
+        for ngroup in range(ngroups):
+            if reshape:
+                ind = int(ngroup*ncols + i)
+                axes[ngroup*3, i].plot(x, x_test[inds[ind]][:,0]+addend, '.')
+                axes[ngroup*3+1, i].plot(x, x_predict[inds[ind]][:,0]+addend, '.')
+                residual = x_test[inds[ind]][:,0] - x_predict[inds[ind]][:,0]
+                axes[ngroup*3+2, i].plot(x, residual, '.')
+            else:
+                axes[ngroup*3, i].plot(x, x_test[inds[ind]]+addend, '.')
+                axes[ngroup*3+1, i].plot(x, x_predict[inds[ind]]+addend, '.')
+                residual = x_test[inds[ind]] - x_predict[inds[ind]]
+                axes[ngroup*3+2, i].plt(x, residual, '.')
+        axes[-1, i].set_xlabel('time [days]')
+    for i in range(ngroups):
+        axes[3*i, 0].set_ylabel('input\nrelative flux')
+        axes[3*i+1, 0].set_ylabel('output\nrelative flux')
+        axes[3*i+2, 0].set_ylabel('residual')
+    # for ax in axes.flatten():
+    #     ax.set_aspect(aspect=3./8.)
+    fig.tight_layout()
+    if out != '':
+        plt.savefig(out)
+        plt.close(fig)
     return fig, axes
     
-def get_activations(model):
+def get_activations(model, x_test):
+    from keras.models import Model
+    layer_outputs = [layer.output for layer in model.layers][1:]
+    activation_model = Model(inputs=model.input, outputs=layer_outputs)
+    activations = activation_model.predict(x_test)
+    return activations
+
+def latent_space_plot(model, activations, out):
     # >> get ind for plotting latent space
-    bottleneck_ind = np.nonzero(['dense' in x.name for x in model.layers])[0][0] 
-    # >> get inds for plotting intermediate activations
-    act_inds = np.nonzero(['conv' in x.name or 'lambda' in x.name for x in \
-                           model.layers])[0]
+    bottleneck_ind = np.nonzero(['dense' in x.name for x in model.layers])[0][0]
+    fig, axes = corner_plot(activations[bottleneck_ind-1])
+    plt.savefig(out)
+    plt.close(fig)
+    return fig, axes
+
+def kernel_filter_plot(model, out_dir):
     # >> get inds for plotting kernel and filters
     layer_inds = np.nonzero(['conv' in x.name for x in model.layers])[0]
+    for a in layer_inds: # >> loop through conv layers
+        filters, biases = model.layers[a].get_weights()
+        fig, ax = plt.subplots()
+        ax.imshow(np.reshape(filters, (np.shape(filters)[0],
+                                       np.shape(filters)[2])))
+        ax.set_xlabel('filter')
+        ax.set_ylabel('kernel')
+        plt.savefig(out_dir + 'layer' + str(a) + '.png')
+        plt.close(fig)
+
+def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
+                      inds = [0, -1]):
+    '''Visualizing intermediate activations
+    activation.shape = (test_size, input_dim, filter_num) = (116, 16272, 32)'''
+    # >> get inds for plotting intermediate activations
+    act_inds = np.nonzero(['conv' in x.name or \
+                           'max_pool' in x.name or \
+                           'dropout' in x.name or \
+                           'reshape' in x.name for x in \
+                           model.layers])[0]
+    act_inds = np.array(act_inds) -1
+
+    for c in range(len(inds)): # >> loop through light curves
+        fig, ax = plt.subplots(figsize=(8,3))
+        ax.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
+                x_test[c] + addend, '.')
+        ax.set_xlabel('time [days]')
+        ax.set_ylabel('relative flux')
+        plt.savefig(output_dir+str(c)+'ind-0input.png')
+        for a in act_inds: # >> loop through layers
+            activation = activations[a]
+            if np.shape(activation)[2] == 1:
+                nrows = 1
+                ncols = 1
+            else:
+                ncols = 4
+                nrows = int(np.shape(activation)[2]/ncols)
+            fig, axes = plt.subplots(nrows,ncols,figsize=(8*ncols*0.5,3*nrows))
+            for b in range(np.shape(activation)[2]): # >> loop through filters
+                if ncols == 1:
+                    ax = axes
+                else:
+                    ax = axes.flatten()[b]
+                x1 = np.linspace(np.min(x), np.max(x), np.shape(activation)[1])
+                ax.plot(x1, activation[inds[c]][:,b] + addend, '.')
+            if nrows == 1:
+                axes.set_xlabel('time [days]')
+                axes.set_ylabel('relative flux')
+                # axes.set_aspect(aspect=3./8.)
+            else:
+                for i in range(nrows):
+                    axes[i,0].set_ylabel('relative\nflux')
+                for j in range(ncols):
+                    axes[-1,j].set_xlabel('time [days]')
+                # for ax in axes.flatten():
+                #     ax.set_aspect(aspect=3./8.)
+            plt.tight_layout()
+            plt.savefig(out_dir+str(c)+'ind-'+str(a+1)+model.layers[a+1].name+'.png')
+            plt.close(fig)
+
+def epoch_plots(history, p, out_dir):
+    label_list = [['accuracy', 'loss'], ['precision', 'recall']]
+    key_list = [['accuracy', 'loss'], [list(history.history.keys())[-2],
+                                       list(history.history.keys())[-1]]]
+    for i in range(2):
+        fig, ax1 = plt.subplots()
+        ax2 = ax1.twinx()
+        ax1.plot(history.history[key_list[i][0]], label=label_list[i][0])
+        ax1.set_ylabel(label_list[i][0])
+        ax2.plot(history.history[key_list[i][1]], '--', label=label_list[i][1])
+        ax2.set_ylabel(label_list[i][1])
+        ax1.set_xlabel('epoch')
+        ax1.set_xticks(range(p['epochs']))
+        ax1.legend(loc = 'upper right', fontsize = 'x-small')
+        ax2.legend(loc = 'upper left', fontsize = 'x-small')
+        fig.tight_layout()
+        if i == 0:
+            plt.savefig(out_dir + 'acc_loss.png')
+        else:
+            plt.savefig(out_dir + 'prec_recall.png')
+        plt.close(fig)
+
+# def feature_maps(feature_maps):
+#     '''activations[layer_num].shape = (116, 17000, 32)
+#     feature_maps.shape = (17000, 32) = (input_dim, filter_num)'''
+#     # >> filter_num first, input_dim second
+#     feature_maps = np.reshape(feature_maps, (np.shape(feature_maps)[1],
+#                                              np.shape(feature_maps)[0]))
+#     ncols = 8
+#     nrows = int(np.shape(feature_maps)[0]/8)
+
+
+            
     
-    # >> subtract one from all indices
-    #    (activation_model doens't include input layer)
-    act_index = np.array(act_index) - 1
-    layer_index = np.array(layer_index) - 1
-    
+def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
+                                 out = '',
+                                 reshape = True,
+                                 inds = [0, 1, -1, -2, -3],
+                                 addend = 0.5, sharey=False):
+    '''Can only handle len(inds) divisible by 3 or 5'''
+    bottleneck_ind = np.nonzero(['dense' in x.name for x in model.layers])[0][0]
+    bottleneck = activations[bottleneck_ind - 1]
+    if len(inds) % 5 == 0:
+        ncols = 5
+    elif len(inds) % 3 == 0:
+        ncols = 3
+    ngroups = int(len(inds)/ncols)
+    nrows = int(3*ngroups)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(8*1.6, 3*1.3*3), sharey=sharey)
+    for i in range(ncols):
+        for ngroup in range(ngroups):
+            if reshape:
+                ind = int(ngroup*ncols + i)
+                axes[ngroup*3, i].plot(x, x_test[inds[ind]][:,0]+addend, '.')
+                axes[ngroup*3+1, i].imshow(np.reshape(bottleneck[i], (1,
+                                                                      np.shape(bottleneck[i])[0])))
+                axes[ngroup*3+2, i].plot(x, x_predict[inds[ind]][:,0]+addend, '.')
+            else:
+                axes[ngroup*3, i].plot(x, x_test[inds[ind]]+addend, '.')
+                axes[ngroup*3+2, i].plot(x, x_predict[inds[ind]]+addend, '.')
+        axes[-1, i].set_xlabel('time [days]')
+    for i in range(ngroups):
+        axes[3*i, 0].set_ylabel('input\nrelative flux')
+        axes[3*i+1, 0].set_ylabel('bottleneck')
+        axes[3*i+2, 0].set_ylabel('output\nrelative flux')
+    # for ax in axes.flatten():
+    #     ax.set_aspect(aspect=3./8.)
+    fig.tight_layout()
+    if out != '':
+        plt.savefig(out)
+        plt.close(fig)
+    return fig, axes
     
