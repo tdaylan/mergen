@@ -19,7 +19,8 @@ def moments(dataset):
     """calculates the 1st through 4th moment of the given data"""
     moments = []
     #moments.append(moment(dataset, moment = 0)) #total prob, should always be 1
-    moments.append(moment(dataset, moment = 1)) # expectation value
+    moments.append(np.mean(dataset)) #mean
+    #moments.append(moment(dataset, moment = 1)) # expectation value -> always is zero??
     moments.append(moment(dataset, moment = 2)) #variance
     moments.append(moment(dataset, moment = 3)) #skew
     moments.append(moment(dataset, moment = 4)) #kurtosis
@@ -86,3 +87,5 @@ def plot_lc(time, intensity):
     plt.autoscale(enable=True, axis='both', tight=False)
     plt.plot(time, intensity, '.')
     plt.show()
+
+#def make_n_choose_2(featurevectors, savefig)
