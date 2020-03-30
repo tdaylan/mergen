@@ -22,53 +22,17 @@ import sklearn
 from sklearn.cluster import KMeans
 
 from sklearn.cluster import DBSCAN
+from sklearn.preprocessing import Normalizer
 from sklearn import metrics
 import fnmatch
 
 from sklearn.metrics import confusion_matrix
+from feature_functions import *
 
-def moments(dataset): 
-    """calculates the 1st through 4th moment of the given data"""
-    moments = []
-    #moments.append(moment(dataset, moment = 0)) #total prob, should always be 1
-    moments.append(moment(dataset, moment = 1)) # expectation value
-    moments.append(moment(dataset, moment = 2)) #variance
-    moments.append(moment(dataset, moment = 3)) #skew
-    moments.append(moment(dataset, moment = 4)) #kurtosis
-    return(moments)
+test(8) #should return 8 * 14
 
-def featvec(x_axis, sampledata): 
-    """calculates the feature vector of the given data. currently returns: 1st-4th moments, power, frequency"""
-    featvec = moments(sampledata)
-    
-    f = np.linspace(0.01, 20, 100)
-    pg = signal.lombscargle(x_axis, sampledata, f, normalize = True)
-    
-    power = pg[pg.argmax()]
-    featvec.append(power)
-    
-    frequency = f[pg.argmax()]
-    featvec.append(frequency)
-    return(featvec) #1st, 2nd, 3rd, 4th moments, power, frequency
-    
-
-#normalizing each light curve
-def normalize(intensity):
-    """normalizes the intensity from the median value"""
-    norm_intensity = []
-    for i in np.arange(len(intensity)):
-        median = np.median(intensity[i])
-        normalized = intensity[i]/median
-        norm_intensity.append(normalized)
-    return norm_intensity
 #%%
-# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-#
-# read tess data (sector 20)
-# time in TESS-truncated JD (BJD - 2457000)
-# emma 03/16/2020
-#
-# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# emma's interpolation code
 
 fitspath = '/Users/conta/UROP_Spring_2020/tessdata_lc_sector20_1000/'
 fnames_all = os.listdir(fitspath)
@@ -77,7 +41,7 @@ fnames = fnmatch.filter(fnames_all, '*fits*')
 interp_tol = 20. / (24*60) # >> interpolate small gaps (less than 20 minutes)
 
 intensity = []
-
+targets = []
 for file in fnames:
     # -- open file -------------------------------------------------------------
     f = fits.open(fitspath + file)
@@ -85,7 +49,8 @@ for file in fnames:
     # >> get data
     time = f[1].data['TIME']
     i = f[1].data['PDCSAP_FLUX']
-
+    tic = f[1].header["OBJECT"]
+    targets.append(tic)
     # -- find small nan gaps ---------------------------------------------------
     # >> adapted from https://gist.github.com/alimanfoo/c5977e87111abe8127453b21204c1065
     # >> find run starts
@@ -124,16 +89,8 @@ intensity = np.delete(intensity, nan_inds, 1) #each row of intensity is one inte
 
 intensity = normalize(intensity)
 
-#producing features
-numcurves = len(intensity) #how many lightcurves are there
-numpoints = len(intensity[0])
-#print(numcurves, numpoints)
-lc_feat = np.zeros((numcurves,6)) #array of zeroes, 10 curves x 6 features
-x = np.linspace(0, numpoints, num=numpoints)
-#print(x)
-
-for n in np.arange(numcurves):
-    lc_feat[n] = featvec(x, intensity[n])
+#%%
+lc_feat = create_list_featvec(intensity, 6)
 
 #%%
 Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
@@ -200,20 +157,20 @@ for n in range(0,6):
 
 #%%
 Kmean.fit(lc_feat)
-
-
-
 predict_on_100 = lc_feat[0:100]
 #print(predict_on_100)
 predicted_100 = Kmean.predict(predict_on_100)
 print(predicted_100)
 
 #producing the confusion matrix
-labelled_100 = np.loadtxt("/Users/conta/UROP_Spring_2020/100-labelled/plots/labelled_100.txt", delimiter=',', usecols=1, skiprows=1, unpack=True)
+labelled_100 = np.loadtxt("/Users/conta/UROP_Spring_2020/100-labelled/labelled_100.txt", delimiter=',', usecols=1, skiprows=1, unpack=True)
 print(labelled_100)
 
 
-confusion_matrix(labelled_100, predicted_100)
+z = confusion_matrix(labelled_100, predicted_100)
+print(z)
+
+check_diagonalized(z)
 
 #horizontal axis is predicted. vertical axis is actual. 
 #row 0 is for all the actual zeros: 55 predicted as 0, 0 predicted as 1/2/3.
@@ -225,12 +182,31 @@ confusion_matrix(labelled_100, predicted_100)
 
 x = Kmean.fit(lc_feat)
 classes = x.labels_
+#%% plotting the indexes vs what feature it returns as
 k = np.linspace(0, len(classes), len(classes))
 plt.scatter(k,classes)
 plt.title("Graphing all of the labels for Kmeans on real data")
-plt.xlabel("feature vector")
-plt.ylabel("classification")
-plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/3-25/3-25-class_results.png")
+plt.xlabel("index number of the data vector")
+plt.ylabel("classification given by kmeans")
+#plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/3-27/3-27-class_results.png")
+#%%
+#plotting the one it identifies as outliers
+identified = []
+i = 0
+while i < len(classes):
+    if classes[i] > 0:
+        identified.append(i)
+    i = i + 1
+    
+print(identified)
+for j in identified:
+    plt.plot(time, intensity[j], '.')
+    class_string = str(classes[j])
+    j_string = str(j)
+    plt.title(targets[j] + "kmeans classed as: " + class_string)
+    #plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/3-27/3-27-" + j_string + "-plotted.png")
+    plt.show()
 
+#%%
 
 
