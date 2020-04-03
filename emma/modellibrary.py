@@ -10,6 +10,7 @@
 # :: models ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 import pdb
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -1031,11 +1032,11 @@ def autoencoder21(x_train, x_test, params):
     for i in range(num_iter):
         x = MaxPooling1D(2, padding='same')(x)
         x = Dropout(params['dropout'])(x)
-        x = MaxPooling1D(params['num_filters'][i],
+        x = MaxPooling1D([params['num_filters'][i]],
                          data_format='channels_first')(x)
         x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
                    activation=params['activation'], padding='same')(x)
-    x = MaxPooling1D(params['num_filters'][i], data_format='channels_first')(x)
+    x = MaxPooling1D([params['num_filters'][i]], data_format='channels_first')(x)
     x = Flatten()(x)
     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
 
@@ -1045,8 +1046,8 @@ def autoencoder21(x_train, x_test, params):
         x = Conv1D(params['num_filters'][num_iter+1], params['kernel_size'],
                    activation=params['activation'], padding='same')(x)
         x = UpSampling1D(2)(x)
-        x = Dropout(0.1)(x)
-        x = MaxPooling1D(params['num_filters'][num_iter+1],
+        x = Dropout(params['dropout'])(x)
+        x = MaxPooling1D([params['num_filters'][num_iter+1]],
                          data_format='channels_first')(x)
     decoded = Conv1D(1, params['kernel_size'],
                      activation=params['last_activation'], padding='same')(x)
@@ -1121,9 +1122,11 @@ def signal_data(training_size = 10000, test_size = 100, input_dim = 100,
     y_test = np.concatenate((y[int(training_size/2):l], y[-int(test_size/2):]))
 
     if reshape:
-        x_train = np.reshape(x_train, (np.shape(x_train)[0], np.shape(x_train)[1], 1))
-        x_test = np.reshape(x_test, (np.shape(x_test)[0], np.shape(x_test)[1], 1))
-    
+        x_train = np.reshape(x_train, (np.shape(x_train)[0],
+                                       np.shape(x_train)[1], 1))
+        x_test = np.reshape(x_test, (np.shape(x_test)[0],
+                                     np.shape(x_test)[1], 1))
+
     return x_train, y_train, x_test, y_test
 
 def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
@@ -1352,7 +1355,7 @@ def kernel_filter_plot(model, out_dir):
         plt.close(fig)
 
 def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
-                      inds = [0, -1]):
+                      inds = [0, -1], movie = True):
     '''Visualizing intermediate activations
     activation.shape = (test_size, input_dim, filter_num) = (116, 16272, 32)'''
     # >> get inds for plotting intermediate activations
@@ -1364,12 +1367,25 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
     act_inds = np.array(act_inds) -1
 
     for c in range(len(inds)): # >> loop through light curves
-        fig, ax = plt.subplots(figsize=(8,3))
-        ax.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
-                x_test[c] + addend, '.')
-        ax.set_xlabel('time [days]')
-        ax.set_ylabel('relative flux')
-        plt.savefig(output_dir+str(c)+'ind-0input.png')
+        fig, axes = plt.subplots(figsize=(4,3))
+        axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
+                x_test[inds[c]] + addend, '.')
+        axes.set_xlabel('time [days]')
+        axes.set_ylabel('relative flux')
+        plt.tight_layout()
+        fig.savefig(out_dir+str(c)+'ind-0input.png')
+        # if movie:
+        #     fig_movie, axes_movie = plt.subplots(figsize=(8,3))
+        #     ymin = np.min([np.min(activation) for activation in activations])
+        #     ymax = np.max([np.max(activation) for activation in activations])
+        #     axes_movie.set_xlabel('time [days]')
+        #     axes_movie.set_ylabel('relative flux')
+        #     axes_movie.set_ylim(ymin=ymin, ymax=ymax)
+        #     axes_movie.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
+        #               x_test[inds[c]] + addend, '.')
+        #     fig_movie.savefig('./image-000.png')
+        #     n = 1
+        plt.close(fig)
         for a in act_inds: # >> loop through layers
             activation = activations[a]
             if np.shape(activation)[2] == 1:
@@ -1397,13 +1413,30 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
                     axes[-1,j].set_xlabel('time [days]')
                 # for ax in axes.flatten():
                 #     ax.set_aspect(aspect=3./8.)
-            plt.tight_layout()
-            plt.savefig(out_dir+str(c)+'ind-'+str(a+1)+model.layers[a+1].name+'.png')
+            fig.tight_layout()
+            fig.savefig(out_dir+str(c)+'ind-'+str(a+1)+model.layers[a+1].name+'.png')
+            # if ncols == 1 and movie:
+            #     if n == int(np.ceil(p['num_conv_layers']/2)):
+            #         axes_movie.cla()
+            #         axes_movie.set_xlabel('time [days]')
+            #         axes_movie.set_ylabel('relative flux')
+            #         axes_movie.set_ylim(ymin=ymin, ymax=ymax)
+            #     axes_movie.cla()
+            #     axes_movie.set_xlabel('time [days]')
+            #     axes_movie.set_ylabel('relative flux')
+            #     axes_movie.set_ylim(ymin=ymin, ymax=ymax)
+            #     axes_movie.plot(x1, activation[inds[c]][:,b] + addend, '.')
+            #     fig_movie.savefig('./image-' + f'{n:03}.png')
+            #     n += 1
             plt.close(fig)
+        # if movie:
+        #     pdb.est_trace()
+        #     os.system('ffmpeg -framerate 2 -i ./image-%03d.png -pix_fmt yuv420p' + \
+        #               out_dir+str(c)+'ind-movie.mp4')
 
 def epoch_plots(history, p, out_dir):
-    label_list = [['accuracy', 'loss'], ['precision', 'recall']]
-    key_list = [['accuracy', 'loss'], [list(history.history.keys())[-2],
+    label_list = [['loss', 'accuracy'], ['precision', 'recall']]
+    key_list = [['loss', 'accuracy'], [list(history.history.keys())[-2],
                                        list(history.history.keys())[-1]]]
     for i in range(2):
         fig, ax1 = plt.subplots()
@@ -1414,8 +1447,8 @@ def epoch_plots(history, p, out_dir):
         ax2.set_ylabel(label_list[i][1])
         ax1.set_xlabel('epoch')
         ax1.set_xticks(range(p['epochs']))
-        ax1.legend(loc = 'upper right', fontsize = 'x-small')
-        ax2.legend(loc = 'upper left', fontsize = 'x-small')
+        ax1.legend(loc = 'upper left', fontsize = 'x-small')
+        ax2.legend(loc = 'upper right', fontsize = 'x-small')
         fig.tight_layout()
         if i == 0:
             plt.savefig(out_dir + 'acc_loss.png')
@@ -1455,8 +1488,8 @@ def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
             if reshape:
                 ind = int(ngroup*ncols + i)
                 axes[ngroup*3, i].plot(x, x_test[inds[ind]][:,0]+addend, '.')
-                axes[ngroup*3+1, i].imshow(np.reshape(bottleneck[i], (1,
-                                                                      np.shape(bottleneck[i])[0])))
+                axes[ngroup*3+1, i].imshow(np.reshape(bottleneck[inds[ind]], (1,
+                                                                      np.shape(bottleneck[inds[ind]])[0])))
                 axes[ngroup*3+2, i].plot(x, x_predict[inds[ind]][:,0]+addend, '.')
             else:
                 axes[ngroup*3, i].plot(x, x_test[inds[ind]]+addend, '.')
@@ -1474,3 +1507,94 @@ def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
         plt.close(fig)
     return fig, axes
     
+
+def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
+          addend=0.5):
+    for c in range(len(inds)):
+        fig, axes = plt.subplots(figsize=(8,3))
+        # ymin = np.min([np.min(activation) for activation in activations]) + addend
+        # ymax = np.max([np.max(activation) for activation in activations]) + addend
+
+        # >> plot input
+        axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
+                  x_test[inds[c]] + addend, '.')
+        axes.set_xlabel('time [days]')
+        axes.set_ylabel('relative flux')
+        # axes.set_ylim(ymin=ymin, ymax=ymax)
+        # fig.tight_layout()
+        fig.savefig('./image-000.png')
+
+        # >> plot intermediate activations
+        n=1
+        for a in range(len(activations)):
+            activation = activations[a]
+            if np.shape(activation)[1] == p['latent_dim']:
+                length = p['latent_dim']
+                axes.cla()
+                axes.plot(np.linspace(np.min(x), np.max(x), length),
+                          activation[inds[c]] + addend, '.')
+                axes.set_xlabel('time [days]')
+                axes.set_ylabel('relative flux')
+                # axes.set_ylim(ymin=ymin, ymax =ymax)
+                fig.savefig('./image-' + f'{n:03}.png')
+                n += 1
+            elif len(np.shape(activation)) > 2:
+                if np.shape(activation)[2] == 1:
+                    length = np.shape(activation)[1]
+                    y = np.reshape(activation[inds[c]], (length))
+                    axes.cla()
+                    axes.plot(np.linspace(np.min(x), np.max(x), length),
+                              y + addend, '.')
+                    axes.set_xlabel('time [days]')
+                    axes.set_ylabel('relative flux')
+                    # axes.set_ylim(ymin=ymin, ymax =ymax)
+                    fig.savefig('./image-' + f'{n:03}.png')
+                    n += 1
+        os.system('ffmpeg -framerate 2 -i ./image-%03d.png -pix_fmt yuv420p '+\
+                  out_dir+str(c)+'ind-movie.mp4')
+        
+    
+def signal_data1(training_size = 10000, test_size = 100, input_dim = 100,
+                 time_max = 30., noise_level = 0.0, height = 1., center = 15.,
+                 stdev = 0.8, h_factor = 0.2, center_factor = 5., reshape=False):
+    '''Generate training data set with flat light curves and gaussian light
+    curves, with variable height, center
+    * training_size
+    * test_size
+    * input_dim
+    * time_max = 30. days
+    * noise >= 0. (noise level as a fraction of gaussian height)
+    '''
+
+    x = np.empty((training_size + test_size, input_dim))
+    y = np.empty((training_size + test_size))
+    l = int(np.shape(x)[0]/2)
+    
+    # >> no peak data
+    x[:l] = np.zeros((l, input_dim))
+    y[:l] = 0.
+
+    # >> with peak data
+    time = np.linspace(0, time_max, input_dim)
+    for i in range(l):
+        a = height + h_factor*np.random.normal()
+        b = center + center_factor*np.random.normal()
+        x[l+i] = gaussian(time, a = a, b = b, c = stdev)
+    y[l:] = 1.
+
+    # >> add noise
+    x += np.random.normal(scale = noise_level, size = np.shape(x))
+
+    # >> partition training and test datasets
+    x_train = np.concatenate((x[:int(training_size/2)], x[l:-int(test_size/2)]))
+    y_train = np.concatenate((y[:int(training_size/2)], y[l:-int(test_size/2)]))
+    x_test = np.concatenate((x[int(training_size/2):l], x[-int(test_size/2):]))
+    y_test = np.concatenate((y[int(training_size/2):l], y[-int(test_size/2):]))
+
+    if reshape:
+        x_train = np.reshape(x_train, (np.shape(x_train)[0],
+                                       np.shape(x_train)[1], 1))
+        x_test = np.reshape(x_test, (np.shape(x_test)[0],
+                                     np.shape(x_test)[1], 1))
+
+    return x_train, y_train, x_test, y_test
