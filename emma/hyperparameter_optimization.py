@@ -1,145 +1,95 @@
-
-# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 #
-# hyperparameter optimization
-# etc 032620
+# pipeline for retrieving outliers in tess data
+# etc 04-20
 #
-# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 import modellibrary as ml
 import numpy as np
-import matplotlib.pyplot as plt
-import pdb
-import copy
 import random
-from keras.models import Model
+import pdb
+from itertools import product
 from sklearn.metrics import confusion_matrix
 
 
-output_dir = './plots/plots040320-5/'
-fake_data = True
+output_dir = './plots/plots040820/'
 
 fname_time = './section1-time.txt'
 fname_intensity = './section1-intensity.csv'
-cutoff = 8896 # >> divisible by 4
-training_size = 1036 # >> even number
-test_size = 116
-test_noise = True
-input_dim = cutoff
-# fname_time = './tesssector20-all-time.txt'
-# fname_time = './tessdatasector20-time.txt'
-# fname_intensity = './tesssector20-all-intensity.csv'
-# fname_intensity = './tessdatasector20-intensity.csv'
+# fname_time = './supervised100-time.txt'
+# fname_intensity = './supervised100-intensity.csv'
+# fname_class = './supervised100-classification.txt'
+cutoff = 8896 # !! get rid of this
 
-if fake_data:
-    intermed_inds = [0, -1]
-    input_bottle_inds = [0, 1, 2, -1, -2]
-else:
-    intermed_inds = [6,0]
-    input_bottle_inds = [0,1,2,3,4]
+# >> lc index in x_test
+intermed_inds = [6,0] # >> plot_intermed_act
+input_bottle_inds = [0,1,2,3,4] # >> in_bottle_out
+inds = [0,1,2,3,4,5,6,7,-1,-2,-3,-4,-5,-6,-7] # >> input_output_plot
 
 # >> parameters
-p = {'kernel_size': [71, 81, 93, 101],
-     'latent_dim': [25],
+p = {'kernel_size': [3,5],
+     'latent_dim': [20],
      'strides': [1],
-     'epochs': [20],
-     'dropout': [0.2],
-     'num_conv_layers': [9],
-     'num_filters': [[32,32,32,32,32,32,32,32,32]],
+     'epochs': [50],
+     'dropout': [0.1],
+     'num_conv_layers': [5],
+     'num_filters': [[16,16,16,16,16]],
      'batch_size': [32],
      'activation': ['relu'],
      'optimizer': ['adam'],
      'last_activation': ['relu'],
      'losses': ['mean_squared_error'],
-     'noise': [0.2,0.5,1.],
-     'lr': ['default']} # !! TODO changing optimizer
+     'lr': [0.001]}
 
-
-# p = {'kernel_size': np.arange(5, 100, 2),
-#      'latent_dim': [25],
-#      'strides' : [1],
-#      'epochs': [10],
-#      'dropout': np.arange(0, 0.5, 0.05),
-#      'num_conv_layers': [3,5,7,9,11],
-#      'num_filters': [16,32,64],
-#      'batch_size': [32,64,128,256],
-#      'activation': ['relu'],
-#      'optimizer': ['adadelta', 'sgd', 'adam'],
-#      'last_activation': ['relu', 'sigmoid'],
-#      'losses': ['mean_squared_error', 'binary_crossentropy'],
-#      'noise': [0.]}
-
-grid_search = True # >> modified from sklearn.model_selection
+grid_search = True
 randomized_search = False
-n_iter = 10
+n_iter = 200 # >> for randomized_search
 
-plot_epoch = True
-plot_in_bottle_out = True
-plot_kernel = True
-plot_feature = True
-plot_latent_test = True
-plot_latent_train = True
+plot_epoch         = True
+plot_in_out        = True
+plot_in_bottle_out = False
+plot_kernel        = False
+plot_intermed_act  = False
+plot_latent_test   = True
+plot_latent_train  = True
+plot_clustering    = True
+make_movie         = False
 
-# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+supervised = False
+addend = 1.
 
-# -- x_train, x_test -----------------------------------------------------------
-if fake_data:
-    if test_noise:
-        # x_train, y_train, x_test, y_test = ml.signal_data(training_size = training_size,
-        #                                                   test_size = test_size,
-        #                                                   input_dim = input_dim,
-        #                                                   reshape=True)
-        x_train, y_train, x_test, y_test = ml.signal_data1(training_size=training_size,
-                                                           test_size=test_size,
-                                                           input_dim=input_dim,
-                                                           reshape=True)
-    x = np.linspace(0, 30, input_dim)
-    # >> inds for plotting decoded vs input
-    inds = [0, 1, 2, 3, 4, 5, 6, 7, -1, -2, -3, -4, -5, -6, -7]
-else:
-    # cutoff = 16272
-    # cutoff = 16336
-    # cutoff = 8899
-    # cutoff = 8896 # TODO 
-    x = np.loadtxt(fname_time)
-    x = np.delete(x, np.arange(cutoff, np.shape(x)[0]), 0)
-    x_train, x_test = ml.split_data(fname_intensity, cutoff=cutoff)
-    # inds = [0, -14, -10] # >> for plotting decoded vs input
-    inds = [0, 1, 2, 3, 4, 5, 6, 7, -1, -2, -3, -4, -5, -6, -7]
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+# -- x_train, x_test ----------------------------------------------------------
+x = np.loadtxt(fname_time)
+x = np.delete(x, np.arange(cutoff, np.shape(x)[0]), 0)
+x_train, x_test = ml.split_data(fname_intensity, cutoff=cutoff,
+                                train_test_ratio=0.90,
+                                normalize_by_median = False,
+                                standardize= True)
+if supervised:
+    classes = np.loadtxt(fname_class)
+    y_train = classes[:np.shape(x_train)[0]]
+    y_test = classes[np.shape(x_train)[0]:]
+
+# x_train = np.delete(x_train, 5606, axis = 0) # buggy
+# x_train = np.delete(x_train, 2688, axis = 0)
+# x_train = np.delete(x_train, 1154, axis = 0)
+
+# x_train = x_train[:500]
     
-# -- initialize parameters -----------------------------------------------------
+# -- initialize parameters ----------------------------------------------------
 
 p_list = []
-
 if grid_search:
-    for a in range(len(p['kernel_size'])):
-        for b in range(len(p['latent_dim'])):
-            for c in range(len(p['strides'])):
-                for d in range(len(p['epochs'])):
-                    for e in range(len(p['dropout'])):
-                        for f in range(len(p['num_conv_layers'])):
-                            for h in range(len(p['batch_size'])):
-                                for i in range(len(p['activation'])):
-                                    for j in range(len(p['optimizer'])):
-                                        for k in range(len(p['last_activation'])):
-                                            for l in range(len(p['losses'])):
-                                                for m in range(len(p['noise'])):
-                                                    p1 = {'kernel_size': p['kernel_size'][a],
-                                                          'latent_dim': p['latent_dim'][b],
-                                                          'strides': p['strides'][c],
-                                                          'epochs': p['epochs'][d],
-                                                          'dropout': p['dropout'][e],
-                                                          'num_conv_layers': p['num_conv_layers'][f],
-                                                          'num_filters': p['num_filters'][f],
-                                                          'batch_size': p['batch_size'][h],
-                                                          'activation': p['activation'][i],
-                                                          'optimizer': p['optimizer'][j],
-                                                          'last_activation': p['last_activation'][k],
-                                                          'losses': p['losses'][l],
-                                                          'noise': p['noise'][m]}
-                                                    if p1 not in p_list:
-                                                        p_list.append(copy.deepcopy(p1))
-else:
+    p_combinations = list(product(*p.values()))
+    for i in range(len(p_combinations)):
+        p1 = {}
+        for j in range(len(p.keys())):
+            p1[list(p.keys())[j]] = p_combinations[i][j]
+        p_list.append(p1)
+elif randomized_search:
     for n in range(n_iter):
         p_dict = {}
         # >> randomized parameter search
@@ -159,36 +109,23 @@ else:
     
 # plt.ion()
 
-# -- run model -----------------------------------------------------------------
+# -- run model ----------------------------------------------------------------
 
 for i in range(len(p_list)):
 
-    if fake_data and test_noise:
-        if p['noise'] == 'all':
-            x_train, y_train, x_test, y_test = \
-                ml.no_signal_data(training_size=training_size,
-                                  test_size = test_size,
-                                  input_dim = input_dim,
-                                  reshape=True,
-                                  noise_level=0.2)
-        else:
-            # x_train, y_train, x_test, y_test = \
-            #     ml.signal_data(training_size=training_size,
-            #                    test_size=test_size,
-            #                    input_dim = input_dim,
-            #                    reshape=True,
-            #                    noise_level=p['noise'])
-            x_train, y_train, x_test, y_test =\
-                ml.signal_data1(training_size=training_size,
-                                test_size=test_size,
-                                input_dim=input_dim, reshape=True,
-                                noise_level=p_list[i]['noise'])
     p = p_list[i]
     print(p)
 
-    
-    history, model = ml.autoencoder21(x_train, x_test, p)
+    if supervised:
+        history, model = ml.autoencoder(x_train, x_test, p, supervised=True,
+                                          y_train=y_train, y_test=y_test)
+    # history, model = ml.autoencoder21(x_train, x_test, p)
+    else:
+        history, model = ml.autoencoder(x_train, x_test, p, supervised=False)
+        
     x_predict = model.predict(x_test)
+
+    # -- param summary txt ----------------------------------------------------
         
     with open(output_dir + 'param_summary.txt', 'a') as f:
         f.write('parameter set ' + str(i) + '\n')
@@ -199,62 +136,87 @@ for i in range(len(p_list)):
         for j in range(4):
             f.write(label_list[j]+' '+str(history.history[key_list[j]][-1])+\
                     '\n')
-        if fake_data:
+        if supervised:
+            chi_2 = np.average(np.sum((x_predict - y_test)**2 / (y_test),
+                                      axis = 1))
+        else:
+            chi_2 = np.average(np.sum((x_predict - x_test)**2 / (x_test),
+                                      axis = 1))
+        f.write('chi_squared ' + '\n')
+        if supervised:
             # >> confusion matrix
-            y_true = np.argmax(x_test, axis = 1)
+            # y_true = np.argmax(x_test, axis = 1)
             # y_pred = np.max(x_predict, axis = 1)
             # y_pred = np.round(np.reshape(y_pred, (np.shape(y_pred)[0])))
-            y_pred = np.argmax(x_predict, axis = 1)
+            # y_pred = np.argmax(x_predict, axis = 1)
             # cm = confusion_matrix(y_test, y_pred, labels=[0.,1.])
-            cm = confusion_matrix(y_test, y_pred, labels=[0.,1.])
+            # cm = confusion_matrix(y_test, y_pred, labels=[0.,1.])
+            pdb.set_trace()
+            cm = confusion_matrix(x_predict, np.roudn(y_test))
             f.write('confusion matrix\n')
-            f.write('    0   1\n')
-            f.write('0 ' + str(cm[0]) + '\n')
-            f.write('1 ' + str(cm[1]) + '\n')
+            f.write(str(cm))
+            # f.write('    0   1\n')
+            # f.write('0 ' + str(cm[0]) + '\n')
+            # f.write('1 ' + str(cm[1]) + '\n')
         f.write('\n')
 
 
+    # -- data visualization ---------------------------------------------------
+    
     # >> plot loss, accuracy, precision, recall vs. epochs
     if plot_epoch:
         ml.epoch_plots(history, p, output_dir + 'epoch-' + str(i) + '-')
     
     # >> plot some decoded light curves
-    if fake_data: addend = 1.
-    else: addend = 0.5
-    fig, axes = ml.input_output_plot(x, x_test, x_predict, inds=inds,
-                                     out=output_dir+'input_output-x_test-'+\
-                                     str(i)+'.png', addend=addend,
-                                     sharey=False)
+    if plot_in_out:
+        fig, axes = ml.input_output_plot(x, x_test, x_predict, inds=inds,
+                                         out=output_dir+'input_output-x_test-'+\
+                                         str(i)+'.png', addend=addend,
+                                         sharey=False)
     # >> plot latent space
     activations = ml.get_activations(model, x_test)
     if plot_latent_test:
         fig, axes = ml.latent_space_plot(model, activations,
-                                         output_dir+'latent_space-'+str(i)+'.png')
+                                         output_dir+'latent_space-'+str(i)+\
+                                             '.png')
     if plot_latent_train:
-        fig, axes = ml.latent_space_plot(model, ml.get_activations(model, x_train),
-                                         output_dir+'latent_space-x_train-'+str(i)+\
-                                         '.png')
+        fig, axes = ml.latent_space_plot(model,
+                                         ml.get_activations(model,x_train),
+                                         output_dir+'latent_space-x_train-'+\
+                                             str(i)+'.png')
 
     # >> plot kernel vs. filter
     if plot_kernel:
         ml.kernel_filter_plot(model, output_dir+'kernel-'+str(i)+'-')
 
     # >> plot intermediate activations
-    if plot_feature:
+    if plot_intermed_act:
         ml.intermed_act_plot(x, model, activations, x_test,
                              output_dir+'intermed_act-'+str(i)+'-',
-                             addend=addend, inds=intermed_inds) # >> TODO make inds variable
+                             addend=addend, inds=intermed_inds)
+    
+    if make_movie:
         ml.movie(x, model, activations, x_test, p,
                  output_dir+'movie-'+str(i)+'-', addend=addend,
                  inds=intermed_inds)
 
+    # >> plot input, bottleneck, output
     if plot_in_bottle_out:
-        ml.input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
-                                        out=output_dir+'input_bottleneck_output-'+\
+        ml.input_bottleneck_output_plot(x, x_test, x_predict, activations,
+                                        model, out=output_dir+\
+                                        'input_bottleneck_output-'+\
                                         str(i)+'.png', addend=addend,
                                         inds = input_bottle_inds, sharey=False)
+            
+    if plot_clustering:
+        bottleneck_ind = np.nonzero(['dense' in x.name for x in \
+                                     model.layers])[0][0]
+        bottleneck = activations[bottleneck_ind - 1]        
+        ml.latent_space_clustering(bottleneck, x_test, x,
+                                   out=output_dir+'clustering'+str(i)+'-',
+                                   addend=addend)
 
-# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 # # >> parameters
 # p = {'kernel_size': [21],
@@ -297,3 +259,16 @@ for i in range(len(p_list)):
 #      'last_activation': 'sigmoid',
 #      'losses': 'mean_squared_loss'}
 
+# p = {'kernel_size': np.arange(5, 501, 2),
+#      'latent_dim': [25],
+#      'strides' : [1],
+#      'epochs': [2],
+#      'dropout': np.arange(0, 1., 0.05),
+#      'num_conv_layers': [3,5,7,9,11,13],
+#      'num_filters': [8,16,32,64, 128],
+#      'batch_size': [32,64,128,256],
+#      'activation': ['relu'],
+#      'optimizer': ['adadelta', 'sgd', 'adam'],
+#      'last_activation': ['relu', 'sigmoid'],
+#      'losses': ['mean_squared_error', 'binary_crossentropy'],
+#      'noise': [0.]}
