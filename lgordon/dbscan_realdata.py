@@ -181,3 +181,4 @@ k = confusion_matrix(labelled_100, predicted_100)
 print(k)
 
 check_diagonalized(k)
+

@@ -18,6 +18,7 @@ import sklearn
 from sklearn.cluster import DBSCAN
 from sklearn import metrics
 from sklearn.metrics import confusion_matrix
+from sklearn.preprocessing import Normalizer
 
 def moments(dataset): 
     """calculates the 1st through 4th moment of the given data"""
@@ -48,7 +49,7 @@ def check_diagonalized(c_matrix):
     num_labels = len(c_matrix)
     total = np.sum(c_matrix, axis=None)
     diagonal = 0
-    n = 1
+    n = 0
     while n < num_labels:
         diagonal = diagonal + c_matrix[n][n]
         n = n+1

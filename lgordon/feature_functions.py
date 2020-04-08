@@ -9,36 +9,65 @@ Created on Mon Mar 30 00:18:52 2020
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.signal as signal
-import os
 from scipy.stats import moment
+from scipy import stats
+from pylab import rcParams
+rcParams['figure.figsize'] = 10, 10
+rcParams["lines.markersize"] = 5
 
 def test(num):
-    print(num * 14)
-
-def moments(dataset): 
-    """calculates the 1st through 4th moment of the given data"""
-    moments = []
-    #moments.append(moment(dataset, moment = 0)) #total prob, should always be 1
-    moments.append(np.mean(dataset)) #mean
-    #moments.append(moment(dataset, moment = 1)) # expectation value -> always is zero??
-    moments.append(moment(dataset, moment = 2)) #variance
-    moments.append(moment(dataset, moment = 3)) #skew
-    moments.append(moment(dataset, moment = 4)) #kurtosis
-    return(moments)
+    print(num * 4)
+    
+def create_list_featvec(time_axis, datasets, num_features):
+    """input: all of the datasets being turned into feature vectors (ie, intensity)
+        num_features is the number of features currently being worked on. 
+    
+    returns a list of featurevectors, one for each input . """
+    num_data = len(datasets) #how many datasets
+    x = time_axis #creates the x axis
+    feature_list = np.zeros((num_data, num_features))
+    for n in np.arange(num_data):
+        feature_list[n] = featvec(x, datasets[n])
+    return feature_list
 
 def featvec(x_axis, sampledata): 
-    """calculates the feature vector of the given data. currently returns: 1st-4th moments, power, frequency"""
+    """calculates the feature vector of the single set of data (ie, intensity[0])
+    currently returns 12: 
+        1st-4th moments, 
+        natural log variance, skew, kurtosis, 
+        power, natural log power, frequency, 
+        slope, natural log of slope"""
     featvec = moments(sampledata)
     
-    f = np.linspace(0.01, 20, 100)
+    f = np.linspace(-0.001, 5, 3000)
     pg = signal.lombscargle(x_axis, sampledata, f, normalize = True)
     
     power = pg[pg.argmax()]
     featvec.append(power)
+    featvec.append(np.log(np.abs(power)))
     
     frequency = f[pg.argmax()]
     featvec.append(frequency)
-    return(featvec) #1st, 2nd, 3rd, 4th moments, power, frequency
+    
+    slope = stats.linregress(x_axis, sampledata)[0]
+    featvec.append(slope)
+    featvec.append(np.log(np.abs(slope)))
+    print("done")
+    return(featvec) #1st, 2nd, 3rd, 4th moments, power, frequency, slope
+
+def moments(dataset): 
+    """calculates the 1st through 4th moment of a single row of data (ie, intensity[0])"""
+    moments = []
+    moments.append(np.mean(dataset)) #mean (don't use moment, always gives 0)
+    moments.append(moment(dataset, moment = 2)) #variance
+    moments.append(moment(dataset, moment = 3)) #skew
+    moments.append(moment(dataset, moment = 4)) #kurtosis
+    moments.append(np.log(np.abs(moment(dataset, moment = 2)))) #ln variance
+    moments.append(np.log(np.abs(moment(dataset, moment = 3)))) #ln skew
+    moments.append(np.log(np.abs(moment(dataset, moment = 4)))) #ln kurtosis
+    return(moments)
+
+
     
 
 #normalizing each light curve
@@ -69,17 +98,7 @@ def gaussian(datapoints, a, b, c):
     x = np.linspace(0, xmax, datapoints)
     return  a * np.exp(-(x-b)**2 / 2*c**2) + np.random.normal(size=(datapoints))
 
-def create_list_featvec(datasets, num_features):
-    """creates the list of one feature vector for every dataset put in. 
-    datasets is the array of all of the datasets being turned into feature vectors (ie, 1200 light curves)
-    num_features is the number of features that are produced by the current iteration of featvec"""
-    num_data = len(datasets) #how many datasets
-    num_points = len(datasets[0]) #how many points per dataset
-    x = np.linspace(0,num_points, num=num_points) #creates the x axis
-    feature_list = np.zeros((num_data, num_features))
-    for n in np.arange(num_data):
-        feature_list[n] = featvec(x, datasets[n])
-    return feature_list
+
 
 def plot_lc(time, intensity):
     """takes input time and intensity and returns lightcurve plot with 8x3 scaling"""
