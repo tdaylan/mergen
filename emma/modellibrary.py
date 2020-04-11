@@ -4,6 +4,7 @@
 # emma feb 2020
 # 
 # * convolutional autoencoder
+# * autoencoder
 #
 #
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: 
@@ -18,11 +19,37 @@ import numpy as np
 def autoencoder(x_train, x_test, params, supervised = False, y_train=False,
                 y_test=False):
     '''If supervised = True, must provide y_train, y_test'''
+    from keras import optimizers
+    import keras.metrics
+
+    model = create_conv_layers(x_train, params, supervised=supervised)
+
+    if params['optimizer'] == 'adam':
+        opt = optimizers.adam(lr = params['lr'], 
+                              decay=params['lr']/params['epochs'])
+    elif params['optimizer'] == 'adadelta':
+        opt = optimizers.adadelta(lr = params['lr'])
+        
+    model.compile(optimizer=opt, loss=params['losses'],
+                  metrics=['accuracy', keras.metrics.Precision(),
+                  keras.metrics.Recall()])
+
+    if supervised:    
+        history = model.fit(x_train, y_train, epochs=params['epochs'],
+                            batch_size=params['batch_size'], shuffle=True,
+                            validation_data=(x_test, y_test))
+    else:    
+        history = model.fit(x_train, x_train, epochs=params['epochs'],
+                            batch_size=params['batch_size'], shuffle=True,
+                            validation_data=(x_test, x_test))
+        
+    return history, model
+
+def create_conv_layers(x_train, params, supervised = False):
+    model = 2
     from keras.layers import Input, Conv1D, MaxPooling1D, UpSampling1D
     from keras.layers import Reshape, Dense, Flatten, Dropout
     from keras.models import Model
-    from keras import optimizers
-    import keras.metrics
 
     input_dim = np.shape(x_train)[1]
     num_iter = int((params['num_conv_layers'] - 1)/2)
@@ -53,39 +80,117 @@ def autoencoder(x_train, x_test, params, supervised = False, y_train=False,
                          data_format='channels_first')(x)
     decoded = Conv1D(1, params['kernel_size'],
                      activation=params['last_activation'], padding='same')(x)
+    
+    if supervised:
+        model = Model(input_img, encoded)
+        print(model.summary())
+          
+    else:
+        model = Model(input_img, decoded)
+        print(model.summary())
+    
+    return model
 
+def create_mlp(input_dim):
+    from keras.models import Model
+    from keras.layers import Dense, Input
+    input_img = Input(shape = (input_dim, 1))
+    x = Dense(8, activation='relu')(input_img)
+    x = Dense(4, activation='relu')(x)
+    x = Dense(1, activation='linear')(x)
+    
+    model = Model(input_img, x)
+    # model = Sequential()
+    # model.add(Dense(8, input_dim=dim, activation='relu'))
+    # model.add(Dense(4, activation='relu'))
+    # model.add(Dense(1, activation='linear'))
+    return model
+
+
+def autoencoder_dual_input(x_train, x_test, rms_train, rms_test, params):
+    '''Adapted from: https://www.pyimagesearch.com/2019/02/04/keras-multiple-
+    inputs-and-mixed-data/'''
+    from keras.layers import concatenate
+    from keras.layers import Conv1D, Dense
+    from keras.models import Model
+    from keras import optimizers
+    import keras.metrics
+    input_dim = np.shape(x_train)[1]
+    # >> create the MLP and autoencoder models
+    mlp = create_mlp(np.shape(rms_train)[1])
+    autoencoder = create_conv_layers(x_train, params)
+    
+    combinedInput = concatenate([mlp.output,autoencoder.output], axis = 1)
+    
+    # x = Dense(4, activation='relu')(combinedInput)
+    # x = Dense(1, activation='linear')(x)
+    x = Dense(input_dim, activation='relu')(combinedInput)
+    # x = Conv1D(1, params['kernel_size'], activation=params['last_activation'],
+    #            padding='same')(combinedInput)
+    x = Model(inputs=[mlp.input, autoencoder.input], outputs=x)
+    model = Model(inputs=[mlp.input, autoencoder.input], outputs=x)
+    
+    # !! find a better way to do this
     if params['optimizer'] == 'adam':
         opt = optimizers.adam(lr = params['lr'], 
                               decay=params['lr']/params['epochs'])
     elif params['optimizer'] == 'adadelta':
         opt = optimizers.adadelta(lr = params['lr'])
         
-    if supervised:
-        model = Model(input_img, encoded)
-        print(model.summary())
-        
-        model.compile(optimizer=opt, loss=params['losses'],
-                      metrics=['accuracy', keras.metrics.Precision(),
-                      keras.metrics.Recall()])    
-    
-        history = model.fit(x_train, y_train, epochs=params['epochs'],
-                            batch_size=params['batch_size'], shuffle=True,
-                            validation_data=(x_test, y_test))
-        
-        
-    else:
-        model = Model(input_img, decoded)
-        print(model.summary())
-    
-        model.compile(optimizer=opt, loss=params['losses'],
-                      metrics=['accuracy', keras.metrics.Precision(),
-                      keras.metrics.Recall()])    
-    
-        history = model.fit(x_train, x_train, epochs=params['epochs'],
-                            batch_size=params['batch_size'], shuffle=True,
-                            validation_data=(x_test, x_test))
-        
+    model.compile(optimizer=opt, loss=params['losses'],
+                  metrics=['accuracy', keras.metrics.Precision(),
+                           keras.metrics.Recall()])
+    history = model.fit([x_train, rms_train], x_train, epochs=params['epochs'],
+                        batch_size=params['batch_size'], shuffle=True,
+                        validation_data=([x_test, rms_test], x_test))
     return history, model
+    
+# :: partitioning data ::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+def split_data(fname, train_test_ratio = 0.9, cutoff=16336):
+    intensity = np.loadtxt(open(fname, 'rb'), delimiter=',')
+
+    # >> truncate
+    intensity = np.delete(intensity,np.arange(cutoff,np.shape(intensity)[1]),1)
+
+    # >> reshape data
+    intensity = np.resize(intensity, (np.shape(intensity)[0],
+                                      np.shape(intensity)[1], 1))
+
+    # >> split test and train data
+    split_ind = int(train_test_ratio*np.shape(intensity)[0])
+    x_train = np.copy(intensity[:split_ind])
+    x_test = np.copy(intensity[split_ind:])
+
+    return x_train, x_test
+
+def rms(x):
+    rms = np.sqrt(np.mean(x**2, axis = 1))
+    return rms
+
+def standardize(x):
+    cutoff = np.shape(x)[1]
+    # >> subtract by mean
+    means = np.mean(x, axis = 1, keepdims=True)
+    # means = np.reshape(means, (np.shape(means)[0], 1, 1))
+    # means = np.repeat(means, cutoff, axis = 1)
+    x = x - means
+    
+    # >> divide by standard deviations
+    stdevs = np.std(x, axis = 1, keepdims=True)
+    x = x / stdevs
+        
+    return x
+        
+    
+def normalize(x):
+    cutoff = np.shape(x)[1]
+    medians = np.median(x, axis = 1)
+    medians = np.reshape(medians, (np.shape(medians)[0], 1))
+    medians = np.repeat(medians, cutoff, axis = 1)
+    x = x / medians
+        
+    return x
 
 # :: fake data ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -176,45 +281,6 @@ def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
     
     return x_train, y_train, x_test, y_test
 
-# :: partitioning tess data :::::::::::::::::::::::::::::::::::::::::::::::::::
-
-def split_data(fname, train_test_ratio = 0.9, cutoff=16336,
-               normalize_by_median=True, standardize=False):
-    intensity = np.loadtxt(open(fname, 'rb'), delimiter=',')
-
-    # >> truncate
-    intensity = np.delete(intensity,np.arange(cutoff,np.shape(intensity)[1]),1)
-
-    if normalize_by_median:
-        # >> divide by median
-        medians = np.median(intensity, axis = 1)
-        medians = np.reshape(medians, (np.shape(medians)[0], 1))
-        medians = np.repeat(medians, cutoff, axis = 1)
-        intensity = intensity / medians - 1.
-        
-    if standardize: 
-        # >> subtract by mean
-        means = np.mean(intensity, axis = 1)
-        means = np.reshape(means, (np.shape(means)[0],1))
-        means = np.repeat(means, cutoff, axis = 1)
-        intensity = intensity - means
-        
-        # >> divide by standard deviations
-        stdevs = np.std(intensity, axis = 1, keepdims=True)
-        intensity = intensity / stdevs
-        
-
-    # >> reshape data
-    intensity = np.resize(intensity, (np.shape(intensity)[0],
-                                      np.shape(intensity)[1], 1))
-
-    # >> split test and train data
-    split_ind = int(train_test_ratio*np.shape(intensity)[0])
-    x_train = np.copy(intensity[:split_ind])
-    x_test = np.copy(intensity[split_ind:])
-
-    return x_train, x_test
-
 # :: plotting :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -231,7 +297,7 @@ def corner_plot(activation, n_bins = 50, log = True):
     if latentDim == 1:
         axes.hist(np.reshape(activation, np.shape(activation)[0]), n_bins,
                   log=log)
-        axes.set_ylabel('phi1')
+        axes.set_ylabel('\u03C61')
         axes.set_ylabel('frequency')
     else:
         # >> row 1 column 1 is first latent dimension (phi1)
@@ -247,8 +313,8 @@ def corner_plot(activation, n_bins = 50, log = True):
                 axes[latentDim-1-i, latentDim-1-j].axis('off')
 
             # >> x and y labels
-            axes[i,0].set_ylabel('phi' + str(i))
-            axes[latentDim-1,i].set_xlabel('phi' + str(i))
+            axes[i,0].set_ylabel('\u03C6' + str(i))
+            axes[latentDim-1,i].set_xlabel('\u03C6' + str(i))
 
         # >> removing axis
         for ax in axes.flatten():
@@ -510,8 +576,8 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
         os.system('ffmpeg -framerate 2 -i ./image-%03d.png -pix_fmt yuv420p '+\
                   out_dir+str(c)+'ind-movie.mp4')
 
-def latent_space_clustering(activation, x_test, x, out = './', n_bins = 50,
-                            addend=1.):
+def latent_space_clustering(activation, x_test, x, ticid, out = './', 
+                            n_bins = 50, addend=1., scatter = True):
     '''Clustering latent space
     '''
     from matplotlib.colors import LogNorm
@@ -520,11 +586,11 @@ def latent_space_clustering(activation, x_test, x, out = './', n_bins = 50,
     latentDim = np.shape(activation)[1]
 
     # >> deal with 1 latent dimension case
-    if latentDim == 1:
+    if latentDim == 1: # TODO !!
         fig, axes = plt.subplots(figsize = (15,15))
         axes.hist(np.reshape(activation, np.shape(activation)[0]), n_bins,
                   log=True)
-        axes.set_ylabel('phi1')
+        axes.set_ylabel('\u03C61')
         axes.set_ylabel('frequency')
     else:
         # >> row 1 column 1 is first latent dimension (phi1)
@@ -532,69 +598,118 @@ def latent_space_clustering(activation, x_test, x, out = './', n_bins = 50,
             # axes[i,i].hist(activation[:,i], n_bins, log=log)
             # axes[i,i].set_aspect(aspect=1)
             for j in range(i):
-                # >> plot latent space with inset plots
-                fig, ax = plt.subplots(figsize = (15,15))
-                
-                h, xedges, yedges, img = ax.hist2d(activation[:,j],
-                                                   activation[:,i],
-                                                   bins=n_bins, norm=LogNorm())
-                X = np.array((activation[:,j], activation[:,i])).T
-                # clustering = DBSCAN().fit(np.array((activation[:,j],
-                #                                     activation[:,i])).T)
+                # -- calculate lof --------------------------------------------
+                z1, z2 = activation[:,j], activation[:,i]
+                X = np.array((z1, z2)).T                
                 clf = LocalOutlierFactor()
                 clf.fit_predict(X)
-                lof = clf.negative_outlier_factor_
-                inds = np.argsort(lof)[:10]
-                # xextent = max(activation[:,j]) - min(activation[:,j])
-                # yextent = max(activation[:,i]) - min(activation[:,i])
-                # h = 0.097
+                lof = -1 * clf.negative_outlier_factor_
+                inds = np.argsort(lof)[-20:] # >> outliers
+                inds2 = np.argsort(lof)[:20] # >> inliers
+                
+                # -- plot latent space w/ inset plots -------------------------
+                fig, ax = plt.subplots(figsize = (15,15))
+                
+                if scatter:
+                    ax.plot(z1, z2, '.')
+                else:
+                    ax.hist2d(z1, z2, bins=n_bins, norm=LogNorm())
+                
+                plt.xticks(fontsize='xx-large')
+                plt.yticks(fontsize='xx-large')
+                
                 h = 0.047
-                # x0 = 0.7
                 x0 = 0.85
-                # y0 = 0.85
                 y0 = 0.9
-                # xstep = h*8/3 + 0.05
                 xstep = h*8/3 + 0.025
-                # ystep = h+0.05
                 ystep = h + 0.025
-                for k in range(3):
+                
+                # >> sort to clean up plot
+                inds0 = inds[:10]
+                inds0 = sorted(inds, key=lambda z: ((z1[z]-np.max(z1))+\
+                                                    (z2[z]-np.min(z2)))**2)
+                
+                for k in range(10):
                     # >> make inset axes
-                    axins = ax.inset_axes([x0 - k*xstep, y0, h*8/3, h])
-                    xp, yp = activation[:,j][inds[k]], activation[:,i][inds[k]]
-                    x1, y1 = xp - 0.025, yp - 0.025
-                    x2, y2 = xp + 0.025, yp + 0.025
+                    if k < 5:
+                        axins = ax.inset_axes([x0 - k*xstep, y0, h*8/3, h])
+                    else:
+                        axins = ax.inset_axes([x0, y0 - (k-4)*ystep, h*8/3, h])
+                    xp, yp = z1[inds0[k]], z2[inds0[k]]
+            
+                    xextent = ax.get_xlim()[1] - ax.get_xlim()[0]
+                    yextent = ax.get_ylim()[1] - ax.get_ylim()[0]
+                    x1, x2 = xp-0.01*xextent, xp+0.01*xextent
+                    y1, y2 = yp-0.01*yextent, yp+0.01*yextent
                     axins.set_xlim(x1, x2)
                     axins.set_ylim(y1, y2)
                     ax.indicate_inset_zoom(axins)
                     
                     # >> plot light curves
                     axins.set_xlim(min(x), max(x))
-                    axins.set_ylim(min(x_test[inds[k]]), max(x_test[inds[k]]))
-                    axins.plot(x, x_test[inds[k]] + addend, '.')
+                    axins.set_ylim(min(x_test[inds0[k]]),
+                                   max(x_test[inds0[k]]))
+                    axins.plot(x, x_test[inds0[k]] + addend, '.k',
+                               markersize=3)
                     axins.set_xticklabels('')
                     axins.set_yticklabels('')
                     axins.patch.set_alpha(0.5)
-                # axins = ax.inset_axes([x0, y0+ystep, h*8/3, h])
-                # axins = ax.inset_axes([x0+xstep, y0, h*8/3, h])
-                # axins = ax.inset_axes([x0+2*xstep, y0, h*8/3, h])
-                # axins = ax.inset_axes([0.7 - 2*(h)])
-                
-                # >> remove axis frame of empty plots
-                # axes[latentDim-1-i, latentDim-1-j].axis('off')
 
                 # >> x and y labels
-                ax.set_ylabel('phi' + str(i))
-                ax.set_xlabel('phi' + str(j))
+                ax.set_ylabel('\u03C61' + str(i), fontsize='xx-large')
+                ax.set_xlabel('\u03C61' + str(j), fontsize='xx-large')
                 fig.savefig(out + 'phi' + str(j) + 'phi' + str(i) + '.png')
                 
-                # >> plot top 10 light curves
-                fig1, ax1 = plt.subplots(10, figsize = (7,10*1.3*7*3/8))
-                for k in range(10):
-                    ax1[k].plot(x, x_test[inds[k]] + addend, '.')
-                    ax1[k].set_ylabel('relative flux')
-                ax1[-1].set_xlabel('time [days]')
+                # -- plot 20 light curves -------------------------------------
+                # >> plot light curves with lof label
+                fig1, ax1 = plt.subplots(20, figsize = (7,28))
+                fig1.subplots_adjust(hspace=0)
+                fig2, ax2 = plt.subplots(20, figsize = (7,28))
+                fig2.subplots_adjust(hspace=0)
+                fig3, ax3 = plt.subplots(20, figsize = (7,28))
+                fig3.subplots_adjust(hspace=0)
+                for k in range(20):
+                    # >> outlier plot
+                    ax1[k].plot(x, x_test[inds[19-k]]+addend, '.k', markersize=3)
+                    # ax1[k].set_aspect(1/4)
+                    ax1[k].set_xticks([])
+                    ax1[k].set_ylabel('relative\nflux')
+                    ax1[k].text(0.8, 0.65,
+                                'LOF {}\nTIC {}'.format(str(lof[inds[19-k]])[:9],
+                                                        str(int(ticid[inds[19-k]]))),
+                                transform = ax1[k].transAxes)
+                    
+                    # >> inlier plot
+                    ax2[k].plot(x, x_test[inds2[k]]+addend, '.k', markersize=3)
+                    # ax2[k].set_aspect(1/4)
+                    ax2[k].set_xticks([])
+                    ax2[k].set_ylabel('rellative\nflux')
+                    ax2[k].text(0.8, 0.65,
+                                'LOF {}\nTIC {}'.format(str(lof[inds2[k]])[:9],
+                                                        str(int(ticid[inds2[k]]))),
+                                transform = ax2[k].transAxes)
+                    
+                    # >> random lof plot
+                    ind = np.random.choice(range(len(lof)-1))
+                    ax3[k].plot(x, x_test[ind] + addend, '.k', markersize=3)
+                    # ax3[k].set_aspect(1/4)
+                    ax3[k].set_xticks([])
+                    ax3[k].set_ylabel('relative\nflux')
+                    ax3[k].text(0.8, 0.65,
+                                'LOF {}\nTIC {}'.format(str(lof[ind])[:9],
+                                                        str(int(ticid[ind]))),
+                                transform = ax3[k].transAxes)
+                
+                ax1[-1].set_xlabel('time [bjd - 2457000]')
+                ax2[-1].set_xlabel('time [bjd - 2457000]')
+                ax3[-1].set_xlabel('time [bjd - 2457000]')
                 fig1.savefig(out + 'phi' + str(j) + 'phi' + str(i) + \
                             '-outliers.png')
+                fig2.savefig(out + 'phi' + str(j) + 'phi' + str(i) + \
+                             '-inliers.png')
+                fig3.savefig(out + 'phi' + str(j) + 'phi'  + str(i) + \
+                             '-randomlof.png')
+                
 
         # >> removing axis
         # for ax in axes.flatten():
