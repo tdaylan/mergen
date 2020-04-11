@@ -13,10 +13,11 @@ from itertools import product
 from sklearn.metrics import confusion_matrix
 
 
-output_dir = './plots/plots040820/'
+output_dir = './plots/plots041120/'
 
 fname_time = './section1-time.txt'
 fname_intensity = './section1-intensity.csv'
+fname_ticid = './section1-ticid.txt'
 # fname_time = './supervised100-time.txt'
 # fname_intensity = './supervised100-intensity.csv'
 # fname_class = './supervised100-classification.txt'
@@ -28,13 +29,13 @@ input_bottle_inds = [0,1,2,3,4] # >> in_bottle_out
 inds = [0,1,2,3,4,5,6,7,-1,-2,-3,-4,-5,-6,-7] # >> input_output_plot
 
 # >> parameters
-p = {'kernel_size': [3,5],
-     'latent_dim': [20],
+p = {'kernel_size': [3],
+     'latent_dim': [15],
      'strides': [1],
      'epochs': [50],
-     'dropout': [0.1],
+     'dropout': [0.0],
      'num_conv_layers': [5],
-     'num_filters': [[16,16,16,16,16]],
+     'num_filters': [[8,8,8,8,8]],
      'batch_size': [32],
      'activation': ['relu'],
      'optimizer': ['adam'],
@@ -46,18 +47,20 @@ grid_search = True
 randomized_search = False
 n_iter = 200 # >> for randomized_search
 
+dual_input = True
+
 plot_epoch         = True
 plot_in_out        = True
 plot_in_bottle_out = False
 plot_kernel        = False
 plot_intermed_act  = False
 plot_latent_test   = True
-plot_latent_train  = True
+plot_latent_train  = False
 plot_clustering    = True
 make_movie         = False
 
 supervised = False
-addend = 1.
+addend = 0.
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -65,13 +68,20 @@ addend = 1.
 x = np.loadtxt(fname_time)
 x = np.delete(x, np.arange(cutoff, np.shape(x)[0]), 0)
 x_train, x_test = ml.split_data(fname_intensity, cutoff=cutoff,
-                                train_test_ratio=0.90,
-                                normalize_by_median = False,
-                                standardize= True)
+                                train_test_ratio=0.90)
+
+ticid = np.loadtxt(fname_ticid)
+ticid_train = ticid[:np.shape(x_train)[0]]
+ticid_test = ticid[-1 * np.shape(x_test)[0]:]
+
 if supervised:
     classes = np.loadtxt(fname_class)
     y_train = classes[:np.shape(x_train)[0]]
     y_test = classes[np.shape(x_train)[0]:]
+    
+if dual_input:
+    rms_train = ml.rms(x_train)
+    rms_test = ml.rms(x_test)
 
 # x_train = np.delete(x_train, 5606, axis = 0) # buggy
 # x_train = np.delete(x_train, 2688, axis = 0)
@@ -117,13 +127,22 @@ for i in range(len(p_list)):
     print(p)
 
     if supervised:
-        history, model = ml.autoencoder(x_train, x_test, p, supervised=True,
-                                          y_train=y_train, y_test=y_test)
+        history, model = ml.autoencoder(ml.standardize(x_train),
+                                        ml.standardize(x_test), p,
+                                        supervised=True,
+                                        y_train=y_train, y_test=y_test)
+    elif dual_input:
+        history, model = ml.autoencoder_dual_input(ml.standardize(x_train),
+                                                   ml.standardize(x_test),
+                                                   rms_train, rms_test, p)
     # history, model = ml.autoencoder21(x_train, x_test, p)
     else:
-        history, model = ml.autoencoder(x_train, x_test, p, supervised=False)
+        history, model = ml.autoencoder(ml.standardize(x_train),
+                                        ml.standardize(x_test), p,
+                                        supervised=False)
         
     x_predict = model.predict(x_test)
+    pdb.set_trace()
 
     # -- param summary txt ----------------------------------------------------
         
@@ -140,9 +159,11 @@ for i in range(len(p_list)):
             chi_2 = np.average(np.sum((x_predict - y_test)**2 / (y_test),
                                       axis = 1))
         else:
-            chi_2 = np.average(np.sum((x_predict - x_test)**2 / (x_test),
-                                      axis = 1))
-        f.write('chi_squared ' + '\n')
+            # >> assuming uncertainty of 0.02
+            chi_2 = np.average((x_predict-ml.standardize(x_test))**2 / 0.02)
+            # chi_2 = np.average(np.sum((x_predict - x_test)**2 / (x_test),
+            #                           axis = 1))
+        f.write('chi_squared ' + str(chi_2) + '\n')
         if supervised:
             # >> confusion matrix
             # y_true = np.argmax(x_test, axis = 1)
@@ -169,19 +190,21 @@ for i in range(len(p_list)):
     
     # >> plot some decoded light curves
     if plot_in_out:
-        fig, axes = ml.input_output_plot(x, x_test, x_predict, inds=inds,
-                                         out=output_dir+'input_output-x_test-'+\
+        fig, axes = ml.input_output_plot(x, np.standardize(x_test), x_predict,
+                                         inds=inds, out=output_dir+\
+                                         'input_output-x_test-'+\
                                          str(i)+'.png', addend=addend,
                                          sharey=False)
     # >> plot latent space
-    activations = ml.get_activations(model, x_test)
+    activations = ml.get_activations(model, np.standardize(x_test))
     if plot_latent_test:
         fig, axes = ml.latent_space_plot(model, activations,
                                          output_dir+'latent_space-'+str(i)+\
                                              '.png')
     if plot_latent_train:
         fig, axes = ml.latent_space_plot(model,
-                                         ml.get_activations(model,x_train),
+                                         ml.get_activations(model,
+                                                            ml.standardize(x_train)),
                                          output_dir+'latent_space-x_train-'+\
                                              str(i)+'.png')
 
@@ -191,7 +214,7 @@ for i in range(len(p_list)):
 
     # >> plot intermediate activations
     if plot_intermed_act:
-        ml.intermed_act_plot(x, model, activations, x_test,
+        ml.intermed_act_plot(x, model, activations, ml.normalize(x_test),
                              output_dir+'intermed_act-'+str(i)+'-',
                              addend=addend, inds=intermed_inds)
     
@@ -202,7 +225,8 @@ for i in range(len(p_list)):
 
     # >> plot input, bottleneck, output
     if plot_in_bottle_out:
-        ml.input_bottleneck_output_plot(x, x_test, x_predict, activations,
+        ml.input_bottleneck_output_plot(x, ml.standardize(x_test), x_predict,
+                                        activations,
                                         model, out=output_dir+\
                                         'input_bottleneck_output-'+\
                                         str(i)+'.png', addend=addend,
@@ -212,8 +236,9 @@ for i in range(len(p_list)):
         bottleneck_ind = np.nonzero(['dense' in x.name for x in \
                                      model.layers])[0][0]
         bottleneck = activations[bottleneck_ind - 1]        
-        ml.latent_space_clustering(bottleneck, x_test, x,
-                                   out=output_dir+'clustering'+str(i)+'-',
+        ml.latent_space_clustering(bottleneck, ml.normalize(x_test), x,
+                                   ticid_test, out=output_dir+\
+                                       'clustering-x_test-'+str(i)+'-',
                                    addend=addend)
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
