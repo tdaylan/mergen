@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from pylab import rcParams
 rcParams['figure.figsize'] = 10, 10
 rcParams["lines.markersize"] = 5
+from scipy.signal import argrelextrema
 
 import astropy
 from astropy.io import fits
@@ -92,8 +93,7 @@ intensity = np.delete(intensity, nan_inds, 1) #each row of intensity is one inte
 
 intensity = normalize(intensity)
 
-#%%
-lc_feat = create_list_featvec(time, intensity, 12)
+lc_feat = create_list_featvec(time, intensity, 13)
 
 #%%
 #1st-4th moments, natural log variance, skew, kurtosis, power, natural log power, frequency, slope, natural log of slope
@@ -105,7 +105,7 @@ classes_kmeans = x.labels_
 print(classes_kmeans)
 
 #coloring kmeans
-for n in range(12):
+for n in range(13):
     feat1 = lc_feat[:,n]
     if n == 0:
         label1 = "average"
@@ -126,11 +126,13 @@ for n in range(12):
     elif n == 8: 
         label1 = "log_maximum_power"
     elif n == 9: 
-        label1 = "frequency"
+        label1 = "period BJD"
     elif n == 10: 
         label1 = "slope"
     elif n == 11: 
         label1 = "log_slope"
+    elif n == 12:
+        la
         
     for m in range(12):
         if m == n:
@@ -154,7 +156,7 @@ for n in range(12):
         elif m == 8: 
             label2 = "log_maximum_power"
         elif m == 9: 
-            label2 = "frequency"
+            label2 = "period BJD"
         elif m == 10: 
             label2 = "slope"
         elif m == 11: 
@@ -170,95 +172,11 @@ for n in range(12):
             elif classes_kmeans[p] == 2:
                 color = "green"
             elif classes_kmeans[p] == 3:
-                color = "yellow"
+                color = "purple"
             plt.scatter(feat1[p], feat2[p], c = color)
         plt.xlabel(label1)
         plt.ylabel(label2)
-        plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-8/4-8-" + label1 + "-vs-" + label2 + "-kmeans-colored.png")
-        plt.show()
-    
-
-#%%
-#DBSCAN color plots
-db = DBSCAN(eps=0.5, min_samples=10).fit(lc_feat) #eps is NOT epochs
-classes_dbscan = db.labels_
-
-print(classes_dbscan)
-numclasses = str(len(set(classes_dbscan)))
-print("there are " + numclasses + "classes")
-
-#coloring kmeans
-for n in range(12):
-    feat1 = lc_feat[:,n]
-    if n == 0:
-        label1 = "average"
-    elif n == 1: 
-        label1 = "variance"
-    elif n == 2:
-        label1 = "skewness"
-    elif n == 3:
-        label1 = "kurtosis"
-    elif n == 4:
-        label1 = "log_variance"
-    elif n == 5:
-        label1 = "log_skewness"
-    elif n == 6: 
-        label1 = "log_kurtosis"
-    elif n == 7: 
-        label1  = "Maximum_power"
-    elif n == 8: 
-        label1 = "log_maximum_power"
-    elif n == 9: 
-        label1 = "frequency"
-    elif n == 10: 
-        label1 = "slope"
-    elif n == 11: 
-        label1 = "log_slope"
-        
-    for m in range(12):
-        if m == n:
-            break
-        if m == 0:
-            label2 = "average"
-        elif m == 1: 
-            label2 = "variance"
-        elif m == 2:
-            label2 = "skewness"
-        elif m == 3:
-            label2 = "kurtosis"
-        elif m == 4:
-            label2 = "log_variance"
-        elif m == 5:
-            label2 = "log_skewness"
-        elif m == 6: 
-            label2 = "log_kurtosis"
-        elif m == 7: 
-            label2  = "maximum_power"
-        elif m == 8: 
-            label2 = "log_maximum_power"
-        elif m == 9: 
-            label2 = "frequency"
-        elif m == 10: 
-            label2 = "slope"
-        elif m == 11: 
-            label2 = "log_slope"
-        feat2 = lc_feat[:,m]
-        plt.autoscale(enable=True, axis='both', tight=True)
-        for p in range(len(lc_feat)):
-            if classes_dbscan[p] == 0:
-                color = "red"
-            elif classes_dbscan[p] == -1:
-                color = "black"
-            elif classes_dbscan[p] == 1:
-                color = "blue"
-            elif classes_dbscan[p] == 2:
-                color = "green"
-            elif classes_dbscan[p] == 3:
-                color = "yellow"
-            plt.scatter(feat1[p], feat2[p], c = color, s = 5)
-        plt.xlabel(label1)
-        plt.ylabel(label2)
-        plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-3/4-3-" + label1 + "-vs-" + label2 + "-dbscan-colored.png")
+        plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-10/4-10-" + label1 + "-vs-" + label2 + "-kmeans-colored.png")
         plt.show()
 
 #%% plotting 20 of each kmeans cluster
@@ -277,34 +195,172 @@ for n in range(len(intensity)):
     elif classes_kmeans[n] == 3:
         cluster_3.append(n)
 
+# subplotting
+#cluster 0
+fig0 = plt.figure(figsize=(20,60))
 for k in range(20):
-    l = cluster_0[k]
+    l = cluster_0[k] #get the index of the intensity from the cluster list
     l_str = str(l)
-    plt.scatter(time, intensity[l], c='blue')
-    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-8/4-8-kmeans-cluster-0-" + l_str + ".png")
-    plt.show()
+    plot_index = k + 1
+    fig0.title("Cluster 0 Examples")
+    ax1 = fig0.add_subplot(10,2, plot_index)
+    ax1.scatter(time, intensity[l], c="red")
+    ax1.set_xlabel("Time [BJD -2457000]")
+    ax1.set_ylabel("Relative Flux")
+    ax1.set_title(targets[l])
+    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-10/kmeans_examples/4-10-kmeans-cluster-0-examples.png")
 
+#cluster 1   
+fig1 = plt.figure(figsize=(20,60))
 for k in range(20):
-    l = cluster_1[k]
+    l = cluster_1[k] #get the index of the intensity from the cluster list
     l_str = str(l)
-    plt.scatter(time, intensity[l], c='red')
-    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-8/4-8-kmeans-cluster-1-" + l_str + ".png")
-    plt.show() 
+    plot_index = k + 1
+    ax1 = fig1.add_subplot(10,2, plot_index)
+    ax1.scatter(time, intensity[l], c="blue")
+    ax1.set_xlabel("Time [BJD -2457000]")
+    ax1.set_ylabel("Relative Flux")
+    ax1.set_title(targets[l])
+    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-10/kmeans_examples/4-10-kmeans-cluster-1-examples.png")
+#cluster 2
+fig2 = plt.figure(figsize=(20,60))
+for k in range(20):
+    l = cluster_2[k] #get the index of the intensity from the cluster list
+    l_str = str(l)
+    plot_index = k + 1
+    ax1 = fig2.add_subplot(10,2, plot_index)
+    ax1.scatter(time, intensity[l], c="green")
+    ax1.set_xlabel("Time [BJD -2457000]")
+    ax1.set_ylabel("Relative Flux")
+    ax1.set_title(targets[l]) 
+    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-10/kmeans_examples/4-10-kmeans-cluster-2-examples.png")
 
+#cluster 3
+fig3 = plt.figure(figsize=(20,60))
 for k in range(20):
-    l = cluster_2[k]
+    l = cluster_3[k] #get the index of the intensity from the cluster list
     l_str = str(l)
-    plt.scatter(time, intensity[l], c='green')
-    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-8/4-8-kmeans-cluster-2-" + l_str + ".png")
-    plt.show()
+    plot_index = k + 1
+    ax1 = fig3.add_subplot(10,2, plot_index)
+    ax1.scatter(time, intensity[l], c="purple")
+    ax1.set_xlabel("Time [BJD -2457000]")
+    ax1.set_ylabel("Relative Flux")
+    ax1.set_title(targets[l])
+    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-10/kmeans_examples/4-10-kmeans-cluster-3-examples.png")
     
-for k in range(20):
-    l = cluster_3[k]
-    l_str = str(l)
-    plt.scatter(time, intensity[l], c='orange')
-    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-8/4-8-kmeans-cluster-3-" + l_str + ".png")
-    plt.show()
-    
+
+#%%
+#DBSCAN color plots
+db = DBSCAN(eps=0.5, min_samples=10).fit(lc_features) #eps is NOT epochs
+classes_dbscan = db.labels_
+
+print(classes_dbscan)
+numclasses = str(len(set(classes_dbscan)))
+print("there are " + numclasses + "classes")
+for n in range(13):
+        feat1 = lc_features[:,n]
+        if n == 0:
+            graph_label1 = "Average"
+            fname_label1 = "Avg"
+        elif n == 1: 
+            graph_label1 = "Variance"
+            fname_label1 = "Var"
+        elif n == 2:
+            graph_label1 = "Skewness"
+            fname_label1 = "Skew"
+        elif n == 3:
+            graph_label1 = "Kurtosis"
+            fname_label1 = "Kurt"
+        elif n == 4:
+            graph_label1 = "Log Variance"
+            fname_label1 = "LogVar"
+        elif n == 5:
+            graph_label1 = "Log Skewness"
+            fname_label1 = "LogSkew"
+        elif n == 6: 
+            graph_label1 = "Log Kurtosis"
+            fname_label1 = "LogKurt"
+        elif n == 7: 
+            graph_label1 = "Maximum Power"
+            fname_label1 = "MaxPower"
+        elif n == 8: 
+            graph_label1 = "Log Maximum Power"
+            fname_label1 = "LogMaxPower"
+        elif n == 9: 
+            graph_label1 = "Period [BJD - 2457000]"
+            fname_label1 = "Period"
+        elif n == 10: 
+            graph_label1 = "Slope"
+            fname_label1 = "Slope"
+        elif n == 11: 
+            graph_label1 = "Log Slope"
+            fname_label1 = "LogSlope"
+        elif n==12:
+            graph_label1 = "Power integrated over f=[0.1,10]"
+            fname_label1 = "IntPower"
+            
+        for m in range(13):
+            if m == n:
+                break
+            if m == 0:
+                graph_label2 = "Average"
+                fname_label2 = "Avg"
+            elif m == 1: 
+                graph_label2 = "Variance"
+                fname_label2 = "Var"
+            elif m == 2:
+                graph_label2 = "Skewness"
+                fname_label2 = "Skew"
+            elif m == 3:
+                graph_label2 = "Kurtosis"
+                fname_label2 = "Kurt"
+            elif m == 4:
+                graph_label2 = "Log Variance"
+                fname_label2 = "LogVar"
+            elif m == 5:
+                graph_label2 = "Log Skewness"
+                fname_label2 = "LogSkew"
+            elif m == 6: 
+                graph_label2 = "Log Kurtosis"
+                fname_label2 = "LogKurt"
+            elif m == 7: 
+                graph_label2 = "Maximum Power"
+                fname_label2 = "MaxPower"
+            elif m == 8: 
+                graph_label2 = "Log Maximum Power"
+                fname_label2 = "LogMaxPower"
+            elif m == 9: 
+                graph_label2 = "Period [BJD - 2457000]"
+                fname_label2 = "Period"
+            elif m == 10:
+                graph_label2 = "Slope"
+                fname_label2 = "Slope"
+            elif m == 11: 
+                graph_label2 = "Log Slope"
+                fname_label2 = "LogSlope"
+            elif n==12:
+                graph_label2 = "Power integrated over f=[0.1,10]"
+                fname_label2 = "IntPower"
+            feat2 = lc_features[:,m]
+            plt.autoscale(enable=True, axis='both', tight=True)
+            plt.xlabel(graph_label1)
+            plt.ylabel(graph_label2)
+
+            for p in range(len(lc_features)):
+                if classes_dbscan[p] == 0:
+                    color = "red"
+                elif classes_dbscan[p] == -1:
+                    color = "black"
+                elif classes_dbscan[p] == 1:
+                    color = "blue"
+                elif classes_dbscan[p] == 2:
+                    color = "green"
+                elif classes_dbscan[p] == 3:
+                    color = "purple"
+                plt.scatter(feat1[p], feat2[p], c = color, s = 5)
+            plt.show()
+
+
 #%% plotting 20 dbscan examples from each class
 cluster_0_db = []
 cluster_1_db = []
@@ -321,75 +377,100 @@ for n in range(len(intensity)):
     elif classes_dbscan[n] == -1:
         cluster_noise_db.append(n)
 
+#cluster 0
 if len(cluster_0_db) < 20: 
     p = len(cluster_0_db)
 else:
     p = 20
     
+height = p*5/2
+fig_0 = plt.figure(figsize=(24,height)) #this must be a multiple of 8x3
+fig_0.suptitle("DBSCAN Cluster 0", fontsize=30)
+fig_0.tight_layout()
+fig_0.subplots_adjust(top=0.93)
 for k in range(p):
-    l = cluster_0_db[k]
+    l = cluster_0_db[k] #get the index of the intensity from the cluster list
     l_str = str(l)
-    plt.scatter(time, intensity[l], c='blue')
-    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-8/4-8-dbscan-cluster-0-" + l_str + ".png")
-    plt.show()
-    
-    
+    plot_index = k + 1
+    half_p = p/2
+    ax1 = fig_0.add_subplot(half_p,2, plot_index)
+    ax1.scatter(time, intensity[l], c="red")
+    ax1.set_xlabel("Time [BJD -2457000]")
+    ax1.set_ylabel("Relative Flux")
+    ax1.set_title(targets[l])    
+    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-13/dbscan-examples/4-13-dbscan-cluster-0.png")
+
+#cluster 1 
 if len(cluster_1_db) < 20: 
     p = len(cluster_1_db)
 else:
     p = 20
-    
-for k in range(p):
-    l = cluster_1_db[k]
-    l_str = str(l)
-    plt.scatter(time, intensity[l], c='red')
-    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-8/4-8-dbscan-cluster-1-" + l_str + ".png")
-    plt.show() 
 
+height = p*5/2
+fig_1 = plt.figure(figsize=(24,height)) #this must be a multiple of 8x3
+fig_1.suptitle("DBSCAN Cluster 1", fontsize=30)
+fig_1.tight_layout()
+fig_1.subplots_adjust(top=0.93)
+for k in range(p):
+    l = cluster_1_db[k] #get the index of the intensity from the cluster list
+    l_str = str(l)
+    plot_index = k + 1
+    half_p = p/2
+    ax1 = fig_1.add_subplot(half_p,2, plot_index)
+    ax1.scatter(time, intensity[l], c="blue")
+    ax1.set_xlabel("Time [BJD -2457000]")
+    ax1.set_ylabel("Relative Flux")
+    ax1.set_title(targets[l])    
+    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-13/dbscan-examples/4-13-dbscan-cluster-1.png")
+
+#cluster 2
 if len(cluster_2_db) < 20: 
     p = len(cluster_2_db)
 else:
     p = 20
-
+    
+height = p*5/2
+fig_2 = plt.figure(figsize=(24,height)) #this must be a multiple of 8x3
+fig_2.suptitle("DBSCAN Cluster 2", fontsize=30)
+fig_2.tight_layout()
+fig_2.subplots_adjust(top=0.93)
 for k in range(p):
-    l = cluster_2_db[k]
+    l = cluster_2_db[k] #get the index of the intensity from the cluster list
     l_str = str(l)
-    plt.scatter(time, intensity[l], c='green')
-    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-8/4-8-dbscan-cluster-2-" + l_str + ".png")
-    plt.show()
+    plot_index = k + 1
+    
+    half_p = p/2
+    ax1 = fig_2.add_subplot(half_p,2, plot_index)
+    ax1.scatter(time, intensity[l], c="green")
+    ax1.set_xlabel("Time [BJD -2457000]")
+    ax1.set_ylabel("Relative Flux")
+    ax1.set_title(targets[l])    
+    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-13/dbscan-examples/4-13-dbscan-cluster-2.png")
 
+#cluster noise
 if len(cluster_noise_db) < 20: 
     p = len(cluster_noise_db)
 else:
     p = 20
     
+height = p*5/2
+fig_noise = plt.figure(figsize=(24,height)) #this must be a multiple of 8x3
+fig_noise.suptitle("DBSCAN ID'd As Noise", fontsize=30)
+fig_noise.tight_layout()
+fig_noise.subplots_adjust(top=0.93)
 for k in range(p):
-    l = cluster_noise_db[k]
+    l = cluster_noise_db[k] #get the index of the intensity from the cluster list
     l_str = str(l)
-    plt.scatter(time, intensity[l], c='orange')
-    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-8/4-8-dbscan-cluster-noise-" + l_str + ".png")
-    plt.show()
+    plot_index = k + 1
+    half_p = p/2
+    ax1 = fig_noise.add_subplot(half_p,2, plot_index)
+    ax1.scatter(time, intensity[l], c="black")
+    ax1.set_xlabel("Time [BJD -2457000]")
+    ax1.set_ylabel("Relative Flux")
+    ax1.set_title(targets[l])    
+    plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-13/dbscan-examples/4-13-dbscan-cluster-noise.png")
     
-#%%
-plt.scatter(time, intensity[0]) 
-plt.show()
-num_points = len(time)
 
-quarter_points = int(num_points/4)
-
-
-
-plt.scatter(time[0:quarter_points], intensity[0][0:quarter_points])
-plt.scatter(time[quarter_points: 2 * quarter_points], intensity[0][quarter_points: 2*quarter_points])
-plt.scatter(time[2*quarter_points: 3 * quarter_points], intensity[0][2*quarter_points: 3*quarter_points])
-plt.scatter(time[3*quarter_points: 4 * quarter_points], intensity[0][3*quarter_points: 4*quarter_points])
-    
-#%%
-#create an array containing the moment for each quarter of the data. calculate the std. 
-#if all are within 1 std, then return FALSE (0). if not, return TRUE (1), indicating that something is wrong with one section's moment
-    
-    
-    
     
     
     
