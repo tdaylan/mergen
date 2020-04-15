@@ -24,24 +24,34 @@ from sklearn.preprocessing import Normalizer
 from sklearn import metrics
 import fnmatch
 
+from datetime import datetime
+import os
+from scipy.stats import moment, sigmaclip
+
+import astropy
+from astropy.io import fits
+import scipy.signal as signal
+
+from sklearn.metrics import confusion_matrix
+
 def test(num):
     print(num * 4)
     
-def create_list_featvec(time_axis, datasets, num_features):
+def create_list_featvec(time_axis, datasets):
     """input: all of the datasets being turned into feature vectors (ie, intensity)
         num_features is the number of features currently being worked on. 
     
     returns a list of featurevectors, one for each input . """
     num_data = len(datasets) #how many datasets
     x = time_axis #creates the x axis
-    feature_list = np.zeros((num_data, num_features))
+    feature_list = np.zeros((num_data, 13)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
     for n in np.arange(num_data):
         feature_list[n] = featvec(x, datasets[n])
     return feature_list
 
 def featvec(x_axis, sampledata): 
     """calculates the feature vector of the single set of data (ie, intensity[0])
-    currently returns 12: 
+    currently returns 13: 
         1st-4th moments, 
         natural log variance, skew, kurtosis, 
         power, natural log power, period of max power, 
@@ -161,7 +171,7 @@ def n_choose_2_features_plotting(feature_vectors, date, kmeans, dbscan):
     else: 
         print("no clustering")
         clustering = 'none'
-    for n in range(12):
+    for n in range(13):
         feat1 = feature_vectors[:,n]
         if n == 0:
             graph_label1 = "Average"
@@ -203,7 +213,7 @@ def n_choose_2_features_plotting(feature_vectors, date, kmeans, dbscan):
             graph_label1 = "Power integrated over f=[0.1,10]"
             fname_label1 = "IntPower"
             
-        for m in range(12):
+        for m in range(13):
             if m == n:
                 break
             if m == 0:
@@ -245,6 +255,7 @@ def n_choose_2_features_plotting(feature_vectors, date, kmeans, dbscan):
             elif m==12:
                 graph_label2 = "Power integrated over f=[0.1,10]"
                 fname_label2 = "IntPower"
+                
             feat2 = feature_vectors[:,m]
             
             if clustering == 'dbscan':
@@ -263,16 +274,86 @@ def n_choose_2_features_plotting(feature_vectors, date, kmeans, dbscan):
                 plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
+                plt.savefig(("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/dbscan-colored/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
                 plt.show()
             elif clustering == "kmeans":
-                print("have not set this up yet")
-            elif cluster == "none":
+                for p in range(len(lc_feat)):
+                    if classes_kmeans[p] == 0:
+                        color = "red"
+                    elif classes_kmeans[p] == 1:
+                        color = "blue"
+                    elif classes_kmeans[p] == 2:
+                        color = "green"
+                    elif classes_kmeans[p] == 3:
+                        color = "purple"
+                    plt.scatter(feat1[p], feat2[p], c = color)
+                plt.xlabel(graph_label1)
+                plt.ylabel(graph_label2)
+                plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/kmeans-colored/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
+                plt.show()
+            elif clustering == "none":
                 plt.scatter(feat1, feat2, s = 5, color = 'blue')
                 plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + ".png"))
+                plt.savefig(("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/nchoose2/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + ".png"))
                 plt.show()
                 
+def get_data_from_fits():
+    """ imports data from fits files. 
+        based on emma's code"""    
+
+    fitspath = '/Users/conta/UROP_Spring_2020/tessdata_lc_sector20_1000/'
+    fnames_all = os.listdir(fitspath)
+    fnames = fnmatch.filter(fnames_all, '*fits*')
+    
+    interp_tol = 20. / (24*60) # >> interpolate small gaps (less than 20 minutes)
+    
+    intensity = []
+    targets = []
+    for file in fnames:
+        # -- open file -------------------------------------------------------------
+        f = fits.open(fitspath + file)
+    
+        # >> get data
+        time = f[1].data['TIME']
+        i = f[1].data['PDCSAP_FLUX']
+        tic = f[1].header["OBJECT"]
+        targets.append(tic)
+        # -- find small nan gaps ---------------------------------------------------
+        # >> adapted from https://gist.github.com/alimanfoo/c5977e87111abe8127453b21204c1065
+        # >> find run starts
+        n = np.shape(i)[0]
+        loc_run_start = np.empty(n, dtype=bool)
+        loc_run_start[0] = True
+        np.not_equal(np.isnan(i)[:-1], np.isnan(i)[1:], out=loc_run_start[1:])
+        run_starts = np.nonzero(loc_run_start)[0]
+    
+        # >> find run lengths
+        run_lengths = np.diff(np.append(run_starts, n))
+    
+        tdim = time[1] - time[0]
+        interp_inds = run_starts[np.nonzero((run_lengths * tdim <= interp_tol) * \
+                                            np.isnan(i[run_starts]))]
+        interp_lens = run_lengths[np.nonzero((run_lengths * tdim <= interp_tol) * \
+                                             np.isnan(i[run_starts]))]
+    
+        # -- interpolation ---------------------------------------------------------
+        # >> interpolate small gaps
+        i_interp = np.copy(i)
+        for a in range(np.shape(interp_inds)[0]):
+            start_ind = interp_inds[a]
+            end_ind = interp_inds[a] + interp_lens[a]
+            i_interp[start_ind:end_ind] = np.interp(time[start_ind:end_ind],
+                                                    time[np.nonzero(~np.isnan(i))],
+                                                    i[np.nonzero(~np.isnan(i))])
+        intensity.append(i_interp)
+    
+    # -- remove orbit nan gap ------------------------------------------------------
+    intensity = np.array(intensity)
+    # nan_inds = np.nonzero(np.prod(np.isnan(intensity)==False), axis = 0))
+    nan_inds = np.nonzero(np.prod(np.isnan(intensity)==False, axis = 0) == False)
+    time = np.delete(time, nan_inds)
+    intensity = np.delete(intensity, nan_inds, 1) #each row of intensity is one interpolated light curve.
+    return time, intensity, targets
                 
