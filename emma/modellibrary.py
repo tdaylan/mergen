@@ -17,12 +17,24 @@ import numpy as np
 # :: autoencoder ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def autoencoder(x_train, x_test, params, supervised = False, y_train=False,
-                y_test=False):
-    '''If supervised = True, must provide y_train, y_test'''
+                y_test=False, num_classes=False):
+    '''If supervised = True, must provide y_train, y_test, num_classes'''
     from keras import optimizers
     import keras.metrics
+    from keras.models import Model
+    from keras.layers import Dense
 
-    model = create_conv_layers(x_train, params, supervised=supervised)
+    encoded = encoder(x_train, params)
+    if supervised:
+        x = Dense(num_classes,
+                  activation='softmax')(encoded.output)
+        model = Model(encoded.input, x)
+        model.summary()
+    else:
+        decoded = decoder(x_train, encoded.output, params)
+        model = Model(encoded.input, decoded)
+    
+    # model = create_conv_layers(x_train, params, supervised=supervised)
 
     if params['optimizer'] == 'adam':
         opt = optimizers.adam(lr = params['lr'], 
@@ -36,8 +48,7 @@ def autoencoder(x_train, x_test, params, supervised = False, y_train=False,
 
     if supervised:    
         history = model.fit(x_train, y_train, epochs=params['epochs'],
-                            batch_size=params['batch_size'], shuffle=True,
-                            validation_data=(x_test, y_test))
+                            batch_size=params['batch_size'], shuffle=True)
     else:    
         history = model.fit(x_train, x_train, epochs=params['epochs'],
                             batch_size=params['batch_size'], shuffle=True,
@@ -45,12 +56,55 @@ def autoencoder(x_train, x_test, params, supervised = False, y_train=False,
         
     return history, model
 
-def create_conv_layers(x_train, params, supervised = False):
-    model = 2
-    from keras.layers import Input, Conv1D, MaxPooling1D, UpSampling1D
-    from keras.layers import Reshape, Dense, Flatten, Dropout
-    from keras.models import Model
+# def create_conv_layers(x_train, params, supervised = False):
+#     from keras.layers import Input, Conv1D, MaxPooling1D, UpSampling1D
+#     from keras.layers import Reshape, Dense, Flatten, Dropout
+#     from keras.models import Model
 
+#     input_dim = np.shape(x_train)[1]
+#     num_iter = int((params['num_conv_layers'] - 1)/2)
+    
+#     input_img = Input(shape = (input_dim, 1))
+#     x = Conv1D(params['num_filters'][0], params['kernel_size'],
+#                 activation=params['activation'], padding='same')(input_img)
+#     for i in range(num_iter):
+#         x = MaxPooling1D(2, padding='same')(x)
+#         x = Dropout(params['dropout'])(x)
+#         x = MaxPooling1D([params['num_filters'][i]],
+#                           data_format='channels_first')(x)
+#         x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
+#                     activation=params['activation'], padding='same')(x)
+#     x = MaxPooling1D([params['num_filters'][i]], 
+#                       data_format='channels_first')(x)
+#     x = Flatten()(x)
+#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
+
+#     x = Dense(int(input_dim/(2**(i+1))))(encoded)
+#     x = Reshape((int(input_dim/(2**(i+1))), 1))(x)
+#     for i in range(num_iter):
+#         x = Conv1D(params['num_filters'][num_iter+1], params['kernel_size'],
+#                     activation=params['activation'], padding='same')(x)
+#         x = UpSampling1D(2)(x)
+#         x = Dropout(params['dropout'])(x)
+#         x = MaxPooling1D([params['num_filters'][num_iter+1]],
+#                           data_format='channels_first')(x)
+#     decoded = Conv1D(1, params['kernel_size'],
+#                       activation=params['last_activation'], padding='same')(x)
+    
+#     if supervised:
+#         model = Model(input_img, encoded)
+#         print(model.summary())
+          
+#     else:
+#         model = Model(input_img, decoded)
+#         print(model.summary())
+    
+#     return model
+
+def encoder(x_train, params):
+    from keras.layers import Input,Conv1D,MaxPooling1D,Dropout,Flatten,Dense
+    from keras.models import Model
+    
     input_dim = np.shape(x_train)[1]
     num_iter = int((params['num_conv_layers'] - 1)/2)
     
@@ -68,9 +122,20 @@ def create_conv_layers(x_train, params, supervised = False):
                      data_format='channels_first')(x)
     x = Flatten()(x)
     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
+    # return encoded
+    encoder = Model(input_img, encoded)
+    return encoder
 
-    x = Dense(int(input_dim/(2**(i+1))))(encoded)
-    x = Reshape((int(input_dim/(2**(i+1))), 1))(x)
+def decoder(x_train, bottleneck, params):
+    from keras.layers import Dense,Reshape,Conv1D,UpSampling1D,Dropout
+    from keras.layers import MaxPooling1D
+    # from keras.models import Model
+    input_dim = np.shape(x_train)[1]
+    num_iter = int((params['num_conv_layers'] - 1)/2)
+    
+    # encoded = Input(shape = (params['latent_dim'],))
+    x = Dense(int(input_dim/(2**(num_iter))))(bottleneck)
+    x = Reshape((int(input_dim/(2**(num_iter))), 1))(x)
     for i in range(num_iter):
         x = Conv1D(params['num_filters'][num_iter+1], params['kernel_size'],
                    activation=params['activation'], padding='same')(x)
@@ -80,21 +145,17 @@ def create_conv_layers(x_train, params, supervised = False):
                          data_format='channels_first')(x)
     decoded = Conv1D(1, params['kernel_size'],
                      activation=params['last_activation'], padding='same')(x)
+    return decoded
+    # decoder = Model(bottleneck, decoded)
+    # return decoder
     
-    if supervised:
-        model = Model(input_img, encoded)
-        print(model.summary())
-          
-    else:
-        model = Model(input_img, decoded)
-        print(model.summary())
-    
-    return model
 
 def create_mlp(input_dim):
+    '''Build multi-layer perceptron neural network model for numerical data
+    (rms)'''
     from keras.models import Model
     from keras.layers import Dense, Input
-    input_img = Input(shape = (input_dim, 1))
+    input_img = Input(shape = (input_dim,))
     x = Dense(8, activation='relu')(input_img)
     x = Dense(4, activation='relu')(x)
     x = Dense(1, activation='linear')(x)
@@ -107,11 +168,11 @@ def create_mlp(input_dim):
     return model
 
 
-def autoencoder_dual_input(x_train, x_test, rms_train, rms_test, params):
+def autoencoder_dual_input1(x_train, x_test, rms_train, rms_test, params):
     '''Adapted from: https://www.pyimagesearch.com/2019/02/04/keras-multiple-
     inputs-and-mixed-data/'''
     from keras.layers import concatenate
-    from keras.layers import Conv1D, Dense
+    from keras.layers import Conv1D, Dense, Reshape
     from keras.models import Model
     from keras import optimizers
     import keras.metrics
@@ -119,16 +180,79 @@ def autoencoder_dual_input(x_train, x_test, rms_train, rms_test, params):
     # >> create the MLP and autoencoder models
     mlp = create_mlp(np.shape(rms_train)[1])
     autoencoder = create_conv_layers(x_train, params)
+
+    # x = Reshape((1,1))(mlp.output)
+    # x = concatenate([autoencoder.output, Reshape((1,1))(mlp.output)], axis = 1)
+    # x = Reshape((input_dim,))(autoencoder.output)
+    x = concatenate([mlp.output,
+                     Reshape((input_dim,))(autoencoder.output)], axis = 1)
+    # pdb.set_trace()
+    # x = Reshape((input_dim+1,))(x)
     
-    combinedInput = concatenate([mlp.output,autoencoder.output], axis = 1)
     
     # x = Dense(4, activation='relu')(combinedInput)
     # x = Dense(1, activation='linear')(x)
-    x = Dense(input_dim, activation='relu')(combinedInput)
+    x = Dense(input_dim, activation='relu')(x)
+    x = Reshape((input_dim,1))(x)
     # x = Conv1D(1, params['kernel_size'], activation=params['last_activation'],
     #            padding='same')(combinedInput)
-    x = Model(inputs=[mlp.input, autoencoder.input], outputs=x)
-    model = Model(inputs=[mlp.input, autoencoder.input], outputs=x)
+    model = Model(inputs=[autoencoder.input, mlp.input], outputs=x)
+    print(model.summary())
+    
+    # !! find a better way to do this
+    if params['optimizer'] == 'adam':
+        opt = optimizers.adam(lr = params['lr'], 
+                              decay=params['lr']/params['epochs'])
+    elif params['optimizer'] == 'adadelta':
+        opt = optimizers.adadelta(lr = params['lr'])
+        
+    model.compile(optimizer=opt, loss=params['losses'],
+                  metrics=['accuracy', keras.metrics.Precision(),
+                           keras.metrics.Recall()])
+    history = model.fit([x_train, rms_train], x_train, epochs=params['epochs'],
+                        batch_size=params['batch_size'], shuffle=True,
+                        validation_data=([x_test, rms_test], x_test))
+    return history, model
+
+def autoencoder_dual_input2(x_train, x_test, rms_train, rms_test, params):
+    '''Adapted from: https://stackoverflow.com/questions/52435274/how-to-use-
+    keras-merge-layer-for-autoencoder-with-two-ouput'''
+    from keras.layers import concatenate
+    from keras.layers import Dense
+    from keras import optimizers
+    import keras.metrics
+    from keras.models import Model
+    
+    # >> create the MLP and encoder models
+    mlp = create_mlp(np.shape(rms_train)[1])
+    encoded = encoder(x_train, params)
+
+    # >> shared representation layer
+    shared_input = concatenate([mlp.output,encoded.output])
+    shared_output = Dense(params['latent_dim'], activation='relu')(shared_input)
+    
+    # from keras.layers import Input,Dense,Reshape,Conv1D,UpSampling1D,Dropout
+    # from keras.layers import MaxPooling1D
+    # from keras.models import Model
+    # input_dim = np.shape(x_train)[1]
+    # num_iter = int((params['num_conv_layers'] - 1)/2)
+    # x = Dense(int(input_dim/(2**(num_iter))))(shared_output)
+    # x = Reshape((int(input_dim/(2**(num_iter))), 1))(x)
+    # for i in range(num_iter):
+    #     x = Conv1D(params['num_filters'][num_iter+1], params['kernel_size'],
+    #                activation=params['activation'], padding='same')(x)
+    #     x = UpSampling1D(2)(x)
+    #     x = Dropout(params['dropout'])(x)
+    #     x = MaxPooling1D([params['num_filters'][num_iter+1]],
+    #                      data_format='channels_first')(x)
+    # decoded = Conv1D(1, params['kernel_size'],
+    #                  activation=params['last_activation'], padding='same')(x)
+    # >> decode from bottleneck layer
+    decoded = decoder(x_train, shared_output, params)
+    
+    # >> get model
+    # model = Model(inputs=[encoded.input, mlp.input], outputs=decoded.output)
+    model = Model(inputs=[encoded.input, mlp.input], outputs=decoded)
     
     # !! find a better way to do this
     if params['optimizer'] == 'adam':
@@ -184,12 +308,19 @@ def standardize(x):
         
     
 def normalize(x):
-    cutoff = np.shape(x)[1]
-    medians = np.median(x, axis = 1)
-    medians = np.reshape(medians, (np.shape(medians)[0], 1))
-    medians = np.repeat(medians, cutoff, axis = 1)
+    medians = np.median(x, axis = 1, keepdims=True)
     x = x / medians
-        
+    return x
+
+def normalize1(x):
+    xmin = np.min(x, axis=1, keepdims=True)
+    x = x - xmin
+    xmax = np.max(x, axis=1, keepdims=True)
+    x = x * 2 / xmax
+    x = x - 1.
+    # scale = 2/(xmax-xmin)
+    # offset = (xmin - xmax)/(xmax-xmin)
+    # x = x*scale + offset
     return x
 
 # :: fake data ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -284,11 +415,12 @@ def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
 # :: plotting :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
-def corner_plot(activation, n_bins = 50, log = True):
+def corner_plot(activation, p, n_bins = 50, log = True):
     '''Creates corner plot for latent space.
     '''
     from matplotlib.colors import LogNorm
-    latentDim = np.shape(activation)[1]
+    # latentDim = np.shape(activation)[1]
+    latentDim = p['latent_dim']
 
     fig, axes = plt.subplots(nrows = latentDim, ncols = latentDim,
                              figsize = (10, 10))
@@ -371,18 +503,24 @@ def input_output_plot(x, x_test, x_predict, out = '', reshape = True,
         plt.close(fig)
     return fig, axes
     
-def get_activations(model, x_test):
+def get_activations(model, x_test, dual_input = False, rms_test = False):
     from keras.models import Model
     layer_outputs = [layer.output for layer in model.layers][1:]
     activation_model = Model(inputs=model.input, outputs=layer_outputs)
-    activations = activation_model.predict(x_test)
+    if dual_input:
+        activations = activation_model.predict([x_test, rms_test])
+    else:
+        activations = activation_model.predict(x_test)
     return activations
 
-def latent_space_plot(model, activations, out):
+def latent_space_plot(model, activations, params, out):
     # >> get ind for plotting latent space
-    bottleneck_ind = np.nonzero(['dense' in x.name for x in \
-                                 model.layers])[0][0]
-    fig, axes = corner_plot(activations[bottleneck_ind-1])
+    dense_inds = np.nonzero(['dense' in x.name for x in \
+                                 model.layers])[0]
+    for ind in dense_inds:
+        if np.shape(activations[ind-1])[1] == params['latent_dim']:
+            bottleneck_ind = ind - 1
+    fig, axes = corner_plot(activations[bottleneck_ind-1], params)
     plt.savefig(out)
     plt.close(fig)
     return fig, axes
