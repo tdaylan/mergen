@@ -13,53 +13,87 @@ from itertools import product
 from sklearn.metrics import confusion_matrix
 
 
-output_dir = './plots/plots041120/'
+output_dir = './plots/plots041520-supervised-2/'
 
-fname_time = './section1-time.txt'
-fname_intensity = './section1-intensity.csv'
-fname_ticid = './section1-ticid.txt'
-# fname_time = './supervised100-time.txt'
-# fname_intensity = './supervised100-intensity.csv'
-# fname_class = './supervised100-classification.txt'
+# fname_time = './section1-time.txt'
+# fname_intensity = './section1-intensity.csv'
+# fname_ticid = './section1-ticid.txt'
+fname_time = './supervised100-time.txt'
+fname_intensity = './supervised100-intensity.csv'
+fname_class = './supervised100-classification.txt'
+fname_ticid = './supervised100-ticid.txt'
 cutoff = 8896 # !! get rid of this
 
 # >> lc index in x_test
 intermed_inds = [6,0] # >> plot_intermed_act
 input_bottle_inds = [0,1,2,3,4] # >> in_bottle_out
 inds = [0,1,2,3,4,5,6,7,-1,-2,-3,-4,-5,-6,-7] # >> input_output_plot
+# inds = [0,1,2,3,4,5,6,7,8,9,0,1,2,3,4]
 
 # >> parameters
 p = {'kernel_size': [3],
-     'latent_dim': [15],
-     'strides': [1],
-     'epochs': [50],
-     'dropout': [0.0],
-     'num_conv_layers': [5],
-     'num_filters': [[8,8,8,8,8]],
-     'batch_size': [32],
-     'activation': ['relu'],
-     'optimizer': ['adam'],
-     'last_activation': ['relu'],
-     'losses': ['mean_squared_error'],
-     'lr': [0.001]}
+      'latent_dim': [15],
+      'strides': [1],
+      'epochs': [50],
+      'dropout': [0.0],
+      'num_conv_layers': [5,7,9,11,13],
+      'num_filters': [[8,8,8,8,8],[8,8,8,8,8,8,8],
+                      [8,8,8,8,8,8,8,8,8],[8,8,8,8,8,8,8,8,8,8,8],
+                      [8,8,8,8,8,8,8,8,8,8,8,8,8]],
+      'batch_size': [32],
+      'activation': ['relu'],
+      'optimizer': ['adam'],
+      'last_activation': ['relu'],
+      'losses': ['mean_squared_error'],
+      'lr': [0.001]}
+
+# >> supervised
+p = {'kernel_size': [3],
+      'latent_dim': [25],
+      'strides': [1],
+      'epochs': [100],
+      'dropout': [0.5],
+      'num_conv_layers': [9],
+      'num_filters': [[32,32,64,64,128,128,256,256,512]],
+      'batch_size': [32, 5],
+      'activation': ['relu'],
+      'optimizer': ['adam'],
+      'last_activation': ['relu'],
+      'losses': ['categorical_crossentropy'],
+      'lr': [0.001]}
+
+# >> random search
+# p = {'kernel_size': [3],
+#       'latent_dim': [10,15,20,25,30],
+#       'strides' : [1],
+#       'epochs': [50],
+#       'dropout': np.arange(0, .2, 0.05),
+#       'num_conv_layers': [3,5,7,9,11],
+#       'num_filters': [8,16,32,64,128],
+#       'batch_size': [32,64,128,256],
+#       'activation': ['relu'],
+#       'optimizer': ['adadelta', 'adam'],
+#       'last_activation': ['tanh', 'sigmoid'],
+#       'losses': ['mean_squared_error', 'binary_crossentropy'],
+#       'lr': [0.001]}
 
 grid_search = True
 randomized_search = False
 n_iter = 200 # >> for randomized_search
 
-dual_input = True
+dual_input = False
 
 plot_epoch         = True
-plot_in_out        = True
+plot_in_out        = False
 plot_in_bottle_out = False
 plot_kernel        = False
 plot_intermed_act  = False
-plot_latent_test   = True
-plot_latent_train  = False
-plot_clustering    = True
+plot_latent_test   = False
+plot_latent_train  = True
+plot_clustering    = False
 make_movie         = False
 
-supervised = False
+supervised = True
 addend = 0.
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -76,8 +110,18 @@ ticid_test = ticid[-1 * np.shape(x_test)[0]:]
 
 if supervised:
     classes = np.loadtxt(fname_class)
-    y_train = classes[:np.shape(x_train)[0]]
-    y_test = classes[np.shape(x_train)[0]:]
+    num_classes = len(np.unique(classes))
+    y_train=np.zeros((np.shape(x_train)[0], num_classes))
+    y_test=np.zeros((np.shape(x_test)[0],num_classes))
+    for i in range(len(classes)):
+        if i < np.shape(x_train)[0]:
+            y_train[i][int(classes[i])] = 1.
+        else:
+            y_test[i-np.shape(x_train)[0]][int(classes[i])] = 1.
+    # y_train = classes[:np.shape(x_train)[0]]
+    # y_test = classes[np.shape(x_train)[0]:]
+    # y_train = np.reshape(y_train, (np.shape(y_train)[0], 1))
+    # y_test = np.reshape(y_test, (np.shape(y_test)[0], 1))
     
 if dual_input:
     rms_train = ml.rms(x_train)
@@ -130,19 +174,26 @@ for i in range(len(p_list)):
         history, model = ml.autoencoder(ml.standardize(x_train),
                                         ml.standardize(x_test), p,
                                         supervised=True,
-                                        y_train=y_train, y_test=y_test)
+                                        y_train=y_train, y_test=y_test,
+                                        num_classes=num_classes)
+        x_predict = model.predict(ml.standardize(x_test))
+        print('true:')
+        print(y_test)
+        print('predicted:')
+        print(x_predict)
     elif dual_input:
-        history, model = ml.autoencoder_dual_input(ml.standardize(x_train),
-                                                   ml.standardize(x_test),
-                                                   rms_train, rms_test, p)
+        history, model = \
+            ml.autoencoder_dual_input2(ml.standardize(x_train),
+                                      ml.standardize(x_test),
+                                      rms_train, rms_test, p)
+        x_predict = model.predict([ml.standardize(x_test), rms_test])
     # history, model = ml.autoencoder21(x_train, x_test, p)
     else:
         history, model = ml.autoencoder(ml.standardize(x_train),
                                         ml.standardize(x_test), p,
                                         supervised=False)
         
-    x_predict = model.predict(x_test)
-    pdb.set_trace()
+        x_predict = model.predict(ml.standardize(x_test))
 
     # -- param summary txt ----------------------------------------------------
         
@@ -172,10 +223,16 @@ for i in range(len(p_list)):
             # y_pred = np.argmax(x_predict, axis = 1)
             # cm = confusion_matrix(y_test, y_pred, labels=[0.,1.])
             # cm = confusion_matrix(y_test, y_pred, labels=[0.,1.])
-            pdb.set_trace()
-            cm = confusion_matrix(x_predict, np.roudn(y_test))
+            
+            y_predict = np.argmax(x_predict, axis=-1)
+            y_test_classes = classes[np.shape(x_train)[0]:]
+            cm = confusion_matrix(np.round(y_predict), y_test_classes)
             f.write('confusion matrix\n')
             f.write(str(cm))
+            f.write('\ny_true\n')
+            f.write(str(y_test_classes.astype('int'))+'\n')
+            f.write('y_predict\n')
+            f.write(str(y_predict)+'\n')
             # f.write('    0   1\n')
             # f.write('0 ' + str(cm[0]) + '\n')
             # f.write('1 ' + str(cm[1]) + '\n')
@@ -190,21 +247,26 @@ for i in range(len(p_list)):
     
     # >> plot some decoded light curves
     if plot_in_out:
-        fig, axes = ml.input_output_plot(x, np.standardize(x_test), x_predict,
+        fig, axes = ml.input_output_plot(x, ml.standardize(x_test), x_predict,
                                          inds=inds, out=output_dir+\
                                          'input_output-x_test-'+\
                                          str(i)+'.png', addend=addend,
                                          sharey=False)
     # >> plot latent space
-    activations = ml.get_activations(model, np.standardize(x_test))
+    if dual_input:
+        activations = ml.get_activations(model, ml.standardize(x_test),
+                                         rms_test = rms_test, dual_input=True)
+    else:
+        activations = ml.get_activations(model, ml.standardize(x_test))
     if plot_latent_test:
-        fig, axes = ml.latent_space_plot(model, activations,
+        fig, axes = ml.latent_space_plot(model, activations, p,
                                          output_dir+'latent_space-'+str(i)+\
                                              '.png')
     if plot_latent_train:
         fig, axes = ml.latent_space_plot(model,
                                          ml.get_activations(model,
                                                             ml.standardize(x_train)),
+                                         p,
                                          output_dir+'latent_space-x_train-'+\
                                              str(i)+'.png')
 
