@@ -16,26 +16,38 @@ import numpy as np
 
 # :: autoencoder ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def autoencoder(x_train, x_test, params, supervised = False, y_train=False,
+def autoencoder(x_train, x_test, params, dual_input = False, rms_train=False,
+                rms_test=False, supervised = False, y_train=False,
                 y_test=False, num_classes=False):
     '''If supervised = True, must provide y_train, y_test, num_classes'''
     from keras import optimizers
     import keras.metrics
     from keras.models import Model
-    from keras.layers import Dense
+    from keras.layers import Dense, concatenate
 
-    encoded = encoder(x_train, params)
+    # encoded = encoder(x_train, params) # >> max of channels
+    encoded = encoder1(x_train, params) # >> mean of channels
+    
+    if dual_input:
+        mlp = create_mlp(np.shape(rms_train)[1])
+        shared_input = concatenate([mlp.output,encoded.output])
+        shared_output = Dense(params['latent_dim'],
+                              activation='relu')(shared_input)
+
     if supervised:
-        x = Dense(num_classes,
+        if dual_input:
+            x = Dense(num_classes, activation='softmax')(shared_output)
+            model = Model(inputs=[encoded.input,mlp.input], outputs=x)
+        else:
+            x = Dense(num_classes,
                   activation='softmax')(encoded.output)
-        model = Model(encoded.input, x)
+            model = Model(encoded.input, x)
         model.summary()
     else:
         decoded = decoder(x_train, encoded.output, params)
         model = Model(encoded.input, decoded)
+        print(model.summary())
     
-    # model = create_conv_layers(x_train, params, supervised=supervised)
-
     if params['optimizer'] == 'adam':
         opt = optimizers.adam(lr = params['lr'], 
                               decay=params['lr']/params['epochs'])
@@ -46,60 +58,23 @@ def autoencoder(x_train, x_test, params, supervised = False, y_train=False,
                   metrics=['accuracy', keras.metrics.Precision(),
                   keras.metrics.Recall()])
 
-    if supervised:    
+    if supervised and dual_input:
+        history = model.fit([x_train, rms_train], y_train,
+                            epochs=params['epochs'],
+                            batch_size=params['batch_size'], shuffle=True)
+    elif supervised and not dual_input:
         history = model.fit(x_train, y_train, epochs=params['epochs'],
                             batch_size=params['batch_size'], shuffle=True)
-    else:    
+    elif dual_input and not supervised:
+        history = model.fit([x_train, rms_train], x_train,
+                            epochs=params['epochs'],
+                            batch_size=params['batch_size'], shuffle=True)
+    else:
         history = model.fit(x_train, x_train, epochs=params['epochs'],
                             batch_size=params['batch_size'], shuffle=True,
                             validation_data=(x_test, x_test))
         
     return history, model
-
-# def create_conv_layers(x_train, params, supervised = False):
-#     from keras.layers import Input, Conv1D, MaxPooling1D, UpSampling1D
-#     from keras.layers import Reshape, Dense, Flatten, Dropout
-#     from keras.models import Model
-
-#     input_dim = np.shape(x_train)[1]
-#     num_iter = int((params['num_conv_layers'] - 1)/2)
-    
-#     input_img = Input(shape = (input_dim, 1))
-#     x = Conv1D(params['num_filters'][0], params['kernel_size'],
-#                 activation=params['activation'], padding='same')(input_img)
-#     for i in range(num_iter):
-#         x = MaxPooling1D(2, padding='same')(x)
-#         x = Dropout(params['dropout'])(x)
-#         x = MaxPooling1D([params['num_filters'][i]],
-#                           data_format='channels_first')(x)
-#         x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
-#                     activation=params['activation'], padding='same')(x)
-#     x = MaxPooling1D([params['num_filters'][i]], 
-#                       data_format='channels_first')(x)
-#     x = Flatten()(x)
-#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
-
-#     x = Dense(int(input_dim/(2**(i+1))))(encoded)
-#     x = Reshape((int(input_dim/(2**(i+1))), 1))(x)
-#     for i in range(num_iter):
-#         x = Conv1D(params['num_filters'][num_iter+1], params['kernel_size'],
-#                     activation=params['activation'], padding='same')(x)
-#         x = UpSampling1D(2)(x)
-#         x = Dropout(params['dropout'])(x)
-#         x = MaxPooling1D([params['num_filters'][num_iter+1]],
-#                           data_format='channels_first')(x)
-#     decoded = Conv1D(1, params['kernel_size'],
-#                       activation=params['last_activation'], padding='same')(x)
-    
-#     if supervised:
-#         model = Model(input_img, encoded)
-#         print(model.summary())
-          
-#     else:
-#         model = Model(input_img, decoded)
-#         print(model.summary())
-    
-#     return model
 
 def encoder(x_train, params):
     from keras.layers import Input,Conv1D,MaxPooling1D,Dropout,Flatten,Dense
@@ -125,6 +100,36 @@ def encoder(x_train, params):
     # return encoded
     encoder = Model(input_img, encoded)
     return encoder
+
+def encoder1(x_train, params):
+    '''https://machinelearningmastery.com/introduction-to-1x1-convolutions-to
+    -reduce-the-complexity-of-convolutional-neural-networks/
+    Using convolutions over channels to downsample feature maps'''
+    from keras.layers import Input,Conv1D,MaxPooling1D,Dropout,Flatten,Dense
+    from keras.models import Model
+    
+    input_dim = np.shape(x_train)[1]
+    num_iter = int((params['num_conv_layers'] - 1)/2)
+    
+    input_img = Input(shape = (input_dim, 1))
+    x = Conv1D(params['num_filters'][0], params['kernel_size'],
+               activation=params['activation'], padding='same')(input_img)
+    for i in range(num_iter):
+        x = MaxPooling1D(2, padding='same')(x)
+        x = Dropout(params['dropout'])(x)
+        x = Conv1D(1, 1, activation='relu')(x)
+        # x = MaxPooling1D([params['num_filters'][i]],
+        #                  data_format='channels_first')(x)
+        x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
+                   activation=params['activation'], padding='same')(x)
+    x = MaxPooling1D([params['num_filters'][i]], 
+                     data_format='channels_first')(x)
+    x = Flatten()(x)
+    encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
+    # return encoded
+    encoder = Model(input_img, encoded)
+    return encoder
+
 
 def decoder(x_train, bottleneck, params):
     from keras.layers import Dense,Reshape,Conv1D,UpSampling1D,Dropout
@@ -166,112 +171,11 @@ def create_mlp(input_dim):
     # model.add(Dense(4, activation='relu'))
     # model.add(Dense(1, activation='linear'))
     return model
-
-
-def autoencoder_dual_input1(x_train, x_test, rms_train, rms_test, params):
-    '''Adapted from: https://www.pyimagesearch.com/2019/02/04/keras-multiple-
-    inputs-and-mixed-data/'''
-    from keras.layers import concatenate
-    from keras.layers import Conv1D, Dense, Reshape
-    from keras.models import Model
-    from keras import optimizers
-    import keras.metrics
-    input_dim = np.shape(x_train)[1]
-    # >> create the MLP and autoencoder models
-    mlp = create_mlp(np.shape(rms_train)[1])
-    autoencoder = create_conv_layers(x_train, params)
-
-    # x = Reshape((1,1))(mlp.output)
-    # x = concatenate([autoencoder.output, Reshape((1,1))(mlp.output)], axis = 1)
-    # x = Reshape((input_dim,))(autoencoder.output)
-    x = concatenate([mlp.output,
-                     Reshape((input_dim,))(autoencoder.output)], axis = 1)
-    # pdb.set_trace()
-    # x = Reshape((input_dim+1,))(x)
-    
-    
-    # x = Dense(4, activation='relu')(combinedInput)
-    # x = Dense(1, activation='linear')(x)
-    x = Dense(input_dim, activation='relu')(x)
-    x = Reshape((input_dim,1))(x)
-    # x = Conv1D(1, params['kernel_size'], activation=params['last_activation'],
-    #            padding='same')(combinedInput)
-    model = Model(inputs=[autoencoder.input, mlp.input], outputs=x)
-    print(model.summary())
-    
-    # !! find a better way to do this
-    if params['optimizer'] == 'adam':
-        opt = optimizers.adam(lr = params['lr'], 
-                              decay=params['lr']/params['epochs'])
-    elif params['optimizer'] == 'adadelta':
-        opt = optimizers.adadelta(lr = params['lr'])
-        
-    model.compile(optimizer=opt, loss=params['losses'],
-                  metrics=['accuracy', keras.metrics.Precision(),
-                           keras.metrics.Recall()])
-    history = model.fit([x_train, rms_train], x_train, epochs=params['epochs'],
-                        batch_size=params['batch_size'], shuffle=True,
-                        validation_data=([x_test, rms_test], x_test))
-    return history, model
-
-def autoencoder_dual_input2(x_train, x_test, rms_train, rms_test, params):
-    '''Adapted from: https://stackoverflow.com/questions/52435274/how-to-use-
-    keras-merge-layer-for-autoencoder-with-two-ouput'''
-    from keras.layers import concatenate
-    from keras.layers import Dense
-    from keras import optimizers
-    import keras.metrics
-    from keras.models import Model
-    
-    # >> create the MLP and encoder models
-    mlp = create_mlp(np.shape(rms_train)[1])
-    encoded = encoder(x_train, params)
-
-    # >> shared representation layer
-    shared_input = concatenate([mlp.output,encoded.output])
-    shared_output = Dense(params['latent_dim'], activation='relu')(shared_input)
-    
-    # from keras.layers import Input,Dense,Reshape,Conv1D,UpSampling1D,Dropout
-    # from keras.layers import MaxPooling1D
-    # from keras.models import Model
-    # input_dim = np.shape(x_train)[1]
-    # num_iter = int((params['num_conv_layers'] - 1)/2)
-    # x = Dense(int(input_dim/(2**(num_iter))))(shared_output)
-    # x = Reshape((int(input_dim/(2**(num_iter))), 1))(x)
-    # for i in range(num_iter):
-    #     x = Conv1D(params['num_filters'][num_iter+1], params['kernel_size'],
-    #                activation=params['activation'], padding='same')(x)
-    #     x = UpSampling1D(2)(x)
-    #     x = Dropout(params['dropout'])(x)
-    #     x = MaxPooling1D([params['num_filters'][num_iter+1]],
-    #                      data_format='channels_first')(x)
-    # decoded = Conv1D(1, params['kernel_size'],
-    #                  activation=params['last_activation'], padding='same')(x)
-    # >> decode from bottleneck layer
-    decoded = decoder(x_train, shared_output, params)
-    
-    # >> get model
-    # model = Model(inputs=[encoded.input, mlp.input], outputs=decoded.output)
-    model = Model(inputs=[encoded.input, mlp.input], outputs=decoded)
-    
-    # !! find a better way to do this
-    if params['optimizer'] == 'adam':
-        opt = optimizers.adam(lr = params['lr'], 
-                              decay=params['lr']/params['epochs'])
-    elif params['optimizer'] == 'adadelta':
-        opt = optimizers.adadelta(lr = params['lr'])
-        
-    model.compile(optimizer=opt, loss=params['losses'],
-                  metrics=['accuracy', keras.metrics.Precision(),
-                           keras.metrics.Recall()])
-    history = model.fit([x_train, rms_train], x_train, epochs=params['epochs'],
-                        batch_size=params['batch_size'], shuffle=True,
-                        validation_data=([x_test, rms_test], x_test))
-    return history, model
     
 # :: partitioning data ::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def split_data(fname, train_test_ratio = 0.9, cutoff=16336):
+def split_data(fname, train_test_ratio = 0.9, cutoff=16336,supervised=False,
+               classes=False):
     intensity = np.loadtxt(open(fname, 'rb'), delimiter=',')
 
     # >> truncate
@@ -282,11 +186,37 @@ def split_data(fname, train_test_ratio = 0.9, cutoff=16336):
                                       np.shape(intensity)[1], 1))
 
     # >> split test and train data
-    split_ind = int(train_test_ratio*np.shape(intensity)[0])
-    x_train = np.copy(intensity[:split_ind])
-    x_test = np.copy(intensity[split_ind:])
+    if supervised:
+        train_inds = []
+        test_inds = []
+        class_types = np.unique(classes)
+        num_classes = len(class_types)
+        y_train = []
+        y_test = []
+        # y_train=np.zeros((np.shape(x_train)[0], num_classes))
+        # y_test=np.zeros((np.shape(x_test)[0], num_classes))
+        for c in class_types:
+            inds= np.nonzero(classes==c)[0]
+            extent = int(len(inds)*train_test_ratio)
+            train_inds.extend(inds[:extent])
+            test_inds.extend(inds[extent:])
+            labels = np.zeros((len(inds), num_classes))
+            labels[:,int(c)] = 1.
+            y_train.extend(labels[:extent])
+            y_test.extend(labels[extent:])
 
-    return x_train, x_test
+        y_train = np.array(y_train)
+        y_test - np.array(y_test)
+        x_train = np.copy(intensity[train_inds])
+        x_test = np.copy(intensity[test_inds])
+    else:
+        split_ind = int(train_test_ratio*np.shape(intensity)[0])
+        x_train = np.copy(intensity[:split_ind])
+        x_test = np.copy(intensity[split_ind:])
+        y_test, y_train = [False, False]
+
+    return x_train, x_test, y_train, y_test
+    
 
 def rms(x):
     rms = np.sqrt(np.mean(x**2, axis = 1))
@@ -838,9 +768,9 @@ def latent_space_clustering(activation, x_test, x, ticid, out = './',
                                                         str(int(ticid[ind]))),
                                 transform = ax3[k].transAxes)
                 
-                ax1[-1].set_xlabel('time [bjd - 2457000]')
-                ax2[-1].set_xlabel('time [bjd - 2457000]')
-                ax3[-1].set_xlabel('time [bjd - 2457000]')
+                ax1[-1].set_xlabel('time [BJD - 2457000]')
+                ax2[-1].set_xlabel('time [BJD - 2457000]')
+                ax3[-1].set_xlabel('time [BJD - 2457000]')
                 fig1.savefig(out + 'phi' + str(j) + 'phi' + str(i) + \
                             '-outliers.png')
                 fig2.savefig(out + 'phi' + str(j) + 'phi' + str(i) + \
@@ -857,4 +787,223 @@ def latent_space_clustering(activation, x_test, x, ticid, out = './',
 
     return fig, ax
 
+def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
+                       y_predict, num_classes, out):
+    colors = ['r', 'g', 'b', 'm']
+    # >> training data set
+    fig, ax = plt.subplots(nrows = 7, ncols = num_classes, figsize=(15,10),
+                           sharex=True)
+    plt.subplots_adjust(hspace=0)
+    # >> test data set
+    fig1, ax1 = plt.subplots(nrows = 7, ncols = num_classes, figsize=(15,10),
+                             sharex=True)
+    plt.subplots_adjust(hspace=0)
+    for i in range(num_classes): # >> loop through classes
+        inds = np.nonzero(y_train_classes == i)[0]
+        inds1 = np.nonzero(y_test_classes == i)[0]
+        for j in range(min(7, len(inds))): # >> loop through rows
+            ax[j,i].plot(x, x_train[inds[j]], '.'+colors[i], markersize=3)
+        for j in range(min(7, len(inds1))):
+            ax1[j,i].plot(x, x_test[inds1[j]], '.'+colors[y_predict[inds1[j]]],
+                          markersize=3)
+            pdb.set_trace()
+            ax1[j,i].text(0.8, 0.65, 'True: '+str(i)+'\nPredicted: '+\
+                          str(y_predict[inds1[j]]),
+                          transform=ax1[j,i].transAxes)
+    for i in range(num_classes):
+        ax[0,i].set_title('True class '+str(i))
+        ax1[0,i].set_title('True class '+str(i))
+        
+        ax[-1,i].set_xlabel('time [BJD - 2457000]')
+        ax1[-1,i].set_xlabel('time [BJD - 2457000]')
+    for j in range(7):
+        ax[j,0].set_ylabel('relative\nflux')
+    for j in range(7):
+        ax1[j,0].set_ylabel('relative\nflux')
+        
+    # fig.tight_layout()
+    # fig1.tight_layout()
+    
+    fig.savefig(out+'train.png')
+    fig1.savefig(out+'test.png')
 
+
+
+    
+# def autoencoder_dual_input1(x_train, x_test, rms_train, rms_test, params,
+#                             supervised=False, y_train = False, y_test=False,
+#                             num_classes = False):
+#     '''Adapted from: https://www.pyimagesearch.com/2019/02/04/keras-multiple-
+#     inputs-and-mixed-data/'''
+#     from keras.layers import concatenate
+#     from keras.layers import Conv1D, Dense, Reshape
+#     from keras.models import Model
+#     from keras import optimizers
+#     import keras.metrics
+#     input_dim = np.shape(x_train)[1]
+#     # >> create the MLP and autoencoder models
+#     mlp = create_mlp(np.shape(rms_train)[1])
+#     encoded = encoder1(x_train, params)
+#     # autoencoder = create_conv_layers(x_train, params)
+
+#     # x = Reshape((1,1))(mlp.output)
+#     # x = concatenate([autoencoder.output, Reshape((1,1))(mlp.output)], axis = 1)
+#     # x = Reshape((input_dim,))(autoencoder.output)
+#     x = concatenate([mlp.output,
+#                      Reshape((input_dim,))(encoded.output)], axis = 1)
+#     # pdb.set_trace()
+#     # x = Reshape((input_dim+1,))(x)
+    
+    
+#     # x = Dense(4, activation='relu')(combinedInput)
+#     # x = Dense(1, activation='linear')(x)
+#     x = Dense(input_dim, activation='relu')(x)
+#     x = Reshape((input_dim,1))(x)
+#     # x = Conv1D(1, params['kernel_size'], activation=params['last_activation'],
+#     #            padding='same')(combinedInput)
+#     if supervised:
+#         x = Dense(num_classes,activation='softmax')(encoded.output)
+#         model = Model(inputs=[encoded.input, mlp.input], output=x)
+#         print(model.summary())
+#     else:
+#         model = Model(inputs=[encoded.input, mlp.input], outputs=x)
+#         print(model.summary())
+    
+#     # !! find a better way to do this
+#     if params['optimizer'] == 'adam':
+#         opt = optimizers.adam(lr = params['lr'], 
+#                               decay=params['lr']/params['epochs'])
+#     elif params['optimizer'] == 'adadelta':
+#         opt = optimizers.adadelta(lr = params['lr'])
+        
+#     model.compile(optimizer=opt, loss=params['losses'],
+#                   metrics=['accuracy', keras.metrics.Precision(),
+#                            keras.metrics.Recall()])
+#     history = model.fit([x_train, rms_train], x_train, epochs=params['epochs'],
+#                         batch_size=params['batch_size'], shuffle=True,
+#                         validation_data=([x_test, rms_test], x_test))
+#     return history, model
+
+# def autoencoder_dual_input2(x_train, x_test, rms_train, rms_test, params,
+#                             supervised=False, y_train=False, y_test=False,
+#                             num_classes=False):
+#     '''Adapted from: https://stackoverflow.com/questions/52435274/how-to-use-
+#     keras-merge-layer-for-autoencoder-with-two-ouput'''
+#     from keras.layers import concatenate
+#     from keras.layers import Dense
+#     from keras import optimizers
+#     import keras.metrics
+#     from keras.models import Model
+    
+#     # >> create the MLP and encoder models
+#     mlp = create_mlp(np.shape(rms_train)[1])
+#     encoded = encoder(x_train, params)
+
+#     # >> shared representation layer
+#     shared_input = concatenate([mlp.output,encoded.output])
+#     shared_output = Dense(params['latent_dim'], activation='relu')(shared_input)
+#     if supervised:
+#         x = Dense(num_classes,activation='softmax')(shared_output)
+#         model = Model(inputs=[encoded.input, mlp.input], output=x)
+#         print(model.summary())
+#     else:
+#         decoded = decoder(x_train, shared_output, params)
+#         model = Model(inputs=[encoded.input, mlp.input], outputs=decoded)
+    
+#     # >> get model
+#     # model = Model(inputs=[encoded.input, mlp.input], outputs=decoded.output)
+    
+    
+#     # !! find a better way to do this
+#     if params['optimizer'] == 'adam':
+#         opt = optimizers.adam(lr = params['lr'], 
+#                               decay=params['lr']/params['epochs'])
+#     elif params['optimizer'] == 'adadelta':
+#         opt = optimizers.adadelta(lr = params['lr'])
+        
+#     model.compile(optimizer=opt, loss=params['losses'],
+#                   metrics=['accuracy', keras.metrics.Precision(),
+#                            keras.metrics.Recall()])
+#     history = model.fit([x_train, rms_train], x_train, epochs=params['epochs'],
+#                         batch_size=params['batch_size'], shuffle=True,
+#                         validation_data=([x_test, rms_test], x_test))
+#     return history, model
+    
+    
+    
+    # def encoder2(x_train, params):
+#     '''https://towardsdatascience.com/applied-deep-learning-part-4
+#     -convolutional-neural-networks-584bc134c1e2
+#     stacked'''
+#     from keras.layers import Input,Conv1D,MaxPooling1D,Dropout,Flatten,Dense
+#     from keras.models import Model
+    
+#     input_dim = np.shape(x_train)[1]
+#     num_iter = int((params['num_conv_layers'] - 1)/2)
+    
+#     input_img = Input(shape = (input_dim, 1))
+#     x = Conv1D(params['num_filters'][0], params['kernel_size'],
+#                activation=params['activation'], padding='same')(input_img)
+#     for i in range(num_iter):
+#         x = MaxPooling1D(2, padding='same')(x)
+#         x = Dropout(params['dropout'])(x)
+#         x = Conv1D(1, 1, activation='relu')(x)
+#         # x = MaxPooling1D([params['num_filters'][i]],
+#         #                  data_format='channels_first')(x)
+#         x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
+#                    activation=params['activation'], padding='same')(x)
+#         x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
+#                    activation=params['activation'], padding='same')(x)
+#     x = MaxPooling1D([params['num_filters'][i]], 
+#                      data_format='channels_first')(x)
+#     x = Flatten()(x)
+#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
+#     # return encoded
+#     encoder = Model(input_img, encoded)
+#     return encoder
+    
+    
+    # def create_conv_layers(x_train, params, supervised = False):
+#     from keras.layers import Input, Conv1D, MaxPooling1D, UpSampling1D
+#     from keras.layers import Reshape, Dense, Flatten, Dropout
+#     from keras.models import Model
+
+#     input_dim = np.shape(x_train)[1]
+#     num_iter = int((params['num_conv_layers'] - 1)/2)
+    
+#     input_img = Input(shape = (input_dim, 1))
+#     x = Conv1D(params['num_filters'][0], params['kernel_size'],
+#                 activation=params['activation'], padding='same')(input_img)
+#     for i in range(num_iter):
+#         x = MaxPooling1D(2, padding='same')(x)
+#         x = Dropout(params['dropout'])(x)
+#         x = MaxPooling1D([params['num_filters'][i]],
+#                           data_format='channels_first')(x)
+#         x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
+#                     activation=params['activation'], padding='same')(x)
+#     x = MaxPooling1D([params['num_filters'][i]], 
+#                       data_format='channels_first')(x)
+#     x = Flatten()(x)
+#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
+
+#     x = Dense(int(input_dim/(2**(i+1))))(encoded)
+#     x = Reshape((int(input_dim/(2**(i+1))), 1))(x)
+#     for i in range(num_iter):
+#         x = Conv1D(params['num_filters'][num_iter+1], params['kernel_size'],
+#                     activation=params['activation'], padding='same')(x)
+#         x = UpSampling1D(2)(x)
+#         x = Dropout(params['dropout'])(x)
+#         x = MaxPooling1D([params['num_filters'][num_iter+1]],
+#                           data_format='channels_first')(x)
+#     decoded = Conv1D(1, params['kernel_size'],
+#                       activation=params['last_activation'], padding='same')(x)
+    
+#     if supervised:
+#         model = Model(input_img, encoded)
+#         print(model.summary())
+          
+#     else:
+#         model = Model(input_img, decoded)
+#         print(model.summary())
+    
+#     return model
