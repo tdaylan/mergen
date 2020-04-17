@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pylab import rcParams
 rcParams['figure.figsize'] = 10, 10
-rcParams["lines.markersize"] = 5
+rcParams["lines.markersize"] = 2
 from scipy.signal import argrelextrema
 
 import astropy

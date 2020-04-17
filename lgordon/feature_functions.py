@@ -13,7 +13,7 @@ from scipy.stats import moment
 from scipy import stats
 from pylab import rcParams
 rcParams['figure.figsize'] = 10, 10
-rcParams["lines.markersize"] = 5
+rcParams["lines.markersize"] = 2
 from scipy.signal import argrelextrema
 
 import sklearn
@@ -33,6 +33,7 @@ from astropy.io import fits
 import scipy.signal as signal
 
 from sklearn.metrics import confusion_matrix
+from sklearn.neighbors import LocalOutlierFactor
 
 def test(num):
     print(num * 4)
@@ -44,23 +45,27 @@ def create_list_featvec(time_axis, datasets):
     returns a list of featurevectors, one for each input . """
     num_data = len(datasets) #how many datasets
     x = time_axis #creates the x axis
-    feature_list = np.zeros((num_data, 13)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
+    feature_list = np.zeros((num_data, 16)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
     for n in np.arange(num_data):
         feature_list[n] = featvec(x, datasets[n])
     return feature_list
 
 def featvec(x_axis, sampledata): 
     """calculates the feature vector of the single set of data (ie, intensity[0])
-    currently returns 13: 
+    currently returns 16: 
         1st-4th moments, 
         natural log variance, skew, kurtosis, 
         power, natural log power, period of max power, 
         slope, natural log of slope
-        integration of periodogram over entire f range (0.1 to 10)"""
+        integration of periodogram over: period of 0.1-10, period of 0.1-1, period of 1-3,
+        period of 3-10 days
+        ***if you update the number of features, you have to update the number of features in 
+        create_list_featvec!!!!"""
     featvec = moments(sampledata) #produces moments and log moments
     
     
-    f = np.linspace(0.09, 10, 3000)
+    f = np.linspace(0.6, 62.8, 5000)  #period range converted to frequencies
+    periods = np.linspace(0.1, 10, 5000)#0.1 to 10 day period
     pg = signal.lombscargle(x_axis, sampledata, f, normalize = True)
     rel_maxes = argrelextrema(pg, np.greater)
     
@@ -85,16 +90,21 @@ def featvec(x_axis, sampledata):
     featvec.append(max_power)
     featvec.append(np.log(np.abs(max_power)))
     featvec.append(period_max_power)
-
-    #power = pg[pg.argmax()]
-    #frequency = f[pg.argmax()]
     
     slope = stats.linregress(x_axis, sampledata)[0]
     featvec.append(slope)
     featvec.append(np.log(np.abs(slope)))
     
-    integrating = np.trapz(pg, f)
+    
+    integrating = np.trapz(pg, periods) #integrates the whole 0.1-10 day range
+    integrating1 = np.trapz(pg[457:5000], periods[457:5000]) #0.1 days to 1 days
+    integrating2 = np.trapz(pg[121:457], periods[121:457])#1-3 days
+    integrating3 = np.trapz(pg[0:121], periods[0:121]) #3-10 days
+    
     featvec.append(integrating)
+    featvec.append(integrating1)
+    featvec.append(integrating2)
+    featvec.append(integrating3)
     print("done")
     return(featvec) 
 
@@ -116,11 +126,12 @@ def moments(dataset):
 #normalizing each light curve
 def normalize(intensity):
     """normalizes the intensity from the median value using sklearn's preprocssing Normalizer"""
-    for n in np.arange(len(intensity)): 
-        int_1 = intensity[n]
-        min_1 = int_1[int_1.argmin()]
-        max_1 = int_1[int_1.argmax()]
-        intensity[n] = (int_1 - min_1) / (max_1 - min_1) 
+    for i in np.arange(len(intensity)):
+        intensity[i] = intensity[i] - np.median(intensity[i])
+        #int_1 = intensity[n]
+        #min_1 = int_1[int_1.argmin()]
+        #max_1 = int_1[int_1.argmax()]
+        #intensity[n] = (int_1 - min_1) / (max_1 - min_1) 
     return intensity
 
 def check_diagonalized(c_matrix):
@@ -152,26 +163,28 @@ def plot_lc(time, intensity, index):
     plt.show()
 
 
-def n_choose_2_features_plotting(feature_vectors, date, kmeans, dbscan):
+def n_choose_2_features_plotting(feature_vectors, date, clustering):
     """plotting (n 2) features against each other, currently with no clustering
     feature_vectors must be a list of feature vectors
     date must be a string in the format of the folder you are saving into ie "4-13"
     this function does NOT plot kmeans/dbscan colors
     """
-    if dbscan == True:
+    cluster = "empty"
+    if clustering == 'dbscan':
         db = DBSCAN(eps=0.5, min_samples=10).fit(feature_vectors) #eps is NOT epochs
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
-        clustering = 'dbscan'
-    elif kmeans == True: 
+        cluster = 'dbscan'
+    elif clustering == 'kmeans': 
         Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
         x = Kmean.fit(lc_feat)
         classes_kmeans = x.labels_
-        clustering = 'kmeans'
+        cluster = 'kmeans'
     else: 
-        print("no clustering")
-        clustering = 'none'
-    for n in range(13):
+        print("no clustering chosen")
+        cluster = 'none'
+        
+    for n in range(16):
         feat1 = feature_vectors[:,n]
         if n == 0:
             graph_label1 = "Average"
@@ -210,10 +223,19 @@ def n_choose_2_features_plotting(feature_vectors, date, kmeans, dbscan):
             graph_label1 = "Log Slope"
             fname_label1 = "LogSlope"
         elif n==12:
-            graph_label1 = "Power integrated over f=[0.1,10]"
-            fname_label1 = "IntPower"
+            graph_label1 = "Power integrated over T = 0.1 to 10 days"
+            fname_label1 = "IntPower01-10"
+        elif n == 13:
+            graph_label1 = "Power integrated over T = 0.1 to 1 days"
+            fname_label1 = "IntPower01-1"
+        elif n == 14:
+            graph_label1 = "Power integrated over T = 1 to 3 days"
+            fname_label1 = "IntPower1-3"
+        elif n == 15:
+            graph_label1 = "Power integrated over T = 3 to 10 days"
+            fname_label1 = "IntPower3-10"
             
-        for m in range(13):
+        for m in range(16):
             if m == n:
                 break
             if m == 0:
@@ -253,12 +275,21 @@ def n_choose_2_features_plotting(feature_vectors, date, kmeans, dbscan):
                 graph_label2 = "Log Slope"
                 fname_label2 = "LogSlope"
             elif m==12:
-                graph_label2 = "Power integrated over f=[0.1,10]"
-                fname_label2 = "IntPower"
+                graph_label2 = "Power integrated over T = 0.1 to 10 days"
+                fname_label2 = "IntPower01-10"
+            elif m == 13:
+                graph_label2 = "Power integrated over T = 0.1 to 1 days"
+                fname_label2 = "IntPower01-1"
+            elif m == 14:
+                graph_label2 = "Power integrated over T = 1 to 3 days"
+                fname_label2 = "IntPower1-3"
+            elif m == 15:
+                graph_label2 = "Power integrated over T = 3 to 10 days"
+                fname_label2 = "IntPower3-10"
                 
             feat2 = feature_vectors[:,m]
             
-            if clustering == 'dbscan':
+            if cluster == 'dbscan':
                 for p in range(len(feature_vectors)):
                     if classes_dbscan[p] == 0:
                         color = "red"
@@ -271,12 +302,12 @@ def n_choose_2_features_plotting(feature_vectors, date, kmeans, dbscan):
                     elif classes_dbscan[p] == 3:
                         color = "purple"
                     plt.scatter(feat1[p], feat2[p], c = color, s = 5)
-                plt.autoscale(enable=True, axis='both', tight=True)
+                #plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
                 plt.savefig(("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/dbscan-colored/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
                 plt.show()
-            elif clustering == "kmeans":
+            elif cluster == 'kmeans':
                 for p in range(len(lc_feat)):
                     if classes_kmeans[p] == 0:
                         color = "red"
@@ -291,12 +322,12 @@ def n_choose_2_features_plotting(feature_vectors, date, kmeans, dbscan):
                 plt.ylabel(graph_label2)
                 plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/kmeans-colored/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
                 plt.show()
-            elif clustering == "none":
-                plt.scatter(feat1, feat2, s = 5, color = 'blue')
-                plt.autoscale(enable=True, axis='both', tight=True)
+            elif cluster == 'none':
+                plt.scatter(feat1, feat2, s = 2, color = 'blue')
+                #plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/nchoose2/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + ".png"))
+                plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/nchoose2/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + ".png")
                 plt.show()
                 
 def get_data_from_fits():
@@ -356,4 +387,50 @@ def get_data_from_fits():
     time = np.delete(time, nan_inds)
     intensity = np.delete(intensity, nan_inds, 1) #each row of intensity is one interpolated light curve.
     return time, intensity, targets
+
+
+def plot_lof(time, intensity, targets, features, n, date):
+    """plots the 20 most and least interesting light curves based on LOF
+    takes input: time, intensity, targets, featurelist, n number of curves you want, date as a string """
+    from sklearn.neighbors import LocalOutlierFactor
+
+    clf = LocalOutlierFactor(n_neighbors=2)
+    
+    fit_predictor = clf.fit_predict(features)
+    negative_factor = clf.negative_outlier_factor_
+    
+    lof = -1 * negative_factor
+    ranked = np.argsort(lof)
+    largest_indices = ranked[::-1][:n]
+    smallest_indices = ranked[:n]
+
+    #plot just the largest indices
+    fig, axs = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
+    fig.subplots_adjust(hspace=0)
+    
+    for k in range(n):
+        ind = largest_indices[k]
+        axs[k].plot(time, intensity[ind], '.k')
+        axs[k].set_title(targets[ind])
+        axs[k].set_ylabel("relative flux")
+        axs[-1].set_xlabel("BJD [-2457000]")
+    fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
+    fig.tight_layout()
+    fig.subplots_adjust(top=0.96)
+    fig.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/" + date + "-"+ str(n) + "-largest-lof.png")
+
+    #plot the smallest indices
+    fig1, axs1 = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
+    fig1.subplots_adjust(hspace=0)
+    
+    for m in range(n):
+        ind = smallest_indices[m]
+        axs1[m].plot(time, intensity[ind], '.k')
+        axs1[m].set_title(targets[ind])
+        axs1[m].set_ylabel("relative flux")
+        axs1[-1].set_xlabel("BJD [-2457000]")
+    fig1.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
+    fig1.tight_layout()
+    fig1.subplots_adjust(top=0.96)
+    fig1.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/" + date + "-"+ str(n) + "-smallest-lof.png")
                 
