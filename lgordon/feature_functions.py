@@ -35,6 +35,9 @@ import scipy.signal as signal
 from sklearn.metrics import confusion_matrix
 from sklearn.neighbors import LocalOutlierFactor
 
+import astroquery
+from astroquery.simbad import Simbad
+
 def test(num):
     print(num * 4)
     
@@ -45,20 +48,21 @@ def create_list_featvec(time_axis, datasets):
     returns a list of featurevectors, one for each input . """
     num_data = len(datasets) #how many datasets
     x = time_axis #creates the x axis
-    feature_list = np.zeros((num_data, 16)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
+    feature_list = np.zeros((num_data, 17)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
     for n in np.arange(num_data):
         feature_list[n] = featvec(x, datasets[n])
     return feature_list
 
 def featvec(x_axis, sampledata): 
     """calculates the feature vector of the single set of data (ie, intensity[0])
-    currently returns 16: 
+    currently returns 17: 
         1st-4th moments, 
         natural log variance, skew, kurtosis, 
         power, natural log power, period of max power, 
         slope, natural log of slope
         integration of periodogram over: period of 0.1-10, period of 0.1-1, period of 1-3,
-        period of 3-10 days
+        period of 3-10 days,
+        period of max power for 0.01-0.1 days (for moving objects)
         ***if you update the number of features, you have to update the number of features in 
         create_list_featvec!!!!"""
     featvec = moments(sampledata) #produces moments and log moments
@@ -105,6 +109,24 @@ def featvec(x_axis, sampledata):
     featvec.append(integrating1)
     featvec.append(integrating2)
     featvec.append(integrating3)
+    
+    f2 = np.linspace(62.8, 6283.2, 20)  #period range converted to frequencies
+    p2 = np.linspace(0.001, 0.1, 20)#0.001 to 1 day periods
+    pg2 = signal.lombscargle(x_axis, sampledata, f2, normalize = True)
+    rel_maxes2 = argrelextrema(pg2, np.greater)
+    powers2 = []
+    indexes2 = []
+    for n in range(len(rel_maxes2[0])):
+        index2 = rel_maxes2[0][n]
+        indexes2.append(index2)
+        power_level_at_rel_max2 = pg2[index2]
+        powers2.append(power_level_at_rel_max2)
+    max_power2 = np.max(powers2)
+    index_of_max_power2 = np.argmax(powers2)
+    index_of_f_max2 = rel_maxes2[0][index_of_max_power2]
+    f_max_power2 = f2[index_of_f_max2]
+    period_max_power2 = 2*np.pi / f_max_power2
+    featvec.append(period_max_power2)
     print("done")
     return(featvec) 
 
@@ -127,7 +149,7 @@ def moments(dataset):
 def normalize(intensity):
     """normalizes the intensity from the median value using sklearn's preprocssing Normalizer"""
     for i in np.arange(len(intensity)):
-        intensity[i] = intensity[i] - np.median(intensity[i])
+        intensity[i] = intensity[i] / np.median(intensity[i])
         #int_1 = intensity[n]
         #min_1 = int_1[int_1.argmin()]
         #max_1 = int_1[int_1.argmax()]
@@ -342,6 +364,7 @@ def get_data_from_fits():
     
     intensity = []
     targets = []
+    #coordinates = []
     for file in fnames:
         # -- open file -------------------------------------------------------------
         f = fits.open(fitspath + file)
@@ -351,6 +374,11 @@ def get_data_from_fits():
         i = f[1].data['PDCSAP_FLUX']
         tic = f[1].header["OBJECT"]
         targets.append(tic)
+
+        #ra = f[1].header["RA_OBJ"]
+        #dec = f[1].header["DEC_OBJ"]
+        #coords = str(ra) + " " + str(dec)
+        #coordinates.append(coords)
         # -- find small nan gaps ---------------------------------------------------
         # >> adapted from https://gist.github.com/alimanfoo/c5977e87111abe8127453b21204c1065
         # >> find run starts
@@ -405,13 +433,14 @@ def plot_lof(time, intensity, targets, features, n, date):
     smallest_indices = ranked[:n]
 
     #plot just the largest indices
+    #rows, columns
     fig, axs = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
     fig.subplots_adjust(hspace=0)
     
     for k in range(n):
         ind = largest_indices[k]
-        axs[k].plot(time, intensity[ind], '.k')
-        axs[k].set_title(targets[ind])
+        axs[k].plot(time, intensity[ind], '.k', label=targets[ind])
+        axs[k].legend(loc="upper left")
         axs[k].set_ylabel("relative flux")
         axs[-1].set_xlabel("BJD [-2457000]")
     fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
@@ -425,8 +454,8 @@ def plot_lof(time, intensity, targets, features, n, date):
     
     for m in range(n):
         ind = smallest_indices[m]
-        axs1[m].plot(time, intensity[ind], '.k')
-        axs1[m].set_title(targets[ind])
+        axs1[m].plot(time, intensity[ind], '.k', label=targets[ind])
+        axs1[m].legend(loc="upper left")
         axs1[m].set_ylabel("relative flux")
         axs1[-1].set_xlabel("BJD [-2457000]")
     fig1.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
