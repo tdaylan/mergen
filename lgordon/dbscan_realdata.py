@@ -7,15 +7,17 @@ Created on Thu Mar 26 20:00:17 2020
 
 
 import numpy as np
+import numpy.ma as ma 
 import matplotlib.pyplot as plt
 from pylab import rcParams
-rcParams['figure.figsize'] = 10, 10
+rcParams['figure.figsize'] = 16, 6
 rcParams["lines.markersize"] = 2
 from scipy.signal import argrelextrema
 
 import astropy
 from astropy.io import fits
 import scipy.signal as signal
+from astropy.stats import SigmaClip
 
 from datetime import datetime
 import os
@@ -39,20 +41,87 @@ from astroquery.simbad import Simbad
 
 test(8) #should return 8 * 4
 
+
 #%%
 
 time, intensity, targets = get_data_from_fits()
-intensity = normalize(intensity)
 
+#%%
+intensity = normalize(intensity)
 
 lc_feat = create_list_featvec(time, intensity)
 
-#%%
-#from https://scikit-learn.org/stable/auto_examples/cluster/plot_dbscan.html#sphx-glr-auto-examples-cluster-plot-dbscan-py
-#DBSCAN color plots
-n_choose_2_features_plotting(lc_feat, "4-20", "none")
+n_choose_2_features_plotting(lc_feat, "4-29", "none")
 #%%
 plot_lof(time, intensity, targets, lc_feat, 10, "4-20")
+
+
+#%%
+
+#1st-4th moments (0-3), natural log variance (4), skew (5), kurtosis (6), 
+  # power, natural log power, period of max power (0.1 to 10 days) (7-9), 
+   # slope, natural log of slope (10-11)
+    # integration of periodogram over: period of 0.1-10, period of 0.1-1, period of 1-3,
+     #   period of 3-10 days, (12-16)
+      #  period of max power for 0.01-0.1 days (for moving objects) (17)
+
+#%%
+#use to dig up header
+print_header(266)
+
+#%%
+all_outliers = []
+#period of 0.1-1 (integrated) vs log of max power
+plt.scatter(lc_feat[:,13],lc_feat[:,8]) 
+
+#five largest points (outliers) are colored separately
+period_01_1_outliers = np.argsort(lc_feat[:,13])[-5:]
+
+plt.scatter(lc_feat[:,13][period_01_1_outliers], lc_feat[:,8][period_01_1_outliers])
+plt.show()
+
+for i in range(len(period_01_1_outliers)):
+    print(period_01_1_outliers[i])
+    plt.scatter(time, intensity[period_01_1_outliers[i]])
+    plt.title(targets[period_01_1_outliers[i]])
+    #plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-29/" + targets[period_01_1_outliers[i]] + "-lc.png")
+    plt.show()
+    all_outliers.append(int(period_01_1_outliers[i]))
+
+#for log of max power outliers
+logmaxpoweroutlier = np.argmax(lc_feat[:,8])
+print(logmaxpoweroutlier)
+plt.scatter(lc_feat[:,13],lc_feat[:,8]) 
+plt.scatter(lc_feat[:,13][logmaxpoweroutlier], lc_feat[:,8][logmaxpoweroutlier])
+plt.show()
+
+plt.scatter(time, intensity[logmaxpoweroutlier])
+plt.title(targets[logmaxpoweroutlier])
+#plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/4-29/" + targets[logmaxpoweroutlier] + "-lc.png")
+plt.show()
+
+all_outliers.append(logmaxpoweroutlier)
+
+
+outliers = np.asarray(all_outliers)
+print(outliers, type(outliers))
+outliers = np.unique(outliers)
+print(outliers)
+
+featvec_reduced = np.delete(lc_feat, outliers, 0)   
+print(len(featvec_reduced), len(lc_feat))
+
+plt.scatter(featvec_reduced[:,13],featvec_reduced[:,8]) 
+
+
+
+#%%
+
+#so now to poke at other plots:
+plt.autoscale(enable=True, axis='both', tight=True)
+plt.scatter(featvec_reduced[:,13],featvec_reduced[:,10])
+plt.tight_layout()
+plt.show()
 
 
 #%%
@@ -73,14 +142,6 @@ print(k)
 
 check_diagonalized(k)
 
-#%%
-#plotting different DBSCAN parameters to try and max out the distro
-#avg (0) vs log skew (5)
-
-logmaxpower = lc_feat[:,8]
-logskew = lc_feat[:,5]
-
-plt.scatter(logmaxpower, logskew)
 #%%
 eps = np.arange(0.1, 5, 0.1)
 #eps2 = np.concatenate((eps, eps))
