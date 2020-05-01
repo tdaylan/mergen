@@ -41,6 +41,7 @@ from sklearn.neighbors import LocalOutlierFactor
 
 import astroquery
 from astroquery.simbad import Simbad
+from astroquery.mast import Catalogs
 
 
 #Testing that this file imported correctly ------
@@ -154,24 +155,43 @@ def create_list_featvec(time_axis, datasets):
     returns a list of featurevectors, one for each input . """
     num_data = len(datasets) #how many datasets
     x = time_axis #creates the x axis
-    feature_list = np.zeros((num_data, 17)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
+    feature_list = np.zeros((num_data, 16)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
     for n in range(num_data):
         feature_list[n] = featvec(x, datasets[n])
-        if n % 10 == 0: print(n + " completed")
+        if n % 50 == 0: print(str(n) + " completed")
     return feature_list
 
 def featvec(x_axis, sampledata): 
     """calculates the feature vector of the single set of data (ie, intensity[0])
-    currently returns 17: 
-        1st-4th moments, 
-        natural log variance, skew, kurtosis, 
-        power, natural log power, period of max power (0.1 to 10 days), 
-        slope, natural log of slope
-        integration of periodogram over: period of 0.1-10, period of 0.1-1, period of 1-3,
-        period of 3-10 days,
-        period of max power for 0.01-0.1 days (for moving objects)
-        ***if you update the number of features, you have to update the number of features in 
-        create_list_featvec!!!!"""
+    currently returns 16: 
+        0 - Average
+        1 - Variance
+        2 - Skewness
+        3 - Kurtosis
+        
+        4 - ln variance
+        5 - ln skewness
+        6 - ln kurtosis
+        
+        (over 0.1 to 10 days)
+        7 - maximum power
+        8 - ln maximum power
+        9 - period of maximum power
+        
+        10 - slope
+        11 - ln slope
+        
+        (integration of periodogram over time frame)
+        12 - P0 - 0.1-1 days
+        13 - P1 - 1-3 days
+        14 - P2 - 3-10 days
+        
+        (over 0-0.1 days, for moving objects)
+        15 - Period of max power
+        
+        
+        ***if you update the number of features, 
+        you have to update the number of features in create_list_featvec!!!!"""
     featvec = moments(sampledata) #produces moments and log moments
     
     
@@ -207,12 +227,11 @@ def featvec(x_axis, sampledata):
     featvec.append(np.log(np.abs(slope)))
     
     
-    integrating = np.trapz(pg, periods) #integrates the whole 0.1-10 day range
+    #integrating = np.trapz(pg, periods) #integrates the whole 0.1-10 day range
     integrating1 = np.trapz(pg[457:5000], periods[457:5000]) #0.1 days to 1 days
     integrating2 = np.trapz(pg[121:457], periods[121:457])#1-3 days
     integrating3 = np.trapz(pg[0:121], periods[0:121]) #3-10 days
     
-    featvec.append(integrating)
     featvec.append(integrating1)
     featvec.append(integrating2)
     featvec.append(integrating3)
@@ -259,21 +278,35 @@ def n_choose_2_features_plotting(feature_vectors, date, clustering):
     this function does NOT plot kmeans/dbscan colors
     """
     cluster = "empty"
+    folder_label = "blank"
     if clustering == 'dbscan':
         db = DBSCAN(eps=0.5, min_samples=10).fit(feature_vectors) #eps is NOT epochs
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
         cluster = 'dbscan'
+        folder_label = "dbscan-colored"
     elif clustering == 'kmeans': 
         Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
         x = Kmean.fit(feature_vectors)
         classes_kmeans = x.labels_
         cluster = 'kmeans'
+        folder_label = "kmeans-colored"
     else: 
         print("no clustering chosen")
         cluster = 'none'
-        
-    for n in range(17):
+        folder_label = "nchoose2"
+    #makes folder and saves to it    
+    path = "/Users/conta/UROP_Spring_2020/plot_output/" + date + "/" + folder_label
+    try:
+        os.makedirs(path)
+    except OSError:
+        print ("Creation of the directory %s failed" % path)
+        print("New folder created will have -new at the end. Please rename.")
+        os.makedirs(path + "-new")
+    else:
+        print ("Successfully created the directory %s" % path) 
+ 
+    for n in range(16):
         feat1 = feature_vectors[:,n]
         if n == 0:
             graph_label1 = "Average"
@@ -312,22 +345,19 @@ def n_choose_2_features_plotting(feature_vectors, date, clustering):
             graph_label1 = "Log Slope"
             fname_label1 = "LogSlope"
         elif n==12:
-            graph_label1 = "Power integrated over T = 0.1 to 10 days"
-            fname_label1 = "IntPower01-10"
-        elif n == 13:
-            graph_label1 = "Power integrated over T = 0.1 to 1 days"
-            fname_label1 = "IntPower01-1"
+            graph_label1 = "P0"
+            fname_label1 = "P0"
         elif n == 14:
-            graph_label1 = "Power integrated over T = 1 to 3 days"
-            fname_label1 = "IntPower1-3"
+            graph_label1 = "P1"
+            fname_label1 = "P1"
         elif n == 15:
-            graph_label1 = "Power integrated over T = 3 to 10 days"
-            fname_label1 = "IntPower3-10"
+            graph_label1 = "P2"
+            fname_label1 = "P2"
         elif n == 16:
-            graph_label1 = "Period of Max Power (0.001 to 0.1 days)"
-            fname_label1 = "MaxPower0to0_1"
+            graph_label1 = "Period of Maximum Power (0.001 to 0.1 days)"
+            fname_label1 = "Period0to0_1"
             
-        for m in range(17):
+        for m in range(16):
             if m == n:
                 break
             if m == 0:
@@ -367,20 +397,17 @@ def n_choose_2_features_plotting(feature_vectors, date, clustering):
                 graph_label2 = "Log Slope"
                 fname_label2 = "LogSlope"
             elif m==12:
-                graph_label2 = "Power integrated over T = 0.1 to 10 days"
-                fname_label2 = "IntPower01-10"
-            elif m == 13:
-                graph_label2 = "Power integrated over T = 0.1 to 1 days"
-                fname_label2 = "IntPower01-1"
+                graph_label2 = "P0"
+                fname_label2 = "P0"
             elif m == 14:
-                graph_label2 = "Power integrated over T = 1 to 3 days"
-                fname_label2 = "IntPower1-3"
+                graph_label2 = "P1"
+                fname_label2 = "P1"
             elif m == 15:
-                graph_label2 = "Power integrated over T = 3 to 10 days"
-                fname_label2 = "IntPower3-10"
+                graph_label2 = "P2"
+                fname_label2 = "P2"
             elif m == 16:
                 graph_label2 = "Period of Max Power (0.001 to 0.1 days)"
-                fname_label2 = "MaxPower0to0_1"
+                fname_label2 = "Period0to0_1"
                 
             feat2 = feature_vectors[:,m]
             
@@ -418,7 +445,7 @@ def n_choose_2_features_plotting(feature_vectors, date, clustering):
                 plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/kmeans-colored/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
                 plt.show()
             elif cluster == 'none':
-                plt.scatter(feat1, feat2, s = 2, color = 'blue')
+                plt.scatter(feat1, feat2, s = 2, color = 'black')
                 #plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
