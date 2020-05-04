@@ -10,8 +10,7 @@ Last updated: April 2020
 import numpy as np
 import numpy.ma as ma 
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid.inset_locator import (inset_axes, InsetPosition,
-                                                  mark_inset)
+from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)
 
 from pylab import rcParams
 rcParams['figure.figsize'] = 16, 6
@@ -25,6 +24,7 @@ from astropy.stats import SigmaClip
 
 from datetime import datetime
 import os
+import shutil
 from scipy.stats import moment, sigmaclip
 
 import sklearn
@@ -43,6 +43,7 @@ from sklearn.neighbors import LocalOutlierFactor
 import astroquery
 from astroquery.simbad import Simbad
 from astroquery.mast import Catalogs
+from astroquery.mast import Observations
 
 test(8) #should return 8 * 4
 
@@ -52,7 +53,7 @@ test(8) #should return 8 * 4
 #lc_feat = create_list_featvec(time, intensity)
 
 #if just running on intensity files you already have, run this:
-
+#%%
 time, intensity, targets, lc_feat = get_from_files()
 
 
@@ -65,3 +66,63 @@ n_choose_2_features_plotting(lc_feat, "5-4", "dbscan")
 plot_lof(time, intensity, targets, lc_feat, 10, "5-4")
 
 #%%
+
+targets_sector20 = np.loadtxt("/Users/conta/UROP_Spring_2020/all_targets_S020_v1.txt", usecols = 0)
+
+print(targets_sector20)
+
+#%%
+
+def lc_from_target_list(targetList):
+    fitspath = '/Users/conta/UROP_Spring_2020/mastDownload/TESS/'
+    ints = []
+    times = []
+    targets_TICS = []
+    for target in targetList:
+        #print(target, type(target), int(target))
+        targ = "TIC " + str(int(target))
+        print(targ)
+        obs_table = Observations.query_object(targ, radius=".02 deg")
+        data_products_by_obs = Observations.get_product_list(obs_table[0:2])
+        
+        filter_products = Observations.filter_products(data_products_by_obs, dataproduct_type = 'timeseries')
+        manifest = Observations.download_products(filter_products)
+        print(manifest)
+        
+        filepaths = []
+        for root, dirs, files in os.walk(fitspath):
+            for name in files:
+                if name.endswith(("lc.fits")):
+                    filepaths.append(root + "/" + name)
+            
+        print(filepaths)
+        
+        for file in filepaths:
+                # -- open file -------------------------------------------------------------
+            f = fits.open(file, memmap=False)
+
+            time1 = f[1].data['TIME']
+            i1 = f[1].data['PDCSAP_FLUX']
+            tic1 = f[1].header["OBJECT"]
+            times.append(time1)
+            ints.append(i1)
+            targets_TICS.append(tic1)
+            f.close()
+            
+        if os.path.isdir("mastDownload") == True:
+            shutil.rmtree("mastDownload")               #deletes ALL data to conserve space
+            
+        
+        print(ints)
+        
+        return times, ints, targets_TICS
+        
+        
+times, ints, targets_TICS = lc_from_target_list(targets_sector20)
+
+
+
+
+
+
+
