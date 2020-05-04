@@ -1,7 +1,7 @@
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 #
 # pipeline for retrieving outliers in tess data
-# etc 04-20
+# etc 0420
 #
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -12,6 +12,10 @@ import pdb
 from itertools import product
 from sklearn.metrics import confusion_matrix
 
+test_mock_data = True
+test_supervised = False
+test_unsupervised = False
+
 topo_test = True # >> tests on mock data, supervised data and unsupervised data
 # * runs unsupervised mode
 # * runs supervised mode
@@ -19,23 +23,22 @@ topo_test = True # >> tests on mock data, supervised data and unsupervised data
 #   * runs no noise
 #   * runs .1, .5, ... noise
 #   * !! runs all noise (no light curves with peak)
-noise = [0., .1, .5]
-output_dir = './plots/plots042920-6/'
+noise = [.1, .5]
+training_size, test_size, input_dim = 1039, 116, 8896
+training_size_supervised, test_size_supervised = 313, 35
+input_dim_supervised = 8896
+output_dir = './plots/plots050420-dropout/'
 
 # >> unsupervised mode
-fname_time  = 'section1-time.txt'
-fname_flux  = 'section1-flux.csv'
-fname_ticid = 'section1-ticid.txt'
-# fname_time = 'tessdatasector20-time.txt'
-# fname_flux = 'tessdatasector20-intensity.csv'
-# fname_ticid = 'tessdatasector20-ticid.txt'
+fname_time  = 's0020-before_orbit-1155-time.txt' # s0020-1155-
+fname_flux  = 's0020-before_orbit-1155-flux.csv'
+fname_ticid = 's0020-before_orbit-1155-ticid.txt'
 
 # >> supervised mode
 fname_class = 's0020-348-class.csv'
-fname_time_supervised  = 's0020-348-time.csv'
-fname_flux_supervised  = 's0020-348-flux.csv'
-fname_err_supervised   = 's0020-348-flux_err.csv'
-fname_ticid_supervised = 's0020-348-ticid.csv'
+fname_time_supervised  = 's0020-before_orbit-348-time.txt'
+fname_flux_supervised  = 's0020-before_orbit-348-flux.csv'
+fname_ticid_supervised = 's0020-before_orbit-348-ticid.txt'
 
 # >> topography settings
 split_lc=False
@@ -43,14 +46,13 @@ input_rms = False
 supervised = False
 
 # >> parameters
-p = {'kernel_size': [[3,3,3,3,3,3,3,3]],
+p = {'kernel_size': [[3,3,3,3]],
       'latent_dim': [25],
       'strides': [1],
-      'epochs': [7],
-      'dropout': [0.2],
-      'num_conv_layers': [8],
-      'num_filters': [[8,16,32,64,64,32,16,8]],
-      'batch_size': [32],
+      'epochs': [25],
+      'dropout': [0.1,0.3],
+      'num_filters': [[32,32,32,32]],
+      'batch_size': [128],
       'activation': ['relu'],
       'optimizer': ['adam'],
       'last_activation': ['relu'],
@@ -105,7 +107,7 @@ make_movie         = False
 addend = 1. # !!
 # >> lc index in x_test
 intermed_inds = [6,0] # >> plot_intermed_act
-input_bottle_inds = [0,1,2,3,4] # >> in_bottle_out
+input_bottle_inds = [0,1,2,-6,-7] # >> in_bottle_out
 inds = [0,1,2,3,4,5,6,7,-1,-2,-3,-4,-5,-6,-7] # >> input_output_plot
 # inds = [0,1,2,3,4,5,6,7,8,9,0,1,2,3,4]
 
@@ -120,6 +122,7 @@ if grid_search:
         p1 = {}
         for j in range(len(p.keys())):
             p1[list(p.keys())[j]] = p_combinations[i][j]
+        p1['num_conv_layers'] = len(p1['num_filters'])
         p_list.append(p1)
 elif randomized_search:
     for n in range(n_iter):
@@ -139,99 +142,115 @@ elif randomized_search:
                     p_dict['num_filters'] = list(num_filts)
         p_list.append(p_dict)
 
-if topo_test:
-    iterations = 5
-else:
-    iterations = 1
+iterations = 0
+if test_mock_data: iterations += 2*len(noise)
+if test_supervised: iterations += 1
+if test_unsupervised: iterations += 1
 
-for k in range(iterations):
+# == loop through parameter sets ==============================================
+
+for i in range(len(p_list)):
+    p = p_list[i]
+    print(p)
     
-    if k == 0:
-        supervised = False
-        mock_data = False
-    elif k == 1:
-        supervised = True
-        mock_data = False
-    else:
-        supervised = False
-        mock_data = True
-        noise_level = noise[k-2]
-    
-    # -- x_train, x_test ------------------------------------------------------
-    
-    if not mock_data:
-        # >> load classes
-        if supervised:
-            classes     = np.loadtxt(fname_class)
-            num_classes = len(np.unique(classes))
-            
-            x     = np.loadtxt(fname_time_supervised)
-            flux  = np.loadtxt(fname_flux_supervised, delimiter=',')
-            ticid = np.loadtxt(fname_ticid_supervised)
-            
-            # !!
-            orbit_gap_start = np.argmax(np.diff(x))
-            orbit_gap_end = orbit_gap_start + 1
-            
+    # -- loop through supervised, unsupervised modes --------------------------
+    for k in range(iterations):
+        
+        if test_mock_data:
+            if k < len(noise):            # >> run mock data unsupervised
+                supervised, mock_data, noise_level = False, True, noise[k]
+                title = "mock data noise "+str(noise_level)
+            elif k < 2*len(noise):        # >> run mock data supervised
+                supervised, mock_data = True, True
+                noise_level = noise[k-len(noise)]
+                title = 'mock data supervised noise '+str(noise_level)
+            if test_unsupervised:
+                if k == iterations - 2:
+                    supervised, mock_data = False, False
+                    title='unsupervised mode'
+                if test_supervised and k == iterations-1:
+                    supervised, mock_data = True, False
+                    title='supervised mode'
+            elif test_supervised:
+                supervised, mock_data = True, False
+                title='supervised mode'
+                
+        elif test_unsupervised:
+            if k == 0:
+                supervised, mock_data = False, False
+                title='unsupervised mode'
+            if test_supervised and k ==1:
+                supervised, mock_data = True, False
+                title='supervised mode'
+                
         else:
-            classes     = False
-            num_classes = False
+            supervised, mock_data = True, False
+            title='supervised mode'
+        
+        print(title)
+        
+        # == x_train, x_test ==================================================
+        if not mock_data:
+            # -- load tess data -----------------------------------------------
+            if supervised:
+                classes     = np.loadtxt(fname_class)
+                num_classes = len(np.unique(classes))
+                x     = np.loadtxt(fname_time_supervised)
+                flux  = np.loadtxt(fname_flux_supervised, delimiter=',')
+                ticid = np.loadtxt(fname_ticid_supervised)
+                orbit_gap_start = np.argmax(np.diff(x))
+                orbit_gap_end = orbit_gap_start + 1     
+            else:
+                classes     = False
+                num_classes = False
+                x     = np.loadtxt(fname_time)
+                flux  = np.loadtxt(fname_flux, delimiter=',')
+                ticid = np.loadtxt(fname_ticid)
+                orbit_gap_start = len(x)-1 # !!
+                orbit_gap_end = orbit_gap_start + 1
+        
+            # >> normalize
+            flux, x = ml.normalize(flux, x)
+            x_train, x_test, y_train, y_test, x = \
+                ml.split_data(flux, x, p, train_test_ratio=0.90, 
+                              supervised=supervised, classes=classes)
             
-            x     = np.loadtxt(fname_time)
-            flux  = np.loadtxt(fname_flux, delimiter=',')
-            ticid = np.loadtxt(fname_ticid)
-        
-            # !! find orbit gap
-            orbit_gap_start = len(x)-1
-            orbit_gap_end = orbit_gap_start + 1
-        
-        # >> truncate (must be a multiple of 2**num_conv_layers)
-        new_length = int(np.shape(flux)[1] / \
-                     (2**(np.max(p['num_conv_layers'])/2)))*\
-                     int((2**(np.max(p['num_conv_layers'])/2)))
-        flux = np.delete(flux, np.arange(new_length, np.shape(flux)[1]), 1)
-        x = x[:new_length]
-    
-        x_train, x_test, y_train, y_test, x = ml.split_data(flux, x,
-                                                            train_test_ratio=0.90,
-                                                            supervised=supervised,
-                                                            classes=classes,
-                                                            interpolate=False)
-
-        if not supervised and not mock_data:
-            training_size, test_size = np.shape(x_train)[0],np.shape(x_test)[0]
-        
-        ticid_train = ticid[:np.shape(x_train)[0]]
-        ticid_test = ticid[-1 * np.shape(x_test)[0]:]
-        
-        # if not split_lc:
-        #     x_train = x_train[:,:orbit_gap_start]
-        #     x_test = x_test[:,:orbit_gap_start]
-        #     x = x[:orbit_gap_start]
-        
-        # >> normalize
-        x_train = ml.normalize(x_train)
-        x_test = ml.normalize(x_test)
-        
-    else:
-        # !! try sinusoids (vary period, amplitude) and gaussians
-        x, x_train, y_train, x_test, y_test = \
-            ml.signal_data(training_size=training_size, test_size=test_size,
-                           input_dim=new_length,
-                           noise_level=noise_level)
+            if not split_lc:
+                x_train = x_train[:,:orbit_gap_start]
+                x_test = x_test[:,:orbit_gap_start]
+                x = x[:orbit_gap_start]
             
-    if input_rms:
-        rms_train, rms_test = ml.rms(x_train), ml.rms(x_test)
-    else:
-        rms_train, rms_test = False, False
+            ticid_train = ticid[:np.shape(x_train)[0]]
+            ticid_test = ticid[-1 * np.shape(x_test)[0]:]
+            
+        else: # -- mock data --------------------------------------------------
+            # !! try sinusoids (vary period, amplitude) and 
+            if supervised:
+                x, x_train, y_train, x_test, y_test = \
+                    ml.signal_data(training_size=training_size_supervised,
+                                   test_size=test_size_supervised,
+                                   input_dim=input_dim_supervised,
+                                   noise_level=noise_level)
+                num_classes = 2
+                orbit_gap_start, orbit_gap_end = False, False
+                ticid_train, ticid_test = False, False
+            else:
+                x, x_train, y_train, x_test, y_test = \
+                    ml.signal_data(training_size=training_size,
+                                   test_size=test_size,
+                                   input_dim=input_dim,
+                                   noise_level=noise_level)
+                num_classes = False
+                orbit_gap_start, orbit_gap_end = False, False
+                ticid_train, ticid_test = False, False
+                
+        if input_rms:
+            rms_train, rms_test = ml.rms(x_train), ml.rms(x_test)
+        else:
+            rms_train, rms_test = False, False
     
-    # -- run model ----------------------------------------------------------------
-    
-    for i in range(len(p_list)):
-    
-        p = p_list[i]
-        print(p)
-        
+        # == run model ========================================================
+            
         history, model = ml.autoencoder(x_train, x_test, p,
                                         input_rms=input_rms,
                                         rms_train=rms_train, rms_test=rms_test,
@@ -245,10 +264,10 @@ for k in range(iterations):
         if input_rms: x_predict = model.predict([x_test, ml.rms(x_test)])
         x_predict = model.predict(x_test)
     
-        # -- param summary txt ----------------------------------------------------
+        # -- param summary txt ------------------------------------------------
             
         with open(output_dir + 'param_summary.txt', 'a') as f:
-            f.write('parameter set ' + str(i) + '\n')
+            f.write('parameter set ' + str(i) + ' - ' + title +'\n')
             f.write(str(p.items()) + '\n')
             label_list = ['loss', 'accuracy', 'precision', 'recall']
             key_list =['loss', 'accuracy', list(history.history.keys())[-2],
@@ -268,13 +287,13 @@ for k in range(iterations):
                 f.write(str(y_predict)+'\n')
             else:
                 # >> assuming uncertainty of 0.02
-                chi_2 = np.average((x_predict-ml.normalize(x_test))**2 / 0.02)
+                chi_2 = np.average((x_predict-x_test)**2 / 0.02)
                 f.write('chi_squared ' + str(chi_2) + '\n')
-                mse = np.average((x_predict - ml.normalize(x_test))**2)
+                mse = np.average((x_predict - x_test)**2)
                 f.write('mse '+ str(mse) + '\n')
             f.write('\n')
     
-        # -- data visualization ---------------------------------------------------
+        # == data visualization ===============================================
         
         # >> plot loss, accuracy, precision, recall vs. epochs
         if plot_epoch:
@@ -282,11 +301,13 @@ for k in range(iterations):
         
         # >> plot some decoded light curves
         if plot_in_out and not supervised:
-            fig, axes = ml.input_output_plot(x, x_test, x_predict, inds=inds,
-                                             out=output_dir+\
-                                                    'input_output-x_test-'+\
+            fig, axes = ml.input_output_plot(x, x_test, x_predict,
+                                             output_dir+'input_output-x_test-'+\
                                               str(i)+'-'+str(k)+'.png',
-                                              addend=addend, sharey=False)
+                                              ticid_test=ticid_test,
+                                              inds=inds,
+                                              addend=addend, sharey=False,
+                                              mock_data=mock_data)
         # >> plot latent space
         activations = ml.get_activations(model, x_test, rms_test = rms_test,
                                          input_rms=input_rms)
@@ -311,7 +332,7 @@ for k in range(iterations):
     
         # >> plot intermediate activations
         if plot_intermed_act:
-            ml.intermed_act_plot(x, model, activations, ml.normalize(x_test),
+            ml.intermed_act_plot(x, model, activations, x_test,
                                  output_dir+'intermed_act-'+str(i)+'-'+str(k)+'-',
                                  addend=addend, inds=intermed_inds)
         
@@ -323,27 +344,32 @@ for k in range(iterations):
         # >> plot input, bottleneck, output
         if plot_in_bottle_out and not supervised:
             ml.input_bottleneck_output_plot(x, x_test, x_predict,
-                                            activations,
-                                            model, out=output_dir+\
+                                            activations, model, ticid_test,
+                                            output_dir+\
                                             'input_bottleneck_output-'+\
-                                            str(i)+'-'+str(k)+'.png', addend=addend,
-                                            inds = input_bottle_inds, sharey=False)
+                                            str(i)+'-'+str(k)+'.png',
+                                            addend=addend,
+                                            inds = input_bottle_inds,
+                                            sharey=False, mock_data=mock_data)
                 
         if plot_clustering:
             bottleneck_ind = np.nonzero(['dense' in x.name for x in \
                                          model.layers])[0][0]
             bottleneck = activations[bottleneck_ind - 1]        
-            ml.latent_space_clustering(bottleneck, ml.normalize(x_test), x,
+            ml.latent_space_clustering(bottleneck, x_test, x,
                                        ticid_test, out=output_dir+\
                                            'clustering-x_test-'+str(i)+'-'+\
                                                str(k)+'-',
                                        addend=addend)
                 
         if supervised:
-            y_train_classes = classes[:np.shape(x_train)[0]]
+            if mock_data:
+                y_train_classes = y_train[:,1]
+            else:
+                y_train_classes = classes[:np.shape(x_train)[0]]
             ml.training_test_plot(x,x_train,x_test,
                                   y_train_classes,y_true,y_predict,num_classes,
                                   output_dir+'lc-'+str(i)+'-'+str(k)+'-',
-                                  ticid_train, ticid_test)
+                                  ticid_train, ticid_test, mock_data=mock_data)
     
-    # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
