@@ -10,6 +10,9 @@ Last updated: April 2020
 import numpy as np
 import numpy.ma as ma 
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid.inset_locator import (inset_axes, InsetPosition,
+                                                  mark_inset)
+
 from pylab import rcParams
 rcParams['figure.figsize'] = 16, 6
 rcParams["lines.markersize"] = 2
@@ -43,15 +46,22 @@ from astroquery.mast import Catalogs
 
 test(8) #should return 8 * 4
 
+#if doing from scratch, run these: 
+#time, intensity, targets = get_data_from_fits()
+#intensity = normalize(intensity)
+#lc_feat = create_list_featvec(time, intensity)
 
-time, intensity, targets = get_data_from_fits()
+#if just running on intensity files you already have, run this:
 
-intensity = normalize(intensity)
-
-
-lc_feat = create_list_featvec(time, intensity)
+time, intensity, targets, lc_feat = get_from_files()
 
 
-n_choose_2_features_plotting(lc_feat, "5-1", "none")
 
-plot_lof(time, intensity, targets, lc_feat, 10, "5-1")
+#%%
+n_choose_2_features_plotting(lc_feat, "5-4", "none")
+n_choose_2_features_plotting(lc_feat, "5-4", "kmeans")
+n_choose_2_features_plotting(lc_feat, "5-4", "dbscan")
+
+plot_lof(time, intensity, targets, lc_feat, 10, "5-4")
+
+#%%

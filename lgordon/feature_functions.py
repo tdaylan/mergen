@@ -11,6 +11,8 @@ Functions used across files. Updated April 2020.
 import numpy as np
 import numpy.ma as ma 
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)
+
 import scipy.signal as signal
 from scipy.stats import moment
 from scipy import stats
@@ -49,6 +51,19 @@ from astroquery.mast import Catalogs
 
 def test(num):
     print(num * 4)
+    
+# For running on the current data/ feature vectors (as of 5/4/20)
+def get_from_files():
+    """pulls time, intensity, and feature vectors from text files that they are saved in
+    currently pulling the 5/4 version of it"""
+    intensity = np.loadtxt("/Users/conta/UROP_Spring_2020/intensities.txt", delimiter = " ")
+
+    time = np.loadtxt("/Users/conta/UROP_Spring_2020/timeindex.txt", delimiter = " ")
+    
+    targets = np.loadtxt("/Users/conta/UROP_Spring_2020/targets.txt", dtype = str, delimiter = ",")
+    
+    lc_feat = np.loadtxt("/Users/conta/UROP_Spring_2020/featvecs-5-4-20.txt", delimiter = " ")
+    return time, intensity, targets, lc_feat
     
     
 #Pulling data from files and processing it ---------
