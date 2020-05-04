@@ -222,18 +222,17 @@ def create_mlp(input_dim):
     model = Model(input_img, x)
     return model
     
-# :: partitioning data ::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :: preprocessing data :::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def split_data(intensity, time, train_test_ratio = 0.9, cutoff=16336,
+def split_data(flux, time, p, train_test_ratio = 0.9, cutoff=16336,
                supervised=False, classes=False, interpolate=False):
 
-    # >> truncate if odd
-    if np.shape(intensity)[1] % 2 == 1:
-        intensity = np.delete(intensity, 1, 1)
-        time = time[-1]
-    # if type(cutoff) == int:
-    #     intensity = np.delete(intensity,
-    #                           np.arange(cutoff,np.shape(intensity)[1]),1)
+    # >> truncate (must be a multiple of 2**num_conv_layers)
+    new_length = int(np.shape(flux)[1] / \
+                 (2**(np.max(p['num_conv_layers'])/2)))*\
+                 int((2**(np.max(p['num_conv_layers'])/2)))
+    flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
+    time = time[:new_length]
 
     # >> split test and train data
     if supervised:
@@ -256,12 +255,12 @@ def split_data(intensity, time, train_test_ratio = 0.9, cutoff=16336,
 
         y_train = np.array(y_train)
         y_test - np.array(y_test)
-        x_train = np.copy(intensity[train_inds])
-        x_test = np.copy(intensity[test_inds])
+        x_train = np.copy(flux[train_inds])
+        x_test = np.copy(flux[test_inds])
     else:
-        split_ind = int(train_test_ratio*np.shape(intensity)[0])
-        x_train = np.copy(intensity[:split_ind])
-        x_test = np.copy(intensity[split_ind:])
+        split_ind = int(train_test_ratio*np.shape(flux)[0])
+        x_train = np.copy(flux[:split_ind])
+        x_test = np.copy(flux[split_ind:])
         y_test, y_train = [False, False]
         
     if interpolate:
@@ -282,53 +281,46 @@ def rms(x):
 
 def standardize(x):
     cutoff = np.shape(x)[1]
-    # >> subtract by mean
-    means = np.mean(x, axis = 1, keepdims=True)
-    # means = np.reshape(means, (np.shape(means)[0], 1, 1))
-    # means = np.repeat(means, cutoff, axis = 1)
+    means = np.mean(x, axis = 1, keepdims=True) # >> subtract mean
     x = x - means
-    
-    # >> divide by standard deviations
-    stdevs = np.std(x, axis = 1, keepdims=True)
-    x = x / stdevs
-        
+    stdevs = np.std(x, axis = 1, keepdims=True) # >> divide by standard dev
+    x = x / stdevs   
     return x
-        
     
-def normalize(x):
-    medians = np.median(x, axis = 1, keepdims=True)
-    x = x / medians - 1.
-    return x
+def normalize(flux, time):
+    medians = np.median(flux, axis = 1, keepdims=True)
+    flux = flux / medians - 1.
+    return flux, time
 
-# def normalize1(x):
-#     xmin = np.min(x, axis=1, keepdims=True)
-#     x = x - xmin
-#     xmax = np.max(x, axis=1, keepdims=True)
-#     x = x * 2 / xmax
-#     x = x - 1.
-#     # scale = 2/(xmax-xmin)
-#     # offset = (xmin - xmax)/(xmax-xmin)
-#     # x = x*scale + offset
-#     return x
-
-def interpolate_lc(flux, time, flux_err, interp_tol=20./(24*60)):
+def interpolate_lc(flux, time, flux_err=False, interp_tol=20./(24*60),
+                   num_sigma=5, orbit_gap_len = 3):
     '''Interpolates nan gaps less than 20 minutes long.'''
+    from astropy.stats import SigmaClip
+    from scipy import interpolate
+    flux_interp = []
     for i in flux:
+        # >> sigma clip
+        sigclip = SigmaClip(sigma=num_sigma, maxiters=None, cenfunc='median')
+        clipped_inds = np.nonzero(np.ma.getmask(sigclip(i, masked=True)))
+        i[clipped_inds] = np.nan
+        
+        # >> find nan windows
         n = np.shape(i)[0]
         loc_run_start = np.empty(n, dtype=bool)
         loc_run_start[0] = True
         np.not_equal(np.isnan(i)[:-1], np.isnan(i)[1:], out=loc_run_start[1:])
         run_starts = np.nonzero(loc_run_start)[0]
     
-        # >> find run lengths
+        # >> find nan window lengths
         run_lengths = np.diff(np.append(run_starts, n))
         tdim = time[1]-time[0]
-        interp_inds = run_starts[np.nonzero((run_lengths * tdim <= interp_tol) * \
-                                            np.isnan(i[run_starts]))]
-        interp_lens = run_lengths[np.nonzero((run_lengths * tdim <= interp_tol) * \
-                                              np.isnan(i[run_starts]))]
         
-        # >> interpolate small nan gaps
+        # -- interpolate small nan gaps ---------------------------------------
+        interp_gaps = np.nonzero((run_lengths * tdim <= interp_tol) * \
+                                            np.isnan(i[run_starts]))
+        interp_inds = run_starts[interp_gaps]
+        interp_lens = run_lengths[interp_gaps]
+
         i_interp = np.copy(i)
         for a in range(np.shape(interp_inds)[0]):
             start_ind = interp_inds[a]
@@ -338,13 +330,35 @@ def interpolate_lc(flux, time, flux_err, interp_tol=20./(24*60)):
                                                     i[np.nonzero(~np.isnan(i))])
         i = i_interp
         
-    # >> remove orbit nan gap
+        # -- spline interpolate large nan gaps --------------------------------
+        interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
+                                 (run_lengths*tdim < orbit_gap_len) * \
+                                 np.isnan(i[run_starts]))
+        interp_inds = run_starts[interp_gaps]
+        interp_lens = run_lengths[interp_gaps]
+        
+        i_interp = np.copy(i)
+        for a in range(np.shape(interp_inds)[0]):
+            num_inds = np.nonzero(np.isnan(i)==False)
+            tck = interpolate.splrep(time[num_inds], i[num_inds])
+            
+            start_ind, end_ind = interp_inds[a], interp_inds[a]+interp_lens[a]
+            t_new = np.linspace(time[start_ind-1]+tdim, time[end_ind-1]+tdim,
+                                end_ind-start_ind)
+            i_interp[start_ind:end_ind]=interpolate.splev(t_new, tck)
+        flux_interp.append(i_interp)
+        
+    # -- remove orbit nan gap -------------------------------------------------
+    flux = np.array(flux_interp)
     nan_inds = np.nonzero(np.prod(np.isnan(flux)==False, 
                                   axis = 0) == False)
     time = np.delete(time, nan_inds)
     flux = np.delete(flux, nan_inds, 1)
-    flux_err = np.delete(flux_err, nan_inds, 1)
-    return flux, time, flux_err
+    if type(flux_err) != bool:
+        flux_err = np.delete(flux_err, nan_inds, 1)
+        return flux, time, flux_err
+    else:
+        return flux, time
 
 # :: fake data ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -363,12 +377,15 @@ def signal_data(training_size = 10000, test_size = 100, input_dim = 100,
     '''
 
     x = np.empty((training_size + test_size, input_dim))
-    y = np.empty((training_size + test_size))
+    # y = np.empty((training_size + test_size))
+    y = np.zeros((training_size + test_size, 2))
     l = int(np.shape(x)[0]/2)
     
     # >> no peak data
     x[:l] = np.zeros((l, input_dim))
-    y[:l] = 0.
+    # y[:l] = 0.
+    y[:l, 0] = 1.
+    
 
     # >> with peak data
     time = np.linspace(0, time_max, input_dim)
@@ -376,10 +393,14 @@ def signal_data(training_size = 10000, test_size = 100, input_dim = 100,
         a = height + h_factor*np.random.normal()
         b = center + center_factor*np.random.normal()
         x[l+i] = gaussian(time, a = a, b = b, c = stdev)
-    y[l:] = 1.
+    # y[l:] = 1.
+    y[l:, 1] = 1.
 
     # >> add noise
     x += np.random.normal(scale = noise_level, size = np.shape(x))
+    
+    # >> normalize
+    # x = x / np.median(x, axis = 1, keepdims=True) - 1.
 
     # >> partition training and test datasets
     x_train = np.concatenate((x[:int(training_size/2)], 
@@ -437,6 +458,46 @@ def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
 
 # :: plotting :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+def ticid_label(ax, ticid, title=False):
+    '''https://arxiv.org/pdf/1905.10694.pdf'''
+    from astroquery.mast import Catalogs
+
+    target = 'TIC '+str(int(ticid))
+    catalog_data = Catalogs.query_object(target, radius=0.02, catalog='TIC')
+    Teff = catalog_data[0]["Teff"]
+    rad = catalog_data[0]["rad"]
+    mass = catalog_data[0]["mass"]
+    GAIAmag = catalog_data[0]["GAIAmag"]
+    d = catalog_data[0]["d"]
+    Bmag = catalog_data[0]["Bmag"]
+    Vmag = catalog_data[0]["Vmag"]
+    objType = catalog_data[0]["objType"]
+    Tmag = catalog_data[0]["Tmag"]
+    lum = catalog_data[0]["lum"]
+
+    info = target+'\nTeff {}\nrad {}\nmass {}\nGAIAmag {}d {}\nobjType {}'
+    info1 = target+', Teff {}, rad {}, mass {},\nGAIAmag {}, d {}, objType {}'
+    if title:
+        ax.set_title(info1.format('%.3g'%Teff, '%.3g'%rad, '%.3g'%mass, 
+                                  '%.3g'%GAIAmag, '%.3g'%d, objType),
+                     fontsize='xx-small')
+    else:
+        ax.text(0.98, 0.98, info.format('%.3g'%Teff, '%.3g'%rad, '%.3g'%mass, 
+                                        '%.3g'%GAIAmag, '%.3g'%d, objType),
+                  transform=ax.transAxes, horizontalalignment='right',
+                  verticalalignment='top', fontsize='xx-small')
+    
+def format_axes(ax):
+    # >> force aspect = 3/8
+    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    ax.set_aspect(abs((xlim[1]-xlim[0])/(ylim[1]-ylim[0])*(3./8.)))
+    
+    if list(ax.get_xticklabels()) == []:
+        ax.tick_params('x', bottom=False) # >> remove ticks if no label
+    else:
+        ax.tick_params('x', labelsize='small')
+    ax.tick_params('y', labelsize='small')
+    ax.ticklabel_format(useOffset=False)
 
 def corner_plot(activation, p, n_bins = 50, log = True):
     '''Creates corner plot for latent space.
@@ -479,51 +540,42 @@ def corner_plot(activation, p, n_bins = 50, log = True):
 
     return fig, axes
 
-def input_output_plot(x, x_test, x_predict, out = '', reshape = True,
-                      inds = [0, -14, -10, 1, 2], addend = 0., sharey=False):
+def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
+                      inds = [0, -14, -10, 1, 2], addend = 0., sharey=False,
+                      mock_data=False):
     '''Plots input light curve, output light curve and the residual.
     !!Can only handle len(inds) divisible by 3 or 5'''
+    # !! get rid of reshape parameter
     if len(inds) % 5 == 0:
         ncols = 5
     elif len(inds) % 3 == 0:
         ncols = 3
     ngroups = int(len(inds)/ncols)
     nrows = int(3*ngroups)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(8*1.6, 3*1.3*3),
-                             sharey=sharey)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(15,12), sharey=sharey,
+                             sharex=True)
+    plt.subplots_adjust(hspace=0)
     for i in range(ncols):
         for ngroup in range(ngroups):
-            if reshape:
-                ind = int(ngroup*ncols + i)
-                addend = 1. - np.median(x_test[inds[ind]])
-                axes[ngroup*3, i].plot(x,
-                                       x_test[inds[ind]][:,0]+addend, '.')
-                axes[ngroup*3+1,i].plot(x,
-                                        x_predict[inds[ind]][:,0]+addend, '.')
-                residual = (x_test[inds[ind]][:,0] - \
-                            x_predict[inds[ind]][:,0])
-                # residual = (x_test[inds[ind]][:,0] - \
-                #             x_predict[inds[ind]][:,0])/ \
-                #             x_test[inds[ind]][:,0]
-                axes[ngroup*3+2, i].plot(x, residual, '.')
-            else:
-                axes[ngroup*3, i].plot(x, x_test[inds[ind]]+addend, '.')
-                axes[ngroup*3+1, i].plot(x, x_predict[inds[ind]]+addend, '.')
-                residual = (x_test[inds[ind]] - x_predict[inds[ind]])
-                # residual = (x_test[inds[ind]] - x_predict[inds[ind]])/ \
-                #     x_test[inds[ind]]
-                axes[ngroup*3+2, i].plt(x, residual, '.')
-        axes[-1, i].set_xlabel('time [days]')
+            ind = int(ngroup*ncols + i)
+            if not mock_data:
+                ticid_label(axes[ngroup*3,i], ticid_test[inds[ind]],title=True)
+            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend,'.k',markersize=3)
+            axes[ngroup*3+1,i].plot(x,x_predict[inds[ind]]+addend,'.k',
+                                    markersize=3)
+            # >> residual
+            residual = (x_test[inds[ind]] - x_predict[inds[ind]])
+            axes[ngroup*3+2, i].plot(x, residual, '.k', markersize=3)
+            for j in range(3):
+                format_axes(axes[ngroup*3+j,i])
+        axes[-1, i].set_xlabel('time [BJD - 2457000]', fontsize='small')
     for i in range(ngroups):
-        axes[3*i, 0].set_ylabel('input\nrelative flux')
-        axes[3*i+1, 0].set_ylabel('output\nrelative flux')
-        axes[3*i+2, 0].set_ylabel('residual')
-    # for ax in axes.flatten():
-    #     ax.set_aspect(aspect=3./8.)
+        axes[3*i,   0].set_ylabel('input\nrelative flux',  fontsize='small')
+        axes[3*i+1, 0].set_ylabel('output\nrelative flux', fontsize='small')
+        axes[3*i+2, 0].set_ylabel('residual', fontsize='small') 
     fig.tight_layout()
-    if out != '':
-        plt.savefig(out)
-        plt.close(fig)
+    plt.savefig(out)
+    plt.close(fig)
     return fig, axes
     
 def get_activations(model, x_test, input_rms = False, rms_test = False):
@@ -578,8 +630,8 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
         fig, axes = plt.subplots(figsize=(4,3))
         addend = 1. - np.median(x_test[inds[c]])
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
-                x_test[inds[c]] + addend, '.')
-        axes.set_xlabel('time [days]')
+                x_test[inds[c]] + addend, '.k', markersize=3)
+        axes.set_xlabel('time [BJD - 2457000]')
         axes.set_ylabel('relative flux')
         plt.tight_layout()
         fig.savefig(out_dir+str(c)+'ind-0input.png')
@@ -599,16 +651,15 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
                 else:
                     ax = axes.flatten()[b]
                 x1 = np.linspace(np.min(x), np.max(x), np.shape(activation)[1])
-                ax.plot(x1, activation[inds[c]][:,b] + addend, '.')
+                ax.plot(x1, activation[inds[c]][:,b]+addend,'.k',markersize=3)
             if nrows == 1:
-                axes.set_xlabel('time [days]')
+                axes.set_xlabel('time [BJD - 2457000]')
                 axes.set_ylabel('relative flux')
-                # axes.set_aspect(aspect=3./8.)
             else:
                 for i in range(nrows):
                     axes[i,0].set_ylabel('relative\nflux')
                 for j in range(ncols):
-                    axes[-1,j].set_xlabel('time [days]')
+                    axes[-1,j].set_xlabel('time [BJD - 2457000]')
             fig.tight_layout()
             fig.savefig(out_dir+str(c)+'ind-'+str(a+1)+model.layers[a+1].name\
                         +'.png')
@@ -637,10 +688,8 @@ def epoch_plots(history, p, out_dir):
         plt.close(fig)
     
 def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
-                                 out = '',
-                                 reshape = True,
-                                 inds = [0, 1, -1, -2, -3],
-                                 addend = 0.5, sharey=False):
+                                 ticid_test, out, inds=[0,1,-1,-2,-3],
+                                 addend = 1., sharey=False, mock_data=False):
     '''Can only handle len(inds) divisible by 3 or 5'''
     bottleneck_ind = np.nonzero(['dense' in x.name for x in \
                                  model.layers])[0][0]
@@ -651,32 +700,31 @@ def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
         ncols = 3
     ngroups = int(len(inds)/ncols)
     nrows = int(3*ngroups)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(8*1.6, 3*1.3*3),
-                             sharey=sharey)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(15,5), sharey=sharey,
+                             sharex=True)
+    plt.subplots_adjust(hspace=0)
     for i in range(ncols):
         for ngroup in range(ngroups):
-            if reshape:
-                ind = int(ngroup*ncols + i)
-                addend = 1. - np.median(x_test[inds[ind]])
-                axes[ngroup*3, i].plot(x, x_test[inds[ind]][:,0]+addend, '.')
-                img = np.reshape(bottleneck[inds[ind]],
-                                 (1, np.shape(bottleneck[inds[ind]])[0]))
-                axes[ngroup*3+1, i].imshow(img)
-                axes[ngroup*3+2, i].plot(x, x_predict[inds[ind]][:,0]+addend,
-                                         '.')
-            else:
-                addend = 1. - np.median(x_test[inds[ind]])
-                axes[ngroup*3, i].plot(x, x_test[inds[ind]]+addend, '.')
-                axes[ngroup*3+2, i].plot(x, x_predict[inds[ind]]+addend, '.')
-        axes[-1, i].set_xlabel('time [days]')
+            ind = int(ngroup*ncols + i)
+            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend,'.k',markersize=3)
+            axes[ngroup*3+1,i].plot(np.linspace(np.min(x),np.max(x),
+                                              len(bottleneck[inds[ind]])),
+                                              bottleneck[inds[ind]], '.k',
+                                              markersize=3)
+            axes[ngroup*3+2,i].plot(x,x_predict[inds[ind]]+addend,'.k',
+                                    markersize=3)
+            if not mock_data:
+                ticid_label(axes[ngroup*3,i],ticid_test[inds[ind]], title=True)
+            for j in range(3):
+                format_axes(axes[ngroup*3+j,i])
+        axes[-1, i].set_xlabel('time [BJD - 2457000]', fontsize='small')
     for i in range(ngroups):
-        axes[3*i, 0].set_ylabel('input\nrelative flux')
-        axes[3*i+1, 0].set_ylabel('bottleneck')
-        axes[3*i+2, 0].set_ylabel('output\nrelative flux')
+        axes[3*i,   0].set_ylabel('input\nrelative flux',  fontsize='small')
+        axes[3*i+1, 0].set_ylabel('bottleneck', fontsize='small')
+        axes[3*i+2, 0].set_ylabel('output\nrelative flux', fontsize='small')
     fig.tight_layout()
-    if out != '':
-        plt.savefig(out)
-        plt.close(fig)
+    plt.savefig(out)
+    plt.close(fig)
     return fig, axes
     
 
@@ -700,8 +748,8 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
 
         # >> plot input
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
-                  x_test[inds[c]] + addend, '.')
-        axes.set_xlabel('time [days]')
+                  x_test[inds[c]] + addend, '.k', markersize=3)
+        axes.set_xlabel('time [BJD - 2457000]')
         axes.set_ylabel('relative flux')
         axes.set_ylim(ymin=ymin, ymax=ymax)
         fig.tight_layout()
@@ -715,8 +763,8 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
                 length = p['latent_dim']
                 axes.cla()
                 axes.plot(np.linspace(np.min(x), np.max(x), length),
-                          activation[inds[c]] + addend, '.')
-                axes.set_xlabel('time [days]')
+                          activation[inds[c]] + addend, '.k', markersize=3)
+                axes.set_xlabel('time [BJD - 2457000]')
                 axes.set_ylabel('relative flux')
                 axes.set_ylim(ymin=ymin, ymax =ymax)
                 fig.tight_layout()
@@ -728,8 +776,8 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
                     y = np.reshape(activation[inds[c]], (length))
                     axes.cla()
                     axes.plot(np.linspace(np.min(x), np.max(x), length),
-                              y + addend, '.')
-                    axes.set_xlabel('time [days]')
+                              y + addend, '.k', markersize=3)
+                    axes.set_xlabel('time [BJD - 2457000]')
                     axes.set_ylabel('relative flux')
                     axes.set_ylim(ymin = ymin, ymax = ymax)
                     fig.tight_layout()
@@ -837,8 +885,7 @@ def latent_space_clustering(activation, x_test, x, ticid, out = './',
                 fig3.subplots_adjust(hspace=0)
                 for k in range(20):
                     # >> outlier plot
-                    ax1[k].plot(x, x_test[inds[19-k]]+addend, '.k', markersize=3)
-                    # ax1[k].set_aspect(1/4)
+                    ax1[k].plot(x,x_test[inds[19-k]]+addend,'.k',markersize=3)
                     ax1[k].set_xticks([])
                     ax1[k].set_ylabel('relative\nflux')
                     ax1[k].text(0.8, 0.65,
@@ -848,7 +895,6 @@ def latent_space_clustering(activation, x_test, x, ticid, out = './',
                     
                     # >> inlier plot
                     ax2[k].plot(x, x_test[inds2[k]]+addend, '.k', markersize=3)
-                    # ax2[k].set_aspect(1/4)
                     ax2[k].set_xticks([])
                     ax2[k].set_ylabel('rellative\nflux')
                     ax2[k].text(0.8, 0.65,
@@ -859,7 +905,6 @@ def latent_space_clustering(activation, x_test, x, ticid, out = './',
                     # >> random lof plot
                     ind = np.random.choice(range(len(lof)-1))
                     ax3[k].plot(x, x_test[ind] + addend, '.k', markersize=3)
-                    # ax3[k].set_aspect(1/4)
                     ax3[k].set_xticks([])
                     ax3[k].set_ylabel('relative\nflux')
                     ax3[k].text(0.8, 0.65,
@@ -887,7 +932,8 @@ def latent_space_clustering(activation, x_test, x, ticid, out = './',
     return fig, ax
 
 def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
-                       y_predict, num_classes, out, ticid_train, ticid_test):
+                       y_predict, num_classes, out, ticid_train, ticid_test,
+                       mock_data=False):
     # !! add more rows
     colors = ['r', 'g', 'b', 'm'] # !! add more colors
     # >> training data set
@@ -903,30 +949,34 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
         inds1 = np.nonzero(y_test_classes == i)[0]
         for j in range(min(7, len(inds))): # >> loop through rows
             ax[j,i].plot(x, x_train[inds[j]], '.'+colors[i], markersize=3)
-            ax[j,i].text(0.75,0.85, 'TIC '+str(ticid_train[inds1[j]]),
-                          transform=ax[j,i].transAxes, fontsize='xx-small')
+            if not mock_data:
+                ticid_label(ax[j,i], ticid_train[inds1[j]])
         for j in range(min(7, len(inds1))):
             ax1[j,i].plot(x, x_test[inds1[j]], '.'+colors[y_predict[inds1[j]]],
                           markersize=3)
-            ax1[j,i].text(0.7,0.85, 'TIC '+str(ticid_test[inds1[j]]),
-                          transform=ax1[j,i].transAxes, fontsize='xx-small')
-            ax1[j,i].text(0.7, 0.05, 'True: '+str(i)+'\nPredicted: '+\
+            if not mock_data:
+                ticid_label(ax1[j,i], ticid_test[inds1[j]])    
+            ax1[j,i].text(0.98, 0.02, 'True: '+str(i)+'\nPredicted: '+\
                           str(y_predict[inds1[j]]),
-                          transform=ax1[j,i].transAxes, fontsize='xx-small')
+                          transform=ax1[j,i].transAxes, fontsize='xx-small',
+                          horizontalalignment='right',
+                          verticalalignment='bottom')
     for i in range(num_classes):
         ax[0,i].set_title('True class '+str(i))
         ax1[0,i].set_title('True class '+str(i))
         
-        ax[-1,i].set_xlabel('time [BJD - 2457000]')
-        ax1[-1,i].set_xlabel('time [BJD - 2457000]')
+        for axis in [ax[-1,i], ax1[-1,i]]:
+            axis.set_xlabel('time [BJD - 2457000]', fontsize='small')
     for j in range(7):
-        ax[j,0].set_ylabel('relative\nflux')
-    for j in range(7):
-        ax1[j,0].set_ylabel('relative\nflux')
-        
+        for axis in [ax[j,0],ax1[j,0]]:
+            axis.set_ylabel('relative\nflux', fontsize='small')
+            
+    for axis in  ax.flatten():
+        format_axes(axis)
+    for axis in ax1.flatten():
+        format_axes(axis)
     # fig.tight_layout()
     # fig1.tight_layout()
-    
     fig.savefig(out+'train.png')
     fig1.savefig(out+'test.png')
 
@@ -954,7 +1004,6 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
 #     # x = Reshape((input_dim,))(autoencoder.output)
 #     x = concatenate([mlp.output,
 #                      Reshape((input_dim,))(encoded.output)], axis = 1)
-#     # pdb.set_trace()
 #     # x = Reshape((input_dim+1,))(x)
     
     
@@ -1291,6 +1340,15 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
 #     encoder = Model(input_img, encoded)
 #     return encoder
     
-    
+    # def normalize1(x):
+#     xmin = np.min(x, axis=1, keepdims=True)
+#     x = x - xmin
+#     xmax = np.max(x, axis=1, keepdims=True)
+#     x = x * 2 / xmax
+#     x = x - 1.
+#     # scale = 2/(xmax-xmin)
+#     # offset = (xmin - xmax)/(xmax-xmin)
+#     # x = x*scale + offset
+#     return x
     
     
