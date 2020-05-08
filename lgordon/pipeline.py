@@ -71,6 +71,10 @@ targets_sector20 = np.loadtxt("/Users/conta/UROP_Spring_2020/all_targets_S020_v1
 
 print(targets_sector20)
 
+targets20_5000 = targets_sector20[0:5000]
+
+#targets20_10000
+
 #%%
 
 def lc_from_target_list(targetList):
@@ -111,14 +115,14 @@ def lc_from_target_list(targetList):
             
         if os.path.isdir("mastDownload") == True:
             shutil.rmtree("mastDownload")               #deletes ALL data to conserve space
-            
+            print("folder deleted")
         
-        print(ints)
+        #print(ints)
         
-        return times, ints, targets_TICS
+    return times, ints, targets_TICS
         
         
-times, ints, targets_TICS = lc_from_target_list(targets_sector20)
+times, ints, targets_TICS = lc_from_target_list(targets20_5000)
 
 
 
