@@ -13,8 +13,8 @@ from itertools import product
 from sklearn.metrics import confusion_matrix
 
 test_mock_data = True
-test_supervised = False
-test_unsupervised = False
+test_supervised = True
+test_unsupervised = True
 
 topo_test = True # >> tests on mock data, supervised data and unsupervised data
 # * runs unsupervised mode
@@ -27,7 +27,7 @@ noise = [.1, .5]
 training_size, test_size, input_dim = 1039, 116, 8896
 training_size_supervised, test_size_supervised = 313, 35
 input_dim_supervised = 8896
-output_dir = './plots/plots050420-dropout/'
+output_dir = './plots/plots050820/'
 
 # >> unsupervised mode
 fname_time  = 's0020-before_orbit-1155-time.txt' # s0020-1155-
@@ -46,12 +46,12 @@ input_rms = False
 supervised = False
 
 # >> parameters
-p = {'kernel_size': [[3,3,3,3]],
-      'latent_dim': [25],
+p = {'kernel_size': [[3,3]],
+      'latent_dim': [5, 25, 50, 75],
       'strides': [1],
-      'epochs': [25],
-      'dropout': [0.1,0.3],
-      'num_filters': [[32,32,32,32]],
+      'epochs': [50],
+      'dropout': [0.],
+      'num_filters': [[1,1]],
       'batch_size': [128],
       'activation': ['relu'],
       'optimizer': ['adam'],
@@ -110,6 +110,9 @@ intermed_inds = [6,0] # >> plot_intermed_act
 input_bottle_inds = [0,1,2,-6,-7] # >> in_bottle_out
 inds = [0,1,2,3,4,5,6,7,-1,-2,-3,-4,-5,-6,-7] # >> input_output_plot
 # inds = [0,1,2,3,4,5,6,7,8,9,0,1,2,3,4]
+
+center_factor = 0. # 5.
+h_factor = 0. # 0.2
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -211,14 +214,15 @@ for i in range(len(p_list)):
         
             # >> normalize
             flux, x = ml.normalize(flux, x)
+
+            # >> take before orbit gap            
+            if not split_lc:
+                flux = flux[:,:orbit_gap_start]
+                x = x[:orbit_gap_start]
+            
             x_train, x_test, y_train, y_test, x = \
                 ml.split_data(flux, x, p, train_test_ratio=0.90, 
                               supervised=supervised, classes=classes)
-            
-            if not split_lc:
-                x_train = x_train[:,:orbit_gap_start]
-                x_test = x_test[:,:orbit_gap_start]
-                x = x[:orbit_gap_start]
             
             ticid_train = ticid[:np.shape(x_train)[0]]
             ticid_test = ticid[-1 * np.shape(x_test)[0]:]
@@ -230,7 +234,9 @@ for i in range(len(p_list)):
                     ml.signal_data(training_size=training_size_supervised,
                                    test_size=test_size_supervised,
                                    input_dim=input_dim_supervised,
-                                   noise_level=noise_level)
+                                   noise_level=noise_level,
+                                   center_factor=center_factor,
+                                   h_factor=h_factor)
                 num_classes = 2
                 orbit_gap_start, orbit_gap_end = False, False
                 ticid_train, ticid_test = False, False
@@ -239,7 +245,9 @@ for i in range(len(p_list)):
                     ml.signal_data(training_size=training_size,
                                    test_size=test_size,
                                    input_dim=input_dim,
-                                   noise_level=noise_level)
+                                   noise_level=noise_level,
+                                   center_factor=center_factor,
+                                   h_factor=h_factor)
                 num_classes = False
                 orbit_gap_start, orbit_gap_end = False, False
                 ticid_train, ticid_test = False, False
@@ -259,7 +267,8 @@ for i in range(len(p_list)):
                                         y_train=y_train, y_test=y_test,
                                         split_lc=split_lc,
                                         orbit_gap=[orbit_gap_start,
-                                                   orbit_gap_end])
+                                                   orbit_gap_end],
+                                        simple = True)
     
         if input_rms: x_predict = model.predict([x_test, ml.rms(x_test)])
         x_predict = model.predict(x_test)
@@ -269,9 +278,14 @@ for i in range(len(p_list)):
         with open(output_dir + 'param_summary.txt', 'a') as f:
             f.write('parameter set ' + str(i) + ' - ' + title +'\n')
             f.write(str(p.items()) + '\n')
-            label_list = ['loss', 'accuracy', 'precision', 'recall']
-            key_list =['loss', 'accuracy', list(history.history.keys())[-2],
+            if supervised:
+                label_list = ['loss', 'accuracy', 'precision', 'recall']
+                key_list =['loss', 'accuracy', list(history.history.keys())[-2],
                        list(history.history.keys())[-1]]
+            else:
+                label_list = ['loss', 'accuracy']
+                key_list = ['loss', 'accuracy']
+
             for j in range(4):
                 f.write(label_list[j]+' '+str(history.history[key_list[j]][-1])+\
                         '\n')
@@ -292,12 +306,17 @@ for i in range(len(p_list)):
                 mse = np.average((x_predict - x_test)**2)
                 f.write('mse '+ str(mse) + '\n')
             f.write('\n')
+            
+        if k == 0:
+            with open(output_dir + 'model_summary.txt', 'a') as f:
+                model.summary(print_fn=lambda line: f.write(line + "\n"))
     
         # == data visualization ===============================================
         
         # >> plot loss, accuracy, precision, recall vs. epochs
         if plot_epoch:
-            ml.epoch_plots(history,p,output_dir+'epoch-'+str(i)+'-'+str(k)+'-')
+            ml.epoch_plots(history,p,output_dir+'epoch-'+str(i)+'-'+str(k)+'-',
+                           supervised=supervised)
         
         # >> plot some decoded light curves
         if plot_in_out and not supervised:
