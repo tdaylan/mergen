@@ -19,7 +19,7 @@ import numpy as np
 def autoencoder(x_train, x_test, params, input_rms=False, rms_train=False,
                 rms_test=False, supervised = False, num_classes=False, 
                 y_train=False, y_test=False, split_lc=False,
-                orbit_gap=[8794, 8795]):
+                orbit_gap=[8794, 8795], simple=False):
     '''If supervised = True, must provide y_train, y_test, num_classes'''
     from keras import optimizers
     import keras.metrics
@@ -32,7 +32,10 @@ def autoencoder(x_train, x_test, params, input_rms=False, rms_train=False,
         x_test_0,x_test_1 = x_test[:,:orbit_gap[0]],x_test[:,orbit_gap[1]:]
         encoded = encoder_split([x_train_0, x_train_1], params)
     else:
-        encoded = encoder(x_train, params)
+       if simple:
+            encoded = simple_encoder(x_train, params)
+       else:
+            encoded = encoder(x_train, params)
     
     if input_rms:
         mlp = create_mlp(np.shape(rms_train)[1])
@@ -56,7 +59,10 @@ def autoencoder(x_train, x_test, params, input_rms=False, rms_train=False,
         if split_lc:
             decoded = decoder_split(x_train, encoded.output, params)
         else:
-            decoded = decoder(x_train, encoded.output, params)
+            if simple:
+                decoded = simple_decoder(x_train, encoded.output, params)
+            else:
+                decoded = decoder(x_train, encoded.output, params)
         model = Model(encoded.input, decoded)
         print(model.summary())
         
@@ -91,6 +97,23 @@ def autoencoder(x_train, x_test, params, input_rms=False, rms_train=False,
                             validation_data=(x_test, x_test))
         
     return history, model
+
+def simple_encoder(x_train, params):
+    from keras.layers import Input, Dense, Flatten
+    from keras.models import Model
+    input_dim = np.shape(x_train)[1]
+    input_img = Input(shape = (input_dim,1))
+    x = Flatten()(input_img)
+    encoded = Dense(params['latent_dim'], activation='relu')(x)
+    encoder = Model(input_img, encoded)
+    return encoder
+
+def simple_decoder(x_train, bottleneck, params):
+    from keras.layers import Dense, Reshape
+    input_dim = np.shape(x_train)[1]
+    x = Dense(input_dim, activation='sigmoid')(bottleneck)
+    decoded = Reshape((input_dim, 1))(x)
+    return decoded
 
 def encoder(x_train, params):
     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
@@ -169,7 +192,7 @@ def decoder(x_train, bottleneck, params):
         x = Dropout(params['dropout'])(x)
         x = UpSampling1D(2)(x)
         if i == num_iter-1:
-            decoded = Conv1D(1, params['kernel_size'][num_iter+1],
+            decoded = Conv1D(1, params['kernel_size'][num_iter],
                              activation=params['last_activation'],
                              padding='same')(x)
         else:
@@ -475,7 +498,7 @@ def ticid_label(ax, ticid, title=False):
     Tmag = catalog_data[0]["Tmag"]
     lum = catalog_data[0]["lum"]
 
-    info = target+'\nTeff {}\nrad {}\nmass {}\nGAIAmag {}d {}\nobjType {}'
+    info = target+'\nTeff {}\nrad {}\nmass {}\nGAIAmag {}\nd {}\nobjType {}'
     info1 = target+', Teff {}, rad {}, mass {},\nGAIAmag {}, d {}, objType {}'
     if title:
         ax.set_title(info1.format('%.3g'%Teff, '%.3g'%rad, '%.3g'%mass, 
@@ -560,12 +583,12 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
             ind = int(ngroup*ncols + i)
             if not mock_data:
                 ticid_label(axes[ngroup*3,i], ticid_test[inds[ind]],title=True)
-            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend,'.k',markersize=3)
+            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend,'.k',markersize=2)
             axes[ngroup*3+1,i].plot(x,x_predict[inds[ind]]+addend,'.k',
-                                    markersize=3)
+                                    markersize=2)
             # >> residual
             residual = (x_test[inds[ind]] - x_predict[inds[ind]])
-            axes[ngroup*3+2, i].plot(x, residual, '.k', markersize=3)
+            axes[ngroup*3+2, i].plot(x, residual, '.k', markersize=2)
             for j in range(3):
                 format_axes(axes[ngroup*3+j,i])
         axes[-1, i].set_xlabel('time [BJD - 2457000]', fontsize='small')
@@ -630,7 +653,7 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
         fig, axes = plt.subplots(figsize=(4,3))
         addend = 1. - np.median(x_test[inds[c]])
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
-                x_test[inds[c]] + addend, '.k', markersize=3)
+                x_test[inds[c]] + addend, '.k', markersize=2)
         axes.set_xlabel('time [BJD - 2457000]')
         axes.set_ylabel('relative flux')
         plt.tight_layout()
@@ -651,7 +674,7 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
                 else:
                     ax = axes.flatten()[b]
                 x1 = np.linspace(np.min(x), np.max(x), np.shape(activation)[1])
-                ax.plot(x1, activation[inds[c]][:,b]+addend,'.k',markersize=3)
+                ax.plot(x1, activation[inds[c]][:,b]+addend,'.k',markersize=2)
             if nrows == 1:
                 axes.set_xlabel('time [BJD - 2457000]')
                 axes.set_ylabel('relative flux')
@@ -665,7 +688,7 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
                         +'.png')
             plt.close(fig)
 
-def epoch_plots(history, p, out_dir):
+def epoch_plots(history, p, out_dir, supervised=True):
     label_list = [['loss', 'accuracy'], ['precision', 'recall']]
     key_list = [['loss', 'accuracy'], [list(history.history.keys())[-2],
                                        list(history.history.keys())[-1]]]
@@ -678,8 +701,8 @@ def epoch_plots(history, p, out_dir):
         ax2.set_ylabel(label_list[i][1])
         ax1.set_xlabel('epoch')
         ax1.set_xticks(range(p['epochs']))
-        ax1.legend(loc = 'upper left', fontsize = 'x-small')
-        ax2.legend(loc = 'upper right', fontsize = 'x-small')
+        ax1.tick_params('both', labelsize='x-small')
+        ax2.tick_params('both', labelsize='x-small')
         fig.tight_layout()
         if i == 0:
             plt.savefig(out_dir + 'acc_loss.png')
@@ -706,13 +729,13 @@ def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
     for i in range(ncols):
         for ngroup in range(ngroups):
             ind = int(ngroup*ncols + i)
-            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend,'.k',markersize=3)
+            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend,'.k',markersize=2)
             axes[ngroup*3+1,i].plot(np.linspace(np.min(x),np.max(x),
                                               len(bottleneck[inds[ind]])),
                                               bottleneck[inds[ind]], '.k',
-                                              markersize=3)
+                                              markersize=2)
             axes[ngroup*3+2,i].plot(x,x_predict[inds[ind]]+addend,'.k',
-                                    markersize=3)
+                                    markersize=2)
             if not mock_data:
                 ticid_label(axes[ngroup*3,i],ticid_test[inds[ind]], title=True)
             for j in range(3):
@@ -748,7 +771,7 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
 
         # >> plot input
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
-                  x_test[inds[c]] + addend, '.k', markersize=3)
+                  x_test[inds[c]] + addend, '.k', markersize=2)
         axes.set_xlabel('time [BJD - 2457000]')
         axes.set_ylabel('relative flux')
         axes.set_ylim(ymin=ymin, ymax=ymax)
@@ -763,7 +786,7 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
                 length = p['latent_dim']
                 axes.cla()
                 axes.plot(np.linspace(np.min(x), np.max(x), length),
-                          activation[inds[c]] + addend, '.k', markersize=3)
+                          activation[inds[c]] + addend, '.k', markersize=2)
                 axes.set_xlabel('time [BJD - 2457000]')
                 axes.set_ylabel('relative flux')
                 axes.set_ylim(ymin=ymin, ymax =ymax)
@@ -776,7 +799,7 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
                     y = np.reshape(activation[inds[c]], (length))
                     axes.cla()
                     axes.plot(np.linspace(np.min(x), np.max(x), length),
-                              y + addend, '.k', markersize=3)
+                              y + addend, '.k', markersize=2)
                     axes.set_xlabel('time [BJD - 2457000]')
                     axes.set_ylabel('relative flux')
                     axes.set_ylim(ymin = ymin, ymax = ymax)
@@ -865,7 +888,7 @@ def latent_space_clustering(activation, x_test, x, ticid, out = './',
                     axins.set_ylim(min(x_test[inds0[k]]),
                                    max(x_test[inds0[k]]))
                     axins.plot(x, x_test[inds0[k]] + addend, '.k',
-                               markersize=3)
+                               markersize=2)
                     axins.set_xticklabels('')
                     axins.set_yticklabels('')
                     axins.patch.set_alpha(0.5)
@@ -885,7 +908,7 @@ def latent_space_clustering(activation, x_test, x, ticid, out = './',
                 fig3.subplots_adjust(hspace=0)
                 for k in range(20):
                     # >> outlier plot
-                    ax1[k].plot(x,x_test[inds[19-k]]+addend,'.k',markersize=3)
+                    ax1[k].plot(x,x_test[inds[19-k]]+addend,'.k',markersize=2)
                     ax1[k].set_xticks([])
                     ax1[k].set_ylabel('relative\nflux')
                     ax1[k].text(0.8, 0.65,
@@ -894,7 +917,7 @@ def latent_space_clustering(activation, x_test, x, ticid, out = './',
                                 transform = ax1[k].transAxes)
                     
                     # >> inlier plot
-                    ax2[k].plot(x, x_test[inds2[k]]+addend, '.k', markersize=3)
+                    ax2[k].plot(x, x_test[inds2[k]]+addend, '.k', markersize=2)
                     ax2[k].set_xticks([])
                     ax2[k].set_ylabel('rellative\nflux')
                     ax2[k].text(0.8, 0.65,
@@ -904,7 +927,7 @@ def latent_space_clustering(activation, x_test, x, ticid, out = './',
                     
                     # >> random lof plot
                     ind = np.random.choice(range(len(lof)-1))
-                    ax3[k].plot(x, x_test[ind] + addend, '.k', markersize=3)
+                    ax3[k].plot(x, x_test[ind] + addend, '.k', markersize=2)
                     ax3[k].set_xticks([])
                     ax3[k].set_ylabel('relative\nflux')
                     ax3[k].text(0.8, 0.65,
@@ -948,12 +971,12 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
         inds = np.nonzero(y_train_classes == i)[0]
         inds1 = np.nonzero(y_test_classes == i)[0]
         for j in range(min(7, len(inds))): # >> loop through rows
-            ax[j,i].plot(x, x_train[inds[j]], '.'+colors[i], markersize=3)
+            ax[j,i].plot(x, x_train[inds[j]], '.'+colors[i], markersize=2)
             if not mock_data:
                 ticid_label(ax[j,i], ticid_train[inds1[j]])
         for j in range(min(7, len(inds1))):
             ax1[j,i].plot(x, x_test[inds1[j]], '.'+colors[y_predict[inds1[j]]],
-                          markersize=3)
+                          markersize=2)
             if not mock_data:
                 ticid_label(ax1[j,i], ticid_test[inds1[j]])    
             ax1[j,i].text(0.98, 0.02, 'True: '+str(i)+'\nPredicted: '+\
@@ -962,8 +985,8 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
                           horizontalalignment='right',
                           verticalalignment='bottom')
     for i in range(num_classes):
-        ax[0,i].set_title('True class '+str(i))
-        ax1[0,i].set_title('True class '+str(i))
+        ax[0,i].set_title('True class '+str(i), color=colors[i])
+        ax1[0,i].set_title('True class '+str(i), color=colors[i])
         
         for axis in [ax[-1,i], ax1[-1,i]]:
             axis.set_xlabel('time [BJD - 2457000]', fontsize='small')
