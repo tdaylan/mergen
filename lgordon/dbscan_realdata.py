@@ -134,32 +134,6 @@ print(len(featvec_reduced), len(lc_feat))
 
 #%%
 
-#so now to poke at other plots:
-#plt.autoscale(enable=True, axis='both', tight=True)
-plt.scatter(featvec_reduced[:,14],featvec_reduced[:,0]) 
-#plt.scatter(lc_feat[:,14], lc_feat[:,0])
-plt.tight_layout()
-plt.show()
-
-
-#%%
-#run on all of the features & producing the confusion matrix
-#this only works on the first hundred though
-
-predict_on_100 = lc_features[0:100]
-db_100 = DBSCAN(eps=100, min_samples=10).fit(predict_on_100)
-predicted_100 = db_100.labels_
-
-#producing the confusion matrix
-labelled_100 = np.loadtxt("/Users/conta/UROP_Spring_2020/100-labelled/labelled_100.txt", delimiter=',', usecols=1, skiprows=1, unpack=True)
-print(predicted_100, labelled_100)
-
-k = confusion_matrix(labelled_100, predicted_100)
-
-print(k)
-
-check_diagonalized(k)
-
 #%%
 #trying to do parameter scan of dbscan
 eps = np.arange(0.1, 5, 0.1)
@@ -279,19 +253,6 @@ distance = catalog_data[0]["d"]
 y_max_tuple = (lc_feat[:,13][y_max_index], lc_feat[:,8][y_max_index])
 range_x = lc_feat[:,13].max() - lc_feat[:,13].min()
 range_y = lc_feat[:,8].max() - lc_feat[:,8].min()
-
-#inset_width = range_x * 2
-#inset_height = range_y /5 
-
-
-#inset_x = y_max_tuple[0] + 0.3 * range_x
-#inset_y = y_max_tuple[1] - 0.3 * range_y
-
-#inset_BL = (inset_x, inset_y)
-#inset_BR = (inset_x + inset_width, inset_y)
-#inset_TL = (inset_x, inset_y + inset_height)
-#inset_TR = (inset_x + inset_width, inset_y + inset_height)
-
 inset_x, inset_y, inset_width, inset_height = check_box_location(y_max_tuple, range_x, range_y)
 
 
@@ -320,7 +281,6 @@ range_y = lc_feat[:,8].max() - lc_feat[:,8].min()
 
 catalog_data1 = Catalogs.query_object(targ_y_min, radius=0.02, catalog="TIC")
 
-#https://arxiv.org/pdf/1905.10694.pdf
 T_eff = catalog_data1[0]["Teff"]
 obj_type = catalog_data1[0]["objType"]
 gaia_mag = catalog_data1[0]["GAIAmag"]

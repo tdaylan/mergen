@@ -286,23 +286,25 @@ def moments(dataset):
 
 #Plotting functions ------------------------------------------------------
     
-def n_choose_2_features_plotting(feature_vectors, date, clustering):
-    """plotting (n 2) features against each other, currently with no clustering
-    feature_vectors must be a list of feature vectors
+def n_choose_2_features_plotting(feature_vectors, cluster_columns, date, clustering):
+    """plotting (n 2) features against each other
+    feature_vectors is the list of ALL feature_vectors
+    cluster_columns is the vectors that you want to use to do the clustering based on
+        this can be the same as feature_vectors
     date must be a string in the format of the folder you are saving into ie "4-13"
-    this function does NOT plot kmeans/dbscan colors
+    clustering must equal 'dbscan', 'kmeans', or 'empty'
     """
     cluster = "empty"
     folder_label = "blank"
     if clustering == 'dbscan':
-        db = DBSCAN(eps=0.5, min_samples=10).fit(feature_vectors) #eps is NOT epochs
+        db = DBSCAN(eps=0.5, min_samples=10).fit(cluster_columns) #eps is NOT epochs
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
         cluster = 'dbscan'
         folder_label = "dbscan-colored"
     elif clustering == 'kmeans': 
         Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
-        x = Kmean.fit(feature_vectors)
+        x = Kmean.fit(cluster_columns)
         classes_kmeans = x.labels_
         cluster = 'kmeans'
         folder_label = "kmeans-colored"
