@@ -45,6 +45,11 @@ import astroquery
 from astroquery.simbad import Simbad
 from astroquery.mast import Catalogs
 
+import shapely
+from shapely import geometry
+from shapely.geometry import Point
+from shapely.geometry.polygon import Polygon
+
 
 #Testing that this file imported correctly ------
 
@@ -323,109 +328,22 @@ def n_choose_2_features_plotting(feature_vectors, cluster_columns, date, cluster
     else:
         print ("Successfully created the directory %s" % path) 
  
+    graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                    "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                    "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                    "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+    fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                    "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                    "P0", "P1", "P2", "Period0to0_1"]
     for n in range(16):
         feat1 = feature_vectors[:,n]
-        if n == 0:
-            graph_label1 = "Average"
-            fname_label1 = "Avg"
-        elif n == 1: 
-            graph_label1 = "Variance"
-            fname_label1 = "Var"
-        elif n == 2:
-            graph_label1 = "Skewness"
-            fname_label1 = "Skew"
-        elif n == 3:
-            graph_label1 = "Kurtosis"
-            fname_label1 = "Kurt"
-        elif n == 4:
-            graph_label1 = "Log Variance"
-            fname_label1 = "LogVar"
-        elif n == 5:
-            graph_label1 = "Log Skewness"
-            fname_label1 = "LogSkew"
-        elif n == 6: 
-            graph_label1 = "Log Kurtosis"
-            fname_label1 = "LogKurt"
-        elif n == 7: 
-            graph_label1 = "Maximum Power"
-            fname_label1 = "MaxPower"
-        elif n == 8: 
-            graph_label1 = "Log Maximum Power"
-            fname_label1 = "LogMaxPower"
-        elif n == 9: 
-            graph_label1 = "Period of Maximum Power (0.1 to 10 days)"
-            fname_label1 = "Period0_1to10"
-        elif n == 10: 
-            graph_label1 = "Slope"
-            fname_label1 = "Slope"
-        elif n == 11: 
-            graph_label1 = "Log Slope"
-            fname_label1 = "LogSlope"
-        elif n==12:
-            graph_label1 = "P0"
-            fname_label1 = "P0"
-        elif n == 14:
-            graph_label1 = "P1"
-            fname_label1 = "P1"
-        elif n == 15:
-            graph_label1 = "P2"
-            fname_label1 = "P2"
-        elif n == 16:
-            graph_label1 = "Period of Maximum Power (0.001 to 0.1 days)"
-            fname_label1 = "Period0to0_1"
-            
+        graph_label1 = graph_labels[n]
+        fname_label1 = fname_labels[n]
         for m in range(16):
             if m == n:
-                break
-            if m == 0:
-                graph_label2 = "Average"
-                fname_label2 = "Avg"
-            elif m == 1: 
-                graph_label2 = "Variance"
-                fname_label2 = "Var"
-            elif m == 2:
-                graph_label2 = "Skewness"
-                fname_label2 = "Skew"
-            elif m == 3:
-                graph_label2 = "Kurtosis"
-                fname_label2 = "Kurt"
-            elif m == 4:
-                graph_label2 = "Log Variance"
-                fname_label2 = "LogVar"
-            elif m == 5:
-                graph_label2 = "Log Skewness"
-                fname_label2 = "LogSkew"
-            elif m == 6: 
-                graph_label2 = "Log Kurtosis"
-                fname_label2 = "LogKurt"
-            elif m == 7: 
-                graph_label2 = "Maximum Power"
-                fname_label2 = "MaxPower"
-            elif m == 8: 
-                graph_label2 = "Log Maximum Power"
-                fname_label2 = "LogMaxPower"
-            elif m == 9: 
-                graph_label2 = "Period of Maximum Power (0.1 to 10 days)"
-                fname_label2 = "Period0_1to10"
-            elif m == 10:
-                graph_label2 = "Slope"
-                fname_label2 = "Slope"
-            elif m == 11: 
-                graph_label2 = "Log Slope"
-                fname_label2 = "LogSlope"
-            elif m==12:
-                graph_label2 = "P0"
-                fname_label2 = "P0"
-            elif m == 14:
-                graph_label2 = "P1"
-                fname_label2 = "P1"
-            elif m == 15:
-                graph_label2 = "P2"
-                fname_label2 = "P2"
-            elif m == 16:
-                graph_label2 = "Period of Max Power (0.001 to 0.1 days)"
-                fname_label2 = "Period0to0_1"
-                
+                continue
+            graph_label2 = graph_labels[m]
+            fname_label2 = fname_labels[m]                
             feat2 = feature_vectors[:,m]
             
             if cluster == 'dbscan':

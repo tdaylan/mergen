@@ -45,6 +45,11 @@ from astroquery.simbad import Simbad
 from astroquery.mast import Catalogs
 from astroquery.mast import Observations
 
+import shapely
+from shapely import geometry
+from shapely.geometry import Point
+from shapely.geometry.polygon import Polygon
+
 test(8) #should return 8 * 4
 
 #if doing from scratch, run these: 
@@ -126,15 +131,7 @@ times, ints, targets_TICS = lc_from_target_list(targets20_5000)
 
 
 #%%
-file_object = open('/Users/conta/UROP_Spring_2020/plot_output/5-11/dbscan-confusion-matrices.txt', 'a')
- 
-# Append 'hello' at the end of file
-file_object.write('This file contains the confusion matrices and diagonal score for different combinations of features')
- 
-# Close the file
-file_object.close()
-#%%
-
+#feature optimizing for dbscan
 
     predict_on_100 =  lc_feat[0:100][:,[3,11,12]]
     db_100 = DBSCAN(eps=0.5, min_samples=10).fit(predict_on_100)
