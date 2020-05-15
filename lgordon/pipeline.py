@@ -60,8 +60,9 @@ test(8) #should return 8 * 4
 #if just running on intensity files you already have, run this:
 #%%
 time, intensity, targets, lc_feat = get_from_files()
+#%%
 
-
+n_choose_2_insets(time, intensity, lc_feat, targets, "5-15")
 
 #%%
 n_choose_2_features_plotting(lc_feat, lc_feat, "5-4", "none")
