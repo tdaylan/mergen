@@ -34,11 +34,11 @@ plot = False
 before_orbit = True
 
 classified = False
-classes = np.array([1., 1., 2., 2., 3., 4., 4., 4., 1., 2., 3., 4.])
 if classified:
     with open('./s0020-348-ticid.csv', 'r') as f:
         tics = f.readlines()
         tics = [ticid.split()[0] for ticid in tics]
+        
     fnames_classified = []
     for i in range(len(tics)):
         fname = list(filter(lambda x: str(int(float(tics[i]))) in x, fnames))[0]
@@ -80,8 +80,8 @@ np.savetxt(prefix + 'time.txt', time, delimiter = ',')
 np.savetxt(prefix + 'flux.csv', intensity, delimiter = ',')
 np.savetxt(prefix + 'ticid.txt', ticids, delimiter=',', fmt='%d')
 
-if classified:
-    np.savetxt(prefix + 'classification.txt', classes, delimiter = ',')
+# if classified:
+#     np.savetxt(prefix + 'classification.txt', classes, delimiter = ',')
 
 # -- plot ---------------------------------------------------------------------
 if plot:
