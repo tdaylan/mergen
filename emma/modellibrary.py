@@ -16,81 +16,114 @@ import numpy as np
 
 # :: autoencoder ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def autoencoder(x_train, x_test, params, input_rms=False, rms_train=False,
-                rms_test=False, supervised = False, num_classes=False, 
-                y_train=False, y_test=False, split_lc=False,
-                orbit_gap=[8794, 8795], simple=False):
-    '''If supervised = True, must provide y_train, y_test, num_classes'''
-    from keras import optimizers
-    import keras.metrics
+def conv_autoencoder(x_train, y_train, x_test, y_test, params):
     from keras.models import Model
-    from keras.layers import Dense, concatenate
 
     # -- encoding -------------------------------------------------------------
-    if split_lc:
-        x_train_0,x_train_1 = x_train[:,:orbit_gap[0]],x_train[:,orbit_gap[1]:]
-        x_test_0,x_test_1 = x_test[:,:orbit_gap[0]],x_test[:,orbit_gap[1]:]
-        encoded = encoder_split([x_train_0, x_train_1], params)
-    else:
-       if simple:
-            encoded = simple_encoder(x_train, params)
-       else:
-            encoded = encoder(x_train, params)
-    
-    if input_rms:
-        mlp = create_mlp(np.shape(rms_train)[1])
-        shared_input = concatenate([mlp.output,encoded.output])
-        shared_output = Dense(params['latent_dim'],
-                              activation='relu')(shared_input)
+    encoded = encoder(x_train, params)
 
-    # -- supervised: softmax --------------------------------------------------
-    if supervised:
-        if input_rms:
-            x = Dense(num_classes, activation='softmax')(shared_output)
-            model = Model(inputs=[encoded.input,mlp.input], outputs=x)
-        else:
-            x = Dense(num_classes,
-                  activation='softmax')(encoded.output)
-            model = Model(encoded.input, x)
-        model.summary()
-        
-        
-    else: # -- decoding -------------------------------------------------------
-        if split_lc:
-            decoded = decoder_split(x_train, encoded.output, params)
-        else:
-            if simple:
-                decoded = simple_decoder(x_train, encoded.output, params)
-            else:
-                decoded = decoder(x_train, encoded.output, params)
-        model = Model(encoded.input, decoded)
-        print(model.summary())
-        
+    # -- decoding -------------------------------------------------------------
+    decoded = decoder(x_train, encoded.output, params)
+    model = Model(encoded.input, decoded)
+    print(model.summary())
+    
     # -- compile model --------------------------------------------------------
-        
-    if params['optimizer'] == 'adam':
-        opt = optimizers.adam(lr = params['lr'], 
-                              decay=params['lr']/params['epochs'])
-    elif params['optimizer'] == 'adadelta':
-        opt = optimizers.adadelta(lr = params['lr'])
-        
-    model.compile(optimizer=opt, loss=params['losses'],
-                  metrics=['accuracy', keras.metrics.Precision(),
-                  keras.metrics.Recall()])
+    compile_model(model, params)
 
     # -- train model ----------------------------------------------------------
+    history = model.fit(x_train, x_train, epochs=params['epochs'],
+                        batch_size=params['batch_size'], shuffle=True,
+                        validation_data=(x_test, x_test))
+        
+    return history, model
+
+def cnn(x_train, y_train, x_test, y_test, params, num_classes=4):
+    from keras.models import Model
+    from keras.layers import Dense
+
+    # -- encoding -------------------------------------------------------------
+    encoded = encoder(x_train, params)
     
-    if supervised and input_rms:
-        history = model.fit([x_train, rms_train], y_train,
-                            epochs=params['epochs'],
-                            batch_size=params['batch_size'], shuffle=True)
-    elif supervised and not input_rms:
+    # -- supervised mode: softmax ---------------------------------------------
+    x = Dense(int(num_classes),
+          activation='softmax')(encoded.output)
+    model = Model(encoded.input, x)
+    model.summary()
+        
+    # -- compile model --------------------------------------------------------
+    compile_model(model, params)
+
+    # -- train model ----------------------------------------------------------
+    history = model.fit(x_train, y_train, epochs=params['epochs'],
+                        batch_size=params['batch_size'], shuffle=True,
+                        validation_data=(x_test,y_test))
+    
+    return history, model
+
+def cnn_mock(x_train, y_train, x_test, y_test, params, num_classes = 2):
+    from keras.models import Model
+    from keras.layers import Dense
+
+    # -- encoding -------------------------------------------------------------
+    encoded = encoder(x_train, params)
+    
+    # -- supervised mode: softmax ---------------------------------------------
+    x = Dense(int(num_classes),
+          activation='softmax')(encoded.output)
+    model = Model(encoded.input, x)
+    model.summary()
+        
+    # -- compile model --------------------------------------------------------
+    compile_model(model, params)
+
+    # -- train model ----------------------------------------------------------
+    history = model.fit(x_train, y_train, epochs=params['epochs'],
+                        batch_size=params['batch_size'], shuffle=True,
+                        validation_data=(x_test,y_test))
+    
+    return history, model
+    
+
+# def autoencoder1(x_train, y_train, x_test, y_test, params):
+#     from keras.models import Model
+#     encoded = encoder(x_train, params)
+#     decoded = decoder(x_train, encoded.output, params)
+#     model = Model(encoded.input, decoded)
+#     model.summary()
+    
+#     compile_model(model, params)
+    
+#     history = model.fit(x_train, x_train, epochs=params['epochs'],
+#                         batch_size=params['batch_size'], shuffle=True,
+#                         validation_data=(x_test,x_test))
+#     return history, model
+
+def simple_autoencoder(x_train, y_train, x_test, y_test, params,
+                       supervised=True):
+    '''a simple autoencoder based on a fully-connected layer'''
+    from keras.models import Model
+    from keras.layers import Input, Dense, Flatten, Reshape
+
+    num_classes = np.shape(y_train)[1]
+    input_dim = np.shape(x_train)[1]
+    input_img = Input(shape = (input_dim,1))
+    x = Flatten()(input_img)
+    x = Dense(params['latent_dim'],activation=params['activation'])(x)
+    
+    if supervised:
+        x = Dense(num_classes, activation='softmax')(x)
+    else:
+        x = Dense(input_dim, activation='sigmoid')(x)
+        x = Reshape((input_dim, 1))(x)
+        
+    model = Model(input_img, x)
+    model.summary()
+    compile_model(model, params)
+
+    if supervised:
         history = model.fit(x_train, y_train, epochs=params['epochs'],
-                            batch_size=params['batch_size'], shuffle=True)
-    elif input_rms and not supervised:
-        history = model.fit([x_train, rms_train], x_train,
-                            epochs=params['epochs'],
-                            batch_size=params['batch_size'], shuffle=True)
+                            batch_size=params['batch_size'], shuffle=True,
+                            validation_data=(x_test, y_test))
     else:
         history = model.fit(x_train, x_train, epochs=params['epochs'],
                             batch_size=params['batch_size'], shuffle=True,
@@ -98,22 +131,40 @@ def autoencoder(x_train, x_test, params, input_rms=False, rms_train=False,
         
     return history, model
 
-def simple_encoder(x_train, params):
-    from keras.layers import Input, Dense, Flatten
-    from keras.models import Model
-    input_dim = np.shape(x_train)[1]
-    input_img = Input(shape = (input_dim,1))
-    x = Flatten()(input_img)
-    encoded = Dense(params['latent_dim'], activation='relu')(x)
-    encoder = Model(input_img, encoded)
-    return encoder
 
-def simple_decoder(x_train, bottleneck, params):
-    from keras.layers import Dense, Reshape
-    input_dim = np.shape(x_train)[1]
-    x = Dense(input_dim, activation='sigmoid')(bottleneck)
-    decoded = Reshape((input_dim, 1))(x)
-    return decoded
+
+def compile_model(model, params):
+    from keras import optimizers
+    import keras.metrics
+    if params['optimizer'] == 'adam':
+        opt = optimizers.adam(lr = params['lr'], 
+                              decay=params['lr']/params['epochs'])
+    elif params['optimizer'] == 'adadelta':
+        opt = optimizers.adadelta(lr = params['lr'])
+        
+    # model.compile(optimizer=opt, loss=params['losses'],
+    #               metrics=['accuracy'])
+    model.compile(optimizer=opt, loss=params['losses'],
+                  metrics=['accuracy', keras.metrics.Precision(),
+                  keras.metrics.Recall()])
+    
+
+# def simple_encoder(x_train, params):
+#     from keras.layers import Input, Dense, Flatten
+#     from keras.models import Model
+#     input_dim = np.shape(x_train)[1]
+#     input_img = Input(shape = (input_dim,1))
+#     x = Flatten()(input_img)
+#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
+#     encoder = Model(input_img, encoded)
+#     return encoder
+
+# def simple_decoder(x_train, bottleneck, params):
+#     from keras.layers import Dense, Reshape
+#     input_dim = np.shape(x_train)[1]
+#     x = Dense(input_dim, activation='sigmoid')(bottleneck)
+#     decoded = Reshape((input_dim, 1))(x)
+#     return decoded
 
 def encoder(x_train, params):
     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
@@ -122,22 +173,29 @@ def encoder(x_train, params):
     
     input_dim = np.shape(x_train)[1]
     num_iter = int(params['num_conv_layers']/2)
+    # num_iter = int(len(params['num_filters'])/2)
     
     input_img = Input(shape = (input_dim, 1))
     for i in range(num_iter):
         if i == 0:
-            x = Conv1D(params['num_filters'][i], params['kernel_size'][i],
+            x = Conv1D(params['num_filters'], int(params['kernel_size']),
                     activation=params['activation'], padding='same')(input_img)
+            # x = Conv1D(params['num_filters'][i], int(params['kernel_size'][i]),
+            #         activation=params['activation'], padding='same')(input_img)
         else:
-            x = Conv1D(params['num_filters'][i], params['kernel_size'][i],
+            x = Conv1D(params['num_filters'], int(params['kernel_size']),
                         activation=params['activation'], padding='same')(x)
+            # x = Conv1D(params['num_filters'][i], int(params['kernel_size'][i]),
+            #             activation=params['activation'], padding='same')(x)
         x = MaxPooling1D(2, padding='same')(x)
         # x = AveragePooling1D(2, padding='same')(x)
         
         x = Dropout(params['dropout'])(x)
         
-        x = MaxPooling1D([params['num_filters'][i]],
+        x = MaxPooling1D(int(params['num_filters']),
                           data_format='channels_first')(x)
+        # x = MaxPooling1D([params['num_filters'][i]],
+        #                   data_format='channels_first')(x)
         # x = AveragePooling1D([params['num_filters'][i]],
         #                      data_format='channels_first')(x)
     
@@ -158,7 +216,7 @@ def encoder_split(x, params):
     input_imgs = [Input(shape=(np.shape(a)[1], 1)) for a in x]
 
     for i in range(num_iter):
-        conv_1 = Conv1D(params['num_filters'][i], params['kernel_size'][i],
+        conv_1 = Conv1D(params['num_filters'][i], int(params['kernel_size'][i]),
              activation=params['activation'], padding='same')
         x = [conv_1(a) for a in input_imgs]
         maxpool_1 = MaxPooling1D(2, padding='same')
@@ -180,24 +238,34 @@ def encoder_split(x, params):
 def decoder(x_train, bottleneck, params):
     from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout
     from keras.layers import Lambda
-    from keras import backend as K
     input_dim = np.shape(x_train)[1]
+    # num_iter = int(len(params['num_filters'])/2)
     num_iter = int(params['num_conv_layers']/2)
+    
+    def repeat_elts(x):
+        '''helper function for lambda layer'''
+        import tensorflow as tf
+        return tf.keras.backend.repeat_elements(x,params['num_filters'],2)
+        # return tf.keras.backend.repeat_elements(x,params['num_filters'][num_iter+i],2)
     
     x = Dense(int(input_dim/(2**(num_iter))))(bottleneck)
     x = Reshape((int(input_dim/(2**(num_iter))), 1))(x)
     for i in range(num_iter):
-        x = Lambda(lambda x: \
-                   K.repeat_elements(x,params['num_filters'][num_iter+i],2))(x)
+        x = Lambda(repeat_elts)(x)
         x = Dropout(params['dropout'])(x)
         x = UpSampling1D(2)(x)
         if i == num_iter-1:
-            decoded = Conv1D(1, params['kernel_size'][num_iter],
+            decoded = Conv1D(1, int(params['kernel_size']),
                              activation=params['last_activation'],
                              padding='same')(x)
+            # decoded = Conv1D(1, int(params['kernel_size'][num_iter]),
+            #                  activation=params['last_activation'],
+            #                  padding='same')(x)
         else:
-            x = Conv1D(1, params['kernel_size'][num_iter+i],
+            x = Conv1D(1, int(params['kernel_size']),
                        activation=params['activation'], padding='same')(x)
+            # x = Conv1D(1, int(params['kernel_size'][num_iter+i]),
+            #            activation=params['activation'], padding='same')(x)
     return decoded
 
 def decoder_split(x_train, bottleneck, params):
@@ -687,6 +755,7 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
             fig.savefig(out_dir+str(c)+'ind-'+str(a+1)+model.layers[a+1].name\
                         +'.png')
             plt.close(fig)
+
 
 def epoch_plots(history, p, out_dir, supervised=True):
     label_list = [['loss', 'accuracy'], ['precision', 'recall']]
@@ -1374,4 +1443,70 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
 #     # x = x*scale + offset
 #     return x
     
+    
+# def conv_autoencoder(x_train, y_train, x_test, y_test, params, input_rms=False,
+#                 rms_train=False,
+#                 rms_test=False, supervised = False, num_classes=False, 
+#                 split_lc=False,
+#                 orbit_gap=[8794, 8795]):
+#     '''If supervised = True, must provide y_train, y_test, num_classes'''
+#     from keras.models import Model
+#     from keras.layers import Dense, concatenate
+
+#     # -- encoding -------------------------------------------------------------
+#     if split_lc:
+#         x_train_0,x_train_1 = x_train[:,:orbit_gap[0]],x_train[:,orbit_gap[1]:]
+#         x_test_0,x_test_1 = x_test[:,:orbit_gap[0]],x_test[:,orbit_gap[1]:]
+#         encoded = encoder_split([x_train_0, x_train_1], params)
+#     else:
+#         encoded = encoder(x_train, params)
+    
+#     if input_rms:
+#         mlp = create_mlp(np.shape(rms_train)[1])
+#         shared_input = concatenate([mlp.output,encoded.output])
+#         shared_output = Dense(params['latent_dim'],
+#                               activation='relu')(shared_input)
+
+#     # -- supervised mode: softmax --------------------------------------------------
+#     if supervised:
+#         if input_rms:
+#             x = Dense(num_classes, activation='softmax')(shared_output)
+#             model = Model(inputs=[encoded.input,mlp.input], outputs=x)
+#         else:
+#             x = Dense(int(num_classes),
+#                   activation='softmax')(encoded.output)
+#             model = Model(encoded.input, x)
+#         model.summary()
+        
+        
+#     else: # -- decoding -------------------------------------------------------
+#         if split_lc:
+#             decoded = decoder_split(x_train, encoded.output, params)
+#         else:
+#             decoded = decoder(x_train, encoded.output, params)
+#         model = Model(encoded.input, decoded)
+#         print(model.summary())
+        
+#     # -- compile model --------------------------------------------------------
+#     compile_model(model, params)
+
+#     # -- train model ----------------------------------------------------------
+    
+#     if supervised and input_rms:
+#         history = model.fit([x_train, rms_train], y_train,
+#                             epochs=params['epochs'],
+#                             batch_size=params['batch_size'], shuffle=True)
+#     elif supervised and not input_rms:
+#         history = model.fit(x_train, y_train, epochs=params['epochs'],
+#                             batch_size=params['batch_size'], shuffle=True)
+#     elif input_rms and not supervised:
+#         history = model.fit([x_train, rms_train], x_train,
+#                             epochs=params['epochs'],
+#                             batch_size=params['batch_size'], shuffle=True)
+#     else:
+#         history = model.fit(x_train, x_train, epochs=params['epochs'],
+#                             batch_size=params['batch_size'], shuffle=True,
+#                             validation_data=(x_test, x_test))
+        
+#     return history, model
     
