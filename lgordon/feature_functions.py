@@ -81,7 +81,7 @@ def print_header(index):
     #print(fnames[index])
     f = fits.open(fitspath + fnames[index])
     hdr = f[0].header
-    print(hdr)
+    #print(hdr)
     return hdr
 
 def get_data_from_fits():
