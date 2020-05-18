@@ -136,5 +136,5 @@ if plot:
 # nan_inds = np.nonzero(np.prod(np.isnan(intensity)==False, axis = 0) == False)
 
 
-# time = np.delete(time, nan_inds)
-# intensity = np.delete(intensity, nan_inds, 1)
+int(# time = np.test_rbefore_orbit-Truiipython -i readttxtprint(i)len(tics)tics[inlist(filter(lambda x: str(int(tics[i])) in x, fnames))
+# intensity = np.delete(intensity, nan_inds, 1)  ]with open('classified_lc.txt', 'r') as f:lines = f.readlines()len(lines)with open('classified_lc3.txt', 'r') as f:lines = f.readlines()lineslen(lines)              
