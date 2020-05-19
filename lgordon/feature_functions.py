@@ -4,7 +4,7 @@ Created on Mon Mar 30 00:18:52 2020
 
 @author: Lindsey Gordon 
 
-Functions used across files. Updated April 2020.
+Functions used across files. Updated May 2020.
 """
 
 #Imports ---------------------------------------
@@ -164,7 +164,56 @@ def normalize(intensity):
     print("Normalization and sigma clipping complete")
     return intensity
     
+def interpolate_lc(time_indexes, intensities):
+    """interpolates all light curves in an array of all light curves"""
+    
+    interp_tol = 20. / (24*60) # >> interpolate small gaps (less than 20 minutes)
+    
+    interpolated_intensities = []
+    interpolated_times = []
+    for p in range(len(time_indexes)):
 
+        time = time_indexes[p]
+        i = intensities[p]
+        
+        n = np.shape(i)[0]
+        loc_run_start = np.empty(n, dtype=bool)
+        loc_run_start[0] = True
+        np.not_equal(np.isnan(i)[:-1], np.isnan(i)[1:], out=loc_run_start[1:])
+        run_starts = np.nonzero(loc_run_start)[0]
+    
+        # >> find run lengths
+        run_lengths = np.diff(np.append(run_starts, n))
+    
+        tdim = time[1] - time[0]
+        interp_inds = run_starts[np.nonzero((run_lengths * tdim <= interp_tol) * \
+                                            np.isnan(i[run_starts]))]
+        interp_lens = run_lengths[np.nonzero((run_lengths * tdim <= interp_tol) * \
+                                             np.isnan(i[run_starts]))]
+    
+        # -- interpolation ---------------------------------------------------------
+        # >> interpolate small gaps
+        i_interp = np.copy(i)
+        for a in range(np.shape(interp_inds)[0]):
+            start_ind = interp_inds[a]
+            end_ind = interp_inds[a] + interp_lens[a]
+            i_interp[start_ind:end_ind] = np.interp(time[start_ind:end_ind],
+                                                    time[np.nonzero(~np.isnan(i))],
+                                                    i[np.nonzero(~np.isnan(i))])
+        interpolated_intensities.append(i_interp)
+    
+    # -- remove orbit nan gap ------------------------------------------------------
+    interpolated_intensities = np.array(interpolated_intensities)
+    # nan_inds = np.nonzero(np.prod(np.isnan(intensity)==False), axis = 0))
+    nan_inds = np.nonzero(np.prod(np.isnan(interpolated_intensities)==False, axis = 0) == False)
+    interpolated_intensities = np.delete(interpolated_intensities, nan_inds, 1) #each row of intensity is one interpolated light curve.
+    for p in range(len(time_indexes)):
+        time = time_indexes[p]
+        time_corrected = np.delete(time, nan_inds)
+        interpolated_times.append(time_corrected)
+    
+    interpolated_times = np.array(interpolated_times)
+    return interpolated_times, interpolated_intensities
 #producing the feature vector list -----------------------------
     
     

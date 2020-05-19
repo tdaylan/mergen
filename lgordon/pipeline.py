@@ -4,7 +4,9 @@ Created on Wed Apr 29 15:48:56 2020
 
 @author: Lindsey Gordon
 
-Last updated: April 2020
+Pipeline to produce all files for a given group of data.
+
+Last updated: May 2020
 """
 
 import numpy as np
@@ -71,230 +73,190 @@ n_choose_2_features_plotting(lc_feat, lc_feat, "5-4", "dbscan")
 plot_lof(time, intensity, targets, lc_feat, 10, "5-4")
 
 #%%
+#add a yourpath argument to make it universalized
+mypath = "/Users/conta/UROP_Spring_2020/"
+def data_process_a_group(yourpath, sectorfile, sector, camera, ccd):
+    """you will need:
+        the file for your sector from TESS
+        sector number (as int)
+        camera number you want (as int/float)
+        ccd number you want (as int/float)"""
+    # produce the folder to save everything into and set up file names
+    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+    path = yourpath + folder_name
+    fname_time = path + "/" + folder_name + "_times_raw.txt"
+    fname_int = path + "/" + folder_name + "_intensities_raw.txt"
+    fname_targets = path + "/" + folder_name + "_targets.txt"
+    fname_times_interp = path + "/" + folder_name + "_interp_times.txt"
+    fname_ints_processed = path + "/" + folder_name + "_ints_processed.txt"
+    try:
+        os.makedirs(path)
+        print ("Successfully created the directory %s" % path) 
+        
+    # get just the list of targets for the specified sector, camera, ccd --------
+        target_list = lc_by_camera_ccd(sectorfile, camera, ccd)
+        print("there are ", len(target_list), "targets")
+    # get the light curve for each target on the list, and save into a text file
+        confirmation, failed_to_get = lc_from_target_list(yourpath, target_list, fname_time, fname_int, fname_targets)
+        print(confirmation)
+        print("failed to get", len(failed_to_get), "targets, go back in and investigate")
+    # import the files you just created
+        times = np.loadtxt(fname_time)
+        intensities = np.loadtxt(fname_int)
+        targets = np.loadtxt(fname_targets)
+    #check to be sure all have the same size, if not, report back an error
+        if len(times) == len(intensities) == len(targets):
+    #interpolate and normalize/sigma clip
+            interp_times, interp_intensities = interpolate_lc(times, intensities)
+            normalized_intensities = normalize(interp_intensities)
+    #save these into their own files, and report these arrays back
+            np.savetxt(fname_times_interp, interp_times)
+            times = np.loadtxt(fname_times_interp)
+            np.savetxt(fname_ints_processed, normalized_intensities)
+            intensities = np.loadtxt(fname_ints_processed)
+     
+        else: #if there is an error with the number of lines in times vs ints vs targets
+            print("There is a disagreement between the number of lines saved in each text file")
+            times = "Does not exist"
+            intensities = "Does not exist"
+            failed_to_get = "all"
+    
+    except OSError: #if there is an error creating the folder
+        print ("This directory already exists, or there is some other OS error")
+        times = "Does not exist" 
+        intensities = "does not exist"
+        failed_to_get = "all"
+        
+    return times, intensities, failed_to_get
 
-def lc_by_camera_ccd(file, camera, ccd):
-    target_list = np.loadtxt(file)
-    indexes = []
-    for n in range(len(target_list)):
-        if target_list[n][1] == camera and target_list[n][2] == ccd:
-            indexes.append(n)
-    matching_targets = target_list[indexes]
-    return matching_targets
-
-targets_20_1_1 = lc_by_camera_ccd("/Users/conta/UROP_Spring_2020/all_targets_S020_v1.txt", 1, 1)
 #%%
-targets_sector20 = np.loadtxt("/Users/conta/UROP_Spring_2020/all_targets_S020_v1.txt")
+def lc_by_camera_ccd(sectorfile, camera, ccd):
+    """gets all the targets for a given sector, camera, ccd"""
+    target_list = np.loadtxt(sectorfile)     #load in the target file
+    indexes = [] #empty array to save indexes into
+    for n in range(len(target_list)): #for each item in the list of targets
+        if target_list[n][1] == camera and target_list[n][2] == ccd: #be sure it matches
+            indexes.append(n) #if it does, append to index list
+    matching_targets = target_list[indexes] #just grab those indexes
+    return matching_targets #return list of only targets on that specific ccd
 
-print(targets_sector20)
 
-#getting just the targets on camera 1 ccd 1
-indexes_20_1_1 = []
-for n in range(len(targets_sector20)):
-    if targets_sector20[n][1] == 1 and targets_sector20[n][2] == 1:
-        indexes_20_1_1.append(n)
-
-#print(indexes_20_1_1) #there are 925 of these
-
-targets_20_1_1 = targets_sector20[indexes_20_1_1]
-
-#%%
-
-def get_lc_file_and_data(target):
+def get_lc_file_and_data(yourpath, target):
     """ goes in, grabs the data for the target, gets the time index, intensity,
-    etc. for the image. if connection error w/ MAST, adds to a list of failed targets
-    to go get manually later."""
-    fitspath = '/Users/conta/UROP_Spring_2020/mastDownload/TESS/'
+    etc. for the image. if connection error w/ MAST, skips it"""
+    fitspath = yourpath + 'mastDownload/TESS/'
     targ = "TIC " + str(int(target))
     print(targ)
     try:
+        #find and download data products for your target
         obs_table = Observations.query_object(targ, radius=".02 deg")
         data_products_by_obs = Observations.get_product_list(obs_table[0:2])
             
+        #in theory, filter_products should let you sort out the non fits files but i 
+        #simply could not get it to accept it despite followin the API guidelines
         filter_products = Observations.filter_products(data_products_by_obs, dataproduct_type = 'timeseries')
         manifest = Observations.download_products(filter_products)
         #print(manifest)
             
+        #get all the paths to lc.fits files
         filepaths = []
         for root, dirs, files in os.walk(fitspath):
             for name in files:
                 if name.endswith(("lc.fits")):
                     filepaths.append(root + "/" + name)
-                
-        #print(filepaths)
-            
-        for file in filepaths:
-                    # -- open file -------------------------------------------------------------
-            f = fits.open(file, memmap=False)
-            time1 = f[1].data['TIME']
-            i1 = f[1].data['PDCSAP_FLUX']
-            tic1 = f[1].header["OBJECT"]
-                
-            f.close()
-                
+                 
+        if len(filepaths) == 0: #if no lc.fits were downloaded, move on
+            print(targ, "no light curve available")
+            time1 = 0
+            i1 = 0
+        else: #if there are lc.fits files, open them and get the goods
+            for file in filepaths:
+                #get the goods and then close it
+                f = fits.open(file, memmap=False)
+                time1 = f[1].data['TIME']
+                i1 = f[1].data['PDCSAP_FLUX']                
+                f.close()
+                  
+        #then delete all downloads in the folder, no matter what type
         if os.path.isdir("mastDownload") == True:
-            shutil.rmtree("mastDownload")               #deletes ALL data to conserve space
+            shutil.rmtree("mastDownload")
             print("folder deleted")
             
+        #corrects for connnection errors
     except (ConnectionError, OSError, TimeoutError):
-        print(targ + "could not be accessed due to a connection error")
-        i1 = "Target failed, retry"
-        time1 = "target failed, retry"
+        print(targ + "could not be accessed due to an error")
+        i1 = 0
+        time1 = 0
     
     return time1, i1
 
-
-
-def lc_from_target_list(targetList):
+def lc_from_target_list(yourpath, targetList, fname_time, fname_int, fname_targets):
     """ runs getting the file and data for all targets on the list
     then appends the time & intensity arrays and the TIC number into text files
     that can later be accessed
     also if it crashes in the night you just have to len the rows in the file and can
     pick up appending where you left off originally"""
-    for n in range(len(targetList)):
-        target = targetList[n][0]
-        time1, i1 = get_lc_file_and_data(target)
-        #storinglist[n][0] = target
-        with open("/Users/conta/UROP_Spring_2020/plot_output/5-18/sector20_cam1_ccd1_targets.txt", 'a') as file_object:
+    failed_to_get = [] #empty array for all failures
+    for n in range(len(targetList)): #for each item on the list
+        target = targetList[n][0] #get that target number
+        time1, i1 = get_lc_file_and_data(yourpath, target) #go in and get the time and int
+        if time1 == 0 or i1 == 0: #if there was an error, add it to the list and continue
+            failed_to_get.append(target)
+            continue
+    # add data to the files
+        with open(fname_targets, 'a') as file_object:
             file_object.write("\n")
             file_object.write(str(target))
-        with open("/Users/conta/UROP_Spring_2020/plot_output/5-18/sector20_cam1_ccd1_time.txt", 'a') as file_object:
+        with open(fname_time, 'a') as file_object:
             file_object.write("\n")
             np.savetxt(file_object, time1, delimiter = ',', newline = ' ')
-        with open("/Users/conta/UROP_Spring_2020/plot_output/5-18/sector20_cam1_ccd1_intensities.txt", 'a') as file_object:   
+        with open(fname_int, 'a') as file_object:   
             file_object.write("\n")
             np.savetxt(file_object, i1, delimiter = ',', newline = ' ')
         
-        if n %30 == 0:
-            print("30 completed")
+        if n %30 == 0: #every 30, print how many have been done
+            print(str(n), "completed")
+    confirmation = "lc_from_target_list has finished running"
+    return confirmation, failed_to_get
+
+
+#%%
+t6 = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD1/sector20_cam1_ccd1_interp_times.txt")
+inty7 = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD1/sector20_cam1_ccd1_processed_intensities.txt")
+
+
+
+#%%
+    
+missing_curves = ["241167417", "453404919", "453406071", "458409287", "741653758", "80201562"]
+
+fitspath = '/Users/conta/UROP_Spring_2020/mastDownload/TESS/'
+for n in range(len(missing_curves)):
+    obs_table = Observations.query_object("TIC " + missing_curves[n], radius=".02 deg")
+    data_products_by_obs = Observations.get_product_list(obs_table[0:2])
+            
+    filter_products = Observations.filter_products(data_products_by_obs, dataproduct_type = 'timeseries')
+    manifest = Observations.download_products(filter_products)
+        #print(manifest)         
+#%%
+    filepaths = []
+    for root, dirs, files in os.walk(fitspath):
+        for name in files:
+            if name.endswith(("lc.fits")):
+                filepaths.append(root + "/" + name)
+                    
+print(filepaths)
+                #%%
+        for file in filepaths:
+                        # -- open file -------------------------------------------------------------
+            f = fits.open(file, memmap=False)
+            time1 = f[1].data['TIME']
+            i1 = f[1].data['PDCSAP_FLUX']
+            tic1 = f[1].header["OBJECT"]
+                    
+            f.close()
        
-#%%
-lc_from_target_list(targets_20_1_1[502:])
-
-
-#%%
-t = np.loadtxt("/Users/conta/UROP_Spring_2020/plot_output/5-18/sector20_cam1_ccd1_time.txt")
-inty = np.loadtxt("/Users/conta/UROP_Spring_2020/plot_output/5-18/sector20_cam1_ccd1_intensities.txt")
-targy = np.loadtxt("/Users/conta/UROP_Spring_2020/plot_output/5-18/sector20_cam1_ccd1_targets.txt")
-#%%
-
-def interpolate_lc(time_indexes, intensities):
-    """ interpolates all light curves in an array of all light curves""""
-    
-    interp_tol = 20. / (24*60) # >> interpolate small gaps (less than 20 minutes)
-    
-    interpolated_intensities = []
-    interpolated_time = []
-    for p in range(len(times)):
-
-        time = time_indexes[p]
-        i = intensities[p]
-        
-        n = np.shape(i)[0]
-        loc_run_start = np.empty(n, dtype=bool)
-        loc_run_start[0] = True
-        np.not_equal(np.isnan(i)[:-1], np.isnan(i)[1:], out=loc_run_start[1:])
-        run_starts = np.nonzero(loc_run_start)[0]
-    
-        # >> find run lengths
-        run_lengths = np.diff(np.append(run_starts, n))
-    
-        tdim = time[1] - time[0]
-        interp_inds = run_starts[np.nonzero((run_lengths * tdim <= interp_tol) * \
-                                            np.isnan(i[run_starts]))]
-        interp_lens = run_lengths[np.nonzero((run_lengths * tdim <= interp_tol) * \
-                                             np.isnan(i[run_starts]))]
-    
-        # -- interpolation ---------------------------------------------------------
-        # >> interpolate small gaps
-        i_interp = np.copy(i)
-        for a in range(np.shape(interp_inds)[0]):
-            start_ind = interp_inds[a]
-            end_ind = interp_inds[a] + interp_lens[a]
-            i_interp[start_ind:end_ind] = np.interp(time[start_ind:end_ind],
-                                                    time[np.nonzero(~np.isnan(i))],
-                                                    i[np.nonzero(~np.isnan(i))])
-        interpolated_intensities.append(i_interp)
-    
-    # -- remove orbit nan gap ------------------------------------------------------
-    interpolated_intensities = np.array(interpolated_intensities)
-    # nan_inds = np.nonzero(np.prod(np.isnan(intensity)==False), axis = 0))
-    nan_inds = np.nonzero(np.prod(np.isnan(interpolated_intensities)==False, axis = 0) == False)
-    intensity = np.delete(intensity, nan_inds, 1) #each row of intensity is one interpolated light curve.
-    for p in range(len(time_indexes)):
-        time = time_indexes[p]
-        time_corrected = np.delete(time, nan_inds)
-        interpolated_times.append(time_corrected)
-    
-    interpolated_times = np.array(interpolated_times)
-    return interpolated_times, interpolated_intensities
-
-
-
-#%%
-#feature optimizing for dbscan
-
-    predict_on_100 =  lc_feat[0:100][:,[3,11,12]]
-    db_100 = DBSCAN(eps=0.5, min_samples=10).fit(predict_on_100)
-    predicted_100 = db_100.labels_
-    
-    #producing the confusion matrix
-    labelled_100 = np.loadtxt("/Users/conta/UROP_Spring_2020/100-labelled/labelled_100.txt", delimiter=',', usecols=1, skiprows=1, unpack=True)
-    print("predicted 100:", predicted_100, "\nlabelled 100:", labelled_100)
-    
-    dbscan_matrix = confusion_matrix(labelled_100, predicted_100)
-    
-    print(dbscan_matrix)
-    
-    dbscan_diagonal = check_diagonalized(dbscan_matrix)
-    
-    with open("/Users/conta/UROP_Spring_2020/plot_output/5-11/dbscan-confusion-matrices.txt", 'a') as file_object:
-        # Append 'hello' at the end of file
-        file_object.write("\n")
-        file_object.write("kurtosis, ln slope, P0\n" + str(dbscan_matrix) + "\n" + str( dbscan_diagonal))
-
-#%%
-lc_cropped = lc_feat[0:100][:,[0,3,8,9,11,12,13,14,15]] 
-
-n_choose_2_features_plotting(lc_feat[0:100], lc_cropped[0:100], "5-11", "dbscan")
-   
-
-with open("/Users/conta/UROP_Spring_2020/plot_output/5-11/dbscan-matrices-plotted.txt", 'a') as file_object:
-        # Append 'hello' at the end of file
-        file_object.write("\n")
-        file_object.write("kurtosis, ln slope, P0\n" + str(dbscan_matrix) + "\n" + str( dbscan_diagonal))
-#%%
-        
-from sklearn.decomposition import PCA
-
-
-pca = PCA(n_components=1, whiten=True)
-pca_feat = pca.fit_transform(lc_feat[0:100])
-print(pca_feat)
-
-db_100 = DBSCAN(eps=0.5, min_samples=10).fit(pca_feat)
-predicted_100 = db_100.labels_
-
-dbscan_matrix = confusion_matrix(labelled_100, predicted_100)
-dbscan_matrix
-dbscan_diagonal = check_diagonalized(dbscan_matrix)
-
-
-with open("/Users/conta/UROP_Spring_2020/plot_output/5-11/PCA-confusion-matrices.txt", 'a') as file_object:
-        # Append 'hello' at the end of file
-        file_object.write("\n")
-        file_object.write("n components: 1, whiten = True" + str(dbscan_matrix) + "\n" + str( dbscan_diagonal))
-#%%
-
-number_targets = len(targets)
-sector_number = np.zeros((number_targets, 1))
-camera_number = np.zeros((number_targets, 1))
-ccd_number = np.zeros((number_targets, 1))
-for n in range(number_targets):
-    head = print_header(n)
-    sector_number[n] = head["SECTOR"]
-    camera_number[n] = head["CAMERA"]
-    ccd_number[n] = np.round(head["CCD"], 0)
-   
-sectorcameraccd = np.column_stack((sector_number, camera_number, ccd_number))    
-#%%    
-np.savetxt("/Users/conta/UROP_Spring_2020/sector-cam-ccd.txt", sectorcameraccd, header = "sector-camera-ccd numbers for each value") 
+          
+                
+                
+                
