@@ -58,7 +58,7 @@ def test(num):
     print(num * 4)
     
 # For running on the current data/ feature vectors (as of 5/4/20)
-def get_from_files():
+def get_from_files_1200():
     """pulls time, intensity, and feature vectors from text files that they are saved in
     currently pulling the 5/4 version of it"""
     intensity = np.loadtxt("/Users/conta/UROP_Spring_2020/intensities.txt", delimiter = " ")
@@ -85,8 +85,7 @@ def print_header(index):
     return hdr
 
 def get_data_from_fits():
-    """ imports data from fits files. 
-        based on emma's code"""    
+    """ imports data from fits files. based on emma's code"""    
 
     fitspath = '/Users/conta/UROP_Spring_2020/tessdata_lc_sector20_1000/'
     fnames_all = os.listdir(fitspath)
@@ -147,6 +146,11 @@ def get_data_from_fits():
     time = np.delete(time, nan_inds)
     intensity = np.delete(intensity, nan_inds, 1) #each row of intensity is one interpolated light curve.
     return time, intensity, targets
+
+#data process an entire group of TICs
+    
+
+
 
 
 #normalizing each light curve
@@ -215,7 +219,7 @@ def interpolate_lc(time_indexes, intensities):
     interpolated_times = np.array(interpolated_times)
     return interpolated_times, interpolated_intensities
 #producing the feature vector list -----------------------------
-    
+
     
 def create_list_featvec(time_axis, datasets):
     """input: all of the datasets being turned into feature vectors (ie, intensity)
@@ -272,21 +276,17 @@ def featvec(x_axis, sampledata):
     powers = []
     indexes = []
     for n in range(len(rel_maxes[0])):
-        #print(rel_maxes[0][n]) #accessing each index
         index = rel_maxes[0][n]
         indexes.append(index)
         power_level_at_rel_max = pg[index]
-        #print(power_level_at_rel_max)
         powers.append(power_level_at_rel_max)
     
     max_power = np.max(powers)
-    #print("the max power is" + str(max_power))
     index_of_max_power = np.argmax(powers)
-    #print("the index of that power is" + str(index_of_max_power))
     index_of_f_max = rel_maxes[0][index_of_max_power]
     f_max_power = f[index_of_f_max]
-    #print("the frequency at that index is" + str(f_max_power))
     period_max_power = 2*np.pi / f_max_power
+    
     featvec.append(max_power)
     featvec.append(np.log(np.abs(max_power)))
     featvec.append(period_max_power)
@@ -295,8 +295,7 @@ def featvec(x_axis, sampledata):
     featvec.append(slope)
     featvec.append(np.log(np.abs(slope)))
     
-    
-    #integrating = np.trapz(pg, periods) #integrates the whole 0.1-10 day range
+    #integrates the whole 0.1-10 day range
     integrating1 = np.trapz(pg[457:5000], periods[457:5000]) #0.1 days to 1 days
     integrating2 = np.trapz(pg[121:457], periods[121:457])#1-3 days
     integrating3 = np.trapz(pg[0:121], periods[0:121]) #3-10 days
@@ -339,8 +338,19 @@ def moments(dataset):
     return(moments)
 
 #Plotting functions ------------------------------------------------------
+def post_process_plotting(time, intensity, features_all, features_using, targets, folder):
+    """plotting all the things"""
+    n_choose_2_features_plotting(features_all, features_using, folder, "none")
+    n_choose_2_features_plotting(features_all, features_using, folder, "kmeans")
+    n_choose_2_features_plotting(features_all, features_using, folder, "dbscan")
     
-def n_choose_2_features_plotting(feature_vectors, cluster_columns, date, clustering):
+    plot_lof(time, intensity, targets, features_all, 10, folder)
+
+
+    n_choose_2_insets(time, intensity, features_all, targets, folder)
+
+
+def n_choose_2_features_plotting(feature_vectors, cluster_columns, folder, clustering):
     """plotting (n 2) features against each other
     feature_vectors is the list of ALL feature_vectors
     cluster_columns is the vectors that you want to use to do the clustering based on
@@ -367,7 +377,7 @@ def n_choose_2_features_plotting(feature_vectors, cluster_columns, date, cluster
         cluster = 'none'
         folder_label = "nchoose2"
     #makes folder and saves to it    
-    path = "/Users/conta/UROP_Spring_2020/plot_output/" + date + "/" + folder_label
+    path = "/Users/conta/UROP_Spring_2020/" + folder + "/" + folder_label
     try:
         os.makedirs(path)
     except OSError:
@@ -410,7 +420,7 @@ def n_choose_2_features_plotting(feature_vectors, cluster_columns, date, cluster
                     plt.scatter(feat1[p], feat2[p], c = color, s = 5)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/dbscan-colored/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
+                plt.savefig(("/Users/conta/UROP_Spring_2020/plot_output/" + folder + "/dbscan-colored/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
                 plt.show()
             elif cluster == 'kmeans':
                 for p in range(len(feature_vectors)):
@@ -425,20 +435,20 @@ def n_choose_2_features_plotting(feature_vectors, cluster_columns, date, cluster
                     plt.scatter(feat1[p], feat2[p], c = color)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/kmeans-colored/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
+                plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + folder + "/kmeans-colored/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
                 plt.show()
             elif cluster == 'none':
                 plt.scatter(feat1, feat2, s = 2, color = 'black')
                 #plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/nchoose2/" + date + "-" + fname_label1 + "-vs-" + fname_label2 + ".png")
+                plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + folder + "/nchoose2/" + fname_label1 + "-vs-" + fname_label2 + ".png")
                 plt.show()
                 
 
 
 
-def plot_lof(time, intensity, targets, features, n, date):
+def plot_lof(time, intensity, targets, features, n, folder):
     """plots the 20 most and least interesting light curves based on LOF
     takes input: time, intensity, targets, featurelist, n number of curves you want, date as a string """
     from sklearn.neighbors import LocalOutlierFactor
@@ -467,7 +477,7 @@ def plot_lof(time, intensity, targets, features, n, date):
     fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
     fig.tight_layout()
     fig.subplots_adjust(top=0.96)
-    fig.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/" + date + "-"+ str(n) + "-largest-lof.png")
+    fig.savefig("/Users/conta/UROP_Spring_2020/" + folder + "/" + str(n) + "-largest-lof.png")
 
     #plot the smallest indices
     fig1, axs1 = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
@@ -482,7 +492,7 @@ def plot_lof(time, intensity, targets, features, n, date):
     fig1.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
     fig1.tight_layout()
     fig1.subplots_adjust(top=0.96)
-    fig1.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + date + "/" + date + "-"+ str(n) + "-smallest-lof.png")
+    fig1.savefig("/Users/conta/UROP_Spring_2020/" + folder + "/" + str(n) + "-smallest-lof.png")
                 
 def astroquery_pull_data(target):
     """pulls data on object from astroquery
@@ -512,12 +522,12 @@ def inset_labelling(axis_name, time, intensity, targets, index, title):
     
 #PLOTTING INSET PLOTS (x/y max/min points per feature)
     
-def n_choose_2_insets(time, intensity, feature_vectors, targets, date):
+def n_choose_2_insets(time, intensity, feature_vectors, targets, folder):
     """plotting (n 2) features against each other w/ 4 extremes inset plotted
     feature_vectors is the list of ALL feature_vectors
     date must be a string in the format of the folder you are saving into ie "4-13"
     """   
-    path = "/Users/conta/UROP_Spring_2020/plot_output/" + date + "/nchoose2"
+    path = "/Users/conta/UROP_Spring_2020/" + folder + "/nchoose2-insets"
     try:
         os.makedirs(path)
     except OSError:
@@ -548,8 +558,10 @@ def n_choose_2_insets(time, intensity, feature_vectors, targets, date):
             
             plot_all_insets(feature_vectors, targets, intensity, time, n, m, graph_label1, graph_label2)
  
-            plt.savefig(path + date + "-" + fname_label1 + "-vs-" + fname_label2 + ".png")
+            plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
             plt.show()
+            
+            
 def plot_all_insets(feature_vectors,targets, intensity, time, feat1, feat2, graph_label1, graph_label2):
     """plots the x/y min/max points' associated light curve on the plot"""
     fig, ax1 = plt.subplots()
