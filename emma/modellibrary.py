@@ -4,8 +4,8 @@
 # emma feb 2020
 # 
 # * convolutional autoencoder
-# * autoencoder
-#
+# * cnn
+# * simple autoencoder (two fully-connected layers)
 #
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: 
 
@@ -13,6 +13,146 @@ import os
 import pdb
 import matplotlib.pyplot as plt
 import numpy as np
+
+def run_model(x_train, y_train, x_test, y_test, p, supervised=False):
+    if supervised:
+        history, model = cnn(x_train, y_train, x_test, y_test, p)
+    else:
+        history, model = conv_autoencoder(x_train, x_train, x_test, x_test,
+                                             p)
+        
+    x_predict = model.predict(x_test)
+    return history, model, x_predict
+
+def diagnostic_plots(history, model, p, output_dir, prefix, 
+                     x, x_train, x_test, x_predict, 
+                     mock_data=False, ticid_train=False, ticid_test=False,
+                     supervised=False, y_true=False, y_predict=False,
+                     y_train=False, classes=False, num_classes=False,
+                     rms_train=False, rms_test = False, input_rms = False,
+                     inds = [0,1,2,3,4,5,6,7,-1,-2,-3,-4,-5,-6,-7],
+                     intermed_inds = [6,0],
+                     input_bottle_inds = [0,1,2,-6,-7],
+                     addend = 1.,
+                     plot_epoch = True,
+                     plot_in_out = True,
+                     plot_in_bottle_out=True,
+                     plot_latent_test = False,
+                     plot_latent_train = False,
+                     plot_kernel=False,
+                     plot_intermed_act=False,
+                     plot_clustering=False,
+                     make_movie = False):
+
+    plt.rcParams.update(plt.rcParamsDefault)
+    activations = get_activations(model, x_test, rms_test = rms_test,
+                                  input_rms=input_rms)
+    
+    # >> plot loss, accuracy, precision, recall vs. epochs
+    if plot_epoch:
+        epoch_plots(history, p, output_dir+prefix+'epoch-',
+                    supervised=supervised)   
+
+    # -- unsupervised ---------------------------------------------------------
+    # >> plot some decoded light curves
+    if plot_in_out and not supervised:
+        fig, axes = input_output_plot(x, x_test, x_predict,
+                                      output_dir+prefix+'input_output.png',
+                                      ticid_test=ticid_test,
+                                      inds=inds,
+                                      addend=addend, sharey=False,
+                                      mock_data=mock_data)
+        
+    # >> plot input, bottleneck, output
+    if plot_in_bottle_out and not supervised:
+        input_bottleneck_output_plot(x, x_test, x_predict,
+                                     activations, model, ticid_test,
+                                     output_dir+prefix+\
+                                     'input_bottleneck_output.png',
+                                     addend=addend, inds = input_bottle_inds,
+                                     sharey=False, mock_data=mock_data)
+            
+    # -- supervised -----------------------------------------------------------
+    if supervised:
+        if mock_data:
+            y_train_classes = y_train[:,1]
+        else:
+            y_train_classes = classes[:np.shape(x_train)[0]]
+        training_test_plot(x,x_train,x_test,
+                              y_train_classes,y_true,y_predict,num_classes,
+                              output_dir+prefix+'lc-', ticid_train, ticid_test,
+                              mock_data=mock_data)
+        
+    # -- latent space visualization -------------------------------------------
+    if plot_latent_test:
+        fig, axes = latent_space_plot(model, activations, p,
+                                      output_dir+prefix+'latent_space.png')
+    if plot_latent_train:
+        activations_train = get_activations(model, x_train, rms_test=rms_train,
+                                            input_rms=input_rms)
+        fig, axes = latent_space_plot(model, activations_train, p,
+                                      output_dir+prefix+\
+                                          'latent_space-x_train.png')
+
+    # >> plot kernel vs. filter
+    if plot_kernel:
+        kernel_filter_plot(model, output_dir+prefix+'kernel-')
+        
+    if plot_clustering:
+        bottleneck_ind = np.nonzero(['dense' in x.name for x in \
+                                     model.layers])[0][0]
+        bottleneck = activations[bottleneck_ind - 1]        
+        latent_space_clustering(bottleneck, x_test, x, ticid_test,
+                                out=output_dir+prefix+\
+                                    'clustering-x_test-', addend=addend)
+
+    # -- intermediate activations visualization -------------------------------
+    if plot_intermed_act:
+        intermed_act_plot(x, model, activations, x_test,
+                          output_dir+prefix+'intermed_act-', addend=addend,
+                          inds=intermed_inds)
+    
+    if make_movie:
+        movie(x, model, activations, x_test, p,
+              output_dir+prefix+'movie-', addend=addend, inds=intermed_inds)
+        
+    
+def param_summary(history, x_test, x_predict, p, output_dir, param_set_num,
+                  title, supervised=False, y_test=False):
+    from sklearn.metrics import confusion_matrix
+    with open(output_dir + 'param_summary.txt', 'a') as f:
+        f.write('parameter set ' + str(param_set_num) + ' - ' + title +'\n')
+        f.write(str(p.items()) + '\n')
+        # label_list = ['loss', 'accuracy', 'precision', 'recall']
+        # key_list =['loss', 'accuracy', list(history.history.keys())[-2],
+        #        list(history.history.keys())[-1]]
+        label_list = ['loss', 'accuracy']
+        key_list = ['loss', 'accuracy']
+
+        for j in range(len(label_list)):
+            f.write(label_list[j]+' '+str(history.history[key_list[j]][-1])+\
+                    '\n')
+        if supervised:
+            y_predict = np.argmax(x_predict, axis=-1)
+            y_true = np.argmax(y_test, axis=-1)
+            cm = confusion_matrix(y_predict, y_true)
+            f.write('confusion matrix\n')
+            f.write(str(cm))
+            f.write('\ny_true\n')
+            f.write(str(y_true)+'\n')
+            f.write('y_predict\n')
+            f.write(str(y_predict)+'\n')
+        else:
+            # >> assuming uncertainty of 0.02
+            chi_2 = np.average((x_predict-x_test)**2 / 0.02)
+            f.write('chi_squared ' + str(chi_2) + '\n')
+            mse = np.average((x_predict - x_test)**2)
+            f.write('mse '+ str(mse) + '\n')
+        f.write('\n')
+        
+def model_summary_txt(output_dir, model):
+    with open(output_dir + 'model_summary.txt', 'a') as f:
+        model.summary(print_fn=lambda line: f.write(line + "\n"))
 
 # :: autoencoder ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -82,21 +222,7 @@ def cnn_mock(x_train, y_train, x_test, y_test, params, num_classes = 2):
                         validation_data=(x_test,y_test))
     
     return history, model
-    
 
-# def autoencoder1(x_train, y_train, x_test, y_test, params):
-#     from keras.models import Model
-#     encoded = encoder(x_train, params)
-#     decoded = decoder(x_train, encoded.output, params)
-#     model = Model(encoded.input, decoded)
-#     model.summary()
-    
-#     compile_model(model, params)
-    
-#     history = model.fit(x_train, x_train, epochs=params['epochs'],
-#                         batch_size=params['batch_size'], shuffle=True,
-#                         validation_data=(x_test,x_test))
-#     return history, model
 
 def simple_autoencoder(x_train, y_train, x_test, y_test, params,
                        supervised=True):
@@ -147,24 +273,7 @@ def compile_model(model, params):
     model.compile(optimizer=opt, loss=params['losses'],
                   metrics=['accuracy', keras.metrics.Precision(),
                   keras.metrics.Recall()])
-    
 
-# def simple_encoder(x_train, params):
-#     from keras.layers import Input, Dense, Flatten
-#     from keras.models import Model
-#     input_dim = np.shape(x_train)[1]
-#     input_img = Input(shape = (input_dim,1))
-#     x = Flatten()(input_img)
-#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
-#     encoder = Model(input_img, encoded)
-#     return encoder
-
-# def simple_decoder(x_train, bottleneck, params):
-#     from keras.layers import Dense, Reshape
-#     input_dim = np.shape(x_train)[1]
-#     x = Dense(input_dim, activation='sigmoid')(bottleneck)
-#     decoded = Reshape((input_dim, 1))(x)
-#     return decoded
 
 def encoder(x_train, params):
     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
@@ -206,35 +315,6 @@ def encoder(x_train, params):
 
     return encoder
 
-def encoder_split(x, params):
-    from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
-    from keras.layers import Dense, concatenate
-    from keras.models import Model
-    
-    num_iter = int((params['num_conv_layers'])/2)
-    
-    input_imgs = [Input(shape=(np.shape(a)[1], 1)) for a in x]
-
-    for i in range(num_iter):
-        conv_1 = Conv1D(params['num_filters'][i], int(params['kernel_size'][i]),
-             activation=params['activation'], padding='same')
-        x = [conv_1(a) for a in input_imgs]
-        maxpool_1 = MaxPooling1D(2, padding='same')
-        x = [maxpool_1(a) for a in x]
-        dropout_1 = Dropout(params['dropout'])
-        x = [dropout_1(a) for a in x]
-        maxchannel_1 = MaxPooling1D([params['num_filters'][i]],
-                                    data_format='channels_first')
-        x = [maxchannel_1(a) for a in x]
-
-    flatten_1 = Flatten()
-    x = [flatten_1(a) for a in x]
-    dense_1 = Dense(params['latent_dim'], activation=params['activation'])
-    x = [dense_1(a) for a in x]
-    encoded = concatenate(x)
-    encoder = Model(inputs=input_imgs, outputs=encoded)
-    return encoder
-
 def decoder(x_train, bottleneck, params):
     from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout
     from keras.layers import Lambda
@@ -267,6 +347,36 @@ def decoder(x_train, bottleneck, params):
             # x = Conv1D(1, int(params['kernel_size'][num_iter+i]),
             #            activation=params['activation'], padding='same')(x)
     return decoded
+
+
+def encoder_split(x, params):
+    from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
+    from keras.layers import Dense, concatenate
+    from keras.models import Model
+    
+    num_iter = int((params['num_conv_layers'])/2)
+    
+    input_imgs = [Input(shape=(np.shape(a)[1], 1)) for a in x]
+
+    for i in range(num_iter):
+        conv_1 = Conv1D(params['num_filters'][i], int(params['kernel_size'][i]),
+             activation=params['activation'], padding='same')
+        x = [conv_1(a) for a in input_imgs]
+        maxpool_1 = MaxPooling1D(2, padding='same')
+        x = [maxpool_1(a) for a in x]
+        dropout_1 = Dropout(params['dropout'])
+        x = [dropout_1(a) for a in x]
+        maxchannel_1 = MaxPooling1D([params['num_filters'][i]],
+                                    data_format='channels_first')
+        x = [maxchannel_1(a) for a in x]
+
+    flatten_1 = Flatten()
+    x = [flatten_1(a) for a in x]
+    dense_1 = Dense(params['latent_dim'], activation=params['activation'])
+    x = [dense_1(a) for a in x]
+    encoded = concatenate(x)
+    encoder = Model(inputs=input_imgs, outputs=encoded)
+    return encoder
 
 def decoder_split(x_train, bottleneck, params):
     from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout
@@ -371,7 +481,6 @@ def rms(x):
     return rms
 
 def standardize(x):
-    cutoff = np.shape(x)[1]
     means = np.mean(x, axis = 1, keepdims=True) # >> subtract mean
     x = x - means
     stdevs = np.std(x, axis = 1, keepdims=True) # >> divide by standard dev
@@ -451,7 +560,7 @@ def interpolate_lc(flux, time, flux_err=False, interp_tol=20./(24*60),
     else:
         return flux, time
 
-# :: fake data ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :: mock data ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def gaussian(x, a, b, c):
     '''a = height, b = position of center, c = stdev'''
@@ -560,11 +669,11 @@ def ticid_label(ax, ticid, title=False):
     mass = catalog_data[0]["mass"]
     GAIAmag = catalog_data[0]["GAIAmag"]
     d = catalog_data[0]["d"]
-    Bmag = catalog_data[0]["Bmag"]
-    Vmag = catalog_data[0]["Vmag"]
+    # Bmag = catalog_data[0]["Bmag"]
+    # Vmag = catalog_data[0]["Vmag"]
     objType = catalog_data[0]["objType"]
-    Tmag = catalog_data[0]["Tmag"]
-    lum = catalog_data[0]["lum"]
+    # Tmag = catalog_data[0]["Tmag"]
+    # lum = catalog_data[0]["lum"]
 
     info = target+'\nTeff {}\nrad {}\nmass {}\nGAIAmag {}\nd {}\nobjType {}'
     info1 = target+', Teff {}, rad {}, mass {},\nGAIAmag {}, d {}, objType {}'
@@ -757,11 +866,16 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
             plt.close(fig)
 
 
-def epoch_plots(history, p, out_dir, supervised=True):
-    label_list = [['loss', 'accuracy'], ['precision', 'recall']]
-    key_list = [['loss', 'accuracy'], [list(history.history.keys())[-2],
-                                       list(history.history.keys())[-1]]]
-    for i in range(2):
+def epoch_plots(history, p, out_dir, supervised):
+    if supervised:
+        label_list = [['loss', 'accuracy'], ['precision', 'recall']]
+        key_list = [['loss', 'accuracy'], [list(history.history.keys())[-2],
+                                           list(history.history.keys())[-1]]]
+    else:
+        label_list = [['loss', 'accuracy']]
+        key_list = [['loss', 'accuracy']]
+
+    for i in range(len(key_list)):
         fig, ax1 = plt.subplots()
         ax2 = ax1.twinx()
         ax1.plot(history.history[key_list[i][0]], label=label_list[i][0])
@@ -1071,9 +1185,63 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
     # fig1.tight_layout()
     fig.savefig(out+'train.png')
     fig1.savefig(out+'test.png')
+    
+    
+def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    # analyze_object = talos.Analyze('talos_experiment.csv')
+    
+    print(analyze_object.data)
+    print(analyze_object.low('val_loss'))
+    
+    pd.set_option('display.max_rows', None)
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', None)
+    pd.set_option('display.max_colwidth', -1)
+    df = analyze_object.data
+    print(df.iloc[[np.argmin(df['val_loss'])]])
+    
+    with open(output_dir + 'best_params.txt', 'a') as f: 
+        best_param_ind = np.argmin(df['val_loss'])
+        f.write(str(df.iloc[best_param_ind]) + '\n')
+    
+    if supervised:
+        label_list = ['val_loss', 'val_acc', 'val_precision',
+                      'val_recall']
+        key_list = ['val_loss', 'val_accuracy', 'val_precision_1',
+                    'val_recall_1']
+    else:
+        label_list = ['val_loss']
+        key_list = ['val_loss']
+        
+    for i in range(len(label_list)):
+        analyze_object.plot_line(key_list[i])
+        plt.xlabel('round')
+        plt.ylabel(label_list[i])
+        plt.savefig(output_dir + 'plot_' + label_list[i] + '.png')
+    
+    # >> kernel density estimation
+    analyze_object.plot_kde('val_loss')
+    plt.xlabel('val_loss')
+    plt.ylabel('kernel density\nestimation')
+    plt.savefig(output_dir + 'kde.png')
+    
+    analyze_object.plot_hist('val_loss', bins=50)
+    plt.xlabel('val_loss')
+    plt.ylabel('num observations')
+    plt.tight_layout()
+    plt.savefig(output_dir + 'hist_val_loss.png')
+    
+    # >> heat map correlation
+    analyze_object.plot_corr('val_loss', ['acc', 'loss', 'val_acc'])
+    plt.tight_layout()
+    plt.savefig(output_dir + 'correlation_heatmap.png')
+    
+    return df, best_param_ind
 
 
-
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     
 # def autoencoder_dual_input1(x_train, x_test, rms_train, rms_test, params,
 #                             supervised=False, y_train = False, y_test=False,
@@ -1509,4 +1677,34 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
 #                             validation_data=(x_test, x_test))
         
 #     return history, model
+
+# def autoencoder1(x_train, y_train, x_test, y_test, params):
+#     from keras.models import Model
+#     encoded = encoder(x_train, params)
+#     decoded = decoder(x_train, encoded.output, params)
+#     model = Model(encoded.input, decoded)
+#     model.summary()
     
+#     compile_model(model, params)
+    
+#     history = model.fit(x_train, x_train, epochs=params['epochs'],
+#                         batch_size=params['batch_size'], shuffle=True,
+#                         validation_data=(x_test,x_test))
+#     return history, model
+    
+# def simple_encoder(x_train, params):
+#     from keras.layers import Input, Dense, Flatten
+#     from keras.models import Model
+#     input_dim = np.shape(x_train)[1]
+#     input_img = Input(shape = (input_dim,1))
+#     x = Flatten()(input_img)
+#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
+#     encoder = Model(input_img, encoded)
+#     return encoder
+
+# def simple_decoder(x_train, bottleneck, params):
+#     from keras.layers import Dense, Reshape
+#     input_dim = np.shape(x_train)[1]
+#     x = Dense(input_dim, activation='sigmoid')(bottleneck)
+#     decoded = Reshape((input_dim, 1))(x)
+#     return decoded
