@@ -14,12 +14,16 @@ import pdb
 import matplotlib.pyplot as plt
 import numpy as np
 
-def run_model(x_train, y_train, x_test, y_test, p, supervised=False):
+def run_model(x_train, y_train, x_test, y_test, p, supervised=False,
+              mock_data=False):
+    if not supervised:
+        history, model = conv_autoencoder(x_train, x_train, x_test,
+                                             x_test, p)
     if supervised:
-        history, model = cnn(x_train, y_train, x_test, y_test, p)
-    else:
-        history, model = conv_autoencoder(x_train, x_train, x_test, x_test,
-                                             p)
+        if mock_data:
+            history, model = cnn_mock(x_train, y_train, x_test, y_test, p)
+        else:
+            history, model = cnn(x_train, y_train, x_test, y_test, p)
         
     x_predict = model.predict(x_test)
     return history, model, x_predict
@@ -28,7 +32,7 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
                      x, x_train, x_test, x_predict, 
                      mock_data=False, ticid_train=False, ticid_test=False,
                      supervised=False, y_true=False, y_predict=False,
-                     y_train=False, classes=False, num_classes=False,
+                     y_train=False, y_test=False,
                      rms_train=False, rms_test = False, input_rms = False,
                      inds = [0,1,2,3,4,5,6,7,-1,-2,-3,-4,-5,-6,-7],
                      intermed_inds = [6,0],
@@ -44,6 +48,7 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
                      plot_clustering=False,
                      make_movie = False):
 
+    # !! TODO: change supervised inputs to just y_train, y_test
     plt.rcParams.update(plt.rcParamsDefault)
     activations = get_activations(model, x_test, rms_test = rms_test,
                                   input_rms=input_rms)
@@ -74,10 +79,8 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
             
     # -- supervised -----------------------------------------------------------
     if supervised:
-        if mock_data:
-            y_train_classes = y_train[:,1]
-        else:
-            y_train_classes = classes[:np.shape(x_train)[0]]
+        y_train_classes = np.argmax(y_train, axis = 1)
+        num_classes = len(np.unique(y_train_classes))
         training_test_plot(x,x_train,x_test,
                               y_train_classes,y_true,y_predict,num_classes,
                               output_dir+prefix+'lc-', ticid_train, ticid_test,
@@ -224,8 +227,29 @@ def cnn_mock(x_train, y_train, x_test, y_test, params, num_classes = 2):
     return history, model
 
 
-def simple_autoencoder(x_train, y_train, x_test, y_test, params,
-                       supervised=True):
+def mlp(x_train, y_train, x_test, y_test, params):
+    '''a simple classifier based on a fully-connected layer'''
+    from keras.models import Model
+    from keras.layers import Input, Dense, Flatten
+
+    num_classes = np.shape(y_train)[1]
+    input_dim = np.shape(x_train)[1]
+    input_img = Input(shape = (input_dim,1))
+    x = Flatten()(input_img)
+    x = Dense(params['latent_dim'],activation=params['activation'])(x)
+    x = Dense(num_classes, activation='softmax')(x)
+        
+    model = Model(input_img, x)
+    model.summary()
+    compile_model(model, params)
+
+    history = model.fit(x_train, y_train, epochs=params['epochs'],
+                            batch_size=params['batch_size'], shuffle=True,
+                            validation_data=(x_test, y_test))
+        
+    return history, model
+
+def simple_autoencoder(x_train, y_train, x_test, y_test, params):
     '''a simple autoencoder based on a fully-connected layer'''
     from keras.models import Model
     from keras.layers import Input, Dense, Flatten, Reshape
@@ -236,28 +260,18 @@ def simple_autoencoder(x_train, y_train, x_test, y_test, params,
     x = Flatten()(input_img)
     x = Dense(params['latent_dim'],activation=params['activation'])(x)
     
-    if supervised:
-        x = Dense(num_classes, activation='softmax')(x)
-    else:
-        x = Dense(input_dim, activation='sigmoid')(x)
-        x = Reshape((input_dim, 1))(x)
+    x = Dense(input_dim, activation='sigmoid')(x)
+    x = Reshape((input_dim, 1))(x)
         
     model = Model(input_img, x)
     model.summary()
     compile_model(model, params)
 
-    if supervised:
-        history = model.fit(x_train, y_train, epochs=params['epochs'],
-                            batch_size=params['batch_size'], shuffle=True,
-                            validation_data=(x_test, y_test))
-    else:
-        history = model.fit(x_train, x_train, epochs=params['epochs'],
-                            batch_size=params['batch_size'], shuffle=True,
-                            validation_data=(x_test, x_test))
+    history = model.fit(x_train, x_train, epochs=params['epochs'],
+                        batch_size=params['batch_size'], shuffle=True,
+                        validation_data=(x_test, x_test))
         
     return history, model
-
-
 
 def compile_model(model, params):
     from keras import optimizers
@@ -1238,7 +1252,43 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     plt.tight_layout()
     plt.savefig(output_dir + 'correlation_heatmap.png')
     
-    return df, best_param_ind
+    # >> get best parameter set
+    hyperparameters = list(analyze_object.data.columns)
+    for col in ['round_epochs', 'val_loss', 'val_accuracy', 'val_precision_1',
+            'val_recall_1', 'loss', 'accuracy', 'precision_1', 'recall_1']:
+        hyperparameters.remove(col)
+        
+    p = {}
+    for key in hyperparameters:
+        p[key] = df.iloc[best_param_ind][key]
+    
+    return df, best_param_ind, p
+
+# :: pull files with astroquery :::::::::::::::::::::::::::::::::::::::::::::::
+# adapted from pipeline.py
+    
+def get_lc_file_and_data(temp_path, target_list):
+    from astroquery.mast import Observations
+    prefix = 'tess2019357164649-s0020-'
+    suffix = '-0165-s_lc.fits'
+    for ticid in target_list:
+        try:
+            targ = ticid.zfill(16)
+            fname = prefix+ targ + suffix
+            os.system('curl -C - -L -o ' + temp_path + fname +\
+                      ' https://mast.stsci.edu/api/v0.1/Download/file/'+\
+                          '?uri=mast:TESS/product/' + fname) 
+
+                  
+        #then delete all downloads in the folder, no matter what type
+
+        except (ConnectionError, OSError, TimeoutError):
+            print(targ + "could not be accessed due to an error")
+            i1 = 0
+            time1 = 0
+    
+    return time1, i1
+
 
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
