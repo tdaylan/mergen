@@ -53,32 +53,33 @@ from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 
 test(8) #should return 8 * 4
-
+#%%
 mypath = "/Users/conta/UROP_Spring_2020/"
 sectorfile = "/Users/conta/UROP_Spring_2020/all_targets_S020_v1.txt"
 sector = 20
 camera = 1
 ccd = 2
 
-times, intensities, failed_to_get, targets = data_process_a_group(mypath, sectorfile, sector, camera, ccd)
+times, intensities, failed_to_get, targets, folder_path, features = data_process_a_group(mypath, sectorfile, sector, camera, ccd)
 
-features = create_list_featvec(times[0], intensities)
-
+#%%
 targets_strings = []
 for n in range(len(targets)):
-    targets_strings.append(("TIC " + str(int(targets_strings[n]))))
-    
-post_process_plotting(times[0], intensities, features, features, targets_strings, "folder")
-
+    targets_strings.append(("TIC " + str(int(targets[n]))))
+    #%%
+post_process_plotting(t[0], intensities, features, features, targets_strings, "/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2")
 
 
 #%%
-t = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD1/sector20_cam1_ccd1_interp_times.txt")
-intensities = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD1/sector20_cam1_ccd1_processed_intensities.txt")
+t = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_interp_times.txt")
+intensities = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_ints_processed.txt")
 
-features = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD1/sector_20_cam1_ccd1_features.txt")    
+#features = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD1/sector_20_cam1_ccd1_features.txt")    
 
-      
+folder_path = "/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/"
+features = create_list_featvec(t[0], intensities)
+np.savetxt(folder_path + "Sector20Cam1CCD2_features.txt", features)   
 
-
+#%%
+targets = np.loadtxt('/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_targets.txt')
                 

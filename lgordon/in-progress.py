@@ -54,161 +54,251 @@ from shapely.geometry.polygon import Polygon
 test(8) #should return 8 * 4
 
 #%%
-
-def data_process_a_group(yourpath, sectorfile, sector, camera, ccd):
-    """you will need:
-        your path into the main folder you're working in
-        the file for your sector from TESS (full path)
-        sector number (as int)
-        camera number you want (as int/float)
-        ccd number you want (as int/float)"""
-    # produce the folder to save everything into and set up file names
-    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
-    path = yourpath + folder_name
-    fname_time = path + "/" + folder_name + "_times_raw.txt"
-    fname_int = path + "/" + folder_name + "_intensities_raw.txt"
-    fname_targets = path + "/" + folder_name + "_targets.txt"
-    fname_times_interp = path + "/" + folder_name + "_interp_times.txt"
-    fname_ints_processed = path + "/" + folder_name + "_ints_processed.txt"
-    try:
-        os.makedirs(path)
-        print ("Successfully created the directory %s" % path) 
-        
-    # get just the list of targets for the specified sector, camera, ccd --------
-        target_list = lc_by_camera_ccd(sectorfile, camera, ccd)
-        print("there are ", len(target_list), "targets")
-    # get the light curve for each target on the list, and save into a text file
-        confirmation, failed_to_get = lc_from_target_list(yourpath, target_list, fname_time, fname_int, fname_targets)
-        print(confirmation)
-        print("failed to get", len(failed_to_get), "targets")
-    # import the files you just created
-        times = np.loadtxt(fname_time)
-        intensities = np.loadtxt(fname_int)
-        targets = np.loadtxt(fname_targets)
-    #check to be sure all have the same size, if not, report back an error
-        if len(times) == len(intensities) == len(targets):
-    #interpolate and normalize/sigma clip
-            interp_times, interp_intensities = interpolate_lc(times, intensities)
-            normalized_intensities = normalize(interp_intensities)
-    #save these into their own files, and report these arrays back
-            np.savetxt(fname_times_interp, interp_times)
-            times = np.loadtxt(fname_times_interp)
-            np.savetxt(fname_ints_processed, normalized_intensities)
-            intensities = np.loadtxt(fname_ints_processed)
-     
-        else: #if there is an error with the number of lines in times vs ints vs targets
-            print("There is a disagreement between the number of lines saved in each text file")
-            times = "Does not exist"
-            intensities = "Does not exist"
-            failed_to_get = "all"
-    
-    except OSError: #if there is an error creating the folder
-        print ("This directory already exists, or there is some other OS error")
-        times = "Does not exist" 
-        intensities = "does not exist"
-        failed_to_get = "all"
-        targets = "none"
-        
-    return times, intensities, failed_to_get, targets
-
-def lc_by_camera_ccd(sectorfile, camera, ccd):
-    """gets all the targets for a given sector, camera, ccd
-    from the master list for that sector"""
-    target_list = np.loadtxt(sectorfile)     #load in the target file
-    indexes = [] #empty array to save indexes into
-    for n in range(len(target_list)): #for each item in the list of targets
-        if target_list[n][1] == camera and target_list[n][2] == ccd: #be sure it matches
-            indexes.append(n) #if it does, append to index list
-    matching_targets = target_list[indexes] #just grab those indexes
-    return matching_targets #return list of only targets on that specific ccd
-
-def lc_from_target_list(yourpath, targetList, fname_time, fname_int, fname_targets):
-    """ runs getting the files and data for all targets on the list
-    then appends the time & intensity arrays and the TIC number into text files
-    that can later be accessed
-    also if it crashes in the night you just have to len the rows in the file and can
-    pick up appending where you left off originally"""
-    failed_to_get = [] #empty array for all failures
-    for n in range(len(targetList)): #for each item on the list
-        target = targetList[n][0] #get that target number
-        time1, i1 = get_lc_file_and_data(yourpath, target) #go in and get the time and int
-        if type(time1) != np.ndarray: #if there was an error, add it to the list and continue
-            failed_to_get.append(target)
-            continue
-    # add data to the files
-        with open(fname_targets, 'a') as file_object:
-            file_object.write("\n")
-            file_object.write(str(target))
-        with open(fname_time, 'a') as file_object:
-            file_object.write("\n")
-            np.savetxt(file_object, time1, delimiter = ',', newline = ' ')
-        with open(fname_int, 'a') as file_object:   
-            file_object.write("\n")
-            np.savetxt(file_object, i1, delimiter = ',', newline = ' ')
-        
-        if n %50 == 0: #every 50, print how many have been done
-            print(str(n), "completed")
-    confirmation = "lc_from_target_list has finished running"
-    return confirmation, failed_to_get
-
-def get_lc_file_and_data(yourpath, target):
-    """ goes in, grabs the data for the target, gets the time index, intensity,
-    etc. for the image. if connection error w/ MAST, skips it"""
-    fitspath = yourpath + 'mastDownload/TESS/'
-    targ = "TIC " + str(int(target))
-    print(targ)
-    try:
-        #find and download data products for your target
-        obs_table = Observations.query_object(targ, radius=".02 deg")
-        data_products_by_obs = Observations.get_product_list(obs_table[0:2])
-            
-        #in theory, filter_products should let you sort out the non fits files but i 
-        #simply could not get it to accept it despite followin the API guidelines
-        filter_products = Observations.filter_products(data_products_by_obs, dataproduct_type = 'timeseries')
-        manifest = Observations.download_products(filter_products)
-        #print(manifest)
-            
-        #get all the paths to lc.fits files
-        filepaths = []
-        for root, dirs, files in os.walk(fitspath):
-            for name in files:
-                if name.endswith(("lc.fits")):
-                    filepaths.append(root + "/" + name)
-                 
-        if len(filepaths) == 0: #if no lc.fits were downloaded, move on
-            print(targ, "no light curve available")
-            time1 = 0
-            i1 = 0
-        else: #if there are lc.fits files, open them and get the goods
-            for file in filepaths:
-                #get the goods and then close it
-                f = fits.open(file, memmap=False)
-                time1 = f[1].data['TIME']
-                i1 = f[1].data['PDCSAP_FLUX']                
-                f.close()
-                  
-        #then delete all downloads in the folder, no matter what type
-        if os.path.isdir("mastDownload") == True:
-            shutil.rmtree("mastDownload")
-            print("folder deleted")
-            
-        #corrects for connnection errors
-    except (ConnectionError, OSError, TimeoutError, RemoteServiceError):
-        print(targ + "could not be accessed due to an error")
-        i1 = 0
-        time1 = 0
-    
-    return time1, i1
+n_choose_2_insets(t[0], intensities, features, targets_strings, "plot_output/5-22")
 
 #%%
-mypath = "/Users/conta/UROP_Spring_2020/"
-sectorfile = "/Users/conta/UROP_Spring_2020/all_targets_S020_v1.txt"
-sector = 20
-camera = 1
-ccd = 2
+def inset_labelling(axis_name, time, intensity, targets, index, title):
+    """formatting the labels for the inset plots"""
+    axis_name.set_xlim(time[0], time[-1])
+    axis_name.set_ylim(intensity[index].min(), intensity[index].max())
+    #axis_name.set_xlabel("BJD [2457000]")
+    #axis_name.set_ylabel("relative flux")
+    axis_name.set_title(targets[index] + title, fontsize=8)
 
-times, intensities, failed_to_get, targets = data_process_a_group(mypath, sectorfile, sector, camera, ccd)
+def n_choose_2_insets(time, intensity, feature_vectors, targets, folder):
+    """plotting (n 2) features against each other w/ 4 extremes inset plotted
+    feature_vectors is the list of ALL feature_vectors
+    date must be a string in the format of the folder you are saving into ie "4-13"
+    """   
+    path = "/Users/conta/UROP_Spring_2020/" + folder + "/nchoose2-insets"
+    try:
+        os.makedirs(path)
+    except OSError:
+        print ("Creation of the directory %s failed" % path)
+        print("New folder created will have -new at the end. Please rename.")
+        path = path + "-new"
+        os.makedirs(path)
+    else:
+        print ("Successfully created the directory %s" % path) 
+ 
+    graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                    "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                    "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                    "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+    fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                    "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                    "P0", "P1", "P2", "Period0to0_1"]
+    for n in range(16):
+        #feat1 = feature_vectors[:,n]
+        graph_label1 = graph_labels[n]
+        fname_label1 = fname_labels[n]
+        for m in range(16):
+            if m == n:
+                continue
+            graph_label2 = graph_labels[m]
+            fname_label2 = fname_labels[m]                
+            #feat2 = feature_vectors[:,m]
+            
+            plot_all_insets(feature_vectors, targets, intensity, time, n, m, graph_label1, graph_label2)
+ 
+            plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
+            plt.show()
+            
+            
+def plot_all_insets(feature_vectors,targets, intensity, time, feat1, feat2, graph_label1, graph_label2):
+    """plots the x/y min/max points' associated light curve on the plot"""
+    fig, ax1 = plt.subplots()
+    ax1.scatter(feature_vectors[:,feat1], feature_vectors[:,feat2], c = "black")
+    ax1.set_xlabel(graph_label1)
+    ax1.set_ylabel(graph_label2)
+    
+    plot_inset(ax1, "axins1", targets, intensity, time,feature_vectors, feat1, feat2)
 
+    
+def plot_inset(ax1, axis_name, targets, intensity, time, feature_vectors, feat1, feat2):
+    """ plots the inset plots. 
+    ax1 is the name of the axis being used. it is ESSENTIAL to getting this to run
+    axis_name should be axins + a number as a STRING
+    feat1 is x axis, feat2 is yaxis
+    extreme is which point you want to plot- options are 'ymax', 'ymin'
+    if no extreme is given, prints that you fucked up."""
+    range_x = feature_vectors[:,feat1].max() - feature_vectors[:,feat1].min()
+    range_y = feature_vectors[:,feat2].max() - feature_vectors[:,feat2].min()
+    x_offset = range_x * 0.001
+    y_offset = range_y * 0.001
+    inset_positions = np.zeros((8,4))
+    
+    indexes_unique, targets_to_plot, tuples_plotting, titles = get_extrema(feature_vectors, targets, feat1, feat2)
+    #print(indexes_unique)
+    for n in range(len(indexes_unique)):
+        x_shift = np.random.randint(0,2)
+        y_shift = np.random.randint(0,2)
+        index = indexes_unique[n]
+        thetuple = tuples_plotting[n]
+        title = titles[n]
+        
+        inset_x, inset_y, inset_width, inset_height = check_box_location(feature_vectors, thetuple, feat1, feat2, range_x, range_y, x_shift, y_shift, inset_positions)
+        #inset_width, inset_height, inset_x, inset_y = box_locate_no_repositioning(thetuple, range_x, range_y, x_shift, y_shift)
+        inset_positions[n] = (inset_x, inset_y, inset_width, inset_height)
+        
+        axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
+        axis_name.scatter(time, intensity[index], c='black', s = 0.01)
+            
+        x1, x2, y1, y2 =  feature_vectors[index][feat1], feature_vectors[index][feat1] + x_offset, feature_vectors[index][feat2], feature_vectors[index][feat2] + y_offset
+        axis_name.set_xlim(x1, x2)
+        axis_name.set_ylim(y1, y2)
+        ax1.indicate_inset_zoom(axis_name)
+            
+        inset_labelling(axis_name, time, intensity, targets, index, title)
+
+        
+
+def get_extrema(feature_vectors, targets, feat1, feat2):
+    """ identifies the 8 extrema in each direction and 
+    pulls the data needed on each
+    eliminates any duplicate extrema (ie, the xmax is also the ymax)"""
+    indexes = []
+    index_feat1 = np.argsort(feature_vectors[:,feat1])
+    index_feat2 = np.argsort(feature_vectors[:,feat2])
+    indexes.append(index_feat1[-1]) #largest
+    indexes.append(index_feat1[-2]) #second largest
+    indexes.append(index_feat1[0]) #smallest
+    indexes.append(index_feat1[1]) #second smallest
+
+    indexes.append(index_feat2[-1]) #largest
+    indexes.append(index_feat2[-2]) #second largest
+    indexes.append(index_feat2[0]) #smallest
+    indexes.append(index_feat2[1]) #second smallest
+
+    indexes_unique = np.unique(np.asarray(indexes))
+    
+    targets_to_plot = []
+    tuples_plotting = []
+    titles = []
+    
+    for n in range(len(indexes_unique)):
+        targets_to_plot.append(targets[indexes_unique[n]])
+        tuples_plotting.append( (feature_vectors[:,feat1][indexes_unique[n]], feature_vectors[:,feat2][indexes_unique[n]]) )
+        title = astroquery_pull_data(targets[indexes_unique[n]])
+        titles.append(title)
+    return indexes_unique, targets_to_plot, tuples_plotting, titles
+
+
+        
+def check_box_location(feature_vectors, coordtuple, feat1, feat2, range_x, range_y, x, y, inset_positions):
+    """ checks if data points lie within the area of the inset plot
+    coordtuple is the (x,y) point in feature space
+    feat1, feat2 are the number for the features being used
+    range_x and range_y are ranges for each feature
+    x is whether it will be left or right of the point
+    y is whether it will be above/below the point
+    inset_positions is a list  from a diff. function that holds the pos of insets"""
+    #position of box - needs to be dependent on location
+    xmax = feature_vectors[:,feat1].max() 
+    xmin = feature_vectors[:,feat1].min()
+    
+    ymax = feature_vectors[:,feat2].max() 
+    ymin = feature_vectors[:,feat2].min()
+    
+    inset_width = range_x / 6
+    inset_height = range_y /16
+    if x == 0:
+        inset_x = coordtuple[0] - (inset_width * 1.2) #move left
+    elif x == 1:
+        inset_x = coordtuple[0] + (inset_width * 1.2) #move right
+    if y == 0:
+        inset_y = coordtuple[1] + (inset_height) #move up
+    elif y == 1:
+        inset_y = coordtuple[1] - (inset_height) #move down
+    
+    inset_BL = (inset_x, inset_y)
+    inset_BR = (inset_x + inset_width, inset_y)
+    inset_TL = (inset_x, inset_y + inset_height)
+    inset_TR = (inset_x + inset_width, inset_y + inset_height)
+    
+    conc = np.column_stack((feature_vectors[:,feat1], feature_vectors[:,feat2]))
+    polygon = Polygon([inset_BL, inset_BR, inset_TL, inset_TR])
+    
+    m = 0
+    i = 0
+    n = len(conc)
+    k = 0
+    
+    while i < n:
+        point = Point(conc[i])
+        #is it on top of a point?
+        if inset_x >= xmax:
+            inset_x = inset_x - inset_width
+            i = 0
+        if inset_x < xmin:
+            inset_x = inset_x + inset_width
+            i = 0
+            
+        if inset_y >= ymax:
+            inset_y = inset_y - inset_height
+            i = 0
+        if inset_y < ymin:
+            inset_y = inset_y + inset_height
+            i = 0
+            
+        if polygon.contains(point) == True:
+            if x == 0: 
+                inset_x = inset_x - (0.01 * range_x)
+            elif x == 1:
+                inset_x = inset_x + (0.01 * range_x)
+            if y == 0:
+                inset_y = inset_y + (0.01 * range_y)
+            elif y == 1:
+                inset_y = inset_y - (0.01 * range_y)
+            
+            inset_BL = (inset_x, inset_y)
+            inset_BR = (inset_x + inset_width, inset_y)
+            inset_TL = (inset_x, inset_y + inset_height)
+            inset_TR = (inset_x + inset_width, inset_y + inset_height)
+            polygon = Polygon([inset_BL, inset_BR, inset_TL, inset_TR])
+            i = 0
+            #print("moving")
+        elif polygon.contains(point) == False:
+        #is it on top of another plot?
+            while k < 8:
+                bx, by, bw, bh = inset_positions[k]
+                if bx <= inset_x <= (bx + bw):
+                    inset_x = inset_x + (0.5 * inset_width)
+                    k = 0
+                    i = 0
+                elif by <= inset_y <= (by + bh):
+                    inset_y = inset_y + (0.5 * inset_height)
+                    k = 0
+                    i = 0
+                else:
+                    k = k + 1
+            i = i + 1
+                #this is the old way i ran it and it was okay but this is better
+                #bBL = (bx, by)
+                #bBR = (bx + bw, by)
+                #bTL = (bx, by+bh)
+                #bTR = (bx + bw, by + bh)
+                #p1 = Polygon([bBL, bBR, bTL, bTR])
+                
+                #if p1.intersects(polygon):
+                 #   inset_x = inset_x + (0.5*inset_width)
+                  #  inset_y = inset_y + (0.5*inset_height)
+                   # inset_BL = (inset_x, inset_y)
+                   # inset_BR = (inset_x + inset_width, inset_y)
+                   # inset_TL = (inset_x, inset_y + inset_height)
+                   # inset_TR = (inset_x + inset_width, inset_y + inset_height)
+                   # polygon = Polygon([inset_BL, inset_BR, inset_TL, inset_TR])
+                   # k = 0
+                #else: 
+               #     k = k + 1
+                    
+            
+    print("position determined")
+    
+    return inset_x, inset_y, inset_width, inset_height
+
+#%%
+np.savetxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/GroupNotes.txt", failed_to_get)
 #%%
 t = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_times_raw.txt")
 intensities = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_intensities_raw.txt")
@@ -216,65 +306,7 @@ targets = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam
 
 #%%
 
-def interrupted_start_in_middle(position, yourpath, sectorfile, sector, camera, ccd):
-    """ for cases where running the main list got fucked up somehow but you know
-    where in the list you need to pick up from"""
-    """you will need:
-        your path into the main folder you're working in
-        the file for your sector from TESS (full path)
-        sector number (as int)
-        camera number you want (as int/float)
-        ccd number you want (as int/float)"""
-    # produce the folder to save everything into and set up file names
-    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
-    path = yourpath + folder_name
-    fname_time = path + "/" + folder_name + "_times_raw.txt"
-    fname_int = path + "/" + folder_name + "_intensities_raw.txt"
-    fname_targets = path + "/" + folder_name + "_targets.txt"
-    fname_times_interp = path + "/" + folder_name + "_interp_times.txt"
-    fname_ints_processed = path + "/" + folder_name + "_ints_processed.txt"
-    try:
-        #os.makedirs(path)
-        #print ("Successfully created the directory %s" % path) 
-        
-    # get just the list of targets for the specified sector, camera, ccd --------
-        target_list_raw = lc_by_camera_ccd(sectorfile, camera, ccd)
-        print("there are ", len(target_list_raw), "total targets")
-        target_list = target_list_raw[position:]
-        print("picking up at index", position)
-    # get the light curve for each target on the list, and save into a text file
-        confirmation, failed_to_get = lc_from_target_list(yourpath, target_list, fname_time, fname_int, fname_targets)
-        print(confirmation)
-        print("failed to get", len(failed_to_get), "targets")
-    # import the files you just created
-        times = np.loadtxt(fname_time)
-        intensities = np.loadtxt(fname_int)
-        targets = np.loadtxt(fname_targets)
-    #check to be sure all have the same size, if not, report back an error
-        if len(times) == len(intensities) == len(targets):
-    #interpolate and normalize/sigma clip
-            interp_times, interp_intensities = interpolate_lc(times, intensities)
-            normalized_intensities = normalize(interp_intensities)
-    #save these into their own files, and report these arrays back
-            np.savetxt(fname_times_interp, interp_times)
-            times = np.loadtxt(fname_times_interp)
-            np.savetxt(fname_ints_processed, normalized_intensities)
-            intensities = np.loadtxt(fname_ints_processed)
-     
-        else: #if there is an error with the number of lines in times vs ints vs targets
-            print("There is a disagreement between the number of lines saved in each text file")
-            times = "Does not exist"
-            intensities = "Does not exist"
-            failed_to_get = "all"
-    
-    except OSError: #if there is an error creating the folder
-        print ("This directory already exists, or there is some other OS error")
-        times = "Does not exist" 
-        intensities = "does not exist"
-        failed_to_get = "all"
-        targets = "none"
-        
-    return times, intensities, failed_to_get, targets
+
 #%%
 mypath = "/Users/conta/UROP_Spring_2020/"
 sectorfile = "/Users/conta/UROP_Spring_2020/all_targets_S020_v1.txt"

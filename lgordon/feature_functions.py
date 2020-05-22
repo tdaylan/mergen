@@ -150,8 +150,230 @@ def get_data_from_fits():
 #data process an entire group of TICs
     
 
+def data_process_a_group(yourpath, sectorfile, sector, camera, ccd):
+    """you will need:
+        your path into the main folder you're working in
+        the file for your sector from TESS (full path)
+        sector number (as int)
+        camera number you want (as int/float)
+        ccd number you want (as int/float)"""
+    # produce the folder to save everything into and set up file names
+    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+    path = yourpath + folder_name
+    fname_time = path + "/" + folder_name + "_times_raw.txt"
+    fname_int = path + "/" + folder_name + "_intensities_raw.txt"
+    fname_targets = path + "/" + folder_name + "_targets.txt"
+    fname_times_interp = path + "/" + folder_name + "_interp_times.txt"
+    fname_ints_processed = path + "/" + folder_name + "_ints_processed.txt"
+    fname_notes = path + "/" + folder_name + "_group_notes.txt"
+    fname_features = path + "/"+ folder_name + "_features.txt"
+    try:
+        os.makedirs(path)
+        print ("Successfully created the directory %s" % path) 
+        
+    # get just the list of targets for the specified sector, camera, ccd --------
+        target_list = lc_by_camera_ccd(sectorfile, camera, ccd)
+        print("there are ", len(target_list), "targets")
+    # get the light curve for each target on the list, and save into a text file
+        confirmation, failed_to_get = lc_from_target_list(yourpath, target_list, fname_time, fname_int, fname_targets, fname_notes)
+        print(confirmation)
+        print("failed to get", len(failed_to_get), "targets")
+    # import the files you just created
+        times = np.loadtxt(fname_time)
+        intensities = np.loadtxt(fname_int)
+        targets = np.loadtxt(fname_targets)
+    #check to be sure all have the same size, if not, report back an error
+        if len(times) == len(intensities) == len(targets):
+    #interpolate and normalize/sigma clip
+            interp_times, interp_intensities = interpolate_lc(times, intensities)
+            normalized_intensities = normalize(interp_intensities)
+    #save these into their own files, and report these arrays back
+            np.savetxt(fname_times_interp, interp_times)
+            times = np.loadtxt(fname_times_interp)
+            np.savetxt(fname_ints_processed, normalized_intensities)
+            intensities = np.loadtxt(fname_ints_processed)
+            print("You can now access time arrays, processed intensities, targets, and an array of TICs you could not get")
+        
+            features = create_list_featvec(times[0], intensities)
+            np.savetxt(fname_features, features)
+            print("Feature vector creation complete")
+            
+        else: #if there is an error with the number of lines in times vs ints vs targets
+            print("There is a disagreement between the number of lines saved in each text file")
+            times = "Does not exist"
+            intensities = "Does not exist"
+            failed_to_get = "all"
+            features = "empty"
+    
+    except OSError: #if there is an error creating the folder
+        print ("This directory already exists, or there is some other OS error")
+        times = "Does not exist" 
+        intensities = "does not exist"
+        failed_to_get = "all"
+        targets = "none"
+        features = "empty"
+        
+    return times, intensities, failed_to_get, targets, path, features
 
+def lc_by_camera_ccd(sectorfile, camera, ccd):
+    """gets all the targets for a given sector, camera, ccd
+    from the master list for that sector"""
+    target_list = np.loadtxt(sectorfile)     #load in the target file
+    indexes = [] #empty array to save indexes into
+    for n in range(len(target_list)): #for each item in the list of targets
+        if target_list[n][1] == camera and target_list[n][2] == ccd: #be sure it matches
+            indexes.append(n) #if it does, append to index list
+    matching_targets = target_list[indexes] #just grab those indexes
+    return matching_targets #return list of only targets on that specific ccd
 
+def lc_from_target_list(yourpath, targetList, fname_time, fname_int, fname_targets, fname_notes):
+    """ runs getting the files and data for all targets on the list
+    then appends the time & intensity arrays and the TIC number into text files
+    that can later be accessed
+    also if it crashes in the night you just have to len the rows in the file and can
+    pick up appending where you left off originally"""
+    failed_to_get = [] #empty array for all failures
+    for n in range(len(targetList)): #for each item on the list
+        target = targetList[n][0] #get that target number
+        time1, i1 = get_lc_file_and_data(yourpath, target) #go in and get the time and int
+        if type(time1) != np.ndarray: #if there was an error, add it to the list and continue
+            failed_to_get.append(target)
+            with open(fname_notes, 'a') as file_object:
+                file_object.write("\n")
+                file_object.write(str(target))
+            continue
+    # add data to the files
+        with open(fname_targets, 'a') as file_object:
+            file_object.write("\n")
+            file_object.write(str(target))
+        with open(fname_time, 'a') as file_object:
+            file_object.write("\n")
+            np.savetxt(file_object, time1, delimiter = ',', newline = ' ')
+        with open(fname_int, 'a') as file_object:   
+            file_object.write("\n")
+            np.savetxt(file_object, i1, delimiter = ',', newline = ' ')
+        
+        if n %50 == 0: #every 50, print how many have been done
+            print(str(n), "completed")
+    confirmation = "lc_from_target_list has finished running"
+    return confirmation, failed_to_get
+
+def get_lc_file_and_data(yourpath, target):
+    """ goes in, grabs the data for the target, gets the time index, intensity,
+    etc. for the image. if connection error w/ MAST, skips it"""
+    fitspath = yourpath + 'mastDownload/TESS/'
+    targ = "TIC " + str(int(target))
+    print(targ)
+    try:
+        #find and download data products for your target
+        obs_table = Observations.query_object(targ, radius=".02 deg")
+        data_products_by_obs = Observations.get_product_list(obs_table[0:2])
+            
+        #in theory, filter_products should let you sort out the non fits files but i 
+        #simply could not get it to accept it despite followin the API guidelines
+        filter_products = Observations.filter_products(data_products_by_obs, dataproduct_type = 'timeseries')
+        manifest = Observations.download_products(filter_products)
+        #print(manifest)
+            
+        #get all the paths to lc.fits files
+        filepaths = []
+        for root, dirs, files in os.walk(fitspath):
+            for name in files:
+                if name.endswith(("lc.fits")):
+                    filepaths.append(root + "/" + name)
+                 
+        if len(filepaths) == 0: #if no lc.fits were downloaded, move on
+            print(targ, "no light curve available")
+            time1 = 0
+            i1 = 0
+        else: #if there are lc.fits files, open them and get the goods
+            for file in filepaths:
+                #get the goods and then close it
+                f = fits.open(file, memmap=False)
+                time1 = f[1].data['TIME']
+                i1 = f[1].data['PDCSAP_FLUX']                
+                f.close()
+                  
+        #then delete all downloads in the folder, no matter what type
+        if os.path.isdir("mastDownload") == True:
+            shutil.rmtree("mastDownload")
+            print("folder deleted")
+            
+        #corrects for connnection errors
+    except (ConnectionError, OSError, TimeoutError, RemoteServiceError):
+        print(targ + "could not be accessed due to an error")
+        i1 = 0
+        time1 = 0
+    
+    return time1, i1
+
+def interrupted_start_in_middle(position, yourpath, sectorfile, sector, camera, ccd):
+    """ for cases where running the main list got fucked up somehow but you know
+    where in the list you need to pick up from"""
+    """you will need:
+        your path into the main folder you're working in
+        the file for your sector from TESS (full path)
+        sector number (as int)
+        camera number you want (as int/float)
+        ccd number you want (as int/float)"""
+    # produce the folder to save everything into and set up file names
+    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+    path = yourpath + folder_name
+    fname_time = path + "/" + folder_name + "_times_raw.txt"
+    fname_int = path + "/" + folder_name + "_intensities_raw.txt"
+    fname_targets = path + "/" + folder_name + "_targets.txt"
+    fname_times_interp = path + "/" + folder_name + "_interp_times.txt"
+    fname_ints_processed = path + "/" + folder_name + "_ints_processed.txt"
+    fname_notes = path + "/" + folder_name + "_group_notes.txt"
+    fname_features = path + "/"+ folder_name + "_features.txt"
+    try:
+        #os.makedirs(path)
+        #print ("Successfully created the directory %s" % path) 
+        
+    # get just the list of targets for the specified sector, camera, ccd --------
+        target_list_raw = lc_by_camera_ccd(sectorfile, camera, ccd)
+        print("there are ", len(target_list_raw), "total targets")
+        target_list = target_list_raw[position:]
+        print("picking up at index", position)
+    # get the light curve for each target on the list, and save into a text file
+        confirmation, failed_to_get = lc_from_target_list(yourpath, target_list, fname_time, fname_int, fname_targets, fname_notes)
+        print(confirmation)
+        print("failed to get", len(failed_to_get), "targets")
+    # import the files you just created
+        times = np.loadtxt(fname_time)
+        intensities = np.loadtxt(fname_int)
+        targets = np.loadtxt(fname_targets)
+    #check to be sure all have the same size, if not, report back an error
+        if len(times) == len(intensities) == len(targets):
+    #interpolate and normalize/sigma clip
+            interp_times, interp_intensities = interpolate_lc(times, intensities)
+            normalized_intensities = normalize(interp_intensities)
+    #save these into their own files, and report these arrays back
+            np.savetxt(fname_times_interp, interp_times)
+            times = np.loadtxt(fname_times_interp)
+            np.savetxt(fname_ints_processed, normalized_intensities)
+            intensities = np.loadtxt(fname_ints_processed)
+        
+    #then produce and save the feature vectors into a file
+            features = create_list_featvec(times[0], intensities)
+            np.savetxt(fname_features, features)
+            
+        else: #if there is an error with the number of lines in times vs ints vs targets
+            print("There is a disagreement between the number of lines saved in each text file")
+            times = "Does not exist"
+            intensities = "Does not exist"
+            failed_to_get = "all"
+            features = "empty"
+    
+    except OSError: #if there is an error creating the folder
+        print ("This directory already exists, or there is some other OS error")
+        times = "Does not exist" 
+        intensities = "does not exist"
+        failed_to_get = "all"
+        targets = "none"
+        features = "empty"
+        
+    return times, intensities, failed_to_get, targets, path, features
 
 #normalizing each light curve
 def normalize(intensity):
@@ -338,19 +560,18 @@ def moments(dataset):
     return(moments)
 
 #Plotting functions ------------------------------------------------------
-def post_process_plotting(time, intensity, features_all, features_using, targets, folder):
+def post_process_plotting(time, intensity, features_all, features_using, targets, path):
     """plotting all the things"""
-    n_choose_2_features_plotting(features_all, features_using, folder, "none")
-    n_choose_2_features_plotting(features_all, features_using, folder, "kmeans")
-    n_choose_2_features_plotting(features_all, features_using, folder, "dbscan")
+    n_choose_2_features_plotting(features_all, features_using, path, "none")
+    n_choose_2_features_plotting(features_all, features_using, path, "kmeans")
+    n_choose_2_features_plotting(features_all, features_using, path, "dbscan")
     
-    plot_lof(time, intensity, targets, features_all, 10, folder)
+    plot_lof(time, intensity, targets, features_all, 10, path)
+
+    #n_choose_2_insets(time, intensity, features_all, targets, path)
 
 
-    n_choose_2_insets(time, intensity, features_all, targets, folder)
-
-
-def n_choose_2_features_plotting(feature_vectors, cluster_columns, folder, clustering):
+def n_choose_2_features_plotting(feature_vectors, cluster_columns, path, clustering):
     """plotting (n 2) features against each other
     feature_vectors is the list of ALL feature_vectors
     cluster_columns is the vectors that you want to use to do the clustering based on
@@ -377,15 +598,15 @@ def n_choose_2_features_plotting(feature_vectors, cluster_columns, folder, clust
         cluster = 'none'
         folder_label = "nchoose2"
     #makes folder and saves to it    
-    path = "/Users/conta/UROP_Spring_2020/" + folder + "/" + folder_label
+    folder_path = path + "/" + folder_label
     try:
-        os.makedirs(path)
+        os.makedirs(folder_path)
     except OSError:
-        print ("Creation of the directory %s failed" % path)
+        print ("Creation of the directory %s failed" % folder_path)
         print("New folder created will have -new at the end. Please rename.")
-        os.makedirs(path + "-new")
+        os.makedirs(folder_path + "-new")
     else:
-        print ("Successfully created the directory %s" % path) 
+        print ("Successfully created the directory %s" % folder_path) 
  
     graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
                     "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
@@ -420,7 +641,7 @@ def n_choose_2_features_plotting(feature_vectors, cluster_columns, folder, clust
                     plt.scatter(feat1[p], feat2[p], c = color, s = 5)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(("/Users/conta/UROP_Spring_2020/plot_output/" + folder + "/dbscan-colored/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
+                plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
                 plt.show()
             elif cluster == 'kmeans':
                 for p in range(len(feature_vectors)):
@@ -435,20 +656,20 @@ def n_choose_2_features_plotting(feature_vectors, cluster_columns, folder, clust
                     plt.scatter(feat1[p], feat2[p], c = color)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + folder + "/kmeans-colored/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
+                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
                 plt.show()
             elif cluster == 'none':
                 plt.scatter(feat1, feat2, s = 2, color = 'black')
                 #plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig("/Users/conta/UROP_Spring_2020/plot_output/" + folder + "/nchoose2/" + fname_label1 + "-vs-" + fname_label2 + ".png")
+                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
                 plt.show()
                 
 
 
 
-def plot_lof(time, intensity, targets, features, n, folder):
+def plot_lof(time, intensity, targets, features, n, path):
     """plots the 20 most and least interesting light curves based on LOF
     takes input: time, intensity, targets, featurelist, n number of curves you want, date as a string """
     from sklearn.neighbors import LocalOutlierFactor
@@ -477,7 +698,7 @@ def plot_lof(time, intensity, targets, features, n, folder):
     fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
     fig.tight_layout()
     fig.subplots_adjust(top=0.96)
-    fig.savefig("/Users/conta/UROP_Spring_2020/" + folder + "/" + str(n) + "-largest-lof.png")
+    fig.savefig(path + "/" + str(n) + "-largest-lof.png")
 
     #plot the smallest indices
     fig1, axs1 = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
@@ -492,7 +713,7 @@ def plot_lof(time, intensity, targets, features, n, folder):
     fig1.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
     fig1.tight_layout()
     fig1.subplots_adjust(top=0.96)
-    fig1.savefig("/Users/conta/UROP_Spring_2020/" + folder + "/" + str(n) + "-smallest-lof.png")
+    fig1.savefig(path +  "/" + str(n) + "-smallest-lof.png")
                 
 def astroquery_pull_data(target):
     """pulls data on object from astroquery
@@ -512,6 +733,8 @@ def astroquery_pull_data(target):
         title = "connection error, no data"
     return title
 
+#PLOTTING INSET PLOTS (x/y max/min points per feature)
+    
 def inset_labelling(axis_name, time, intensity, targets, index, title):
     """formatting the labels for the inset plots"""
     axis_name.set_xlim(time[0], time[-1])
@@ -520,7 +743,7 @@ def inset_labelling(axis_name, time, intensity, targets, index, title):
     axis_name.set_ylabel("relative flux")
     axis_name.set_title(targets[index] + title, fontsize=8)
     
-#PLOTTING INSET PLOTS (x/y max/min points per feature)
+
     
 def n_choose_2_insets(time, intensity, feature_vectors, targets, folder):
     """plotting (n 2) features against each other w/ 4 extremes inset plotted
