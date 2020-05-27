@@ -30,7 +30,6 @@ from scipy.stats import moment, sigmaclip
 
 import sklearn
 from sklearn.cluster import KMeans
-
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import Normalizer
 from sklearn import metrics
@@ -54,8 +53,22 @@ from shapely.geometry.polygon import Polygon
 test(8) #should return 8 * 4
 
 #%%
-n_choose_2_insets(t[0], intensities, features, targets_strings, "plot_output/5-22")
+t = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD3/Sector20Cam1CCD3_times_raw.txt", skiprows=1)
+intensities = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD3/Sector20Cam1CCD3_intensities_raw.txt", skiprows=1)
 
+#%%
+features = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_features.txt")
+
+
+
+#%%
+targets = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_targets.txt")
+targets_strings = []
+for n in range(len(targets)):
+    targets_strings.append(("TIC " + str(int(targets[n]))))
+
+#%%
+n_choose_2_insets(t[0], intensities, features, targets_strings, "plot_output/5-26")
 #%%
 def inset_labelling(axis_name, time, intensity, targets, index, title):
     """formatting the labels for the inset plots"""
@@ -126,7 +139,7 @@ def plot_inset(ax1, axis_name, targets, intensity, time, feature_vectors, feat1,
     range_y = feature_vectors[:,feat2].max() - feature_vectors[:,feat2].min()
     x_offset = range_x * 0.001
     y_offset = range_y * 0.001
-    inset_positions = np.zeros((8,4))
+    inset_positions = np.zeros((8,2))
     
     indexes_unique, targets_to_plot, tuples_plotting, titles = get_extrema(feature_vectors, targets, feat1, feat2)
     #print(indexes_unique)
@@ -139,8 +152,8 @@ def plot_inset(ax1, axis_name, targets, intensity, time, feature_vectors, feat1,
         
         inset_x, inset_y, inset_width, inset_height = check_box_location(feature_vectors, thetuple, feat1, feat2, range_x, range_y, x_shift, y_shift, inset_positions)
         #inset_width, inset_height, inset_x, inset_y = box_locate_no_repositioning(thetuple, range_x, range_y, x_shift, y_shift)
-        inset_positions[n] = (inset_x, inset_y, inset_width, inset_height)
-        
+        inset_positions[n] = (inset_x, inset_y)
+        #print(inset_positions)
         axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
         axis_name.scatter(time, intensity[index], c='black', s = 0.01)
             
@@ -183,7 +196,14 @@ def get_extrema(feature_vectors, targets, feat1, feat2):
         titles.append(title)
     return indexes_unique, targets_to_plot, tuples_plotting, titles
 
-
+def calculate_polygon(inset_x, inset_y, inset_width, inset_height):
+    """ calculates the polygon of the inset plot"""
+    inset_BL = (inset_x, inset_y)
+    inset_BR = (inset_x + inset_width, inset_y)
+    inset_TL = (inset_x, inset_y + inset_height)
+    inset_TR = (inset_x + inset_width, inset_y + inset_height)
+    polygon = Polygon([inset_BL, inset_BR, inset_TL, inset_TR])
+    return polygon
         
 def check_box_location(feature_vectors, coordtuple, feat1, feat2, range_x, range_y, x, y, inset_positions):
     """ checks if data points lie within the area of the inset plot
@@ -211,36 +231,119 @@ def check_box_location(feature_vectors, coordtuple, feat1, feat2, range_x, range
     elif y == 1:
         inset_y = coordtuple[1] - (inset_height) #move down
     
-    inset_BL = (inset_x, inset_y)
-    inset_BR = (inset_x + inset_width, inset_y)
-    inset_TL = (inset_x, inset_y + inset_height)
-    inset_TR = (inset_x + inset_width, inset_y + inset_height)
-    
     conc = np.column_stack((feature_vectors[:,feat1], feature_vectors[:,feat2]))
-    polygon = Polygon([inset_BL, inset_BR, inset_TL, inset_TR])
+    polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
     
+    points_good = 0
+    insets_good = 0
+    borders_good = 0
     m = 0
     i = 0
     n = len(conc)
     k = 0
     
     while i < n:
+        #is it on the graph? if it is not, move it, recalculate, and go back to the beginning
+        while m == 0:
+            if inset_x >= xmax:
+                inset_x = inset_x - inset_width
+                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
+                i = 0
+                k = 0
+            elif inset_x < xmin:
+                inset_x = inset_x + inset_width
+                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
+                i = 0
+                k = 0
+            elif inset_y >= ymax:
+                inset_y = inset_y - inset_height
+                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
+                i = 0
+                k = 0
+            elif inset_y < ymin:
+                inset_y = inset_y + inset_height
+                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
+                i = 0
+                k = 0
+            else: 
+                m = 1 #it is on the graph
+            
+        #is it on top of another plot? if it is, move it, recalculate, and go back to the 
+        #absolute beginning to double check if it's in the borders still
+        while k < 8:
+            bx, by = inset_positions[k]
+            p1 = calculate_polygon(bx, by, inset_width, inset_height)
+            if polygon.intersects(p1):
+                if x == 0: 
+                    inset_x = inset_x - (0.1 * range_x)
+                elif x == 1:
+                    inset_x = inset_x + (0.1 * range_x)
+                if y == 0:
+                    inset_y = inset_y + (0.1 * range_y)
+                elif y == 1:
+                    inset_y = inset_y - (0.1 * range_y) 
+                
+                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
+                m = 0
+                k = 0
+                i = 0
+            else: 
+                k = k + 1 #check next inset in list
+            
+        #is it on top of a point? if it is, move it, recalculate, and go back to beginning
         point = Point(conc[i])
-        #is it on top of a point?
+        if polygon.contains(point) == True:
+            if x == 0: 
+                inset_x = inset_x - (0.01 * range_x)
+            else:
+                inset_x = inset_x + (0.01 * range_x)
+                
+            if y == 0:
+                inset_y = inset_y + (0.01 * range_y)
+            else:
+                inset_y = inset_y - (0.01 * range_y)
+            
+            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
+            
+            m = 0
+            k = 0
+            i = 0
+            #print("moving")
+        elif polygon.contains(point) == False:
+        #if not on top of a point, move to the next one
+            i = i + 1
+            
+    print("position determined")
+    
+    return inset_x, inset_y, inset_width, inset_height
+
+#%%
+t = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_times_raw.txt")
+intensities = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_intensities_raw.txt")
+targets = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_targets.txt")
+
+#%%
+while i < n:
+        point = Point(conc[i])
+        #is it on the graph
         if inset_x >= xmax:
             inset_x = inset_x - inset_width
+            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
             i = 0
         if inset_x < xmin:
             inset_x = inset_x + inset_width
+            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
             i = 0
             
         if inset_y >= ymax:
             inset_y = inset_y - inset_height
+            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
             i = 0
         if inset_y < ymin:
             inset_y = inset_y + inset_height
+            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
             i = 0
-            
+           #is it on top of a point? 
         if polygon.contains(point) == True:
             if x == 0: 
                 inset_x = inset_x - (0.01 * range_x)
@@ -251,60 +354,28 @@ def check_box_location(feature_vectors, coordtuple, feat1, feat2, range_x, range
             elif y == 1:
                 inset_y = inset_y - (0.01 * range_y)
             
-            inset_BL = (inset_x, inset_y)
-            inset_BR = (inset_x + inset_width, inset_y)
-            inset_TL = (inset_x, inset_y + inset_height)
-            inset_TR = (inset_x + inset_width, inset_y + inset_height)
-            polygon = Polygon([inset_BL, inset_BR, inset_TL, inset_TR])
+            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
             i = 0
             #print("moving")
         elif polygon.contains(point) == False:
         #is it on top of another plot?
             while k < 8:
-                bx, by, bw, bh = inset_positions[k]
-                if bx <= inset_x <= (bx + bw):
+                bx, by = inset_positions[k]
+                if (bx - inset_width) <= inset_x <= (bx + inset_width):
                     inset_x = inset_x + (0.5 * inset_width)
+                    polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
+                    
                     k = 0
                     i = 0
-                elif by <= inset_y <= (by + bh):
+                elif (by - inset_height) <= inset_y <= (by + inset_height):
                     inset_y = inset_y + (0.5 * inset_height)
+                    polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
                     k = 0
                     i = 0
                 else:
                     k = k + 1
+            #move to next point
             i = i + 1
-                #this is the old way i ran it and it was okay but this is better
-                #bBL = (bx, by)
-                #bBR = (bx + bw, by)
-                #bTL = (bx, by+bh)
-                #bTR = (bx + bw, by + bh)
-                #p1 = Polygon([bBL, bBR, bTL, bTR])
-                
-                #if p1.intersects(polygon):
-                 #   inset_x = inset_x + (0.5*inset_width)
-                  #  inset_y = inset_y + (0.5*inset_height)
-                   # inset_BL = (inset_x, inset_y)
-                   # inset_BR = (inset_x + inset_width, inset_y)
-                   # inset_TL = (inset_x, inset_y + inset_height)
-                   # inset_TR = (inset_x + inset_width, inset_y + inset_height)
-                   # polygon = Polygon([inset_BL, inset_BR, inset_TL, inset_TR])
-                   # k = 0
-                #else: 
-               #     k = k + 1
-                    
-            
-    print("position determined")
-    
-    return inset_x, inset_y, inset_width, inset_height
-
-#%%
-np.savetxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/GroupNotes.txt", failed_to_get)
-#%%
-t = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_times_raw.txt")
-intensities = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_intensities_raw.txt")
-targets = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_targets.txt")
-
-#%%
 
 
 #%%

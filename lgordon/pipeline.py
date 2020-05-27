@@ -8,6 +8,8 @@ Pipeline to produce all files for a given group of data.
 
 Last updated: May 2020
 """
+import feature_functions
+from feature_functions import *
 
 import numpy as np
 import numpy.ma as ma 
@@ -23,6 +25,7 @@ import astropy
 from astropy.io import fits
 import scipy.signal as signal
 from astropy.stats import SigmaClip
+from astropy.utils import exceptions
 
 from datetime import datetime
 import os
@@ -38,8 +41,6 @@ from sklearn import metrics
 import fnmatch
 
 from sklearn.metrics import confusion_matrix
-import feature_functions
-from feature_functions import *
 from sklearn.neighbors import LocalOutlierFactor
 
 import astroquery
@@ -58,20 +59,18 @@ mypath = "/Users/conta/UROP_Spring_2020/"
 sectorfile = "/Users/conta/UROP_Spring_2020/all_targets_S020_v1.txt"
 sector = 20
 camera = 1
-ccd = 2
+ccd = 3
 
 times, intensities, failed_to_get, targets, folder_path, features = data_process_a_group(mypath, sectorfile, sector, camera, ccd)
 
 #%%
-targets_strings = []
-for n in range(len(targets)):
-    targets_strings.append(("TIC " + str(int(targets[n]))))
-    #%%
-post_process_plotting(t[0], intensities, features, features, targets_strings, "/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2")
+post_process_plotting(times, intensities, features, features, targets, "/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2")
 
 
 #%%
-t = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_interp_times.txt")
+t = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD3/Sector20Cam1CCD3_times_raw.txt")
+
+#%%
 intensities = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_ints_processed.txt")
 
 #features = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD1/sector_20_cam1_ccd1_features.txt")    
