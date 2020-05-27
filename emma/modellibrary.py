@@ -1,11 +1,26 @@
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # 
-# keras autoencoder model and plotting functions
-# emma feb 2020
+# 2020-05-26 - modellibrary.py
+# Keras novelty detection in TESS dataset and data visualization
+# / Emma Chickles
 # 
-# * convolutional autoencoder
+# TODO: finish these function summaries
+# Model
+# * run_model
+# * model_summary_txt
+# * param_summary_txt
+# * conv_autoencoder
 # * cnn
-# * simple autoencoder (two fully-connected layers)
+# * cnn_mock
+# * mlp
+# * simple autoencoder: fully-connected layers
+# * compile_model
+# 
+# Data visualization
+# diagnostic_plots : runs all plots
+# 
+# Helper functions
+# * ticid_label
 #
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: 
 
@@ -16,6 +31,7 @@ import numpy as np
 
 def run_model(x_train, y_train, x_test, y_test, p, supervised=False,
               mock_data=False):
+    '''Runs autoencoder '''
     if not supervised:
         history, model = conv_autoencoder(x_train, x_train, x_test,
                                              x_test, p)
@@ -33,6 +49,7 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
                      mock_data=False, ticid_train=False, ticid_test=False,
                      supervised=False, y_true=False, y_predict=False,
                      y_train=False, y_test=False,
+                     flux_test=False, flux_train=False, time=False,
                      rms_train=False, rms_test = False, input_rms = False,
                      inds = [0,1,2,3,4,5,6,7,-1,-2,-3,-4,-5,-6,-7],
                      intermed_inds = [6,0],
@@ -46,7 +63,9 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
                      plot_kernel=False,
                      plot_intermed_act=False,
                      plot_clustering=False,
-                     make_movie = False):
+                     make_movie = False,
+                     plot_lof_test=True,
+                     plot_lof_train=True):
 
     # !! TODO: change supervised inputs to just y_train, y_test
     plt.rcParams.update(plt.rcParamsDefault)
@@ -90,24 +109,55 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
     if plot_latent_test:
         fig, axes = latent_space_plot(model, activations, p,
                                       output_dir+prefix+'latent_space.png')
+
+        
     if plot_latent_train:
         activations_train = get_activations(model, x_train, rms_test=rms_train,
                                             input_rms=input_rms)
         fig, axes = latent_space_plot(model, activations_train, p,
                                       output_dir+prefix+\
                                           'latent_space-x_train.png')
+            
+    if plot_lof_test:
+        bottleneck = get_bottleneck(model, activations, p)
+        for n in [20, 50, 100]:
+            if type(flux_test) != bool:
+                plot_lof(time, flux_test, ticid_test, bottleneck, 20,
+                         output_dir, prefix='test-', n_neighbors=n,
+                         mock_data=mock_data)
+            else:
+                plot_lof(x, x_test, ticid_test, bottleneck, 20, output_dir,
+                         prefix = 'test-', n_neighbors=n, mock_data=mock_data)
+
+            
+    if plot_lof_train:
+        activations_train = get_activations(model, x_train, rms_test=rms_train,
+                                            input_rms=input_rms)
+        bottleneck_train = get_bottleneck(model, activations_train, p)
+        for n in [20, 50, 100]:
+            if type(flux_train) != bool:
+                plot_lof(time, flux_train, ticid_train, bottleneck_train, 20,
+                         output_dir, prefix='train-', n_neighbors=n,
+                         mock_data=mock_data)
+            else:
+                plot_lof(x, x_train, ticid_train, bottleneck_train, 20,
+                         output_dir, prefix = 'train-', n_neighbors=n,
+                         mock_data=mock_data)            
+        
 
     # >> plot kernel vs. filter
     if plot_kernel:
         kernel_filter_plot(model, output_dir+prefix+'kernel-')
         
-    if plot_clustering:
-        bottleneck_ind = np.nonzero(['dense' in x.name for x in \
-                                     model.layers])[0][0]
-        bottleneck = activations[bottleneck_ind - 1]        
-        latent_space_clustering(bottleneck, x_test, x, ticid_test,
-                                out=output_dir+prefix+\
-                                    'clustering-x_test-', addend=addend)
+
+    # if plot_clustering:
+    #     bottleneck_ind = np.nonzero(['dense' in x.name for x in \
+    #                                  model.layers])[0][0]
+    #     bottleneck = activations[bottleneck_ind - 1]        
+    #     latent_space_clustering(bottleneck, x_test, x, ticid_test,
+    #                             out=output_dir+prefix+\
+    #                                 'clustering-x_test-', addend=addend)
+        
 
     # -- intermediate activations visualization -------------------------------
     if plot_intermed_act:
@@ -126,11 +176,13 @@ def param_summary(history, x_test, x_predict, p, output_dir, param_set_num,
     with open(output_dir + 'param_summary.txt', 'a') as f:
         f.write('parameter set ' + str(param_set_num) + ' - ' + title +'\n')
         f.write(str(p.items()) + '\n')
-        # label_list = ['loss', 'accuracy', 'precision', 'recall']
-        # key_list =['loss', 'accuracy', list(history.history.keys())[-2],
-        #        list(history.history.keys())[-1]]
-        label_list = ['loss', 'accuracy']
-        key_list = ['loss', 'accuracy']
+        if supervised:
+            label_list = ['loss', 'accuracy', 'precision', 'recall']
+            key_list =['loss', 'accuracy', list(history.history.keys())[-2],
+                    list(history.history.keys())[-1]]
+        else:
+            label_list = ['loss']
+            key_list = ['loss']
 
         for j in range(len(label_list)):
             f.write(label_list[j]+' '+str(history.history[key_list[j]][-1])+\
@@ -148,10 +200,11 @@ def param_summary(history, x_test, x_predict, p, output_dir, param_set_num,
         else:
             # >> assuming uncertainty of 0.02
             chi_2 = np.average((x_predict-x_test)**2 / 0.02)
-            f.write('chi_squared ' + str(chi_2) + '\n')
+            # f.write('chi_squared ' + str(chi_2) + '\n')
             mse = np.average((x_predict - x_test)**2)
-            f.write('mse '+ str(mse) + '\n')
+            # f.write('mse '+ str(mse) + '\n')
         f.write('\n')
+    
         
 def model_summary_txt(output_dir, model):
     with open(output_dir + 'model_summary.txt', 'a') as f:
@@ -227,21 +280,26 @@ def cnn_mock(x_train, y_train, x_test, y_test, params, num_classes = 2):
     return history, model
 
 
-def mlp(x_train, y_train, x_test, y_test, params):
+def mlp(x_train, y_train, x_test, y_test, params, resize=True):
     '''a simple classifier based on a fully-connected layer'''
     from keras.models import Model
     from keras.layers import Input, Dense, Flatten
 
     num_classes = np.shape(y_train)[1]
     input_dim = np.shape(x_train)[1]
-    input_img = Input(shape = (input_dim,1))
-    x = Flatten()(input_img)
-    x = Dense(params['latent_dim'],activation=params['activation'])(x)
+    if resize:
+        input_img = Input(shape = (input_dim,1))
+        x = Flatten()(input_img)
+    else:
+        input_img = Input(shape = (input_dim,))
+        x = input_img
+    for i in range(len(params['hidden_units'])):
+        x = Dense(params['hidden_units'][i],activation=params['activation'])(x)
     x = Dense(num_classes, activation='softmax')(x)
         
     model = Model(input_img, x)
     model.summary()
-    compile_model(model, params)
+    compile_model(model, params, mlp=True)
 
     history = model.fit(x_train, y_train, epochs=params['epochs'],
                             batch_size=params['batch_size'], shuffle=True,
@@ -249,19 +307,33 @@ def mlp(x_train, y_train, x_test, y_test, params):
         
     return history, model
 
-def simple_autoencoder(x_train, y_train, x_test, y_test, params):
+def simple_autoencoder(x_train, y_train, x_test, y_test, params, resize = False,
+                       batch_norm=False):
     '''a simple autoencoder based on a fully-connected layer'''
     from keras.models import Model
-    from keras.layers import Input, Dense, Flatten, Reshape
+    from keras.layers import Input, Dense, Flatten, Reshape, BatchNormalization
 
     num_classes = np.shape(y_train)[1]
     input_dim = np.shape(x_train)[1]
-    input_img = Input(shape = (input_dim,1))
-    x = Flatten()(input_img)
-    x = Dense(params['latent_dim'],activation=params['activation'])(x)
-    
-    x = Dense(input_dim, activation='sigmoid')(x)
-    x = Reshape((input_dim, 1))(x)
+    if resize:
+        input_img = Input(shape = (input_dim,1))
+        x = Flatten()(input_img)
+    else:
+        input_img = Input(shape = (input_dim,))
+        x = input_img
+    for i in range(len(params['hidden_units'])):
+        if batch_norm: x = BatchNormalization()(x)
+        x = Dense(params['hidden_units'][i], activation=params['activation'])(x)
+    if batch_norm: x = BatchNormalization()(x)
+    x = Dense(params['latent_dim'], activation=params['activation'])(x)
+    for i in np.arange(len(params['hidden_units'])-1, -1, -1):
+        if batch_norm: x = BatchNormalization()(x)        
+        x = Dense(params['hidden_units'][i], activation=params['activation'])(x)
+
+    if batch_norm: x = BatchNormalization()(x)    
+    x = Dense(input_dim, activation=params['last_activation'])(x)
+    if resize:
+        x = Reshape((input_dim, 1))(x)
         
     model = Model(input_img, x)
     model.summary()
@@ -273,7 +345,7 @@ def simple_autoencoder(x_train, y_train, x_test, y_test, params):
         
     return history, model
 
-def compile_model(model, params):
+def compile_model(model, params, mlp=False):
     from keras import optimizers
     import keras.metrics
     if params['optimizer'] == 'adam':
@@ -284,9 +356,15 @@ def compile_model(model, params):
         
     # model.compile(optimizer=opt, loss=params['losses'],
     #               metrics=['accuracy'])
-    model.compile(optimizer=opt, loss=params['losses'],
-                  metrics=['accuracy', keras.metrics.Precision(),
+    if mlp:
+        import tensorflow as tf
+        model.compile(optimizer=opt, loss=tf.keras.losses.CategoricalCrossentropy(),
+                      metrics = ['accuracy', keras.metrics.Precision(),
                   keras.metrics.Recall()])
+    else:
+        model.compile(optimizer=opt, loss=params['losses'],
+                      metrics=['accuracy', keras.metrics.Precision(),
+                      keras.metrics.Recall()])
 
 
 def encoder(x_train, params):
@@ -439,15 +517,77 @@ def create_mlp(input_dim):
     
 # :: preprocessing data :::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def split_data(flux, time, p, train_test_ratio = 0.9, cutoff=16336,
-               supervised=False, classes=False, interpolate=False):
+def split_data_features(flux, features, time, ticid, classes, p, train_test_ratio = 0.9,
+                        cutoff=16336,
+               supervised=False, interpolate=False,
+               resize_arr=True, truncate=True):
 
     # >> truncate (must be a multiple of 2**num_conv_layers)
-    new_length = int(np.shape(flux)[1] / \
-                 (2**(np.max(p['num_conv_layers'])/2)))*\
-                 int((2**(np.max(p['num_conv_layers'])/2)))
-    flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
-    time = time[:new_length]
+    if truncate:
+        new_length = int(np.shape(flux)[1] / \
+                     (2**(np.max(p['num_conv_layers'])/2)))*\
+                     int((2**(np.max(p['num_conv_layers'])/2)))
+        flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
+        time = time[:new_length]
+
+    # >> split test and train data
+    if supervised:
+        train_inds = []
+        test_inds = []
+        class_types, counts = np.unique(classes, return_counts=True)
+        num_classes = len(class_types)
+        #  = min(counts)
+        y_train = []
+        y_test = []
+        for i in range(len(class_types)):
+            inds = np.nonzero(classes==i)[0]
+            num_train = int(len(inds)*train_test_ratio)
+            train_inds.extend(inds[:num_train])
+            test_inds.extend(inds[num_train:])
+            labels = np.zeros((len(inds), num_classes))
+            labels[:,i] = 1.
+            y_train.extend(labels[:num_train])
+            y_test.extend(labels[num_train:])
+
+        y_train = np.array(y_train)
+        y_test = np.array(y_test)
+        x_train = np.copy(features[train_inds])
+        x_test = np.copy(features[test_inds])
+        flux_train = np.copy(flux[train_inds])
+        flux_test = np.copy(flux[test_inds])
+        ticid_train = np.copy(ticid[train_inds])
+        ticid_test = np.copy(ticid[test_inds])
+    else:
+        split_ind = int(train_test_ratio*np.shape(flux)[0])
+        x_train = np.copy(features[:split_ind])
+        x_test = np.copy(features[split_ind:])
+        flux_train = np.copy(flux[:split_ind])
+        flux_test = np.copy(flux[split_ind:])
+        ticid_train = np.copy(ticid[:split_ind])
+        ticid_test = np.copy(ticid[split_ind:])
+        y_test, y_train = [False, False]
+        
+        
+    if resize_arr:
+        x_train =  np.resize(x_train, (np.shape(x_train)[0],
+                                       np.shape(x_train)[1], 1))
+        x_test =  np.resize(x_test, (np.shape(x_test)[0],
+                                       np.shape(x_test)[1], 1))
+    return x_train, x_test, y_train, y_test, flux_train, flux_test,\
+        ticid_train, ticid_test, time
+
+def split_data(flux, time, p, train_test_ratio = 0.9, cutoff=16336,
+               supervised=False, classes=False, interpolate=False,
+               resize_arr=True, truncate=True):
+    '''need to update, might not work'''
+
+    # >> truncate (must be a multiple of 2**num_conv_layers)
+    if truncate:
+        new_length = int(np.shape(flux)[1] / \
+                     (2**(np.max(p['num_conv_layers'])/2)))*\
+                     int((2**(np.max(p['num_conv_layers'])/2)))
+        flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
+        time = time[:new_length]
 
     # >> split test and train data
     if supervised:
@@ -478,15 +618,16 @@ def split_data(flux, time, p, train_test_ratio = 0.9, cutoff=16336,
         x_test = np.copy(flux[split_ind:])
         y_test, y_train = [False, False]
         
-    if interpolate:
-        train_data, time = interpolate_lc(np.concatenate([x_train, x_test]), time)
-        x_train = train_data[:len(x_train)]
-        x_test = train_data[len(x_train):]
+    # if interpolate:
+    #     train_data, time = interpolate_lc(np.concatenate([x_train, x_test]), time)
+    #     x_train = train_data[:len(x_train)]
+    #     x_test = train_data[len(x_train):]
         
-    x_train =  np.resize(x_train, (np.shape(x_train)[0],
-                                   np.shape(x_train)[1], 1))
-    x_test =  np.resize(x_test, (np.shape(x_test)[0],
-                                   np.shape(x_test)[1], 1))
+    if resize_arr:
+        x_train =  np.resize(x_train, (np.shape(x_train)[0],
+                                       np.shape(x_train)[1], 1))
+        x_test =  np.resize(x_test, (np.shape(x_test)[0],
+                                       np.shape(x_test)[1], 1))
     return x_train, x_test, y_train, y_test, time
     
 
@@ -494,17 +635,17 @@ def rms(x):
     rms = np.sqrt(np.mean(x**2, axis = 1))
     return rms
 
-def standardize(x):
-    means = np.mean(x, axis = 1, keepdims=True) # >> subtract mean
+def standardize(x, ax=1):
+    means = np.mean(x, axis = ax, keepdims=True) # >> subtract mean
     x = x - means
-    stdevs = np.std(x, axis = 1, keepdims=True) # >> divide by standard dev
+    stdevs = np.std(x, axis = ax, keepdims=True) # >> divide by standard dev
     x = x / stdevs   
     return x
     
-def normalize(flux, time):
+def normalize(flux):
     medians = np.median(flux, axis = 1, keepdims=True)
     flux = flux / medians - 1.
-    return flux, time
+    return flux
 
 def interpolate_lc(flux, time, flux_err=False, interp_tol=20./(24*60),
                    num_sigma=5, orbit_gap_len = 3):
@@ -673,7 +814,8 @@ def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
 # :: plotting :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def ticid_label(ax, ticid, title=False):
-    '''https://arxiv.org/pdf/1905.10694.pdf'''
+    '''Query catalog data and add text to axis
+    https://arxiv.org/pdf/1905.10694.pdf'''
     from astroquery.mast import Catalogs
 
     target = 'TIC '+str(int(ticid))
@@ -701,7 +843,10 @@ def ticid_label(ax, ticid, title=False):
                   transform=ax.transAxes, horizontalalignment='right',
                   verticalalignment='top', fontsize='xx-small')
     
-def format_axes(ax):
+def format_axes(ax, xlabel=False, ylabel=False):
+    '''Helper function to plot TESS light curves. Aspect ratio is 3/8.
+    Parameters:
+        * ax : matplotlib axis'''
     # >> force aspect = 3/8
     xlim, ylim = ax.get_xlim(), ax.get_ylim()
     ax.set_aspect(abs((xlim[1]-xlim[0])/(ylim[1]-ylim[0])*(3./8.)))
@@ -712,12 +857,37 @@ def format_axes(ax):
         ax.tick_params('x', labelsize='small')
     ax.tick_params('y', labelsize='small')
     ax.ticklabel_format(useOffset=False)
+    if xlabel:
+        ax.set_xlabel('Time [BJD - 2457000]')
+    if ylabel:
+        ax.set_ylabel('Relative flux')
+    
+def get_bottleneck(model, activations, p):
+    '''Get bottleneck layer, with shape (num light curves, latent dimension)
+    Parameters:
+        * model : Keras Model()
+        * activations : from get_activations()
+        * p : parameter set, with p['latent_dim'] = dimension of latent space
+    '''
+    # >> first find all Dense layers
+    inds = np.nonzero(['dense' in x.name for x in model.layers])[0]
+    
+    # >> now check which Dense layers has number of units = latent_dim
+    for ind in inds:
+        ind = ind - 1 # >> len(activations) = len(model.layers) - 1, since
+                      #    activations doesn't include the Input layer
+        num_units = np.shape(activations[ind])[1]
+        if num_units == p['latent_dim']:
+            bottleneck_ind = ind
+    
+    bottleneck = activations[bottleneck_ind]
+    
+    return bottleneck
 
 def corner_plot(activation, p, n_bins = 50, log = True):
-    '''Creates corner plot for latent space.
-    '''
+    '''Creates corner plot.'''
     from matplotlib.colors import LogNorm
-    # latentDim = np.shape(activation)[1]
+    
     latentDim = p['latent_dim']
 
     fig, axes = plt.subplots(nrows = latentDim, ncols = latentDim,
@@ -758,8 +928,13 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
                       inds = [0, -14, -10, 1, 2], addend = 0., sharey=False,
                       mock_data=False):
     '''Plots input light curve, output light curve and the residual.
-    !!Can only handle len(inds) divisible by 3 or 5'''
-    # !! get rid of reshape parameter
+    !! Can only handle len(inds) divisible by 3 or 5
+    Parameters:
+        * x : time array
+        * x_test
+        * x_predict : output of model.predict(x_test)
+        * out : output directory'''
+
     if len(inds) % 5 == 0:
         ncols = 5
     elif len(inds) % 3 == 0:
@@ -830,18 +1005,26 @@ def kernel_filter_plot(model, out_dir):
 
 def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
                       inds = [0, -1], movie = True):
-    '''Visualizing intermediate activations
-    activation.shape = (test_size, input_dim, filter_num) = (116, 16272, 32)'''
+    '''Visualizing intermediate activations.
+    Parameters:
+        * x: time array
+        * model: Keras Model()
+        * activations: output from get_activations()
+        * x_test
+        * out_dir
+        * append : 
+    Note that activation.shape = (test_size, input_dim, num_filters)'''
     # >> get inds for plotting intermediate activations
     act_inds = np.nonzero(['conv' in x.name or \
                            'max_pool' in x.name or \
                            'dropout' in x.name or \
+                               'dense' in x.name or \
                            'reshape' in x.name for x in \
                            model.layers])[0]
     act_inds = np.array(act_inds) -1
 
     for c in range(len(inds)): # >> loop through light curves
-        fig, axes = plt.subplots(figsize=(4,3))
+        fig, axes = plt.subplots(figsize=(8,3))
         addend = 1. - np.median(x_test[inds[c]])
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
                 x_test[inds[c]] + addend, '.k', markersize=2)
@@ -852,20 +1035,35 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
         plt.close(fig)
         for a in act_inds: # >> loop through layers
             activation = activations[a]
-            if np.shape(activation)[2] == 1:
-                nrows = 1
-                ncols = 1
-            else:
-                ncols = 4
-                nrows = int(np.shape(activation)[2]/ncols)
-            fig, axes = plt.subplots(nrows,ncols,figsize=(8*ncols*0.5,3*nrows))
-            for b in range(np.shape(activation)[2]): # >> loop through filters
+            
+            if len(np.shape(activation)) == 2:
+                ncols, nrows = 1, 1
+                num_filters=1
+                
+            else:   
+                if np.shape(activation)[2] == 1:
+                    nrows = 1
+                    ncols = 1
+                    num_filters=1
+                else:
+                    num_filters = np.shape(activation)[2]
+                    ncols = 4
+                    nrows = int(num_filters/ncols)
+                    
+            fig, axes = plt.subplots(nrows,ncols,figsize=(8*ncols,3*nrows))                    
+            # fig, axes = plt.subplots(nrows,ncols,figsize=(8*ncols*0.5,3*nrows))
+            for b in range(num_filters): # >> loop through filters
                 if ncols == 1:
                     ax = axes
                 else:
                     ax = axes.flatten()[b]
                 x1 = np.linspace(np.min(x), np.max(x), np.shape(activation)[1])
-                ax.plot(x1, activation[inds[c]][:,b]+addend,'.k',markersize=2)
+                if num_filters > 1:
+                    ax.plot(x1, activation[inds[c]][:,b]+addend,'.k',markersize=2)
+                else:
+                    ax.plot(x1, activation[inds[c]]+addend, '.k', markersize=2)
+                    
+                
             if nrows == 1:
                 axes.set_xlabel('time [BJD - 2457000]')
                 axes.set_ylabel('relative flux')
@@ -885,27 +1083,35 @@ def epoch_plots(history, p, out_dir, supervised):
         label_list = [['loss', 'accuracy'], ['precision', 'recall']]
         key_list = [['loss', 'accuracy'], [list(history.history.keys())[-2],
                                            list(history.history.keys())[-1]]]
-    else:
-        label_list = [['loss', 'accuracy']]
-        key_list = [['loss', 'accuracy']]
 
-    for i in range(len(key_list)):
+        for i in range(len(key_list)):
+            fig, ax1 = plt.subplots()
+            ax2 = ax1.twinx()
+            ax1.plot(history.history[key_list[i][0]], label=label_list[i][0])
+            ax1.set_ylabel(label_list[i][0])
+            ax2.plot(history.history[key_list[i][1]], '--', label=label_list[i][1])
+            ax2.set_ylabel(label_list[i][1])
+            ax1.set_xlabel('epoch')
+            ax1.set_xticks(np.arange(0, int(p['epochs']), int(p['epochs']/10)))
+            ax1.tick_params('both', labelsize='x-small')
+            ax2.tick_params('both', labelsize='x-small')
+            fig.tight_layout()
+            if i == 0:
+                plt.savefig(out_dir + 'acc_loss.png')
+            else:
+                plt.savefig(out_dir + 'prec_recall.png')
+            plt.close(fig)
+            
+    else:
         fig, ax1 = plt.subplots()
-        ax2 = ax1.twinx()
-        ax1.plot(history.history[key_list[i][0]], label=label_list[i][0])
-        ax1.set_ylabel(label_list[i][0])
-        ax2.plot(history.history[key_list[i][1]], '--', label=label_list[i][1])
-        ax2.set_ylabel(label_list[i][1])
+        ax1.plot(history.history['loss'], label='loss')
+        ax1.set_ylabel('loss')
         ax1.set_xlabel('epoch')
-        ax1.set_xticks(range(p['epochs']))
+        ax1.set_xticks(np.arange(0, int(p['epochs']), int(p['epochs']/10)))
         ax1.tick_params('both', labelsize='x-small')
-        ax2.tick_params('both', labelsize='x-small')
         fig.tight_layout()
-        if i == 0:
-            plt.savefig(out_dir + 'acc_loss.png')
-        else:
-            plt.savefig(out_dir + 'prec_recall.png')
-        plt.close(fig)
+        plt.savefig(out_dir + 'loss.png')
+            
     
 def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
                                  ticid_test, out, inds=[0,1,-1,-2,-3],
@@ -950,29 +1156,42 @@ def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
 
 def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
           addend=0.5):
+    '''Make a .mp4 file of intermediate activations.
+    Parameters:
+        * x : time array
+        * model : Keras Model()
+        * activations : output from get_activations()
+        * x_test
+        * p : parameter set
+        * out_dir : output directory
+        * inds : light curve indices in x_test'''
     for c in range(len(inds)):
         fig, axes = plt.subplots(figsize=(8,3))
         ymin = []
         ymax = []
         for activation in activations:
-            if np.shape(activation)[1] == p['latent_dim']:
-                ymin.append(min(activation[inds[c]]))
-                ymax.append(max(activation[inds[c]]))
-            elif len(np.shape(activation)) > 2:
-                if np.shape(activation)[2] == 1:
-                    ymin.append(min(activation[inds[c]]))
-                    ymax.append(max(activation[inds[c]]))
-        ymin = np.min(ymin) + addend
-        ymax = np.max(ymax) + addend
+            # if np.shape(activation)[1] == p['latent_dim']:
+            ymin.append(min(np.min(activation[inds[c]]),
+                            np.min(x_test[inds[c]])))
+                # ymax.append(max(activation[inds[c]]))
+            ymax.append(max(np.max(activation[inds[c]]),
+                            np.max(x_test[inds[c]])))
+            # elif len(np.shape(activation)) > 2:
+                # if np.shape(activation)[2] == 1:
+                    # ymin.append(min(activation[inds[c]]))
+                    # ymax.append(max(activation[inds[c]]))
+        ymin = np.min(ymin) + addend + 0.3*np.median(x_test[inds[c]])
+        ymax = np.max(ymax) + addend - 0.3*np.median(x_test[inds[c]])
         addend = 1. - np.median(x_test[inds[c]])
 
         # >> plot input
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
                   x_test[inds[c]] + addend, '.k', markersize=2)
-        axes.set_xlabel('time [BJD - 2457000]')
-        axes.set_ylabel('relative flux')
+        # axes.set_xlabel('time [BJD - 2457000]')
+        format_axes(axes, xlabel=True, ylabel=True)
+        # axes.set_ylabel('relative flux')
         axes.set_ylim(ymin=ymin, ymax=ymax)
-        fig.tight_layout()
+        # fig.tight_layout()
         fig.savefig('./image-000.png')
 
         # >> plot intermediate activations
@@ -984,10 +1203,11 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
                 axes.cla()
                 axes.plot(np.linspace(np.min(x), np.max(x), length),
                           activation[inds[c]] + addend, '.k', markersize=2)
-                axes.set_xlabel('time [BJD - 2457000]')
-                axes.set_ylabel('relative flux')
+                # axes.set_xlabel('time [BJD - 2457000]')
+                # axes.set_ylabel('relative flux')
+                format_axes(axes, xlabel=True, ylabel=True)
                 axes.set_ylim(ymin=ymin, ymax =ymax)
-                fig.tight_layout()
+                # fig.tight_layout()
                 fig.savefig('./image-' + f'{n:03}.png')
                 n += 1
             elif len(np.shape(activation)) > 2:
@@ -1006,150 +1226,150 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
         os.system('ffmpeg -framerate 2 -i ./image-%03d.png -pix_fmt yuv420p '+\
                   out_dir+str(c)+'ind-movie.mp4')
 
-def latent_space_clustering(activation, x_test, x, ticid, out = './', 
-                            n_bins = 50, addend=1., scatter = True):
-    '''Clustering latent space
-    '''
-    from matplotlib.colors import LogNorm
-    # from sklearn.cluster import DBSCAN
-    from sklearn.neighbors import LocalOutlierFactor
-    latentDim = np.shape(activation)[1]
+# def latent_space_clustering(activation, x_test, x, ticid, out = './', 
+#                             n_bins = 50, addend=1., scatter = True):
+#     '''[deprecated 052620] Clustering latent space. deprecated.
+#     '''
+#     from matplotlib.colors import LogNorm
+#     # from sklearn.cluster import DBSCAN
+#     from sklearn.neighbors import LocalOutlierFactor
+#     latentDim = np.shape(activation)[1]
 
-    # -- calculate lof --------------------------------------------------------           
-    clf = LocalOutlierFactor()
-    clf.fit_predict(activation)
-    lof = -1 * clf.negative_outlier_factor_
-    inds = np.argsort(lof)[-20:] # >> outliers
-    inds2 = np.argsort(lof)[:20] # >> inliers
+#     # -- calculate lof --------------------------------------------------------           
+#     clf = LocalOutlierFactor()
+#     clf.fit_predict(activation)
+#     lof = -1 * clf.negative_outlier_factor_
+#     inds = np.argsort(lof)[-20:] # >> outliers
+#     inds2 = np.argsort(lof)[:20] # >> inliers
     
-    # >> deal with 1 latent dimension case
-    if latentDim == 1: # TODO !!
-        fig, axes = plt.subplots(figsize = (15,15))
-        axes.hist(np.reshape(activation, np.shape(activation)[0]), n_bins,
-                  log=True)
-        axes.set_ylabel('\u03C61')
-        axes.set_ylabel('frequency')
-    else:
+#     # >> deal with 1 latent dimension case
+#     if latentDim == 1: # TODO !!
+#         fig, axes = plt.subplots(figsize = (15,15))
+#         axes.hist(np.reshape(activation, np.shape(activation)[0]), n_bins,
+#                   log=True)
+#         axes.set_ylabel('\u03C61')
+#         axes.set_ylabel('frequency')
+#     else:
 
 
-        # >> row 1 column 1 is first latent dimension (phi1)
-        for i in range(latentDim):
-            for j in range(i):
-                z1, z2 = activation[:,j], activation[:,i]
-                # X = np.array((z1, z2)).T                
-                # clf = LocalOutlierFactor()
-                # clf.fit_predict(X)
-                # lof = -1 * clf.negative_outlier_factor_
+#         # >> row 1 column 1 is first latent dimension (phi1)
+#         for i in range(latentDim):
+#             for j in range(i):
+#                 z1, z2 = activation[:,j], activation[:,i]
+#                 # X = np.array((z1, z2)).T                
+#                 # clf = LocalOutlierFactor()
+#                 # clf.fit_predict(X)
+#                 # lof = -1 * clf.negative_outlier_factor_
 
                 
-                # -- plot latent space w/ inset plots -------------------------
-                fig, ax = plt.subplots(figsize = (15,15))
+#                 # -- plot latent space w/ inset plots -------------------------
+#                 fig, ax = plt.subplots(figsize = (15,15))
                 
-                if scatter:
-                    ax.plot(z1, z2, '.')
-                else:
-                    ax.hist2d(z1, z2, bins=n_bins, norm=LogNorm())
+#                 if scatter:
+#                     ax.plot(z1, z2, '.')
+#                 else:
+#                     ax.hist2d(z1, z2, bins=n_bins, norm=LogNorm())
                 
-                plt.xticks(fontsize='xx-large')
-                plt.yticks(fontsize='xx-large')
+#                 plt.xticks(fontsize='xx-large')
+#                 plt.yticks(fontsize='xx-large')
                 
-                h = 0.047
-                x0 = 0.85
-                y0 = 0.9
-                xstep = h*8/3 + 0.025
-                ystep = h + 0.025
+#                 h = 0.047
+#                 x0 = 0.85
+#                 y0 = 0.9
+#                 xstep = h*8/3 + 0.025
+#                 ystep = h + 0.025
                 
-                # >> sort to clean up plot
-                inds0 = inds[:10]
-                inds0 = sorted(inds, key=lambda z: ((z1[z]-np.max(z1))+\
-                                                    (z2[z]-np.min(z2)))**2)
+#                 # >> sort to clean up plot
+#                 inds0 = inds[:10]
+#                 inds0 = sorted(inds, key=lambda z: ((z1[z]-np.max(z1))+\
+#                                                     (z2[z]-np.min(z2)))**2)
                 
-                for k in range(10):
-                    # >> make inset axes
-                    if k < 5:
-                        axins = ax.inset_axes([x0 - k*xstep, y0, h*8/3, h])
-                    else:
-                        axins = ax.inset_axes([x0, y0 - (k-4)*ystep, h*8/3, h])
-                    xp, yp = z1[inds0[k]], z2[inds0[k]]
+#                 for k in range(10):
+#                     # >> make inset axes
+#                     if k < 5:
+#                         axins = ax.inset_axes([x0 - k*xstep, y0, h*8/3, h])
+#                     else:
+#                         axins = ax.inset_axes([x0, y0 - (k-4)*ystep, h*8/3, h])
+#                     xp, yp = z1[inds0[k]], z2[inds0[k]]
             
-                    xextent = ax.get_xlim()[1] - ax.get_xlim()[0]
-                    yextent = ax.get_ylim()[1] - ax.get_ylim()[0]
-                    x1, x2 = xp-0.01*xextent, xp+0.01*xextent
-                    y1, y2 = yp-0.01*yextent, yp+0.01*yextent
-                    axins.set_xlim(x1, x2)
-                    axins.set_ylim(y1, y2)
-                    ax.indicate_inset_zoom(axins)
+#                     xextent = ax.get_xlim()[1] - ax.get_xlim()[0]
+#                     yextent = ax.get_ylim()[1] - ax.get_ylim()[0]
+#                     x1, x2 = xp-0.01*xextent, xp+0.01*xextent
+#                     y1, y2 = yp-0.01*yextent, yp+0.01*yextent
+#                     axins.set_xlim(x1, x2)
+#                     axins.set_ylim(y1, y2)
+#                     ax.indicate_inset_zoom(axins)
                     
-                    # >> plot light curves
-                    axins.set_xlim(min(x), max(x))
-                    axins.set_ylim(min(x_test[inds0[k]]),
-                                   max(x_test[inds0[k]]))
-                    axins.plot(x, x_test[inds0[k]] + addend, '.k',
-                               markersize=2)
-                    axins.set_xticklabels('')
-                    axins.set_yticklabels('')
-                    axins.patch.set_alpha(0.5)
+#                     # >> plot light curves
+#                     axins.set_xlim(min(x), max(x))
+#                     axins.set_ylim(min(x_test[inds0[k]]),
+#                                    max(x_test[inds0[k]]))
+#                     axins.plot(x, x_test[inds0[k]] + addend, '.k',
+#                                markersize=2)
+#                     axins.set_xticklabels('')
+#                     axins.set_yticklabels('')
+#                     axins.patch.set_alpha(0.5)
 
-                # >> x and y labels
-                ax.set_ylabel('\u03C61' + str(i), fontsize='xx-large')
-                ax.set_xlabel('\u03C61' + str(j), fontsize='xx-large')
-                fig.savefig(out + 'phi' + str(j) + 'phi' + str(i) + '.png')
+#                 # >> x and y labels
+#                 ax.set_ylabel('\u03C61' + str(i), fontsize='xx-large')
+#                 ax.set_xlabel('\u03C61' + str(j), fontsize='xx-large')
+#                 fig.savefig(out + 'phi' + str(j) + 'phi' + str(i) + '.png')
                 
-                # -- plot 20 light curves -------------------------------------
-                # >> plot light curves with lof label
-                fig1, ax1 = plt.subplots(20, figsize = (7,28))
-                fig1.subplots_adjust(hspace=0)
-                fig2, ax2 = plt.subplots(20, figsize = (7,28))
-                fig2.subplots_adjust(hspace=0)
-                fig3, ax3 = plt.subplots(20, figsize = (7,28))
-                fig3.subplots_adjust(hspace=0)
-                for k in range(20):
-                    # >> outlier plot
-                    ax1[k].plot(x,x_test[inds[19-k]]+addend,'.k',markersize=2)
-                    ax1[k].set_xticks([])
-                    ax1[k].set_ylabel('relative\nflux')
-                    ax1[k].text(0.8, 0.65,
-                                'LOF {}\nTIC {}'.format(str(lof[inds[19-k]])[:9],
-                                                        str(int(ticid[inds[19-k]]))),
-                                transform = ax1[k].transAxes)
+#                 # -- plot 20 light curves -------------------------------------
+#                 # >> plot light curves with lof label
+#                 fig1, ax1 = plt.subplots(20, figsize = (7,28))
+#                 fig1.subplots_adjust(hspace=0)
+#                 fig2, ax2 = plt.subplots(20, figsize = (7,28))
+#                 fig2.subplots_adjust(hspace=0)
+#                 fig3, ax3 = plt.subplots(20, figsize = (7,28))
+#                 fig3.subplots_adjust(hspace=0)
+#                 for k in range(20):
+#                     # >> outlier plot
+#                     ax1[k].plot(x,x_test[inds[19-k]]+addend,'.k',markersize=2)
+#                     ax1[k].set_xticks([])
+#                     ax1[k].set_ylabel('relative\nflux')
+#                     ax1[k].text(0.8, 0.65,
+#                                 'LOF {}\nTIC {}'.format(str(lof[inds[19-k]])[:9],
+#                                                         str(int(ticid[inds[19-k]]))),
+#                                 transform = ax1[k].transAxes)
                     
-                    # >> inlier plot
-                    ax2[k].plot(x, x_test[inds2[k]]+addend, '.k', markersize=2)
-                    ax2[k].set_xticks([])
-                    ax2[k].set_ylabel('rellative\nflux')
-                    ax2[k].text(0.8, 0.65,
-                                'LOF {}\nTIC {}'.format(str(lof[inds2[k]])[:9],
-                                                        str(int(ticid[inds2[k]]))),
-                                transform = ax2[k].transAxes)
+#                     # >> inlier plot
+#                     ax2[k].plot(x, x_test[inds2[k]]+addend, '.k', markersize=2)
+#                     ax2[k].set_xticks([])
+#                     ax2[k].set_ylabel('rellative\nflux')
+#                     ax2[k].text(0.8, 0.65,
+#                                 'LOF {}\nTIC {}'.format(str(lof[inds2[k]])[:9],
+#                                                         str(int(ticid[inds2[k]]))),
+#                                 transform = ax2[k].transAxes)
                     
-                    # >> random lof plot
-                    ind = np.random.choice(range(len(lof)-1))
-                    ax3[k].plot(x, x_test[ind] + addend, '.k', markersize=2)
-                    ax3[k].set_xticks([])
-                    ax3[k].set_ylabel('relative\nflux')
-                    ax3[k].text(0.8, 0.65,
-                                'LOF {}\nTIC {}'.format(str(lof[ind])[:9],
-                                                        str(int(ticid[ind]))),
-                                transform = ax3[k].transAxes)
+#                     # >> random lof plot
+#                     ind = np.random.choice(range(len(lof)-1))
+#                     ax3[k].plot(x, x_test[ind] + addend, '.k', markersize=2)
+#                     ax3[k].set_xticks([])
+#                     ax3[k].set_ylabel('relative\nflux')
+#                     ax3[k].text(0.8, 0.65,
+#                                 'LOF {}\nTIC {}'.format(str(lof[ind])[:9],
+#                                                         str(int(ticid[ind]))),
+#                                 transform = ax3[k].transAxes)
                 
-                ax1[-1].set_xlabel('time [BJD - 2457000]')
-                ax2[-1].set_xlabel('time [BJD - 2457000]')
-                ax3[-1].set_xlabel('time [BJD - 2457000]')
-                fig1.savefig(out + 'phi' + str(j) + 'phi' + str(i) + \
-                            '-outliers.png')
-                fig2.savefig(out + 'phi' + str(j) + 'phi' + str(i) + \
-                             '-inliers.png')
-                fig3.savefig(out + 'phi' + str(j) + 'phi'  + str(i) + \
-                             '-randomlof.png')
+#                 ax1[-1].set_xlabel('time [BJD - 2457000]')
+#                 ax2[-1].set_xlabel('time [BJD - 2457000]')
+#                 ax3[-1].set_xlabel('time [BJD - 2457000]')
+#                 fig1.savefig(out + 'phi' + str(j) + 'phi' + str(i) + \
+#                             '-outliers.png')
+#                 fig2.savefig(out + 'phi' + str(j) + 'phi' + str(i) + \
+#                              '-inliers.png')
+#                 fig3.savefig(out + 'phi' + str(j) + 'phi'  + str(i) + \
+#                              '-randomlof.png')
                 
 
-        # >> removing axis
-        # for ax in axes.flatten():
-        #     ax.set_xticks([])
-        #     ax.set_yticks([])
-        # plt.subplots_adjust(hspace=0, wspace=0)
+#         # >> removing axis
+#         # for ax in axes.flatten():
+#         #     ax.set_xticks([])
+#         #     ax.set_yticks([])
+#         # plt.subplots_adjust(hspace=0, wspace=0)
 
-    return fig, ax
+#     return fig, ax
 
 def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
                        y_predict, num_classes, out, ticid_train, ticid_test,
@@ -1170,7 +1390,7 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
         for j in range(min(7, len(inds))): # >> loop through rows
             ax[j,i].plot(x, x_train[inds[j]], '.'+colors[i], markersize=2)
             if not mock_data:
-                ticid_label(ax[j,i], ticid_train[inds1[j]])
+                ticid_label(ax[j,i], ticid_train[inds[j]])
         for j in range(min(7, len(inds1))):
             ax1[j,i].plot(x, x_test[inds1[j]], '.'+colors[y_predict[inds1[j]]],
                           markersize=2)
@@ -1199,7 +1419,64 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
     # fig1.tight_layout()
     fig.savefig(out+'train.png')
     fig1.savefig(out+'test.png')
+
+def plot_lof(time, intensity, targets, features, n, path, n_neighbors=20,
+             prefix='', mock_data=False):
+    """ Adapted from Lindsey Gordon's feature_functions.py
+    Plots the 20 most and least interesting light curves based on LOF.
+    Parameters:
+        * time array
+        * intensity
+        * targets : list of TICIDs
+        * feature vector
+        * n : number of curves to plot
+        * path : output directory
+    """
+    from sklearn.neighbors import LocalOutlierFactor
+
+    # >> calculate LOF
+    clf = LocalOutlierFactor(n_neighbors=n_neighbors)
+    fit_predictor = clf.fit_predict(features)
+    negative_factor = clf.negative_outlier_factor_
     
+    lof = -1 * negative_factor
+    ranked = np.argsort(lof)
+    largest_indices = ranked[::-1][:n] # >> outliers
+    smallest_indices = ranked[:n] # >> inliers
+
+    # [etc 052620] merged for loops, now reports random lof
+    for i in range(3): # >> loop through smallest, largest, random LOF plots
+        fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, n*3))
+        fig.subplots_adjust(hspace=0)
+        
+        for k in range(n): # >> loop through each row
+            if i == 0: ind = largest_indices[k]
+            elif i == 1: ind = smallest_indices[k]
+            elif i == 2: ind = np.random.choice(range(len(lof)-1))
+            
+            # >> plot light curve
+            ax[k].plot(time, intensity[ind], '.k', markersize=2)
+            ax[k].text(0.98, 0.02, str(lof[ind]),
+                      transform=ax[k].transAxes, horizontalalignment='right',
+                      verticalalignment='bottom', fontsize='xx-small')
+            format_axes(ax[k], ylabel=True)
+            if not mock_data:
+                ticid_label(ax[k], targets[ind])
+        
+        ax[n-1].set_xlabel('Time [BJD - 2457000]')
+        # fig.tight_layout()
+        if i == 0:    
+            fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
+            fig.savefig(path + prefix + 'k' + str(n_neighbors) + '-' + str(n) \
+                        + "-largest-lof.png")
+        elif i == 1:
+            fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
+            fig.savefig(path + prefix + 'k' + str(n_neighbors) + '-' + str(n) \
+                        + "-smallest-lof.png")
+        elif i == 2:
+            fig.suptitle(str(n) + ' random LOF targets', fontsize=16)
+            fig.savefig(path + prefix + 'k' + str(n_neighbors) + '-' + str(n) \
+                        + "-random-lof.png")
     
 def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     import pandas as pd
@@ -1267,27 +1544,52 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
 # :: pull files with astroquery :::::::::::::::::::::::::::::::::::::::::::::::
 # adapted from pipeline.py
     
-def get_lc_file_and_data(temp_path, target_list):
+
+def get_fits_files(mypath, target_list):
     from astroquery.mast import Observations
-    prefix = 'tess2019357164649-s0020-'
-    suffix = '-0165-s_lc.fits'
     for ticid in target_list:
-        try:
-            targ = ticid.zfill(16)
-            fname = prefix+ targ + suffix
-            os.system('curl -C - -L -o ' + temp_path + fname +\
-                      ' https://mast.stsci.edu/api/v0.1/Download/file/'+\
-                          '?uri=mast:TESS/product/' + fname) 
-
-                  
-        #then delete all downloads in the folder, no matter what type
-
+        targ = 'TIC ' + str(int(ticid))
+        try: 
+            obs_table = Observations.query_object(targ, radius=".02 deg")
+            data_products_by_obs = Observations.get_product_list(obs_table[0:2])
+            
+            filter_products = \
+                Observations.filter_products(data_products_by_obs,
+                                             dataproduct_type = 'timeseries',
+                                             description = 'Light curves',
+                                             extension='fits')
+            manifest = \
+                Observations.download_products(filter_products,
+                                               download_dir = mypath)
         except (ConnectionError, OSError, TimeoutError):
             print(targ + "could not be accessed due to an error")
-            i1 = 0
-            time1 = 0
+            
+
+# move all fits files into one folder?
+
+            
+
+# def get_lc_file_and_data(temp_path, target_list):
+#     from astroquery.mast import Observations
+#     prefix = 'tess2019357164649-s0020-'
+#     suffix = '-0165-s_lc.fits'
+#     for ticid in target_list:
+#         try:
+#             targ = ticid.zfill(16)
+#             fname = prefix+ targ + suffix
+#             os.system('curl -C - -L -o ' + temp_path + fname +\
+#                       ' https://mast.stsci.edu/api/v0.1/Download/file/'+\
+#                           '?uri=mast:TESS/product/' + fname) 
+
+                  
+#         #then delete all downloads in the folder, no matter what type
+
+#         except (ConnectionError, OSError, TimeoutError):
+#             print(targ + "could not be accessed due to an error")
+#             i1 = 0
+#             time1 = 0
     
-    return time1, i1
+#     return time1, i1
 
 
 
