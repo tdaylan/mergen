@@ -4,7 +4,7 @@ Created on Mon May 18 17:01:26 2020
 
 @author: Lindsey Gordon 
 
-Updated: May 2020
+Updated: May 29 2020
 """
 
 import numpy as np
@@ -53,19 +53,26 @@ from shapely.geometry.polygon import Polygon
 test(8) #should return 8 * 4
 
 #%%
-t = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD3/Sector20Cam1CCD3_times_raw.txt", skiprows=1)
-intensities = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD3/Sector20Cam1CCD3_intensities_raw.txt", skiprows=1)
 
-#%%
-features = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_features.txt")
+def load_in_a_group(sector, camera, ccd, path):
+    """loads in a given group's data
+    path needs to be a string, ending with a forward slash"""
+    folder = "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd)
+    time_path = path + folder + "/" + folder + "_times_processed.txt"
+    intensities_path = path + folder + "/" + folder + "_intensities_processed.txt"
+    features_path = path + folder + "/" + folder + "_features.txt"
+    targets_path = path + folder + "/" + folder + "_targets.txt"
+    notes_path = path + folder + "/" + folder + "_group_notes.txt"
+    
+    t = np.loadtxt(time_path)
+    intensities = np.loadtxt(intensities_path)
+    targets = np.loadtxt(targets_path)
+    features = np.loadtxt(features_path, skiprows=1)
+    notes = np.loadtxt(notes_path, skiprows=1)
+    
+    return t, intensities, targets, features, notes
 
-
-
-#%%
-targets = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_targets.txt")
-targets_strings = []
-for n in range(len(targets)):
-    targets_strings.append(("TIC " + str(int(targets[n]))))
+t, inty, targ, feats, notes = load_in_a_group(20,1,1,"/Users/conta/UROP_Spring_2020/")
 
 #%%
 n_choose_2_insets(t[0], intensities, features, targets_strings, "plot_output/5-26")
@@ -318,98 +325,100 @@ def check_box_location(feature_vectors, coordtuple, feat1, feat2, range_x, range
     return inset_x, inset_y, inset_width, inset_height
 
 #%%
-t = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_times_raw.txt")
-intensities = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_intensities_raw.txt")
-targets = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2/Sector20Cam1CCD2_targets.txt")
+    
+classifications = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD1/classified_Sector20Cam1CCD1.txt", delimiter = ' ')
 
 #%%
-while i < n:
-        point = Point(conc[i])
-        #is it on the graph
-        if inset_x >= xmax:
-            inset_x = inset_x - inset_width
-            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-            i = 0
-        if inset_x < xmin:
-            inset_x = inset_x + inset_width
-            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-            i = 0
+classes = classifications[:,1]
+rcParams['figure.figsize'] = 10,10
+graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                    "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                    "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                    "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                    "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                    "P0", "P1", "P2", "Period0to0_1"]
+for n in range(16):
+    feat1 = feats[:,n]
+    graph_label1 = graph_labels[n]
+    fname_label1 = fname_labels[n]
+    for m in range(16):
+        if m == n:
+            continue
+        graph_label2 = graph_labels[m]
+        fname_label2 = fname_labels[m]                
+        feat2 = feats[:,m]
             
-        if inset_y >= ymax:
-            inset_y = inset_y - inset_height
-            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-            i = 0
-        if inset_y < ymin:
-            inset_y = inset_y + inset_height
-            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-            i = 0
-           #is it on top of a point? 
-        if polygon.contains(point) == True:
-            if x == 0: 
-                inset_x = inset_x - (0.01 * range_x)
-            elif x == 1:
-                inset_x = inset_x + (0.01 * range_x)
-            if y == 0:
-                inset_y = inset_y + (0.01 * range_y)
-            elif y == 1:
-                inset_y = inset_y - (0.01 * range_y)
-            
-            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-            i = 0
-            #print("moving")
-        elif polygon.contains(point) == False:
-        #is it on top of another plot?
-            while k < 8:
-                bx, by = inset_positions[k]
-                if (bx - inset_width) <= inset_x <= (bx + inset_width):
-                    inset_x = inset_x + (0.5 * inset_width)
-                    polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                    
-                    k = 0
-                    i = 0
-                elif (by - inset_height) <= inset_y <= (by + inset_height):
-                    inset_y = inset_y + (0.5 * inset_height)
-                    polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                    k = 0
-                    i = 0
-                else:
-                    k = k + 1
-            #move to next point
-            i = i + 1
+        for p in range(len(feats)):
+            if classes[p] == 0:
+                color = "red"
+            elif classes[p] == 1:
+                color = "blue"
+            elif classes[p] == 2:
+                color = "green"
+            elif classes[p] == 3:
+                color = "purple"
+            elif classes[p] == 4:
+                color = "yellow"
+            elif classes[p] == 5:
+                color = "magenta"
+            plt.scatter(feat1[p], feat2[p], c = color, s = 5)
+        plt.xlabel(graph_label1)
+        plt.ylabel(graph_label2)
+        plt.savefig(("/Users/conta/UROP_Spring_2020/plot_output/5-29/2DFeatures-Colored/" + fname_label1 + "-vs-" + fname_label2 + "-handclassed.png"))
+        plt.show()
 
 
 #%%
-mypath = "/Users/conta/UROP_Spring_2020/"
-sectorfile = "/Users/conta/UROP_Spring_2020/all_targets_S020_v1.txt"
-sector = 20
-camera = 1
-ccd = 2
-position = 313
-
-times, intensities, failed_to_get, targets = interrupted_start_in_middle(position, mypath, sectorfile, sector, camera, ccd)
-
-#%%
+filedb = "/Users/conta/UROP_Spring_2020/plot_output/5-29/dbscan-confusion-matrices-6.txt"
 #feature optimizing for dbscan
+#0 flat 1 sine 2 multiple transits 3 flares 4 single transits 5 not sure
+hand_classes = classifications[:,1] #there are no class 5s for this group!!
 
-    predict_on_100 =  lc_feat[0:100][:,[3,11,12]]
-    db_100 = DBSCAN(eps=0.5, min_samples=10).fit(predict_on_100)
-    predicted_100 = db_100.labels_
-    
-    #producing the confusion matrix
-    labelled_100 = np.loadtxt("/Users/conta/UROP_Spring_2020/100-labelled/labelled_100.txt", delimiter=',', usecols=1, skiprows=1, unpack=True)
-    print("predicted 100:", predicted_100, "\nlabelled 100:", labelled_100)
-    
-    dbscan_matrix = confusion_matrix(labelled_100, predicted_100)
-    
-    print(dbscan_matrix)
-    
-    dbscan_diagonal = check_diagonalized(dbscan_matrix)
-    
-    with open("/Users/conta/UROP_Spring_2020/plot_output/5-11/dbscan-confusion-matrices.txt", 'a') as file_object:
-        # Append 'hello' at the end of file
-        file_object.write("\n")
-        file_object.write("kurtosis, ln slope, P0\n" + str(dbscan_matrix) + "\n" + str( dbscan_diagonal))
+with open(filedb, 'a') as file_object:
+        file_object.write("This file contains the confusion matrices for Group 20-1-1, undergoing DBSCAN optimization")
+        file_object.write("\n Min samples 6. Changing eps value")
 
+eps_values = np.arange(0.2, 3, 0.2)
+#min_samps = np.arange(2,60,4)
+for n in range(len(eps_values)):
+    #dbscan predicting on features
+    #feature vectors -> feats
+    db_run = DBSCAN(eps=eps_values[n], min_samples=6).fit(feats) #run dbscan on all features
+    predicted_classes = db_run.labels_
+            
+    #produce a confusion matrix
+    db_matrix = confusion_matrix(hand_classes, predicted_classes)
+    #print(db_matrix)
+    noise_true = IsItIdentifyingNoise(predicted_classes)
+    #check main diagonal
+    db_accuracy = matrix_accuracy(db_matrix)     
+    #print(db_accuracy)
+    
+    db_precision = matrix_precision(db_matrix)
+    #print(db_precision)
+    
+    db_recall = matrix_recall(db_matrix)
+    
+    with open(filedb, 'a') as file_object:
+        #file_object.write("\n")
+        file_object.write("\n eps value:" + str(eps_values[n]))
+        if noise_true == 'True':
+            file_object.write("\n The 0th row and column represent a noise class (-1)")
+        #file_object.write("\n")
+        file_object.write("\n" + str(db_matrix) + "\n Accuracy:" + str(db_accuracy) + "\n Precisions:" + str(db_precision) + "\n Recalls:" + str(db_recall) + "\n")
+
+
+#%%
+
+def IsItIdentifyingNoise(predicted_classes):
+    noise = "False"
+    for n in range(len(predicted_classes)):
+        if predicted_classes[n] == -1:
+            noise = "True"
+    return noise
+        
+        
 #%%
 lc_cropped = lc_feat[0:100][:,[0,3,8,9,11,12,13,14,15]] 
 
@@ -441,18 +450,4 @@ with open("/Users/conta/UROP_Spring_2020/plot_output/5-11/PCA-confusion-matrices
         # Append 'hello' at the end of file
         file_object.write("\n")
         file_object.write("n components: 1, whiten = True" + str(dbscan_matrix) + "\n" + str( dbscan_diagonal))
-#%%
-
-number_targets = len(targets)
-sector_number = np.zeros((number_targets, 1))
-camera_number = np.zeros((number_targets, 1))
-ccd_number = np.zeros((number_targets, 1))
-for n in range(number_targets):
-    head = print_header(n)
-    sector_number[n] = head["SECTOR"]
-    camera_number[n] = head["CAMERA"]
-    ccd_number[n] = np.round(head["CCD"], 0)
-   
-sectorcameraccd = np.column_stack((sector_number, camera_number, ccd_number))    
-#%%    
-np.savetxt("/Users/conta/UROP_Spring_2020/sector-cam-ccd.txt", sectorcameraccd, header = "sector-camera-ccd numbers for each value") 
+#

@@ -4,7 +4,7 @@ Created on Mon Mar 30 00:18:52 2020
 
 @author: Lindsey Gordon 
 
-Functions used across files. Updated May 2020.
+Functions used across files. Last updated May 28th 2020.
 """
 
 #Imports ---------------------------------------
@@ -191,7 +191,7 @@ def data_process_a_group(yourpath, sectorfile, sector, camera, ccd):
         intensities = np.loadtxt(fname_int, skiprows=1)
         targets = np.loadtxt(fname_targets, skiprows=1)
     #check to be sure all have the same size, if not, report back an error
-        if len(times) == len(intensities) == len(targets):
+        if len(intensities) == len(targets):
     #interpolate and normalize/sigma clip
             interp_times, interp_intensities = interpolate_lc(times, intensities)
             normalized_intensities = normalize(interp_intensities)
@@ -207,20 +207,57 @@ def data_process_a_group(yourpath, sectorfile, sector, camera, ccd):
             print("Feature vector creation complete")
             
         else: #if there is an error with the number of lines in times vs ints vs targets
-            print("There is a disagreement between the number of lines saved in each text file")
-            times = "Does not exist"
-            intensities = "Does not exist"
-            failed_to_get = "all"
-            targets = "none"
+            print("There is a disagreement between the number of lines saved in intensities and targets, cannot run feature creation")
+            failed_to_get = "something"
             features = "empty"
     
     except OSError: #if there is an error creating the folder
-        print ("This directory already exists, or there is some other OS error")
-        times = "Does not exist" 
-        intensities = "does not exist"
-        failed_to_get = "all"
-        targets = "none"
-        features = "empty"
+        print("There was an OS Error trying to create the folder. Checking to see if data is already saved there")
+        #try to load in and process the data anyways
+        with open(fname_times_interp, 'a') as file_object:
+            file_object.write("This file contains the processed time indices for this group")
+        with open(fname_ints_processed, 'a') as file_object:
+            file_object.write("This file contains the processed intensities for this group")
+        with open(fname_notes, 'a') as file_object:
+            file_object.write("This file contains the notes for this group")
+       
+        try: 
+            times = np.loadtxt(fname_time, skiprows=1)
+            intensities = np.loadtxt(fname_int, skiprows=1)
+            targets = np.loadtxt(fname_targets, skiprows=1)
+            print("files loaded in")
+        #check to be sure all have the same size, if not, report back an error
+            if len(intensities) == len(targets):
+                print("number of lines matches, running data processing")
+                
+        #interpolate and normalize/sigma clip
+                interp_times, interp_intensities = interpolate_lc(times, intensities)
+                #print("interpolation complete")
+                normalized_intensities = normalize(interp_intensities)
+                #print("normalization complete")
+        #save these into their own files, and report these arrays back
+                np.savetxt(fname_times_interp, interp_times)
+                #times = np.loadtxt(fname_times_interp, skiprows=1)
+                np.savetxt(fname_ints_processed, normalized_intensities)
+                #intensities = np.loadtxt(fname_ints_processed, skiprows=1)
+                times = interp_times
+                intensities = normalized_intensities
+                print("You can now access time arrays, processed intensities, targets, and an array of TICs you could not get")
+            
+                features = create_list_featvec(times, intensities)
+                print("feature vectors created")
+                np.savetxt(fname_features, features)
+                print("Feature vector creation complete")
+                failed_to_get = np.loadtxt(fname_notes, skiprows=1)
+                
+            else: #if there is an error with the number of lines in times vs ints vs targets
+                print("There is still an error loading things in")
+                failed_to_get = "something"
+                features = "empty"
+        except: 
+            print ("This directory already exists, or there is some other OS error")
+            failed_to_get = "Error"
+            features = "Error"
         
     return times, intensities, failed_to_get, targets, path, features
 
@@ -333,16 +370,14 @@ def normalize(intensity):
     print("Normalization and sigma clipping complete")
     return intensity
     
-def interpolate_lc(time_indexes, intensities):
+def interpolate_lc(time, intensities):
     """interpolates all light curves in an array of all light curves"""
     
     interp_tol = 20. / (24*60) # >> interpolate small gaps (less than 20 minutes)
     
     interpolated_intensities = []
-    interpolated_times = []
-    for p in range(len(time_indexes)):
+    for p in range(len(intensities)):
 
-        time = time_indexes[p]
         i = intensities[p]
         
         n = np.shape(i)[0]
@@ -375,14 +410,13 @@ def interpolate_lc(time_indexes, intensities):
     interpolated_intensities = np.array(interpolated_intensities)
     # nan_inds = np.nonzero(np.prod(np.isnan(intensity)==False), axis = 0))
     nan_inds = np.nonzero(np.prod(np.isnan(interpolated_intensities)==False, axis = 0) == False)
+    len(nan_inds)
     interpolated_intensities = np.delete(interpolated_intensities, nan_inds, 1) #each row of intensity is one interpolated light curve.
-    for p in range(len(time_indexes)):
-        time = time_indexes[p]
-        time_corrected = np.delete(time, nan_inds)
-        interpolated_times.append(time_corrected)
     
-    interpolated_times = np.array(interpolated_times)
-    return interpolated_times, interpolated_intensities
+    time_corrected = np.delete(time, nan_inds)
+    print(len(time_corrected), len(interpolated_intensities[0]))
+    #interpolated_times = np.array(interpolated_times)
+    return time_corrected, interpolated_intensities
 #producing the feature vector list -----------------------------
 
     
@@ -394,6 +428,7 @@ def create_list_featvec(time_axis, datasets):
     num_data = len(datasets) #how many datasets
     x = time_axis #creates the x axis
     feature_list = np.zeros((num_data, 16)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
+    print("creating feature vectors about to begin")
     for n in range(num_data):
         feature_list[n] = featvec(x, datasets[n])
         if n % 50 == 0: print(str(n) + " completed")
@@ -431,7 +466,6 @@ def featvec(x_axis, sampledata):
         ***if you update the number of features, 
         you have to update the number of features in create_list_featvec!!!!"""
     featvec = moments(sampledata) #produces moments and log moments
-    
     
     f = np.linspace(0.6, 62.8, 5000)  #period range converted to frequencies
     periods = np.linspace(0.1, 10, 5000)#0.1 to 10 day period
@@ -673,7 +707,7 @@ def astroquery_pull_data(target):
         radius = np.round(catalog_data[0]["rad"], 2)
         mass = np.round(catalog_data[0]["mass"], 2)
         distance = np.round(catalog_data[0]["d"], 1)
-        title = "\nT_eff:" + str(T_eff) + ", ObjType: " + str(obj_type) + ", GAIA mag: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", Radius:" + str(radius) + " Mass:" + str(mass)
+        title = "\nT_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", Radius:" + str(radius) + " Mass:" + str(mass)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
         title = "connection error, no data"
@@ -687,7 +721,7 @@ def inset_labelling(axis_name, time, intensity, targets, index, title):
     axis_name.set_ylim(intensity[index].min(), intensity[index].max())
     #axis_name.set_xlabel("BJD [2457000]")
     #axis_name.set_ylabel("relative flux")
-    axis_name.set_title(targets[index] + title, fontsize=8)
+    axis_name.set_title(targets[index] + title, fontsize=6)
 
 def n_choose_2_insets(time, intensity, feature_vectors, targets, folder):
     """plotting (n 2) features against each other w/ 4 extremes inset plotted
@@ -750,7 +784,7 @@ def plot_inset(ax1, axis_name, targets, intensity, time, feature_vectors, feat1,
     range_y = feature_vectors[:,feat2].max() - feature_vectors[:,feat2].min()
     x_offset = range_x * 0.001
     y_offset = range_y * 0.001
-    inset_positions = np.zeros((8,2))
+    inset_positions = np.zeros((9,2))
     
     indexes_unique, targets_to_plot, tuples_plotting, titles = get_extrema(feature_vectors, targets, feat1, feat2)
     #print(indexes_unique)
@@ -786,13 +820,17 @@ def get_extrema(feature_vectors, targets, feat1, feat2):
     index_feat2 = np.argsort(feature_vectors[:,feat2])
     indexes.append(index_feat1[-1]) #largest
     indexes.append(index_feat1[-2]) #second largest
+    indexes.append(index_feat1[-3]) #third largest
     indexes.append(index_feat1[0]) #smallest
     indexes.append(index_feat1[1]) #second smallest
+    indexes.append(index_feat1[2]) #third smallest
 
     indexes.append(index_feat2[-1]) #largest
     indexes.append(index_feat2[-2]) #second largest
+    indexes.append(index_feat2[-3]) #third largest
     indexes.append(index_feat2[0]) #smallest
     indexes.append(index_feat2[1]) #second smallest
+    indexes.append(index_feat2[2]) #third smallest
 
     indexes_unique = np.unique(np.asarray(indexes))
     
@@ -928,9 +966,9 @@ def check_box_location(feature_vectors, coordtuple, feat1, feat2, range_x, range
     
     return inset_x, inset_y, inset_width, inset_height
 
-#Other functions (mostly unfinished or no longer used) ---------------------
+#confusion matrix functions ------------------------------------------------
 
-def check_diagonalized(c_matrix):
+def matrix_accuracy(c_matrix):
     """Metric for optimization of diagonal of confusion matrix"""
     num_labels = len(c_matrix)
     total = np.sum(c_matrix, axis=None)
@@ -939,10 +977,44 @@ def check_diagonalized(c_matrix):
     while n < num_labels:
         diagonal = diagonal + c_matrix[n][n]
         n = n+1
-    fraction_diagonal = diagonal/total
-    return fraction_diagonal
+    accuracy = diagonal/total
+    return accuracy
 
+def matrix_precision(matrix):
+    """calculates the precision of each class"""
+    precisions = []
+    for n in range(len(matrix)):
+        column = matrix[:,n]
+        column_total = np.sum(column)
+        
+        correct = matrix[n][n]
+        if column_total == 0:
+            prec = 0
+        else:
+            prec = correct/column_total
+        
+        precisions.append(prec)
+    
+    return np.asarray(precisions)
 
+def matrix_recall(matrix):
+    """calculates the precision of each class"""
+    recalls = []
+    for n in range(len(matrix)):
+        row = matrix[n]
+        row_total = np.sum(row)
+        
+        correct = matrix[n][n]
+        if row_total == 0:
+            rec = 0
+        else:
+            rec = correct/row_total
+        
+        recalls.append(rec)
+    
+    return np.asarray(recalls)
+
+#Other functions (mostly unfinished or no longer used) ---------------------
 def gaussian(datapoints, a, b, c):
     """Produces a gaussian function"""
     x = np.linspace(0, xmax, datapoints)
