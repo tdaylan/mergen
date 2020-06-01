@@ -4,12 +4,13 @@ Created on Mon Mar 30 00:18:52 2020
 
 @author: Lindsey Gordon 
 
-Functions used across files. Last updated May 28th 2020.
+Functions used across files. Last updated May 31th 2020.
 """
 
 #Imports ---------------------------------------
 import numpy as np
 import numpy.ma as ma 
+import pandas as pd 
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)
 
@@ -41,6 +42,7 @@ from astropy.utils import exceptions
 
 from sklearn.metrics import confusion_matrix
 from sklearn.neighbors import LocalOutlierFactor
+from sklearn.decomposition import PCA
 
 import astroquery
 from astroquery.simbad import Simbad
@@ -59,20 +61,24 @@ from shapely.geometry.polygon import Polygon
 def test(num):
     print(num * 4)
     
-# For running on the current data/ feature vectors (as of 5/4/20)
-def get_from_files_1200():
-    """pulls time, intensity, and feature vectors from text files that they are saved in
-    currently pulling the 5/4 version of it"""
-    intensity = np.loadtxt("/Users/conta/UROP_Spring_2020/intensities.txt", delimiter = " ")
+    
+ 
+def plot_lc(time, intensity, target, sector):
+    """plots a formatted light curve"""
+    rcParams['figure.figsize'] = 8,3
+    plt.scatter(time, intensity, c = 'black', s=0.5)
+    plt.xlabel("BJD [-2457000]")
+    plt.ylabel("relative flux")
+    plt.title("TIC " + str(int(target)))
+    
+    data = pd.read_csv("/Users/conta/UROP_Spring_2020/Table_of_momentum_dumps.csv", header=5, skiprows=6)
+    momdump = data.to_numpy()
+    bjdcolumn = momdump[:,1]
+    if sector == 20:
+        dumppoints = bjdcolumn[1290:]
+        for n in range(len(dumppoints)):
+            plt.axvline(dumppoints[n], linewidth=0.5)    
 
-    time = np.loadtxt("/Users/conta/UROP_Spring_2020/timeindex.txt", delimiter = " ")
-    
-    targets = np.loadtxt("/Users/conta/UROP_Spring_2020/targets.txt", dtype = str, delimiter = ",")
-    
-    lc_feat = np.loadtxt("/Users/conta/UROP_Spring_2020/featvecs-5-4-20.txt", delimiter = " ")
-    return time, intensity, targets, lc_feat
-    
-    
 #Pulling data from files and processing it ---------
     
 def print_header(index):
@@ -539,16 +545,16 @@ def moments(dataset):
 #Plotting functions ------------------------------------------------------
 def post_process_plotting(time, intensity, features_all, features_using, targets, path):
     """plotting all the things"""
-    n_choose_2_features_plotting(features_all, features_using, path, "none")
-    n_choose_2_features_plotting(features_all, features_using, path, "kmeans")
-    n_choose_2_features_plotting(features_all, features_using, path, "dbscan")
+    features_plotting_2D(features_all, features_using, path, "none")
+    features_plotting_2D(features_all, features_using, path, "kmeans")
+    features_plotting_2D(features_all, features_using, path, "dbscan")
     
     plot_lof(time, intensity, targets, features_all, 10, path)
 
-    n_choose_2_insets(time, intensity, features_all, targets, path)
+    features_insets2D(time, intensity, features_all, targets, path)
 
 
-def n_choose_2_features_plotting(feature_vectors, cluster_columns, path, clustering):
+def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
     """plotting (n 2) features against each other
     feature_vectors is the list of ALL feature_vectors
     cluster_columns is the vectors that you want to use to do the clustering based on
@@ -573,7 +579,7 @@ def n_choose_2_features_plotting(feature_vectors, cluster_columns, path, cluster
     else: 
         print("no clustering chosen")
         cluster = 'none'
-        folder_label = "nchoose2"
+        folder_label = "2DFeatures"
     #makes folder and saves to it    
     folder_path = path + "/" + folder_label
     try:
@@ -618,7 +624,7 @@ def n_choose_2_features_plotting(feature_vectors, cluster_columns, path, cluster
                     plt.scatter(feat1[p], feat2[p], c = color, s = 5)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
+                plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.pdf"))
                 plt.show()
             elif cluster == 'kmeans':
                 for p in range(len(feature_vectors)):
@@ -633,20 +639,21 @@ def n_choose_2_features_plotting(feature_vectors, cluster_columns, path, cluster
                     plt.scatter(feat1[p], feat2[p], c = color)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
+                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.pdf")
                 plt.show()
             elif cluster == 'none':
                 plt.scatter(feat1, feat2, s = 2, color = 'black')
                 #plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
+                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".pdf")
                 plt.show()
                 
-def plot_lof(time, intensity, targets, features, n, path):
+def plot_lof(time, intensity, targets, features, path):
     """plots the 20 most and least interesting light curves based on LOF
     takes input: time, intensity, targets, featurelist, n number of curves you want, date as a string """
     fname_lof = path + "/LOF_features.txt"
+    n = 10
     from sklearn.neighbors import LocalOutlierFactor
 
     clf = LocalOutlierFactor(n_neighbors=50)
@@ -656,8 +663,8 @@ def plot_lof(time, intensity, targets, features, n, path):
     
     lof = -1 * negative_factor
     ranked = np.argsort(lof)
-    largest_indices = ranked[::-1][:n]
-    smallest_indices = ranked[:n]
+    largest_indices = ranked[::-1][:10]
+    smallest_indices = ranked[:10]
 
     with open(fname_lof, 'a') as file_object:
         file_object.write("Ten largest LOF's features: \n")
@@ -666,34 +673,34 @@ def plot_lof(time, intensity, targets, features, n, path):
         np.savetxt(file_object, features[smallest_indices])
     #plot just the largest indices
     #rows, columns
-    fig, axs = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
+    fig, axs = plt.subplots(10, 1, sharex = True, figsize = (8,30), constrained_layout=False)
     fig.subplots_adjust(hspace=0)
     
-    for k in range(n):
+    for k in range(10):
         ind = largest_indices[k]
         axs[k].plot(time, intensity[ind], '.k', label=targets[ind] + ", " + str(np.round(lof[ind], 2)))
         axs[k].legend(loc="upper left")
         axs[k].set_ylabel("relative flux")
         axs[-1].set_xlabel("BJD [-2457000]")
-    fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
+    fig.suptitle(str(10) + ' largest LOF targets', fontsize=16)
     fig.tight_layout()
     fig.subplots_adjust(top=0.96)
-    fig.savefig(path + "/" + str(n) + "-largest-lof.png")
+    fig.savefig(path + "/largest-lof.pdf")
 
     #plot the smallest indices
-    fig1, axs1 = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
+    fig1, axs1 = plt.subplots(10, 1, sharex = True, figsize = (8,30), constrained_layout=False)
     fig1.subplots_adjust(hspace=0)
     
-    for m in range(n):
+    for m in range(10):
         ind = smallest_indices[m]
         axs1[m].plot(time, intensity[ind], '.k', label=targets[ind] + ", " + str(np.round(lof[ind], 2)))
         axs1[m].legend(loc="upper left")
         axs1[m].set_ylabel("relative flux")
         axs1[-1].set_xlabel("BJD [-2457000]")
-    fig1.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
+    fig1.suptitle(str(10) + ' smallest LOF targets', fontsize=16)
     fig1.tight_layout()
     fig1.subplots_adjust(top=0.96)
-    fig1.savefig(path +  "/" + str(n) + "-smallest-lof.png")
+    fig1.savefig(path +  "/smallest-lof.pdf")
                 
 def astroquery_pull_data(target):
     """pulls data on object from astroquery
@@ -707,7 +714,7 @@ def astroquery_pull_data(target):
         radius = np.round(catalog_data[0]["rad"], 2)
         mass = np.round(catalog_data[0]["mass"], 2)
         distance = np.round(catalog_data[0]["d"], 1)
-        title = "\nT_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", Radius:" + str(radius) + " Mass:" + str(mass)
+        title = "\nT_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
         title = "connection error, no data"
@@ -723,12 +730,12 @@ def inset_labelling(axis_name, time, intensity, targets, index, title):
     #axis_name.set_ylabel("relative flux")
     axis_name.set_title(targets[index] + title, fontsize=6)
 
-def n_choose_2_insets(time, intensity, feature_vectors, targets, folder):
+def features_insets2D(time, intensity, feature_vectors, targets, folder):
     """plotting (n 2) features against each other w/ 4 extremes inset plotted
     feature_vectors is the list of ALL feature_vectors
     date must be a string in the format of the folder you are saving into ie "4-13"
     """   
-    path = "/Users/conta/UROP_Spring_2020/" + folder + "/nchoose2-insets"
+    path = "/Users/conta/UROP_Spring_2020/" + folder + "/2DFeatures-insets"
     try:
         os.makedirs(path)
     except OSError:
@@ -759,7 +766,7 @@ def n_choose_2_insets(time, intensity, feature_vectors, targets, folder):
             
             plot_all_insets(feature_vectors, targets, intensity, time, n, m, graph_label1, graph_label2)
  
-            plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
+            plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + ".pdf")
             plt.show()
             
             
@@ -800,7 +807,7 @@ def plot_inset(ax1, axis_name, targets, intensity, time, feature_vectors, feat1,
         inset_positions[n] = (inset_x, inset_y)
         #print(inset_positions)
         axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
-        axis_name.scatter(time, intensity[index], c='black', s = 0.01)
+        axis_name.scatter(time, intensity[index], c='black', s = 0.01, rasterized=True)
             
         x1, x2, y1, y2 =  feature_vectors[index][feat1], feature_vectors[index][feat1] + x_offset, feature_vectors[index][feat2], feature_vectors[index][feat2] + y_offset
         axis_name.set_xlim(x1, x2)
@@ -861,7 +868,8 @@ def check_box_location(feature_vectors, coordtuple, feat1, feat2, range_x, range
     range_x and range_y are ranges for each feature
     x is whether it will be left or right of the point
     y is whether it will be above/below the point
-    inset_positions is a list  from a diff. function that holds the pos of insets"""
+    inset_positions is a list  from a diff. function that holds the pos of insets
+    last updated 5/29/20"""
     #position of box - needs to be dependent on location
     xmax = feature_vectors[:,feat1].max() 
     xmin = feature_vectors[:,feat1].min()
@@ -883,9 +891,6 @@ def check_box_location(feature_vectors, coordtuple, feat1, feat2, range_x, range
     conc = np.column_stack((feature_vectors[:,feat1], feature_vectors[:,feat2]))
     polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
     
-    points_good = 0
-    insets_good = 0
-    borders_good = 0
     m = 0
     i = 0
     n = len(conc)
@@ -969,7 +974,7 @@ def check_box_location(feature_vectors, coordtuple, feat1, feat2, range_x, range
 #confusion matrix functions ------------------------------------------------
 
 def matrix_accuracy(c_matrix):
-    """Metric for optimization of diagonal of confusion matrix"""
+    """calculate the accuracy of the matrix"""
     num_labels = len(c_matrix)
     total = np.sum(c_matrix, axis=None)
     diagonal = 0
@@ -979,6 +984,14 @@ def matrix_accuracy(c_matrix):
         n = n+1
     accuracy = diagonal/total
     return accuracy
+
+def IsItIdentifyingNoise(predicted_classes):
+    """check if it identified any as a noise category """
+    noise = "False"
+    for n in range(len(predicted_classes)):
+        if predicted_classes[n] == -1:
+            noise = "True"
+    return noise
 
 def matrix_precision(matrix):
     """calculates the precision of each class"""
@@ -998,7 +1011,7 @@ def matrix_precision(matrix):
     return np.asarray(precisions)
 
 def matrix_recall(matrix):
-    """calculates the precision of each class"""
+    """calculates the recall of each class"""
     recalls = []
     for n in range(len(matrix)):
         row = matrix[n]
@@ -1014,7 +1027,56 @@ def matrix_recall(matrix):
     
     return np.asarray(recalls)
 
-#Other functions (mostly unfinished or no longer used) ---------------------
+#Other functions (old/rarely used) ---------------------
+def get_pdcsap_and_sap(yourpath, target):
+    """ goes in, grabs the data for the target, gets the time index, intensity,
+    etc. for the image. if connection error w/ MAST, skips it"""
+    fitspath = yourpath + 'mastDownload/TESS/'
+    targ = "TIC " + str(int(target))
+    print(targ)
+    try:
+        #find and download data products for your target
+        obs_table = Observations.query_object(targ, radius=".02 deg")
+        data_products_by_obs = Observations.get_product_list(obs_table[0:2])
+            
+        #in theory, filter_products should let you sort out the non fits files but i 
+        #simply could not get it to accept it despite following the API guidelines
+        filter_products = Observations.filter_products(data_products_by_obs, dataproduct_type = 'timeseries')
+        manifest = Observations.download_products(filter_products)
+            
+        #get all the paths to lc.fits files
+        filepaths = []
+        for root, dirs, files in os.walk(fitspath):
+            for name in files:
+                if name.endswith(("lc.fits")):
+                    filepaths.append(root + "/" + name)
+                 
+        if len(filepaths) == 0: #if no lc.fits were downloaded, move on
+            print(targ, "no light curve available")
+            time1 = 0
+            i1 = 0
+        else: #if there are lc.fits files, open them and get the goods
+            for file in filepaths:
+                #get the goods and then close it
+                f = fits.open(file, memmap=False)
+                time1 = f[1].data['TIME']
+                i1 = f[1].data['PDCSAP_FLUX']  
+                i2 = f[1].data['SAP_FLUX']
+                f.close()
+                  
+        #then delete all downloads in the folder, no matter what type
+        if os.path.isdir("mastDownload") == True:
+            shutil.rmtree("mastDownload")
+            print("folder deleted")
+            
+        #corrects for connnection errors
+    except (ConnectionError, OSError, TimeoutError):
+        print(targ + "could not be accessed due to an error")
+        i1 = 0
+        time1 = 0
+    
+    return time1, i1, i2 
+
 def gaussian(datapoints, a, b, c):
     """Produces a gaussian function"""
     x = np.linspace(0, xmax, datapoints)
@@ -1094,3 +1156,16 @@ def interrupted_start_in_middle(position, yourpath, sectorfile, sector, camera, 
         features = "empty"
         
     return times, intensities, failed_to_get, targets, path, features
+
+# For running on the current data/ feature vectors (as of 5/4/20)
+def get_from_files_1200():
+    """pulls time, intensity, and feature vectors from text files that they are saved in
+    currently pulling the 5/4 version of it"""
+    intensity = np.loadtxt("/Users/conta/UROP_Spring_2020/intensities.txt", delimiter = " ")
+
+    time = np.loadtxt("/Users/conta/UROP_Spring_2020/timeindex.txt", delimiter = " ")
+    
+    targets = np.loadtxt("/Users/conta/UROP_Spring_2020/targets.txt", dtype = str, delimiter = ",")
+    
+    lc_feat = np.loadtxt("/Users/conta/UROP_Spring_2020/featvecs-5-4-20.txt", delimiter = " ")
+    return time, intensity, targets, lc_feat
