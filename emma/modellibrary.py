@@ -17,7 +17,7 @@
 # * compile_model
 # 
 # Data visualization
-# diagnostic_plots : runs all plots
+# * diagnostic_plots : runs all plots
 # 
 # Helper functions
 # * ticid_label
@@ -54,7 +54,7 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
                      inds = [0,1,2,3,4,5,6,7,-1,-2,-3,-4,-5,-6,-7],
                      intermed_inds = [6,0],
                      input_bottle_inds = [0,1,2,-6,-7],
-                     addend = 1.,
+                     addend = 1., feature_vector=False,
                      plot_epoch = True,
                      plot_in_out = True,
                      plot_in_bottle_out=True,
@@ -85,7 +85,8 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
                                       ticid_test=ticid_test,
                                       inds=inds,
                                       addend=addend, sharey=False,
-                                      mock_data=mock_data)
+                                      mock_data=mock_data,
+                                      feature_vector=feature_vector)
         
     # >> plot input, bottleneck, output
     if plot_in_bottle_out and not supervised:
@@ -94,7 +95,8 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
                                      output_dir+prefix+\
                                      'input_bottleneck_output.png',
                                      addend=addend, inds = input_bottle_inds,
-                                     sharey=False, mock_data=mock_data)
+                                     sharey=False, mock_data=mock_data,
+                                     feature_vector=feature_vector)
             
     # -- supervised -----------------------------------------------------------
     if supervised:
@@ -120,29 +122,30 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
             
     if plot_lof_test:
         bottleneck = get_bottleneck(model, activations, p)
-        for n in [20, 50, 100]:
+        for n in [20]: # [20, 50, 100]:
             if type(flux_test) != bool:
                 plot_lof(time, flux_test, ticid_test, bottleneck, 20,
                          output_dir, prefix='test-', n_neighbors=n,
-                         mock_data=mock_data)
+                         mock_data=mock_data, feature_vector=feature_vector)
             else:
                 plot_lof(x, x_test, ticid_test, bottleneck, 20, output_dir,
-                         prefix = 'test-', n_neighbors=n, mock_data=mock_data)
+                         prefix = 'test-', n_neighbors=n, mock_data=mock_data,
+                         feature_vector=feature_vector)
 
             
     if plot_lof_train:
         activations_train = get_activations(model, x_train, rms_test=rms_train,
                                             input_rms=input_rms)
         bottleneck_train = get_bottleneck(model, activations_train, p)
-        for n in [20, 50, 100]:
+        for n in [20]: # [20, 50, 100]:
             if type(flux_train) != bool:
                 plot_lof(time, flux_train, ticid_train, bottleneck_train, 20,
                          output_dir, prefix='train-', n_neighbors=n,
-                         mock_data=mock_data)
+                         mock_data=mock_data, feature_vector=feature_vector)
             else:
                 plot_lof(x, x_train, ticid_train, bottleneck_train, 20,
                          output_dir, prefix = 'train-', n_neighbors=n,
-                         mock_data=mock_data)            
+                         mock_data=mock_data, feature_vector=feature_vector)            
         
 
     # >> plot kernel vs. filter
@@ -163,11 +166,11 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
     if plot_intermed_act:
         intermed_act_plot(x, model, activations, x_test,
                           output_dir+prefix+'intermed_act-', addend=addend,
-                          inds=intermed_inds)
+                          inds=intermed_inds, feature_vector=feature_vector)
     
     if make_movie:
-        movie(x, model, activations, x_test, p,
-              output_dir+prefix+'movie-', addend=addend, inds=intermed_inds)
+        movie(x, model, activations, x_test, p, output_dir+prefix+'movie-',
+              ticid_test, addend=addend, inds=intermed_inds)
         
     
 def param_summary(history, x_test, x_predict, p, output_dir, param_set_num,
@@ -323,15 +326,19 @@ def simple_autoencoder(x_train, y_train, x_test, y_test, params, resize = False,
         x = input_img
     for i in range(len(params['hidden_units'])):
         if batch_norm: x = BatchNormalization()(x)
-        x = Dense(params['hidden_units'][i], activation=params['activation'])(x)
+        x = Dense(params['hidden_units'][i], activation=params['activation'],
+                  kernel_initializer=params['initializer'])(x)
     if batch_norm: x = BatchNormalization()(x)
-    x = Dense(params['latent_dim'], activation=params['activation'])(x)
+    x = Dense(params['latent_dim'], activation=params['activation'],
+              kernel_initializer=params['initializer'])(x)
     for i in np.arange(len(params['hidden_units'])-1, -1, -1):
         if batch_norm: x = BatchNormalization()(x)        
-        x = Dense(params['hidden_units'][i], activation=params['activation'])(x)
+        x = Dense(params['hidden_units'][i], activation=params['activation'],
+                  kernel_initializer=params['initializer'])(x)
 
     if batch_norm: x = BatchNormalization()(x)    
-    x = Dense(input_dim, activation=params['last_activation'])(x)
+    x = Dense(input_dim, activation=params['last_activation'],
+              kernel_initializer=params['initializer'])(x)
     if resize:
         x = Reshape((input_dim, 1))(x)
         
@@ -366,8 +373,11 @@ def compile_model(model, params, mlp=False):
                       metrics=['accuracy', keras.metrics.Precision(),
                       keras.metrics.Recall()])
 
+# def encoder1(x_train):
+    
 
 def encoder(x_train, params):
+    '''https://towardsdatascience.com/autoencoders-in-keras-c1f57b9a2fd7'''
     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
     from keras.layers import Dense, AveragePooling1D
     from keras.models import Model
@@ -380,28 +390,23 @@ def encoder(x_train, params):
     for i in range(num_iter):
         if i == 0:
             x = Conv1D(params['num_filters'], int(params['kernel_size']),
-                    activation=params['activation'], padding='same')(input_img)
-            # x = Conv1D(params['num_filters'][i], int(params['kernel_size'][i]),
-            #         activation=params['activation'], padding='same')(input_img)
+                    activation=params['activation'], padding='same',
+                    kernel_initializer=params['initializer'])(input_img)
+            # x = Conv1D(params['num_filters'], int(params['kernel_size']),
+            #             activation=params['activation'], padding='same')(x)
         else:
             x = Conv1D(params['num_filters'], int(params['kernel_size']),
-                        activation=params['activation'], padding='same')(x)
-            # x = Conv1D(params['num_filters'][i], int(params['kernel_size'][i]),
+                        activation=params['activation'], padding='same',
+                        kernel_initializer=params['initializer'])(x)
+            # x = Conv1D(params['num_filters'], int(params['kernel_size']),
             #             activation=params['activation'], padding='same')(x)
         x = MaxPooling1D(2, padding='same')(x)
-        # x = AveragePooling1D(2, padding='same')(x)
-        
+
         x = Dropout(params['dropout'])(x)
-        
-        x = MaxPooling1D(int(params['num_filters']),
-                          data_format='channels_first')(x)
-        # x = MaxPooling1D([params['num_filters'][i]],
-        #                   data_format='channels_first')(x)
-        # x = AveragePooling1D([params['num_filters'][i]],
-        #                      data_format='channels_first')(x)
     
     x = Flatten()(x)
-    encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
+    encoded = Dense(params['latent_dim'], activation=params['activation'],
+                    kernel_initializer=params['initializer'])(x)
     
     encoder = Model(input_img, encoded)
 
@@ -420,22 +425,30 @@ def decoder(x_train, bottleneck, params):
         return tf.keras.backend.repeat_elements(x,params['num_filters'],2)
         # return tf.keras.backend.repeat_elements(x,params['num_filters'][num_iter+i],2)
     
-    x = Dense(int(input_dim/(2**(num_iter))))(bottleneck)
-    x = Reshape((int(input_dim/(2**(num_iter))), 1))(x)
+    # x = Dense(int(input_dim/(2**(num_iter))))(bottleneck)
+    # x = Reshape((int(input_dim/(2**(num_iter))), 1))(x)
+    # x = Lambda(repeat_elts)(x)
+    x = Dense(int(input_dim*params['num_filters']/(2**(num_iter))),
+              kernel_initializer=params['initializer'])(bottleneck)
+    x = Reshape((int(input_dim/(2**(num_iter))), params['num_filters']))(x)
     for i in range(num_iter):
-        x = Lambda(repeat_elts)(x)
+        # x = Lambda(repeat_elts)(x)
         x = Dropout(params['dropout'])(x)
         x = UpSampling1D(2)(x)
         if i == num_iter-1:
             decoded = Conv1D(1, int(params['kernel_size']),
-                             activation=params['last_activation'],
-                             padding='same')(x)
+                              activation=params['last_activation'],
+                              padding='same',
+                              kernel_initializer=params['initializer'])(x)            
             # decoded = Conv1D(1, int(params['kernel_size'][num_iter]),
             #                  activation=params['last_activation'],
             #                  padding='same')(x)
         else:
-            x = Conv1D(1, int(params['kernel_size']),
-                       activation=params['activation'], padding='same')(x)
+            x = Conv1D(params['num_filters'], int(params['kernel_size']),
+                       activation=params['activation'], padding='same',
+                       kernel_initializer=params['initializer'])(x)            
+            # x = Conv1D(1, int(params['kernel_size']),
+            #            activation=params['activation'], padding='same')(x)
             # x = Conv1D(1, int(params['kernel_size'][num_iter+i]),
             #            activation=params['activation'], padding='same')(x)
     return decoded
@@ -821,6 +834,9 @@ def ticid_label(ax, ticid, title=False):
     target = 'TIC '+str(int(ticid))
     catalog_data = Catalogs.query_object(target, radius=0.02, catalog='TIC')
     Teff = catalog_data[0]["Teff"]
+    if np.isnan(Teff):
+        Teff = 'nan'
+    else: Teff = '%.4d'%Teff
     rad = catalog_data[0]["rad"]
     mass = catalog_data[0]["mass"]
     GAIAmag = catalog_data[0]["GAIAmag"]
@@ -831,14 +847,15 @@ def ticid_label(ax, ticid, title=False):
     # Tmag = catalog_data[0]["Tmag"]
     # lum = catalog_data[0]["lum"]
 
-    info = target+'\nTeff {}\nrad {}\nmass {}\nGAIAmag {}\nd {}\nobjType {}'
-    info1 = target+', Teff {}, rad {}, mass {},\nGAIAmag {}, d {}, objType {}'
+    info = target+'\nTeff {}\nrad {}\nmass {}\nG {}\nd {}\nO {}'
+    info1 = target+', Teff {}, rad {}, mass {},\nG {}, d {}, O {}'
+    
     if title:
-        ax.set_title(info1.format('%.3g'%Teff, '%.3g'%rad, '%.3g'%mass, 
+        ax.set_title(info1.format(Teff, '%.2g'%rad, '%.2g'%mass, 
                                   '%.3g'%GAIAmag, '%.3g'%d, objType),
                      fontsize='xx-small')
     else:
-        ax.text(0.98, 0.98, info.format('%.3g'%Teff, '%.3g'%rad, '%.3g'%mass, 
+        ax.text(0.98, 0.98, info.format(Teff, '%.2g'%rad, '%.2g'%mass, 
                                         '%.3g'%GAIAmag, '%.3g'%d, objType),
                   transform=ax.transAxes, horizontalalignment='right',
                   verticalalignment='top', fontsize='xx-small')
@@ -926,7 +943,7 @@ def corner_plot(activation, p, n_bins = 50, log = True):
 
 def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
                       inds = [0, -14, -10, 1, 2], addend = 0., sharey=False,
-                      mock_data=False):
+                      mock_data=False, feature_vector=False):
     '''Plots input light curve, output light curve and the residual.
     !! Can only handle len(inds) divisible by 3 or 5
     Parameters:
@@ -957,7 +974,10 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
             axes[ngroup*3+2, i].plot(x, residual, '.k', markersize=2)
             for j in range(3):
                 format_axes(axes[ngroup*3+j,i])
-        axes[-1, i].set_xlabel('time [BJD - 2457000]', fontsize='small')
+        if feature_vector:
+            axes[-1, i].set_xlabel('\u03C8', fontsize='small')
+        else:
+            axes[-1, i].set_xlabel('time [BJD - 2457000]', fontsize='small')
     for i in range(ngroups):
         axes[3*i,   0].set_ylabel('input\nrelative flux',  fontsize='small')
         axes[3*i+1, 0].set_ylabel('output\nrelative flux', fontsize='small')
@@ -1004,7 +1024,7 @@ def kernel_filter_plot(model, out_dir):
         plt.close(fig)
 
 def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
-                      inds = [0, -1], movie = True):
+                      inds = [0, -1], movie = True, feature_vector=False):
     '''Visualizing intermediate activations.
     Parameters:
         * x: time array
@@ -1028,7 +1048,10 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
         addend = 1. - np.median(x_test[inds[c]])
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
                 x_test[inds[c]] + addend, '.k', markersize=2)
-        axes.set_xlabel('time [BJD - 2457000]')
+        if feature_vector:
+            axes.set_xlabel('\u03C8')
+        else:
+            axes.set_xlabel('time [BJD - 2457000]')
         axes.set_ylabel('relative flux')
         plt.tight_layout()
         fig.savefig(out_dir+str(c)+'ind-0input.png')
@@ -1065,13 +1088,19 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.5,
                     
                 
             if nrows == 1:
-                axes.set_xlabel('time [BJD - 2457000]')
+                if feature_vector:
+                    axes.set_xlabel('\u03C8')
+                else:
+                    axes.set_xlabel('time [BJD - 2457000]')        
                 axes.set_ylabel('relative flux')
             else:
                 for i in range(nrows):
                     axes[i,0].set_ylabel('relative\nflux')
                 for j in range(ncols):
-                    axes[-1,j].set_xlabel('time [BJD - 2457000]')
+                    if feature_vector:
+                        axes[-1,j].set_xlabel('\u03C8')
+                    else:
+                        axes[-1,j].set_xlabel('time [BJD - 2457000]')
             fig.tight_layout()
             fig.savefig(out_dir+str(c)+'ind-'+str(a+1)+model.layers[a+1].name\
                         +'.png')
@@ -1092,7 +1121,8 @@ def epoch_plots(history, p, out_dir, supervised):
             ax2.plot(history.history[key_list[i][1]], '--', label=label_list[i][1])
             ax2.set_ylabel(label_list[i][1])
             ax1.set_xlabel('epoch')
-            ax1.set_xticks(np.arange(0, int(p['epochs']), int(p['epochs']/10)))
+            ax1.set_xticks(np.arange(0, int(p['epochs']),
+                                     max(int(p['epochs']/10),1)))
             ax1.tick_params('both', labelsize='x-small')
             ax2.tick_params('both', labelsize='x-small')
             fig.tight_layout()
@@ -1107,7 +1137,8 @@ def epoch_plots(history, p, out_dir, supervised):
         ax1.plot(history.history['loss'], label='loss')
         ax1.set_ylabel('loss')
         ax1.set_xlabel('epoch')
-        ax1.set_xticks(np.arange(0, int(p['epochs']), int(p['epochs']/10)))
+        ax1.set_xticks(np.arange(0, int(p['epochs']),
+                                 max(int(p['epochs']/10),1)))
         ax1.tick_params('both', labelsize='x-small')
         fig.tight_layout()
         plt.savefig(out_dir + 'loss.png')
@@ -1115,7 +1146,8 @@ def epoch_plots(history, p, out_dir, supervised):
     
 def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
                                  ticid_test, out, inds=[0,1,-1,-2,-3],
-                                 addend = 1., sharey=False, mock_data=False):
+                                 addend = 1., sharey=False, mock_data=False,
+                                 feature_vector=False):
     '''Can only handle len(inds) divisible by 3 or 5'''
     bottleneck_ind = np.nonzero(['dense' in x.name for x in \
                                  model.layers])[0][0]
@@ -1143,7 +1175,13 @@ def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
                 ticid_label(axes[ngroup*3,i],ticid_test[inds[ind]], title=True)
             for j in range(3):
                 format_axes(axes[ngroup*3+j,i])
-        axes[-1, i].set_xlabel('time [BJD - 2457000]', fontsize='small')
+        axes[1, i].set_xlabel('\u03C6', fontsize='small')
+        if feature_vector:
+            axes[0, i].set_xlabel('\u03C8', fontsize='small')            
+            axes[-1, i].set_xlabel('\u03C8', fontsize='small') 
+        else:
+            axes[0, i].set_xlabel('time [BJD - 2457000]', fontsize='small')        
+            axes[-1, i].set_xlabel('time [BJD - 2457000]', fontsize='small')
     for i in range(ngroups):
         axes[3*i,   0].set_ylabel('input\nrelative flux',  fontsize='small')
         axes[3*i+1, 0].set_ylabel('bottleneck', fontsize='small')
@@ -1154,7 +1192,7 @@ def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
     return fig, axes
     
 
-def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
+def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
           addend=0.5):
     '''Make a .mp4 file of intermediate activations.
     Parameters:
@@ -1166,7 +1204,7 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
         * out_dir : output directory
         * inds : light curve indices in x_test'''
     for c in range(len(inds)):
-        fig, axes = plt.subplots(figsize=(8,3))
+        fig, axes = plt.subplots(figsize=(8,3*1.5))
         ymin = []
         ymax = []
         for activation in activations:
@@ -1187,9 +1225,8 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
         # >> plot input
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
                   x_test[inds[c]] + addend, '.k', markersize=2)
-        # axes.set_xlabel('time [BJD - 2457000]')
-        format_axes(axes, xlabel=True, ylabel=True)
-        # axes.set_ylabel('relative flux')
+        axes.set_xlabel('time [BJD - 2457000]')
+        axes.set_ylabel('relative flux')
         axes.set_ylim(ymin=ymin, ymax=ymax)
         # fig.tight_layout()
         fig.savefig('./image-000.png')
@@ -1203,14 +1240,16 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
                 axes.cla()
                 axes.plot(np.linspace(np.min(x), np.max(x), length),
                           activation[inds[c]] + addend, '.k', markersize=2)
-                # axes.set_xlabel('time [BJD - 2457000]')
-                # axes.set_ylabel('relative flux')
-                format_axes(axes, xlabel=True, ylabel=True)
+                axes.set_xlabel('time [BJD - 2457000]')
+                axes.set_ylabel('relative flux')
+                # format_axes(axes, xlabel=True, ylabel=True)
+                ticid_label(axes, ticid_test[inds[c]])
                 axes.set_ylim(ymin=ymin, ymax =ymax)
                 # fig.tight_layout()
                 fig.savefig('./image-' + f'{n:03}.png')
                 n += 1
             elif len(np.shape(activation)) > 2:
+                # >> don't plot activations with multiple filters
                 if np.shape(activation)[2] == 1:
                     length = np.shape(activation)[1]
                     y = np.reshape(activation[inds[c]], (length))
@@ -1219,8 +1258,10 @@ def movie(x, model, activations, x_test, p, out_dir, inds = [0, -1],
                               y + addend, '.k', markersize=2)
                     axes.set_xlabel('time [BJD - 2457000]')
                     axes.set_ylabel('relative flux')
+                    # format_axes(axes, xlabel=True, ylabel=True)
+                    ticid_label(axes, ticid_test[inds[c]])
                     axes.set_ylim(ymin = ymin, ymax = ymax)
-                    fig.tight_layout()
+                    # fig.tight_layout()
                     fig.savefig('./image-' + f'{n:03}.png')
                     n += 1
         os.system('ffmpeg -framerate 2 -i ./image-%03d.png -pix_fmt yuv420p '+\
@@ -1420,8 +1461,10 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
     fig.savefig(out+'train.png')
     fig1.savefig(out+'test.png')
 
-def plot_lof(time, intensity, targets, features, n, path, n_neighbors=20,
-             prefix='', mock_data=False):
+def plot_lof(time, intensity, targets, features, n, path,
+             momentum_dump_csv = './Table_of_momentum_dumps.csv',
+             n_neighbors=20,
+             prefix='', mock_data=False, addend=1., feature_vector=False):
     """ Adapted from Lindsey Gordon's feature_functions.py
     Plots the 20 most and least interesting light curves based on LOF.
     Parameters:
@@ -1443,11 +1486,20 @@ def plot_lof(time, intensity, targets, features, n, path, n_neighbors=20,
     ranked = np.argsort(lof)
     largest_indices = ranked[::-1][:n] # >> outliers
     smallest_indices = ranked[:n] # >> inliers
+    
+    # >> get momentum dump times
+    with open(momentum_dump_csv, 'r') as f:
+        lines = f.readlines()
+        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+        inds = np.nonzero((mom_dumps >= np.min(time)) * \
+                          (mom_dumps <= np.max(time)))
+        mom_dumps = np.array(mom_dumps)[inds]
 
     # [etc 052620] merged for loops, now reports random lof
     for i in range(3): # >> loop through smallest, largest, random LOF plots
-        fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, n*3))
-        fig.subplots_adjust(hspace=0)
+        # fig, ax = plt.subplots(n, 1, sharex=True)
+        fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
+        # fig.subplots_adjust(hspace=0)
         
         for k in range(n): # >> loop through each row
             if i == 0: ind = largest_indices[k]
@@ -1455,28 +1507,38 @@ def plot_lof(time, intensity, targets, features, n, path, n_neighbors=20,
             elif i == 2: ind = np.random.choice(range(len(lof)-1))
             
             # >> plot light curve
-            ax[k].plot(time, intensity[ind], '.k', markersize=2)
+            ax[k].plot(time, intensity[ind] + addend, '.k', markersize=2)
             ax[k].text(0.98, 0.02, str(lof[ind]),
                       transform=ax[k].transAxes, horizontalalignment='right',
                       verticalalignment='bottom', fontsize='xx-small')
             format_axes(ax[k], ylabel=True)
             if not mock_data:
-                ticid_label(ax[k], targets[ind])
-        
-        ax[n-1].set_xlabel('Time [BJD - 2457000]')
-        # fig.tight_layout()
+                ticid_label(ax[k], targets[ind], title=True)
+                
+            # >> plot momentum dumps
+            bottom, top = ax[k].get_ylim()
+            ax[k].set_ylim(bottom, top) # >> don't change ylim
+            for t in mom_dumps:
+                ax[k].plot([t,t], [bottom, top], '--')
+        if feature_vector:
+            ax[n-1].set_xlabel('\u03C8')
+        else:
+            ax[n-1].set_xlabel('time [BJD - 2457000]')
         if i == 0:    
             fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
-            fig.savefig(path + prefix + 'k' + str(n_neighbors) + '-' + str(n) \
-                        + "-largest-lof.png")
+            fig.tight_layout()
+            fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
+                        + "-largest.png")
         elif i == 1:
             fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
-            fig.savefig(path + prefix + 'k' + str(n_neighbors) + '-' + str(n) \
-                        + "-smallest-lof.png")
+            fig.tight_layout()
+            fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors)  \
+                        + "-smallest.png")
         elif i == 2:
             fig.suptitle(str(n) + ' random LOF targets', fontsize=16)
-            fig.savefig(path + prefix + 'k' + str(n_neighbors) + '-' + str(n) \
-                        + "-random-lof.png")
+            fig.tight_layout()
+            fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
+                        + "-random.png")
     
 def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     import pandas as pd
@@ -1510,7 +1572,7 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
         analyze_object.plot_line(key_list[i])
         plt.xlabel('round')
         plt.ylabel(label_list[i])
-        plt.savefig(output_dir + 'plot_' + label_list[i] + '.png')
+        plt.savefig(output_dir + label_list[i] + '_plot.png')
     
     # >> kernel density estimation
     analyze_object.plot_kde('val_loss')
