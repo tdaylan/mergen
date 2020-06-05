@@ -55,6 +55,13 @@ from shapely import geometry
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 
+import classification_functions
+from classification_functions import *
+import data_functions
+from data_functions import *
+import plotting_functions
+from plotting_functions import *
+
 test(8) #should return 8 * 4
 #%%
 mypath = "/Users/conta/UROP_Spring_2020/"
