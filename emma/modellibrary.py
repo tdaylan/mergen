@@ -45,7 +45,7 @@ def run_model(x_train, y_train, x_test, y_test, p, supervised=False,
     return history, model, x_predict
 
 def diagnostic_plots(history, model, p, output_dir, prefix, 
-                     x, x_train, x_test, x_predict, 
+                     x, x_train, x_test, x_predict, sharey=False,
                      mock_data=False, ticid_train=False, ticid_test=False,
                      supervised=False, y_true=False, y_predict=False,
                      y_train=False, y_test=False,
@@ -54,7 +54,7 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
                      inds = [0,1,2,3,4,5,6,7,-1,-2,-3,-4,-5,-6,-7],
                      intermed_inds = [6,0],
                      input_bottle_inds = [0,1,2,-6,-7],
-                     addend = 1., feature_vector=False,
+                     addend = 1., feature_vector=False, percentage=False,
                      plot_epoch = True,
                      plot_in_out = True,
                      plot_in_bottle_out=True,
@@ -84,9 +84,10 @@ def diagnostic_plots(history, model, p, output_dir, prefix,
                                       output_dir+prefix+'input_output.png',
                                       ticid_test=ticid_test,
                                       inds=inds,
-                                      addend=addend, sharey=False,
+                                      addend=addend, sharey=sharey,
                                       mock_data=mock_data,
-                                      feature_vector=feature_vector)
+                                      feature_vector=feature_vector,
+                                      percentage=percentage)
         
     # >> plot input, bottleneck, output
     if plot_in_bottle_out and not supervised:
@@ -937,13 +938,16 @@ def corner_plot(activation, p, n_bins = 50, log = True):
         for ax in axes.flatten():
             ax.set_xticks([])
             ax.set_yticks([])
+            ax.set_yticklabels([])
+            ax.set_xticklabels([])
         plt.subplots_adjust(hspace=0, wspace=0)
 
     return fig, axes
 
 def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
                       inds = [0, -14, -10, 1, 2], addend = 0., sharey=False,
-                      mock_data=False, feature_vector=False):
+                      mock_data=False, feature_vector=False,
+                      percentage=False):
     '''Plots input light curve, output light curve and the residual.
     !! Can only handle len(inds) divisible by 3 or 5
     Parameters:
@@ -971,6 +975,8 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
                                     markersize=2)
             # >> residual
             residual = (x_test[inds[ind]] - x_predict[inds[ind]])
+            if percentage:
+                residual = residual / x_test[inds[ind]]
             axes[ngroup*3+2, i].plot(x, residual, '.k', markersize=2)
             for j in range(3):
                 format_axes(axes[ngroup*3+j,i])
@@ -1506,39 +1512,36 @@ def plot_lof(time, intensity, targets, features, n, path,
             elif i == 1: ind = smallest_indices[k]
             elif i == 2: ind = np.random.choice(range(len(lof)-1))
             
+            # >> plot momentum dumps
+            for t in mom_dumps:
+                ax[k].plot([t,t], [0, 1], '--g', alpha=0.5,
+                           transform=ax[k].transAxes)            
+            
             # >> plot light curve
             ax[k].plot(time, intensity[ind] + addend, '.k', markersize=2)
-            ax[k].text(0.98, 0.02, str(lof[ind]),
-                      transform=ax[k].transAxes, horizontalalignment='right',
-                      verticalalignment='bottom', fontsize='xx-small')
+            ax[k].text(0.98, 0.02, '%.3g'%lof[ind], transform=ax[k].transAxes,
+                       horizontalalignment='right', verticalalignment='bottom',
+                       fontsize='xx-small')
             format_axes(ax[k], ylabel=True)
             if not mock_data:
                 ticid_label(ax[k], targets[ind], title=True)
-                
-            # >> plot momentum dumps
-            bottom, top = ax[k].get_ylim()
-            ax[k].set_ylim(bottom, top) # >> don't change ylim
-            for t in mom_dumps:
-                ax[k].plot([t,t], [bottom, top], '--')
+
         if feature_vector:
             ax[n-1].set_xlabel('\u03C8')
         else:
             ax[n-1].set_xlabel('time [BJD - 2457000]')
-        if i == 0:    
-            fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
-            fig.tight_layout()
+        if i == 0:
+            fig.suptitle(str(n) + ' largest LOF targets', fontsize=16, y=0.9)
             fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
-                        + "-largest.png")
+                        + "-largest.png", bbox_inches='tight')
         elif i == 1:
-            fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
-            fig.tight_layout()
+            fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16, y=0.9)
             fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors)  \
-                        + "-smallest.png")
+                        + "-smallest.png", bbox_inches='tight')
         elif i == 2:
-            fig.suptitle(str(n) + ' random LOF targets', fontsize=16)
-            fig.tight_layout()
+            fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
             fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
-                        + "-random.png")
+                        + "-random.png", bbox_inches='tight')
     
 def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     import pandas as pd
@@ -1603,6 +1606,101 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     
     return df, best_param_ind, p
 
+def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
+                              output_dir='./', addend=1., mock_data=False,
+                              feature_vector=False):
+    '''For autoencoder, intensity = x_test'''
+    # >> calculate reconstruction error (mean squared error)
+    err = (x_test - x_predict)**2
+    err = np.mean(err, axis=1)
+    err = err.reshape(np.shape(err)[0])
+    
+    # >> get top 20
+    n=20
+    ranked = np.argsort(err)
+    largest_inds = ranked[::-1][:n]
+    smallest_inds = ranked[:n]
+    for i in range(2):
+        fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
+        for k in range(n): # >> loop through each row
+            if i == 0: ind = largest_inds[k]
+            else: ind = smallest_inds[k]
+            
+            # >> plot light curve
+            ax[k].plot(time, intensity[ind]+addend, '.k', markersize=2)
+            if not feature_vector:
+                ax[k].plot(time, x_predict[ind]+addend, '-')
+            ax[k].text(0.98, 0.02, 'mse: ' +str(err[ind]),
+                       transform=ax[k].transAxes, horizontalalignment='right',
+                       verticalalignment='bottom', fontsize='xx-small')
+            format_axes(ax[k], ylabel=True)
+            if not mock_data:
+                ticid_label(ax[k], ticid_test[ind], title=True)
+                
+        if feature_vector:
+            ax[n-1].set_xlabel('\u03C8')
+        else:
+            ax[n-1].set_xlabel('time [BJD - 2457000]')
+        if i == 0:
+            fig.suptitle('largest reconstruction error', fontsize=16, y=0.9)
+            fig.savefig(output_dir + 'reconstruction_error-largest.png',
+                        bbox_inches='tight')
+        else:
+            fig.suptitle('smallest reconstruction error', fontsize=16, y=0.9)
+            fig.savefig(output_dir + 'reconstruction_error-smallest.png',
+                        bbox_inches='tight')            
+    
+def plot_classification(time, intensity, targets, labels, path,
+             momentum_dump_csv = './Table_of_momentum_dumps.csv',
+             n=20,
+             prefix='', mock_data=False, addend=1., feature_vector=False):
+    """ 
+    """
+
+    classes, counts = np.unique(labels, return_counts=True)
+    
+    # >> get momentum dump times
+    with open(momentum_dump_csv, 'r') as f:
+        lines = f.readlines()
+        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+        inds = np.nonzero((mom_dumps >= np.min(time)) * \
+                          (mom_dumps <= np.max(time)))
+        mom_dumps = np.array(mom_dumps)[inds]
+        
+    for i in range(len(classes)): # >> loop through each class
+        fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
+        class_inds = np.nonzero(labels == classes[i])[0]
+        
+        for k in range(min(n, counts[i])): # >> loop through each row
+            ind = class_inds[k]
+            
+            # >> plot momentum dumps
+            for t in mom_dumps:
+                ax[k].plot([t,t], [0, 1], '--g', alpha=0.5,
+                           transform=ax[k].transAxes)            
+            
+            # >> plot light curve
+            ax[k].plot(time, intensity[ind] + addend, '.k', markersize=2)
+            ax[k].text(0.98, 0.02, str(labels[ind]), transform=ax[k].transAxes,
+                       horizontalalignment='right', verticalalignment='bottom',
+                       fontsize='xx-small')
+            format_axes(ax[k], ylabel=True)
+            if not mock_data:
+                ticid_label(ax[k], targets[ind], title=True)
+
+        if feature_vector:
+            ax[n-1].set_xlabel('\u03C8')
+        else:
+            ax[n-1].set_xlabel('time [BJD - 2457000]')
+    
+        if classes[i] == -1:
+            fig.suptitle('Class -1 (outliers)', fontsize=16, y=0.9)
+        else:
+            fig.suptitle('Class ' + str(classes[i]), fontsize=16, y=0.9)
+        fig.savefig(path + 'class' + str(classes[i]) + '-' + prefix + '.png',
+                    bbox_inches='tight')
+        plt.close(fig)
+        
 # :: pull files with astroquery :::::::::::::::::::::::::::::::::::::::::::::::
 # adapted from pipeline.py
     
