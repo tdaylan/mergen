@@ -8,8 +8,6 @@ Pipeline to produce all files for a given group of data.
 
 Last updated: May 31 2020
 """
-import feature_functions
-from feature_functions import *
 
 import numpy as np
 import numpy.ma as ma 
@@ -67,12 +65,12 @@ test(8) #should return 8 * 4
 mypath = "/Users/conta/UROP_Spring_2020/"
 sectorfile = "/Users/conta/UROP_Spring_2020/all_targets_S020_v1.txt"
 sector = 20
-for n in range(4):
-    camera = n
-    for i in range(4):
-        ccd = i
-        times, intensities, failed_to_get, targets, folder_path, features = data_process_a_group(mypath, sectorfile, sector, camera, ccd)
-        
-        
+camera = 1
+ccd = 4
+
+
+times, intensities, targets, path = data_access_by_group(mypath, sectorfile, sector, camera, ccd)
+times, intensities, targets, path = follow_up_on_missed_targets(mypath, sector, camera, ccd)
+times, intensities, features = interp_norm_sigmaclip_features(mypath, times, intensities, targets)
 #%%
 post_process_plotting(times, intensities, features, features, targets, "/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2")

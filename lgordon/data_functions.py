@@ -82,23 +82,21 @@ def load_in_a_group(sector, camera, ccd, path):
 
 #data process an entire group of TICs
     
-def data_process_a_group(yourpath, sectorfile, sector, camera, ccd):
+def data_access_by_group(yourpath, sectorfile, sector, camera, ccd):
     """you will need:
         your path into the main folder you're working in - must end with /
         the file for your sector from TESS (full path)
         sector number (as int)
         camera number you want (as int/float)
-        ccd number you want (as int/float)"""
+        ccd number you want (as int/float)
+        this ONLY """
     # produce the folder to save everything into and set up file names
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
     path = yourpath + folder_name
     fname_time = path + "/" + folder_name + "_times_raw.txt"
     fname_int = path + "/" + folder_name + "_intensities_raw.txt"
     fname_targets = path + "/" + folder_name + "_targets.txt"
-    fname_times_interp = path + "/" + folder_name + "_times_processed.txt"
-    fname_ints_processed = path + "/" + folder_name + "_intensities_processed.txt"
     fname_notes = path + "/" + folder_name + "_group_notes.txt"
-    fname_features = path + "/"+ folder_name + "_features.txt"
     
     try:
         os.makedirs(path)
@@ -109,95 +107,99 @@ def data_process_a_group(yourpath, sectorfile, sector, camera, ccd):
             file_object.write("This file contains the raw intensities for this group")
         with open(fname_targets, 'a') as file_object:
             file_object.write("This file contains the target TICs for this group")
-        with open(fname_times_interp, 'a') as file_object:
-            file_object.write("This file contains the processed time indices for this group")
-        with open(fname_ints_processed, 'a') as file_object:
-            file_object.write("This file contains the processed intensities for this group")
         with open(fname_notes, 'a') as file_object:
             file_object.write("This file contains group notes, including any TICs that could not be accessed.")
-        with open(fname_features, 'a') as file_object:
-            file_object.write("This file contains the feature vectors for each target in this group. ")
-    # get just the list of targets for the specified sector, camera, ccd --------
+        # get just the list of targets for the specified sector, camera, ccd --------
         target_list = lc_by_camera_ccd(sectorfile, camera, ccd)
         print("there are ", len(target_list), "targets")
     # get the light curve for each target on the list, and save into a text file
-        confirmation, failed_to_get = lc_from_target_list(yourpath, target_list, fname_time, fname_int, fname_targets, fname_notes)
+        confirmation = lc_from_target_list(yourpath, target_list, fname_time, fname_int, fname_targets, fname_notes)
         print(confirmation)
-        print("failed to get", len(failed_to_get), "targets")
+        #print("failed to get", len(failed_to_get), "targets")
     # import the files you just created
         times = np.loadtxt(fname_time, skiprows=1)
         intensities = np.loadtxt(fname_int, skiprows=1)
         targets = np.loadtxt(fname_targets, skiprows=1)
+        print("found data for ", len(targets), " targets")
     #check to be sure all have the same size, if not, report back an error
-        if len(intensities) == len(targets):
-    #interpolate and normalize/sigma clip
-            interp_times, interp_intensities = interpolate_lc(times, intensities)
-            normalized_intensities = normalize(interp_intensities)
-    #save these into their own files, and report these arrays back
-            np.savetxt(fname_times_interp, interp_times)
-            times = np.loadtxt(fname_times_interp, skiprows=1)
-            np.savetxt(fname_ints_processed, normalized_intensities)
-            intensities = np.loadtxt(fname_ints_processed, skiprows=1)
-            print("You can now access time arrays, processed intensities, targets, and an array of TICs you could not get")
         
-            features = create_list_featvec(times[0], intensities)
-            np.savetxt(fname_features, features)
-            print("Feature vector creation complete")
-            
-        else: #if there is an error with the number of lines in times vs ints vs targets
-            print("There is a disagreement between the number of lines saved in intensities and targets, cannot run feature creation")
-            failed_to_get = "something"
-            features = "empty"
-    
     except OSError: #if there is an error creating the folder
         print("There was an OS Error trying to create the folder. Checking to see if data is already saved there")
-        #try to load in and process the data anyways
-        with open(fname_times_interp, 'a') as file_object:
-            file_object.write("This file contains the processed time indices for this group")
-        with open(fname_ints_processed, 'a') as file_object:
-            file_object.write("This file contains the processed intensities for this group")
-        with open(fname_notes, 'a') as file_object:
-            file_object.write("This file contains the notes for this group")
-       
-        try: 
-            times = np.loadtxt(fname_time, skiprows=1)
-            intensities = np.loadtxt(fname_int, skiprows=1)
-            targets = np.loadtxt(fname_targets, skiprows=1)
-            print("files loaded in")
-        #check to be sure all have the same size, if not, report back an error
-            if len(intensities) == len(targets):
-                print("number of lines matches, running data processing")
-                
-        #interpolate and normalize/sigma clip
-                interp_times, interp_intensities = interpolate_lc(times, intensities)
-                #print("interpolation complete")
-                normalized_intensities = normalize(interp_intensities)
-                #print("normalization complete")
-        #save these into their own files, and report these arrays back
-                np.savetxt(fname_times_interp, interp_times)
-                #times = np.loadtxt(fname_times_interp, skiprows=1)
-                np.savetxt(fname_ints_processed, normalized_intensities)
-                #intensities = np.loadtxt(fname_ints_processed, skiprows=1)
-                times = interp_times
-                intensities = normalized_intensities
-                print("You can now access time arrays, processed intensities, targets, and an array of TICs you could not get")
-            
-                features = create_list_featvec(times, intensities)
-                print("feature vectors created")
-                np.savetxt(fname_features, features)
-                print("Feature vector creation complete")
-                failed_to_get = np.loadtxt(fname_notes, skiprows=1)
-                
-            else: #if there is an error with the number of lines in times vs ints vs targets
-                print("There is still an error loading things in")
-                failed_to_get = "something"
-                features = "empty"
-        except: 
-            print ("This directory already exists, or there is some other OS error")
-            failed_to_get = "Error"
-            features = "Error"
+        times = intensities = targets = path = "empty"
         
-    return times, intensities, failed_to_get, targets, path, features
+    return times, intensities, targets, path
+
+def follow_up_on_missed_targets(yourpath, sector, camera, ccd):
+    """ function to follow up on rejected TIC ids"""
+    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+    path = yourpath + folder_name
+    fname_time = path + "/" + folder_name + "_times_raw.txt"
+    fname_int = path + "/" + folder_name + "_intensities_raw.txt"
+    fname_targets = path + "/" + folder_name + "_targets.txt"
+    fname_notes = path + "/" + folder_name + "_group_notes.txt"
+    fname_notes_followed_up = path + "/" + folder_name + "_targets_still_no_data.txt"
+    
+    
+    retry_targets = np.loadtxt(fname_notes, skiprows=1)
+    
+    with open(fname_notes, 'a') as file_object:
+        file_object.write("Data could not be found for the following TICs after two attempts")
+    
+    
+    
+    confirmation = lc_from_target_list(folderpath, retry_targets, fname_time, fname_int, fname_targets, fname_notes_followed_up)
+    print(confirmation)
+    
+    times = np.loadtxt(fname_time, skiprows=1)
+    intensities = np.loadtxt(fname_int, skiprows=1)
+    targets = np.loadtxt(fname_targets, skiprows=1)
+    print("after following up, found data for ", len(targets), " targets")
+    
+    return times, intensities, targets, path
+
+def interp_norm_sigmaclip_features(yourpath, times, intensities, targets):
+    """interpolates, normalizes, and sigma clips all light curves
+    then produces feature vectors for them"""
+    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+    path = yourpath + folder_name
+    fname_times_interp = path + "/" + folder_name + "_times_processed.txt"
+    fname_ints_processed = path + "/" + folder_name + "_intensities_processed.txt"
+    fname_features = path + "/"+ folder_name + "_features.txt"
+    
+    with open(fname_times_interp, 'a') as file_object:
+        file_object.write("This file contains the processed time indices for this group")
+    with open(fname_ints_processed, 'a') as file_object:
+        file_object.write("This file contains the processed intensities for this group")
+    with open(fname_features, 'a') as file_object:
+        file_object.write("This file contains the feature vectors for each target in this group. ")
+    
+    
+    if len(intensities) == len(targets):
+    #interpolate and normalize/sigma clip
+        interp_times, interp_intensities = interpolate_lc(times, intensities)
+        normalized_intensities = normalize(interp_intensities)
+    #save these into their own files, and report these arrays back
+        np.savetxt(fname_times_interp, interp_times)
+        times = np.loadtxt(fname_times_interp, skiprows=1)
+        np.savetxt(fname_ints_processed, normalized_intensities)
+        intensities = np.loadtxt(fname_ints_processed, skiprows=1)
+        print("You can now access time arrays, processed intensities, targets, and an array of TICs you could not get")
+        
+        features = create_list_featvec(times[0], intensities)
+        np.savetxt(fname_features, features)
+        print("Feature vector creation complete")
+            
+    else: #if there is an error with the number of lines in times vs ints vs targets
+        print("There is a disagreement between the number of lines saved in intensities and targets, cannot process data")
+        
+    return times, intensities, features
+
+
+
+
+
+######
+    
 
 def lc_by_camera_ccd(sectorfile, camera, ccd):
     """gets all the targets for a given sector, camera, ccd
@@ -216,12 +218,12 @@ def lc_from_target_list(yourpath, targetList, fname_time, fname_int, fname_targe
     that can later be accessed
     also if it crashes in the night you just have to len the rows in the file and can
     pick up appending where you left off originally"""
-    failed_to_get = [] #empty array for all failures
+    #failed_to_get = [] #empty array for all failures
     for n in range(len(targetList)): #for each item on the list
         target = targetList[n][0] #get that target number
         time1, i1 = get_lc_file_and_data(yourpath, target) #go in and get the time and int
         if type(time1) != np.ndarray: #if there was an error, add it to the list and continue
-            failed_to_get.append(target)
+        #    failed_to_get.append(target)
             with open(fname_notes, 'a') as file_object:
                 file_object.write("\n")
                 file_object.write(str(int(target)))
@@ -242,7 +244,7 @@ def lc_from_target_list(yourpath, targetList, fname_time, fname_int, fname_targe
         if n %50 == 0: #every 50, print how many have been done
             print(str(n), "completed")
     confirmation = "lc_from_target_list has finished running"
-    return confirmation, failed_to_get
+    return confirmation
 
 def get_lc_file_and_data(yourpath, target):
     """ goes in, grabs the data for the target, gets the time index, intensity,
@@ -406,13 +408,13 @@ def featvec(x_axis, sampledata):
     #empty feature vector
     featvec = [] 
     #moments
-    featvec.append(np.mean(dataset)) #mean (don't use moment, always gives 0)
-    featvec.append(moment(dataset, moment = 2)) #variance
-    featvec.append(moment(dataset, moment = 3)) #skew
-    featvec.append(moment(dataset, moment = 4)) #kurtosis
-    featvec.append(np.log(np.abs(moment(dataset, moment = 2)))) #ln variance
-    featvec.append(np.log(np.abs(moment(dataset, moment = 3)))) #ln skew
-    featvec.append(np.log(np.abs(moment(dataset, moment = 4)))) #ln kurtosis
+    featvec.append(np.mean(sampledata)) #mean (don't use moment, always gives 0)
+    featvec.append(moment(sampledata, moment = 2)) #variance
+    featvec.append(moment(sampledata, moment = 3)) #skew
+    featvec.append(moment(sampledata, moment = 4)) #kurtosis
+    featvec.append(np.log(np.abs(moment(sampledata, moment = 2)))) #ln variance
+    featvec.append(np.log(np.abs(moment(sampledata, moment = 3)))) #ln skew
+    featvec.append(np.log(np.abs(moment(sampledata, moment = 4)))) #ln kurtosis
     
     #periods
     f = np.linspace(0.6, 62.8, 5000)  #period range converted to frequencies
@@ -471,6 +473,124 @@ def featvec(x_axis, sampledata):
     featvec.append(period_max_power2)
     #print("done")
     return(featvec) 
+    
+#### OLD BUT STILL KEEPING
+def data_process_a_group(yourpath, sectorfile, sector, camera, ccd):
+    """you will need:
+        your path into the main folder you're working in - must end with /
+        the file for your sector from TESS (full path)
+        sector number (as int)
+        camera number you want (as int/float)
+        ccd number you want (as int/float)"""
+    # produce the folder to save everything into and set up file names
+    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+    path = yourpath + folder_name
+    fname_time = path + "/" + folder_name + "_times_raw.txt"
+    fname_int = path + "/" + folder_name + "_intensities_raw.txt"
+    fname_targets = path + "/" + folder_name + "_targets.txt"
+    fname_times_interp = path + "/" + folder_name + "_times_processed.txt"
+    fname_ints_processed = path + "/" + folder_name + "_intensities_processed.txt"
+    fname_notes = path + "/" + folder_name + "_group_notes.txt"
+    fname_features = path + "/"+ folder_name + "_features.txt"
+    
+    try:
+        os.makedirs(path)
+        print ("Successfully created the directory %s" % path) 
+        with open(fname_time, 'a') as file_object:
+            file_object.write("This file contains the raw time indices for this group")
+        with open(fname_int, 'a') as file_object:
+            file_object.write("This file contains the raw intensities for this group")
+        with open(fname_targets, 'a') as file_object:
+            file_object.write("This file contains the target TICs for this group")
+        with open(fname_times_interp, 'a') as file_object:
+            file_object.write("This file contains the processed time indices for this group")
+        with open(fname_ints_processed, 'a') as file_object:
+            file_object.write("This file contains the processed intensities for this group")
+        with open(fname_notes, 'a') as file_object:
+            file_object.write("This file contains group notes, including any TICs that could not be accessed.")
+        with open(fname_features, 'a') as file_object:
+            file_object.write("This file contains the feature vectors for each target in this group. ")
+    # get just the list of targets for the specified sector, camera, ccd --------
+        target_list = lc_by_camera_ccd(sectorfile, camera, ccd)
+        print("there are ", len(target_list), "targets")
+    # get the light curve for each target on the list, and save into a text file
+        confirmation, failed_to_get = lc_from_target_list(yourpath, target_list, fname_time, fname_int, fname_targets, fname_notes)
+        print(confirmation)
+        print("failed to get", len(failed_to_get), "targets")
+    # import the files you just created
+        times = np.loadtxt(fname_time, skiprows=1)
+        intensities = np.loadtxt(fname_int, skiprows=1)
+        targets = np.loadtxt(fname_targets, skiprows=1)
+    #check to be sure all have the same size, if not, report back an error
+        if len(intensities) == len(targets):
+    #interpolate and normalize/sigma clip
+            interp_times, interp_intensities = interpolate_lc(times, intensities)
+            normalized_intensities = normalize(interp_intensities)
+    #save these into their own files, and report these arrays back
+            np.savetxt(fname_times_interp, interp_times)
+            times = np.loadtxt(fname_times_interp, skiprows=1)
+            np.savetxt(fname_ints_processed, normalized_intensities)
+            intensities = np.loadtxt(fname_ints_processed, skiprows=1)
+            print("You can now access time arrays, processed intensities, targets, and an array of TICs you could not get")
+        
+            features = create_list_featvec(times[0], intensities)
+            np.savetxt(fname_features, features)
+            print("Feature vector creation complete")
+            
+        else: #if there is an error with the number of lines in times vs ints vs targets
+            print("There is a disagreement between the number of lines saved in intensities and targets, cannot run feature creation")
+            failed_to_get = "something"
+            features = "empty"
+    
+    except OSError: #if there is an error creating the folder
+        print("There was an OS Error trying to create the folder. Checking to see if data is already saved there")
+        #try to load in and process the data anyways
+        with open(fname_times_interp, 'a') as file_object:
+            file_object.write("This file contains the processed time indices for this group")
+        with open(fname_ints_processed, 'a') as file_object:
+            file_object.write("This file contains the processed intensities for this group")
+        with open(fname_notes, 'a') as file_object:
+            file_object.write("This file contains the notes for this group")
+       
+        try: 
+            times = np.loadtxt(fname_time, skiprows=1)
+            intensities = np.loadtxt(fname_int, skiprows=1)
+            targets = np.loadtxt(fname_targets, skiprows=1)
+            print("files loaded in")
+        #check to be sure all have the same size, if not, report back an error
+            if len(intensities) == len(targets):
+                print("number of lines matches, running data processing")
+                
+        #interpolate and normalize/sigma clip
+                interp_times, interp_intensities = interpolate_lc(times, intensities)
+                #print("interpolation complete")
+                normalized_intensities = normalize(interp_intensities)
+                #print("normalization complete")
+        #save these into their own files, and report these arrays back
+                np.savetxt(fname_times_interp, interp_times)
+                #times = np.loadtxt(fname_times_interp, skiprows=1)
+                np.savetxt(fname_ints_processed, normalized_intensities)
+                #intensities = np.loadtxt(fname_ints_processed, skiprows=1)
+                times = interp_times
+                intensities = normalized_intensities
+                print("You can now access time arrays, processed intensities, targets, and an array of TICs you could not get")
+            
+                features = create_list_featvec(times, intensities)
+                print("feature vectors created")
+                np.savetxt(fname_features, features)
+                print("Feature vector creation complete")
+                failed_to_get = np.loadtxt(fname_notes, skiprows=1)
+                
+            else: #if there is an error with the number of lines in times vs ints vs targets
+                print("There is still an error loading things in")
+                failed_to_get = "something"
+                features = "empty"
+        except: 
+            print ("This directory already exists, or there is some other OS error")
+            failed_to_get = "Error"
+            features = "Error"
+        
+    return times, intensities, failed_to_get, targets, path, features
     
     
 #Functions for if you have a large batch of files already downloaded
