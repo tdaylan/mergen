@@ -12,14 +12,22 @@ import talos
 import pdb
 import feature_functions as ff
 
-output_dir = './plots/plots060620-2/'
+output_dir = './plots/plots061020/'
 
 hyperparameter_optimization = False
+DBSCAN_parameter_search=True
+
 
 # >> unsupervised mode
-fname_time  = 's0020-before_orbit-time.txt'
-fname_flux  = 's0020-before_orbit-flux.csv'
-fname_ticid = 's0020-before_orbit-ticid.txt'
+fname_time  = 's0020-before_orbit_only-time.txt'
+fname_flux  = 's0020-before_orbit_only-flux.csv'
+fname_ticid = 's0020-before_orbit_only-ticid.txt'
+fname_time  = 's0020-full_orbit-time.txt'
+fname_flux  = 's0020-full_orbit-flux.csv'
+fname_ticid = 's0020-full_orbit-ticid.txt'
+# fname_time  = 's0020-before_orbit-time.txt'
+# fname_flux  = 's0020-before_orbit-flux.csv'
+# fname_ticid = 's0020-before_orbit-ticid.txt'
 # fname_time  = 's0020-before_orbit-1155-time.txt' # s0020-1155-
 # fname_flux  = 's0020-before_orbit-1155-flux.csv'
 # fname_ticid = 's0020-before_orbit-1155-ticid.txt'
@@ -28,7 +36,7 @@ if hyperparameter_optimization:
     p = {'kernel_size': [3,5,7],
       'latent_dim': list(np.arange(5, 35, 2)),
       'strides': [1],
-      'epochs': [20],
+      'epochs': [50],
       'dropout': list(np.arange(0., 0.6, 0.1)),
       'num_filters': [8, 16, 32, 64],
       'num_conv_layers': [2,4,6,8,10],
@@ -103,7 +111,7 @@ if hyperparameter_optimization:
 history, model = ml.conv_autoencoder(x_train, x_train, x_test, x_test, p)
 x_predict = model.predict(x_test)
 
-ml.diagnostic_plots(history, model, p, output_dir, '', x, x_train, x_test,
+ml.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
                     x_predict, mock_data=mock_data, ticid_train=ticid_train,
                     ticid_test=ticid_test,plot_intermed_act=True,
                     plot_latent_test=True, plot_latent_train=True,
@@ -120,8 +128,7 @@ ml.plot_reconstruction_error(x, x_test, x_test, x_predict, ticid_test,
 activations = ml.get_activations(model, x_test)
 bottleneck = ml.get_bottleneck(model, activations, p)
 
-DEBUG_DBSCAN=False
-if DEBUG_DBSCAN:
+if DBSCAN_parameter_search:
     from sklearn.cluster import DBSCAN
     bottleneck = ml.standardize(bottleneck, ax=0)
     eps = list(np.arange(0.1,5.0,0.1))
@@ -134,6 +141,7 @@ if DEBUG_DBSCAN:
     num_classes = []
     counts = []
     num_noisy= []
+    parameter_sets=[]
     for i in range(len(eps)):
         for j in range(len(min_samples)):
             for k in range(len(metric)):
@@ -154,6 +162,11 @@ if DEBUG_DBSCAN:
                             num_classes.append(len(classes_1))
                             counts.append(counts_1)
                             num_noisy.append(counts[0])
+                            parameter_sets.append([eps[i], min_samples[j],
+                                                   metric[k],
+                                                   algorithm[l],
+                                                   leaf_size[m],
+                                                   p[n]])
                             with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
                                 f.write('{} {} {} {} {} {}\n'.format(eps[i],
                                                                    min_samples[j],
@@ -164,21 +177,33 @@ if DEBUG_DBSCAN:
                                 f.write(str(np.unique(db.labels_, return_counts=True)))
                                 f.write('\n\n')
     # >> get best parameter set (want to maximize)
-    print('num classes: ' + str(max(num_classes)))
-    inds = np.nonzero(np.array(num_classes)==max(num_classes))
-    for i in inds[0]:
-        print(counts[i])
-    # 2.4000000000000004 2 minkowski auto 30 4
-    # (array([-1,  0,  1,  2]), array([24, 84,  6,  2]))
-    
-    # 2.9000000000000004 2 minkowski auto 30 4
-    # (array([-1,  0,  1,  2]), array([23, 85,  6,  2]))
+    for i in range(2, max(num_classes)+1):
+        # print('num classes: ' + str(max(num_classes)))
+        print('num classes: ' + str(i))
+        inds = np.nonzero(np.array(num_classes)==i)
+        best = np.argmin(np.array(num_noisy)[inds])
+        best = inds[0][best]
+        print('best_parameter_set: ' + str(parameter_sets[best]))
+        print(str(counts[best]))
+        p=parameter_sets[best]
+        # 2.4000000000000004 2 minkowski auto 30 4
+        # (array([-1,  0,  1,  2]), array([24, 84,  6,  2]))
+        
+        # 2.9000000000000004 2 minkowski auto 30 4
+        # (array([-1,  0,  1,  2]), array([23, 85,  6,  2]))
+        ff.features_plotting_2D(bottleneck, bottleneck, output_dir, 'dbscan',
+                                x, x_test, ticid_test,
+                                feature_engineering=False, eps=p[0],
+                                min_samples=p[1],
+                                metric=p[2], algorithm=p[3], leaf_size=p[4],
+                                p=p[5], folder_suffix='_'+str(i)+'classes')
 
-ff.features_plotting_2D(bottleneck, bottleneck, output_dir, 'dbscan',
-                        x, x_test, ticid_test,
-                        feature_engineering=False, eps=2.9, min_samples=2,
-                        metric='minkowski', algorithm='auto', leaf_size=30,
-                        p=4)
+else:
+    ff.features_plotting_2D(bottleneck, bottleneck, output_dir, 'dbscan',
+                            x, x_test, ticid_test,
+                            feature_engineering=False, eps=2.9, min_samples=2,
+                            metric='minkowski', algorithm='auto', leaf_size=30,
+                            p=4)
 ff.features_plotting_2D(bottleneck, bottleneck, output_dir, 'kmeans',
                         x, x_test, ticid_test,
                         feature_engineering=False)
