@@ -47,6 +47,8 @@ import astroquery
 from astroquery.simbad import Simbad
 from astroquery.mast import Catalogs
 from astroquery.mast import Observations
+from astroquery import exceptions
+from astroquery.exceptions import RemoteServiceError
 
 import shapely
 from shapely import geometry
@@ -57,20 +59,28 @@ import classification_functions
 from classification_functions import *
 import data_functions
 from data_functions import *
+
 import plotting_functions
 from plotting_functions import *
 
-test(8) #should return 8 * 4
 #%%
 mypath = "/Users/conta/UROP_Spring_2020/"
 sectorfile = "/Users/conta/UROP_Spring_2020/all_targets_S020_v1.txt"
 sector = 20
-camera = 1
-ccd = 4
-
+camera = 2
+ccd = 1
 
 times, intensities, targets, path = data_access_by_group(mypath, sectorfile, sector, camera, ccd)
 times, intensities, targets, path = follow_up_on_missed_targets(mypath, sector, camera, ccd)
-times, intensities, features = interp_norm_sigmaclip_features(mypath, times, intensities, targets)
+times, intensities, features = interp_norm_sigmaclip_features(mypath, times, intensities, targets, sector, camera, ccd)
+
 #%%
-post_process_plotting(times, intensities, features, features, targets, "/Users/conta/UROP_Spring_2020/Sector20Cam1CCD2")
+
+for n in range(20):
+    for m in range(4):
+        for j in range(4):
+            times, intensities, targets, path = data_access_by_group(mypath, sectorfile, n, m, j)
+
+            times, intensities, targets, path = follow_up_on_missed_targets(mypath, n, m, j)
+
+            times, intensities, features = interp_norm_sigmaclip_features(mypath, times, intensities, targets, n, m, j)

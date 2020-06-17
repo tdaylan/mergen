@@ -49,6 +49,8 @@ import astroquery
 from astroquery.simbad import Simbad
 from astroquery.mast import Catalogs
 from astroquery.mast import Observations
+from astroquery import exceptions
+from astroquery.exceptions import RemoteServiceError
 
 import shapely
 from shapely import geometry
@@ -72,7 +74,11 @@ def load_in_a_group(sector, camera, ccd, path):
     
     t = np.loadtxt(time_path)
     intensities = np.loadtxt(intensities_path)
-    targets = np.loadtxt(targets_path)
+    try: 
+        targets = np.loadtxt(targets_path)
+    except ValueError:
+        targets = np.loadtxt(targets_path, skiprows=1)
+        
     targets.astype(int)
     features = np.loadtxt(features_path, skiprows=1)
     notes = np.loadtxt(notes_path, skiprows=1)
@@ -141,13 +147,13 @@ def follow_up_on_missed_targets(yourpath, sector, camera, ccd):
     
     
     retry_targets = np.loadtxt(fname_notes, skiprows=1)
+    retry_targets = np.column_stack((retry_targets, retry_targets)) #loak this is a crude way to get around some indexing issues and we're working with it
     
-    with open(fname_notes, 'a') as file_object:
+    with open(fname_notes_followed_up, 'a') as file_object:
         file_object.write("Data could not be found for the following TICs after two attempts")
     
     
-    
-    confirmation = lc_from_target_list(folderpath, retry_targets, fname_time, fname_int, fname_targets, fname_notes_followed_up)
+    confirmation = lc_from_target_list(yourpath, retry_targets, fname_time, fname_int, fname_targets, fname_notes_followed_up)
     print(confirmation)
     
     times = np.loadtxt(fname_time, skiprows=1)
@@ -157,7 +163,7 @@ def follow_up_on_missed_targets(yourpath, sector, camera, ccd):
     
     return times, intensities, targets, path
 
-def interp_norm_sigmaclip_features(yourpath, times, intensities, targets):
+def interp_norm_sigmaclip_features(yourpath, times, intensities, targets, sector, camera, ccd):
     """interpolates, normalizes, and sigma clips all light curves
     then produces feature vectors for them"""
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
@@ -176,26 +182,26 @@ def interp_norm_sigmaclip_features(yourpath, times, intensities, targets):
     
     if len(intensities) == len(targets):
     #interpolate and normalize/sigma clip
-        interp_times, interp_intensities = interpolate_lc(times, intensities)
+        interp_times, interp_intensities = interpolate_lc(intensities, times, flux_err=False, interp_tol=20./(24*60),num_sigma=5, orbit_gap_len = 3, DEBUG=False,spline_interpolate=True)
         normalized_intensities = normalize(interp_intensities)
     #save these into their own files, and report these arrays back
-        np.savetxt(fname_times_interp, interp_times)
-        times = np.loadtxt(fname_times_interp, skiprows=1)
-        np.savetxt(fname_ints_processed, normalized_intensities)
-        intensities = np.loadtxt(fname_ints_processed, skiprows=1)
+        with open(fname_times_interp, 'a') as file_object:
+            np.savetxt(fname_times_interp, interp_times)
+        with open(fname_ints_processed, 'a') as file_object:
+            np.savetxt(fname_ints_processed, normalized_intensities)
+        times = np.loadtxt(fname_times_interp)
+        intensities = np.loadtxt(fname_ints_processed)
         print("You can now access time arrays, processed intensities, targets, and an array of TICs you could not get")
         
-        features = create_list_featvec(times[0], intensities)
-        np.savetxt(fname_features, features)
+        features = create_list_featvec(times, intensities)
+        with open(fname_features, 'a') as file_object:
+            np.savetxt(fname_features, features)
         print("Feature vector creation complete")
             
     else: #if there is an error with the number of lines in times vs ints vs targets
         print("There is a disagreement between the number of lines saved in intensities and targets, cannot process data")
         
     return times, intensities, features
-
-
-
 
 
 ######
@@ -215,10 +221,8 @@ def lc_by_camera_ccd(sectorfile, camera, ccd):
 def lc_from_target_list(yourpath, targetList, fname_time, fname_int, fname_targets, fname_notes):
     """ runs getting the files and data for all targets on the list
     then appends the time & intensity arrays and the TIC number into text files
-    that can later be accessed
-    also if it crashes in the night you just have to len the rows in the file and can
-    pick up appending where you left off originally"""
-    #failed_to_get = [] #empty array for all failures
+    that can later be accessed"""
+
     for n in range(len(targetList)): #for each item on the list
         target = targetList[n][0] #get that target number
         time1, i1 = get_lc_file_and_data(yourpath, target) #go in and get the time and int
@@ -246,6 +250,7 @@ def lc_from_target_list(yourpath, targetList, fname_time, fname_int, fname_targe
     confirmation = "lc_from_target_list has finished running"
     return confirmation
 
+
 def get_lc_file_and_data(yourpath, target):
     """ goes in, grabs the data for the target, gets the time index, intensity,
     etc. for the image. if connection error w/ MAST, skips it"""
@@ -255,7 +260,7 @@ def get_lc_file_and_data(yourpath, target):
     try:
         #find and download data products for your target
         obs_table = Observations.query_object(targ, radius=".02 deg")
-        data_products_by_obs = Observations.get_product_list(obs_table[0:2])
+        data_products_by_obs = Observations.get_product_list(obs_table[0:5])
             
         #in theory, filter_products should let you sort out the non fits files but i 
         #simply could not get it to accept it despite following the API guidelines
@@ -266,9 +271,64 @@ def get_lc_file_and_data(yourpath, target):
         filepaths = []
         for root, dirs, files in os.walk(fitspath):
             for name in files:
+                print(name)
                 if name.endswith(("lc.fits")):
                     filepaths.append(root + "/" + name)
-                 
+                    #print("appended", name, "to filepaths")
+        
+        print(len(filepaths))
+        
+        if len(filepaths) == 0: #if no lc.fits were downloaded, move on
+            print(targ, "no light curve available")
+            time1 = 0
+            i1 = 0
+        else: #if there are lc.fits files, open them and get the goods
+                #get the goods and then close it
+            f = fits.open(filepaths[0], memmap=False)
+            time1 = f[1].data['TIME']
+            i1 = f[1].data['PDCSAP_FLUX']                
+            f.close()
+                  
+        #then delete all downloads in the folder, no matter what type
+        if os.path.isdir("mastDownload") == True:
+            shutil.rmtree("mastDownload")
+            print("folder deleted")
+            
+        #corrects for connnection errors
+    except (ConnectionError, OSError, TimeoutError, RemoteServiceError):
+        print(targ + "could not be accessed due to an error")
+        i1 = 0
+        time1 = 0
+    
+    return time1, i1
+
+def get_lc_file_and_data_old(yourpath, target):
+    """ goes in, grabs the data for the target, gets the time index, intensity,
+    etc. for the image. if connection error w/ MAST, skips it"""
+    fitspath = yourpath + 'mastDownload/TESS/'
+    targ = "TIC " + str(int(target))
+    print(targ)
+    try:
+        #find and download data products for your target
+        obs_table = Observations.query_object(targ, radius=".02 deg")
+        data_products_by_obs = Observations.get_product_list(obs_table[0:3])
+            
+        #in theory, filter_products should let you sort out the non fits files but i 
+        #simply could not get it to accept it despite following the API guidelines
+        filter_products = Observations.filter_products(data_products_by_obs, dataproduct_type = 'timeseries')
+        manifest = Observations.download_products(filter_products)
+            
+        #get all the paths to lc.fits files
+        filepaths = []
+        for root, dirs, files in os.walk(fitspath):
+            for name in files:
+                print(name)
+                if name.endswith(("lc.fits")):
+                    filepaths.append(root + "/" + name)
+                    print("appended", name, "to filepaths")
+        
+        print(len(filepaths))
+        
         if len(filepaths) == 0: #if no lc.fits were downloaded, move on
             print(targ, "no light curve available")
             time1 = 0
@@ -287,7 +347,7 @@ def get_lc_file_and_data(yourpath, target):
             print("folder deleted")
             
         #corrects for connnection errors
-    except (ConnectionError, OSError, TimeoutError):
+    except (ConnectionError, OSError, TimeoutError, RemoteServiceError):
         print(targ + "could not be accessed due to an error")
         i1 = 0
         time1 = 0
@@ -300,7 +360,7 @@ def normalize(intensity):
     """normalizes the intensity from the median value 
     by dividing out. then sigmaclips using astropy
     returns a masked array"""
-    sigclip = SigmaClip(sigma=4, maxiters=None, cenfunc='median')
+    sigclip = SigmaClip(sigma=5, maxiters=None, cenfunc='median')
     intense = []
     for i in np.arange(len(intensity)):
         intensity[i] = intensity[i] / np.median(intensity[i])
@@ -309,34 +369,49 @@ def normalize(intensity):
     intensity = np.ma.asarray(intense)
     print("Normalization and sigma clipping complete")
     return intensity
-    
-def interpolate_lc(time, intensities):
-    """interpolates all light curves in an array of all light curves"""
-    
-    interp_tol = 20. / (24*60) # >> interpolate small gaps (less than 20 minutes)
-    
-    interpolated_intensities = []
-    for p in range(len(intensities)):
 
-        i = intensities[p]
+#interpolate and sigma clip
+    
+def interpolate_lc(flux, time, flux_err=False, interp_tol=20./(24*60),
+                   num_sigma=5, orbit_gap_len = 3, DEBUG=False,
+                   spline_interpolate=True):
+    '''Interpolates nan gaps less than 20 minutes long.
+    output_dir='./',  prefix='''''
+    from astropy.stats import SigmaClip
+    from scipy import interpolate
+    flux_interp = []
+    for j in range(len(flux)):
+        i = flux[j]
+        if DEBUG and j == 1042:
+            fig, ax = plt.subplots(6, 1, figsize=(8, 3*6))
+            ax[0].plot(time, i, '.k', markersize=2)
+            ax[0].set_title('original')
+        # >> sigma clip
+        sigclip = SigmaClip(sigma=num_sigma, maxiters=None, cenfunc='median')
+        clipped_inds = np.nonzero(np.ma.getmask(sigclip(i, masked=True)))
+        i[clipped_inds] = np.nan
+        if DEBUG and j == 1042:
+            ax[1].plot(time, i, '.k', markersize=2)
+            ax[1].set_title('clipped')
         
+        # >> find nan windows
         n = np.shape(i)[0]
         loc_run_start = np.empty(n, dtype=bool)
         loc_run_start[0] = True
         np.not_equal(np.isnan(i)[:-1], np.isnan(i)[1:], out=loc_run_start[1:])
         run_starts = np.nonzero(loc_run_start)[0]
     
-        # >> find run lengths
+        # >> find nan window lengths
         run_lengths = np.diff(np.append(run_starts, n))
-    
-        tdim = time[1] - time[0]
-        interp_inds = run_starts[np.nonzero((run_lengths * tdim <= interp_tol) * \
-                                            np.isnan(i[run_starts]))]
-        interp_lens = run_lengths[np.nonzero((run_lengths * tdim <= interp_tol) * \
-                                             np.isnan(i[run_starts]))]
-    
-        # -- interpolation ---------------------------------------------------------
-        # >> interpolate small gaps
+        tdim = time[1]-time[0]
+        
+        # -- interpolate small nan gaps ---------------------------------------
+        interp_gaps = np.nonzero((run_lengths * tdim <= interp_tol) * \
+                                            np.isnan(i[run_starts]))
+        interp_inds = run_starts[interp_gaps]
+        interp_lens = run_lengths[interp_gaps]
+
+
         i_interp = np.copy(i)
         for a in range(np.shape(interp_inds)[0]):
             start_ind = interp_inds[a]
@@ -344,19 +419,104 @@ def interpolate_lc(time, intensities):
             i_interp[start_ind:end_ind] = np.interp(time[start_ind:end_ind],
                                                     time[np.nonzero(~np.isnan(i))],
                                                     i[np.nonzero(~np.isnan(i))])
-        interpolated_intensities.append(i_interp)
+        i = i_interp
+        if DEBUG and j == 1042:
+            ax[2].plot(time, i, '.k', markersize=2)
+            ax[2].set_title('interpolated')
+        
+        # -- spline interpolate large nan gaps --------------------------------
+        if spline_interpolate:
+            orbit_gap_len = np.count_nonzero(np.isnan(time))*tdim
+            interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
+                                     (run_lengths*tdim < 0.9*orbit_gap_len) * \
+                                     np.isnan(i[run_starts]))
+            interp_inds = run_starts[interp_gaps]
+            interp_lens = run_lengths[interp_gaps]
+            
+            # >> fit spline to non-nan points
+            num_inds = np.nonzero(~np.isnan(i))
+            use_splrep = False
+            if use_splrep:
+                tck = interpolate.splrep(time[num_inds], i[num_inds], k=3)
+            else:
+                cs= interpolate.CubicSpline(time[num_inds], i[num_inds])
+                # i_cs = cs(time[num_inds])
+                # num_inds_time = np.nonzero(~np.isnan(time))
+                # i_cs = cs(time[num_inds_time])
+                t1 = np.linspace(np.min(time[num_inds]), np.max(time[num_inds]),
+                                 len(time))
+                t1 = np.delete(t1, np.nonzero(np.isnan(time)))
+                i_cs = cs(t1)
+            if DEBUG and j==1042:
+                if use_splrep:
+                    i_plot = interpolate.splev(time[num_inds],tck)
+                    ax[3].plot(time[num_inds], i_plot, '-')
+                else:
+                    i_plot = i_cs
+                    ax[3].plot(t1, i_cs, '-')
+                
+                ax[3].set_title('spline') 
+            
+            i_interp = np.copy(i)
+            for a in range(np.shape(interp_inds)[0]):
+                start_ind = interp_inds[a]
+                end_ind   = interp_inds[a] + interp_lens[a] - 1
+                # >> pad [etc 060720]
+                # start_ind = max(0, start_ind-10)
+                # end_ind = min(len(time)-1, end_ind + 10)
+                # t_new = np.linspace(time[start_ind-1]+tdim, time[end_ind-1]+tdim,
+                #                     end_ind-start_ind)
+
+                if use_splrep:
+                    t_new = np.linspace(time[start_ind], time[end_ind],
+                                    end_ind-start_ind)     
+                    i_interp[start_ind:end_ind]=interpolate.splev(t_new, tck)
+                else:
+                    # start_ind_cs = num_inds_time[0].tolist().index(start_ind)
+                    # end_ind_cs = num_inds_time[0].tolist().index(end_ind)
+                    # start_ind_cs = num_inds[0].tolist().index(start_ind)
+                    # end_ind_cs = num_inds[0].tolist().index(end_ind)                    
+                    # i_interp[start_ind:end_ind]=i_cs[start_ind_cs:end_ind_cs]
+                    # t_new = np.linspace(time[start_ind], time[end_ind],
+                    #                     end_ind-start_ind)
+                    # i_interp[start_ind:end_ind]=cs(t_new)
+                    if not np.isnan(time[start_ind]):
+                        start_ind_cs = np.argmin(np.abs(t1 - time[start_ind]))
+                        end_ind_cs = start_ind_cs + (end_ind-start_ind)
+                    else:
+                        end_ind_cs = np.argmin(np.abs(t1 - time[end_ind]))
+                        start_ind_cs = end_ind_cs - (end_ind-start_ind)
+                    i_interp[start_ind:end_ind] = i_cs[start_ind_cs:end_ind_cs]
+            flux_interp.append(i_interp)
+            if DEBUG and j==1042:
+                ax[4].plot(time, i_interp, '.k', markersize=2)
+                ax[4].set_title('spline interpolate')
+        else:
+            flux_interp.append(i)
+        
+    # -- remove orbit nan gap -------------------------------------------------
+    flux = np.array(flux_interp)
+    nan_inds = np.nonzero(np.prod(~np.isnan(flux), 
+                                  axis = 0) == False)
+    time = np.delete(time, nan_inds)
+    flux = np.delete(flux, nan_inds, 1)
+    #if DEBUG:
+     #   ax[5].plot(time, flux[1042], '.k', markersize=2)
+      #  ax[5].set_title('removed orbit gap')
+      #  fig.tight_layout()
+
+        # for a in ax.flatten():
+        #     format_axes(a, xlabel=True, ylabel=True)
+       # fig.savefig(output_dir + prefix + 'interpolate_debug.png',
+        #            bbox_inches='tight')
+        #plt.close(fig) 
     
-    # -- remove orbit nan gap ------------------------------------------------------
-    interpolated_intensities = np.array(interpolated_intensities)
-    # nan_inds = np.nonzero(np.prod(np.isnan(intensity)==False), axis = 0))
-    nan_inds = np.nonzero(np.prod(np.isnan(interpolated_intensities)==False, axis = 0) == False)
-    len(nan_inds)
-    interpolated_intensities = np.delete(interpolated_intensities, nan_inds, 1) #each row of intensity is one interpolated light curve.
+    if type(flux_err) != bool:
+        flux_err = np.delete(flux_err, nan_inds, 1)
+        return flux, time, flux_err
+    else:
+        return time, flux
     
-    time_corrected = np.delete(time, nan_inds)
-    print(len(time_corrected), len(interpolated_intensities[0]))
-    #interpolated_times = np.array(interpolated_times)
-    return time_corrected, interpolated_intensities
 #producing the feature vector list -----------------------------
 
     
@@ -661,3 +821,50 @@ def data_process_a_group(yourpath, sectorfile, sector, camera, ccd):
    # time = np.delete(time, nan_inds)
    # intensity = np.delete(intensity, nan_inds, 1) #each row of intensity is one interpolated light curve.
    # return time, intensity, targets
+def interpolate_lc_old(time, intensities):
+    """interpolates all light curves in an array of all light curves"""
+    
+    interp_tol = 20. / (24*60) # >> interpolate small gaps (less than 20 minutes)
+    
+    interpolated_intensities = []
+    for p in range(len(intensities)):
+
+        i = intensities[p]
+        
+        n = np.shape(i)[0]
+        loc_run_start = np.empty(n, dtype=bool)
+        loc_run_start[0] = True
+        np.not_equal(np.isnan(i)[:-1], np.isnan(i)[1:], out=loc_run_start[1:])
+        run_starts = np.nonzero(loc_run_start)[0]
+    
+        # >> find run lengths
+        run_lengths = np.diff(np.append(run_starts, n))
+    
+        tdim = time[1] - time[0]
+        interp_inds = run_starts[np.nonzero((run_lengths * tdim <= interp_tol) * \
+                                            np.isnan(i[run_starts]))]
+        interp_lens = run_lengths[np.nonzero((run_lengths * tdim <= interp_tol) * \
+                                             np.isnan(i[run_starts]))]
+    
+        # -- interpolation ---------------------------------------------------------
+        # >> interpolate small gaps
+        i_interp = np.copy(i)
+        for a in range(np.shape(interp_inds)[0]):
+            start_ind = interp_inds[a]
+            end_ind = interp_inds[a] + interp_lens[a]
+            i_interp[start_ind:end_ind] = np.interp(time[start_ind:end_ind],
+                                                    time[np.nonzero(~np.isnan(i))],
+                                                    i[np.nonzero(~np.isnan(i))])
+        interpolated_intensities.append(i_interp)
+    
+    # -- remove orbit nan gap ------------------------------------------------------
+    interpolated_intensities = np.array(interpolated_intensities)
+    # nan_inds = np.nonzero(np.prod(np.isnan(intensity)==False), axis = 0))
+    nan_inds = np.nonzero(np.prod(np.isnan(interpolated_intensities)==False, axis = 0) == False)
+    len(nan_inds)
+    interpolated_intensities = np.delete(interpolated_intensities, nan_inds, 1) #each row of intensity is one interpolated light curve.
+    
+    time_corrected = np.delete(time, nan_inds)
+    print(len(time_corrected), len(interpolated_intensities[0]))
+    #interpolated_times = np.array(interpolated_times)
+    return time_corrected, interpolated_intensities

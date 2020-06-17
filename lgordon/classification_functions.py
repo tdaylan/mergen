@@ -48,6 +48,8 @@ import astroquery
 from astroquery.simbad import Simbad
 from astroquery.mast import Catalogs
 from astroquery.mast import Observations
+from astroquery import exceptions
+from astroquery.exceptions import RemoteServiceError
 
 import shapely
 from shapely import geometry

@@ -48,6 +48,8 @@ import astroquery
 from astroquery.simbad import Simbad
 from astroquery.mast import Catalogs
 from astroquery.mast import Observations
+from astroquery import exceptions
+from astroquery.exceptions import RemoteServiceError
 
 import shapely
 from shapely import geometry
@@ -79,7 +81,7 @@ def post_process_plotting(time, intensity, features_all, features_using, targets
     features_plotting_2D(features_all, features_using, path, "kmeans")
     features_plotting_2D(features_all, features_using, path, "dbscan")
     
-    plot_lof(time, intensity, targets, features_all, 10, path)
+    plot_lof(time, intensity, targets, features_all, 20, path)
 
     features_insets2D(time, intensity, features_all, targets, path)
 
@@ -95,7 +97,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
     cluster = "empty"
     folder_label = "blank"
     if clustering == 'dbscan':
-        db = DBSCAN(eps=0.5, min_samples=10).fit(cluster_columns) #eps is NOT epochs
+        db = DBSCAN(eps=2.2, min_samples=18).fit(cluster_columns) #eps is NOT epochs
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
         cluster = 'dbscan'
@@ -179,11 +181,10 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".pdf")
                 plt.show()
                 
-def plot_lof(time, intensity, targets, features, path):
+def plot_lof(time, intensity, targets, features, n, path):
     """plots the 20 most and least interesting light curves based on LOF
     takes input: time, intensity, targets, featurelist, n number of curves you want, date as a string """
-    fname_lof = path + "/LOF_features.txt"
-    n = 10
+    fname_lof = path + "/LOF-features.txt"
     from sklearn.neighbors import LocalOutlierFactor
 
     clf = LocalOutlierFactor(n_neighbors=50)
@@ -193,52 +194,56 @@ def plot_lof(time, intensity, targets, features, path):
     
     lof = -1 * negative_factor
     ranked = np.argsort(lof)
-    largest_indices = ranked[::-1][:10]
-    smallest_indices = ranked[:10]
+    largest_indices = ranked[::-1][:n]
+    smallest_indices = ranked[:n]
 
     with open(fname_lof, 'a') as file_object:
-        file_object.write("Ten largest LOF's features: \n")
+        file_object.write("Largest LOF's features: \n")
         np.savetxt(file_object, features[largest_indices])
-        file_object.write("\n Ten smallest LOF's features: \n")
+        file_object.write("\n Smallest LOF's features: \n")
         np.savetxt(file_object, features[smallest_indices])
     #plot just the largest indices
     #rows, columns
-    fig, axs = plt.subplots(10, 1, sharex = True, figsize = (8,30), constrained_layout=False)
+    fig, axs = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
     fig.subplots_adjust(hspace=0)
-    
-    for k in range(10):
+    dumppoints = [1842.5, 1847.9, 1853.3, 1856.4, 1861.9, 1867.4]
+    for k in range(n):
         ind = largest_indices[k]
-        axs[k].plot(time, intensity[ind], '.k', label=str(targets[ind]) + ", " + str(np.round(lof[ind], 2)))
+        axs[k].plot(time, intensity[ind], '.k', label="TIC " + str(int(targets[ind])) + ", LOF:" + str(np.round(lof[ind], 2)))
+        for a in range(len(dumppoints)):
+            axs[k].axvline(dumppoints[a], linewidth=0.5)
         axs[k].legend(loc="upper left")
         axs[k].set_ylabel("relative flux")
-        title = astroquery_pull_data('TIC ' + str(int(targets[ind])))
+        title = astroquery_pull_data(targets[ind])
         axs[k].set_title(title)
         axs[-1].set_xlabel("BJD [-2457000]")
-    fig.suptitle(str(10) + ' largest LOF targets', fontsize=16)
+    fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
     fig.tight_layout()
     fig.subplots_adjust(top=0.96)
     fig.savefig(path + "/largest-lof.png")
 
     #plot the smallest indices
-    fig1, axs1 = plt.subplots(10, 1, sharex = True, figsize = (8,30), constrained_layout=False)
+    fig1, axs1 = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
     fig1.subplots_adjust(hspace=0)
     
-    for m in range(10):
+    for m in range(n):
         ind = smallest_indices[m]
-        axs1[m].plot(time, intensity[ind], '.k', label=str(targets[ind]) + ", " + str(np.round(lof[ind], 2)))
+        axs1[m].plot(time, intensity[ind], '.k', label="TIC " + str(int(targets[ind])) + ", LOF:" + str(np.round(lof[ind], 2)))
         axs1[m].legend(loc="upper left")
+        for a in range(len(dumppoints)):
+            axs1[m].axvline(dumppoints[a], linewidth=0.5)
         axs1[m].set_ylabel("relative flux")
-        title = astroquery_pull_data('TIC ' + str(int(targets[ind])))
+        title = astroquery_pull_data(targets[ind])
         axs1[m].set_title(title)
         axs1[-1].set_xlabel("BJD [-2457000]")
-    fig1.suptitle(str(10) + ' smallest LOF targets', fontsize=16)
+    fig1.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
     fig1.tight_layout()
     fig1.subplots_adjust(top=0.96)
     fig1.savefig(path +  "/smallest-lof.png")
                 
 def astroquery_pull_data(target):
     """pulls data on object from astroquery
-    target needs to be a string"""
+    target needs to be JUST the number- can be any format, will be reformatted appropriately"""
     try: 
         catalog_data = Catalogs.query_object("TIC " + str(int(target)), radius=0.02, catalog="TIC")
         #https://arxiv.org/pdf/1905.10694.pdf
@@ -254,8 +259,8 @@ def astroquery_pull_data(target):
         title = "connection error, no data"
     return title
 
-#plotting classification color coded inset plots:
-def features_insets2D_colored(time, intensity, feature_vectors, targets, classifications, folder):
+#plotting DBSCAN classification color coded inset plots:
+def features_insets2D_colored(time, intensity, feature_vectors, targets, hand_classes, folder):
     """plotting (n 2) features against each other w/ inset plots
     inset plots are colored based on the hand classification value given to them
     feature_vectors is the list of ALL feature_vectors
@@ -279,6 +284,10 @@ def features_insets2D_colored(time, intensity, feature_vectors, targets, classif
     fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
                     "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
                     "P0", "P1", "P2", "Period0to0_1"]
+    
+    db = DBSCAN(eps=2.2, min_samples=18).fit(feats) #eps is NOT epochs
+    classes_dbscan = db.labels_
+    
     for n in range(16):
         graph_label1 = graph_labels[n]
         fname_label1 = fname_labels[n]
@@ -294,17 +303,17 @@ def features_insets2D_colored(time, intensity, feature_vectors, targets, classif
             fig, ax1 = plt.subplots()
             
             for p in range(len(feature_vectors)):
-                if classes[p] == 0:
+                if hand_classes[p] == 0:
                     color = "red"
-                elif classes[p] == 1:
+                elif hand_classes[p] == 1:
                     color = "blue"
-                elif classes[p] == 2:
+                elif hand_classes[p] == 2:
                     color = "green"
-                elif classes[p] == 3:
+                elif hand_classes[p] == 3:
                     color = "purple"
-                elif classes[p] == 4:
+                elif hand_classes[p] == 4:
                     color = "yellow"
-                elif classes[p] == 5:
+                elif hand_classes[p] == 5:
                     color = "magenta"
                 
                 ax1.scatter(feat1[p], feat2[p], c = color, s = 2)
@@ -315,18 +324,20 @@ def features_insets2D_colored(time, intensity, feature_vectors, targets, classif
             ax1.set_xlabel(graph_label1)
             ax1.set_ylabel(graph_label2)
             
-            plot_inset_color(ax1, "axins1", targets, intensity, time, feature_vectors, classes, n, m)
+            plot_inset_color(ax1, "axins1", targets, intensity, time, feature_vectors, hand_classes, classes_dbscan, n, m)
     
             plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
             plt.show()
             
 
     
-def plot_inset_color(ax1, axis_name, targets, intensity, time, feature_vectors, classes, feat1, feat2):
+def plot_inset_color(ax1, axis_name, targets, intensity, time, feature_vectors, realclasses, guessclasses, feat1, feat2):
     """ plots the inset plots. colored to match the hand classification assigned to it 
     ax1 is the name of the axis being used. it is ESSENTIAL to getting this to run
     axis_name should be axins + a number as a STRING
-    feat1 is x axis, feat2 is yaxis (n and m)"""
+    feat1 is x axis, feat2 is yaxis (n and m)
+    colors the inset plot with what the predictor thinks it is
+    colors the points and lines connecting with what the actual class is"""
     range_x = feature_vectors[:,feat1].max() - feature_vectors[:,feat1].min()
     range_y = feature_vectors[:,feat2].max() - feature_vectors[:,feat2].min()
     x_offset = range_x * 0.001
@@ -341,19 +352,20 @@ def plot_inset_color(ax1, axis_name, targets, intensity, time, feature_vectors, 
         index = indexes_unique[n]
         thetuple = tuples_plotting[n]
         title = titles[n]
-        classy = int(classes[index])
-        colors = ["red","blue", "green", "purple" ,"yellow", "magenta"]
+        real_class = int(realclasses[index])
+        guessed_class = int(guessclasses[index])
+        colors = ["red","blue", "green", "purple" ,"yellow", "magenta", 'black']
         
         inset_x, inset_y, inset_width, inset_height = check_box_location(feature_vectors, thetuple, feat1, feat2, range_x, range_y, x_shift, y_shift, inset_positions)
         inset_positions[n] = (inset_x, inset_y)
         #print(inset_positions)
         axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
-        axis_name.scatter(time, intensity[index], c=colors[classy], s = 0.01, rasterized=True)
+        axis_name.scatter(time, intensity[index], c=colors[guessed_class], s = 0.01, rasterized=True)
             
         x1, x2, y1, y2 =  feature_vectors[index][feat1], feature_vectors[index][feat1] + x_offset, feature_vectors[index][feat2], feature_vectors[index][feat2] + y_offset
         axis_name.set_xlim(x1, x2)
         axis_name.set_ylim(y1, y2)
-        ax1.indicate_inset_zoom(axis_name, edgecolor=colors[classy])
+        ax1.indicate_inset_zoom(axis_name, edgecolor=colors[real_class])
             
         axis_name.set_xlim(time[0], time[-1])
         axis_name.set_ylim(intensity[index].min(), intensity[index].max())
@@ -362,9 +374,9 @@ def plot_inset_color(ax1, axis_name, targets, intensity, time, feature_vectors, 
 #PLOTTING INSET PLOTS (x/y max/min points per feature)
 
 def features_insets2D(time, intensity, feature_vectors, targets, folder):
-    """plotting (n 2) features against each other w/ 4 extremes inset plotted
-    feature_vectors is the list of ALL feature_vectors
-    date must be a string in the format of the folder you are saving into ie "4-13"
+    """plotting (n 2) features against each other w/ extremes inset plotted
+    feature_vectors is the list of ALL feature vectors
+    folder is a string, to be sandwiched in. typically "plot_output/date"
     """   
     path = "/Users/conta/UROP_Spring_2020/" + folder + "/2DFeatures-insets"
     try:
