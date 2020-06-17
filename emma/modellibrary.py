@@ -673,7 +673,9 @@ def normalize(flux):
 def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
                    num_sigma=5, orbit_gap_len = 3, DEBUG_INTERP=False,
                    output_dir='./', prefix=''):
-    '''Interpolates nan gaps less than 20 minutes long.'''
+    '''Linearly interpolates nan gaps less than 20 minutes long. Spline
+    interpolates nan gaps more than 20 minutes long (and shorter than orbit
+    gap)'''
     from astropy.stats import SigmaClip
     from scipy import interpolate
     
@@ -730,25 +732,14 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     
     # >> fit spline to non-nan points
     num_inds = np.nonzero( (~np.isnan(i)) * (~np.isnan(time)) )
-    use_splrep = False
-    if use_splrep:
-        tck = interpolate.splrep(time[num_inds], i[num_inds], k=3)
-    else:
-        cs= interpolate.CubicSpline(time[num_inds], i[num_inds])
-        # i_cs = cs(time[num_inds])
-        # num_inds_time = np.nonzero(~np.isnan(time))
-        # i_cs = cs(time[num_inds_time])
-        t1 = np.linspace(np.min(time[num_inds]), np.max(time[num_inds]),
-                         len(time))
-        t1 = np.delete(t1, np.nonzero(np.isnan(time)))
-        i_cs = cs(t1)
+    cs= interpolate.CubicSpline(time[num_inds], i[num_inds])
+    t1 = np.linspace(np.min(time[num_inds]), np.max(time[num_inds]),
+                     len(time))
+    t1 = np.delete(t1, np.nonzero(np.isnan(time)))
+    i_cs = cs(t1)
     if DEBUG_INTERP:
-        if use_splrep:
-            i_plot = interpolate.splev(time[num_inds],tck)
-            ax[3].plot(time[num_inds], i_plot, '-')
-        else:
-            i_plot = i_cs
-            ax[3].plot(t1, i_cs, '-')
+        i_plot = i_cs
+        ax[3].plot(t1, i_cs, '-')
         
         ax[3].set_title('spline') 
     
@@ -756,32 +747,14 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     for a in range(np.shape(interp_inds)[0]):
         start_ind = interp_inds[a]
         end_ind   = interp_inds[a] + interp_lens[a] - 1
-        # >> pad [etc 060720]
-        # start_ind = max(0, start_ind-10)
-        # end_ind = min(len(time)-1, end_ind + 10)
-        # t_new = np.linspace(time[start_ind-1]+tdim, time[end_ind-1]+tdim,
-        #                     end_ind-start_ind)
 
-        if use_splrep:
-            t_new = np.linspace(time[start_ind], time[end_ind],
-                            end_ind-start_ind)     
-            i_interp[start_ind:end_ind]=interpolate.splev(t_new, tck)
+        if not np.isnan(time[start_ind]):
+            start_ind_cs = np.argmin(np.abs(t1 - time[start_ind]))
+            end_ind_cs = start_ind_cs + (end_ind-start_ind)
         else:
-            # start_ind_cs = num_inds_time[0].tolist().index(start_ind)
-            # end_ind_cs = num_inds_time[0].tolist().index(end_ind)
-            # start_ind_cs = num_inds[0].tolist().index(start_ind)
-            # end_ind_cs = num_inds[0].tolist().index(end_ind)                    
-            # i_interp[start_ind:end_ind]=i_cs[start_ind_cs:end_ind_cs]
-            # t_new = np.linspace(time[start_ind], time[end_ind],
-            #                     end_ind-start_ind)
-            # i_interp[start_ind:end_ind]=cs(t_new)
-            if not np.isnan(time[start_ind]):
-                start_ind_cs = np.argmin(np.abs(t1 - time[start_ind]))
-                end_ind_cs = start_ind_cs + (end_ind-start_ind)
-            else:
-                end_ind_cs = np.argmin(np.abs(t1 - time[end_ind]))
-                start_ind_cs = end_ind_cs - (end_ind-start_ind)
-            i_interp[start_ind:end_ind] = i_cs[start_ind_cs:end_ind_cs]
+            end_ind_cs = np.argmin(np.abs(t1 - time[end_ind]))
+            start_ind_cs = end_ind_cs - (end_ind-start_ind)
+        i_interp[start_ind:end_ind] = i_cs[start_ind_cs:end_ind_cs]
     if DEBUG_INTERP:
         ax[4].plot(time, i_interp, '.k', markersize=2)
         ax[4].set_title('spline interpolate')
