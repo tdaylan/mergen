@@ -670,142 +670,156 @@ def normalize(flux):
     flux = flux / medians - 1.
     return flux
 
-def interpolate_lc(flux, time, flux_err=False, interp_tol=20./(24*60),
-                   num_sigma=5, orbit_gap_len = 3, DEBUG=False,
-                   output_dir='./', prefix='',
-                   spline_interpolate=True):
+def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
+                   num_sigma=5, orbit_gap_len = 3, DEBUG_INTERP=False,
+                   output_dir='./', prefix=''):
     '''Interpolates nan gaps less than 20 minutes long.'''
     from astropy.stats import SigmaClip
     from scipy import interpolate
+    
+    # >> plot original light curve
+    if DEBUG_INTERP:
+        fig, ax = plt.subplots(5, 1, figsize=(8, 3*5))
+        ax[0].plot(time, i, '.k', markersize=2)
+        ax[0].set_title('original')
+    
+    # -- sigma clip ----------------------------------------------------------
+    sigclip = SigmaClip(sigma=num_sigma, maxiters=None, cenfunc='median')
+    clipped_inds = np.nonzero(np.ma.getmask(sigclip(i, masked=True)))
+    i[clipped_inds] = np.nan
+    if DEBUG_INTERP:
+        ax[1].plot(time, i, '.k', markersize=2)
+        ax[1].set_title('clipped')
+    
+    # >> find nan windows
+    n = np.shape(i)[0]
+    loc_run_start = np.empty(n, dtype=bool)
+    loc_run_start[0] = True
+    np.not_equal(np.isnan(i)[:-1], np.isnan(i)[1:], out=loc_run_start[1:])
+    run_starts = np.nonzero(loc_run_start)[0]
+
+    # >> find nan window lengths
+    run_lengths = np.diff(np.append(run_starts, n))
+    tdim = time[1]-time[0]
+    
+    # -- interpolate small nan gaps ------------------------------------------
+    interp_gaps = np.nonzero((run_lengths * tdim <= interp_tol) * \
+                                        np.isnan(i[run_starts]))
+    interp_inds = run_starts[interp_gaps]
+    interp_lens = run_lengths[interp_gaps]
+
+    i_interp = np.copy(i)
+    for a in range(np.shape(interp_inds)[0]):
+        start_ind = interp_inds[a]
+        end_ind = interp_inds[a] + interp_lens[a]
+        i_interp[start_ind:end_ind] = np.interp(time[start_ind:end_ind],
+                                                time[np.nonzero(~np.isnan(i))],
+                                                i[np.nonzero(~np.isnan(i))])
+    i = i_interp
+    if DEBUG_INTERP:
+        ax[2].plot(time, i, '.k', markersize=2)
+        ax[2].set_title('interpolated')
+    
+    # -- spline interpolate large nan gaps -----------------------------------
+    orbit_gap_len = np.count_nonzero(np.isnan(time))*tdim
+    interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
+                             (run_lengths*tdim < 0.9*orbit_gap_len) * \
+                             np.isnan(i[run_starts]))
+    interp_inds = run_starts[interp_gaps]
+    interp_lens = run_lengths[interp_gaps]
+    
+    # >> fit spline to non-nan points
+    num_inds = np.nonzero( (~np.isnan(i)) * (~np.isnan(time)) )
+    use_splrep = False
+    if use_splrep:
+        tck = interpolate.splrep(time[num_inds], i[num_inds], k=3)
+    else:
+        cs= interpolate.CubicSpline(time[num_inds], i[num_inds])
+        # i_cs = cs(time[num_inds])
+        # num_inds_time = np.nonzero(~np.isnan(time))
+        # i_cs = cs(time[num_inds_time])
+        t1 = np.linspace(np.min(time[num_inds]), np.max(time[num_inds]),
+                         len(time))
+        t1 = np.delete(t1, np.nonzero(np.isnan(time)))
+        i_cs = cs(t1)
+    if DEBUG_INTERP:
+        if use_splrep:
+            i_plot = interpolate.splev(time[num_inds],tck)
+            ax[3].plot(time[num_inds], i_plot, '-')
+        else:
+            i_plot = i_cs
+            ax[3].plot(t1, i_cs, '-')
+        
+        ax[3].set_title('spline') 
+    
+    i_interp = np.copy(i)
+    for a in range(np.shape(interp_inds)[0]):
+        start_ind = interp_inds[a]
+        end_ind   = interp_inds[a] + interp_lens[a] - 1
+        # >> pad [etc 060720]
+        # start_ind = max(0, start_ind-10)
+        # end_ind = min(len(time)-1, end_ind + 10)
+        # t_new = np.linspace(time[start_ind-1]+tdim, time[end_ind-1]+tdim,
+        #                     end_ind-start_ind)
+
+        if use_splrep:
+            t_new = np.linspace(time[start_ind], time[end_ind],
+                            end_ind-start_ind)     
+            i_interp[start_ind:end_ind]=interpolate.splev(t_new, tck)
+        else:
+            # start_ind_cs = num_inds_time[0].tolist().index(start_ind)
+            # end_ind_cs = num_inds_time[0].tolist().index(end_ind)
+            # start_ind_cs = num_inds[0].tolist().index(start_ind)
+            # end_ind_cs = num_inds[0].tolist().index(end_ind)                    
+            # i_interp[start_ind:end_ind]=i_cs[start_ind_cs:end_ind_cs]
+            # t_new = np.linspace(time[start_ind], time[end_ind],
+            #                     end_ind-start_ind)
+            # i_interp[start_ind:end_ind]=cs(t_new)
+            if not np.isnan(time[start_ind]):
+                start_ind_cs = np.argmin(np.abs(t1 - time[start_ind]))
+                end_ind_cs = start_ind_cs + (end_ind-start_ind)
+            else:
+                end_ind_cs = np.argmin(np.abs(t1 - time[end_ind]))
+                start_ind_cs = end_ind_cs - (end_ind-start_ind)
+            i_interp[start_ind:end_ind] = i_cs[start_ind_cs:end_ind_cs]
+    if DEBUG_INTERP:
+        ax[4].plot(time, i_interp, '.k', markersize=2)
+        ax[4].set_title('spline interpolate')
+        fig.tight_layout()
+        fig.savefig(output_dir + prefix + 'interpolate_debug.png',
+                    bbox_inches='tight')
+        plt.close(fig)
+        
+    return i_interp
+        
+def nan_mask(flux, time, flux_err=False, interp_tol=20/(24*60),
+             num_sigma=5, orbit_gap_len = 3, DEBUG=False, debug_ind=1042,
+             output_dir='./', prefix='',
+             spline_interpolate=True):
+    # >> interpolate 
     flux_interp = []
     for j in range(len(flux)):
         i = flux[j]
-        if DEBUG and j == 1042:
-            fig, ax = plt.subplots(6, 1, figsize=(8, 3*6))
-            ax[0].plot(time, i, '.k', markersize=2)
-            ax[0].set_title('original')
-        # >> sigma clip
-        sigclip = SigmaClip(sigma=num_sigma, maxiters=None, cenfunc='median')
-        clipped_inds = np.nonzero(np.ma.getmask(sigclip(i, masked=True)))
-        i[clipped_inds] = np.nan
-        if DEBUG and j == 1042:
-            ax[1].plot(time, i, '.k', markersize=2)
-            ax[1].set_title('clipped')
-        
-        # >> find nan windows
-        n = np.shape(i)[0]
-        loc_run_start = np.empty(n, dtype=bool)
-        loc_run_start[0] = True
-        np.not_equal(np.isnan(i)[:-1], np.isnan(i)[1:], out=loc_run_start[1:])
-        run_starts = np.nonzero(loc_run_start)[0]
+        if j == debug_ind: DEBUG_INTERP=True
+        i_interp = interpolate_lc(i, time, flux_err=flux_err,
+                                  interp_tol=interp_tol, num_sigma=num_sigma,
+                                  orbit_gap_len=orbit_gap_len,
+                                  DEBUG_INTERP=DEBUG_INTERP,
+                                  output_dir=output_dir, prefix=prefix)
+        flux_interp.append(i_interp)
     
-        # >> find nan window lengths
-        run_lengths = np.diff(np.append(run_starts, n))
-        tdim = time[1]-time[0]
-        
-        # -- interpolate small nan gaps ---------------------------------------
-        interp_gaps = np.nonzero((run_lengths * tdim <= interp_tol) * \
-                                            np.isnan(i[run_starts]))
-        interp_inds = run_starts[interp_gaps]
-        interp_lens = run_lengths[interp_gaps]
-
-
-        i_interp = np.copy(i)
-        for a in range(np.shape(interp_inds)[0]):
-            start_ind = interp_inds[a]
-            end_ind = interp_inds[a] + interp_lens[a]
-            i_interp[start_ind:end_ind] = np.interp(time[start_ind:end_ind],
-                                                    time[np.nonzero(~np.isnan(i))],
-                                                    i[np.nonzero(~np.isnan(i))])
-        i = i_interp
-        if DEBUG and j == 1042:
-            ax[2].plot(time, i, '.k', markersize=2)
-            ax[2].set_title('interpolated')
-        
-        # -- spline interpolate large nan gaps --------------------------------
-        if spline_interpolate:
-            orbit_gap_len = np.count_nonzero(np.isnan(time))*tdim
-            interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
-                                     (run_lengths*tdim < 0.9*orbit_gap_len) * \
-                                     np.isnan(i[run_starts]))
-            interp_inds = run_starts[interp_gaps]
-            interp_lens = run_lengths[interp_gaps]
-            
-            # >> fit spline to non-nan points
-            num_inds = np.nonzero(~np.isnan(i))
-            use_splrep = False
-            if use_splrep:
-                tck = interpolate.splrep(time[num_inds], i[num_inds], k=3)
-            else:
-                cs= interpolate.CubicSpline(time[num_inds], i[num_inds])
-                # i_cs = cs(time[num_inds])
-                # num_inds_time = np.nonzero(~np.isnan(time))
-                # i_cs = cs(time[num_inds_time])
-                t1 = np.linspace(np.min(time[num_inds]), np.max(time[num_inds]),
-                                 len(time))
-                t1 = np.delete(t1, np.nonzero(np.isnan(time)))
-                i_cs = cs(t1)
-            if DEBUG and j==1042:
-                if use_splrep:
-                    i_plot = interpolate.splev(time[num_inds],tck)
-                    ax[3].plot(time[num_inds], i_plot, '-')
-                else:
-                    i_plot = i_cs
-                    ax[3].plot(t1, i_cs, '-')
-                
-                ax[3].set_title('spline') 
-            
-            i_interp = np.copy(i)
-            for a in range(np.shape(interp_inds)[0]):
-                start_ind = interp_inds[a]
-                end_ind   = interp_inds[a] + interp_lens[a] - 1
-                # >> pad [etc 060720]
-                # start_ind = max(0, start_ind-10)
-                # end_ind = min(len(time)-1, end_ind + 10)
-                # t_new = np.linspace(time[start_ind-1]+tdim, time[end_ind-1]+tdim,
-                #                     end_ind-start_ind)
-
-                if use_splrep:
-                    t_new = np.linspace(time[start_ind], time[end_ind],
-                                    end_ind-start_ind)     
-                    i_interp[start_ind:end_ind]=interpolate.splev(t_new, tck)
-                else:
-                    # start_ind_cs = num_inds_time[0].tolist().index(start_ind)
-                    # end_ind_cs = num_inds_time[0].tolist().index(end_ind)
-                    # start_ind_cs = num_inds[0].tolist().index(start_ind)
-                    # end_ind_cs = num_inds[0].tolist().index(end_ind)                    
-                    # i_interp[start_ind:end_ind]=i_cs[start_ind_cs:end_ind_cs]
-                    # t_new = np.linspace(time[start_ind], time[end_ind],
-                    #                     end_ind-start_ind)
-                    # i_interp[start_ind:end_ind]=cs(t_new)
-                    if not np.isnan(time[start_ind]):
-                        start_ind_cs = np.argmin(np.abs(t1 - time[start_ind]))
-                        end_ind_cs = start_ind_cs + (end_ind-start_ind)
-                    else:
-                        end_ind_cs = np.argmin(np.abs(t1 - time[end_ind]))
-                        start_ind_cs = end_ind_cs - (end_ind-start_ind)
-                    i_interp[start_ind:end_ind] = i_cs[start_ind_cs:end_ind_cs]
-            flux_interp.append(i_interp)
-            if DEBUG and j==1042:
-                ax[4].plot(time, i_interp, '.k', markersize=2)
-                ax[4].set_title('spline interpolate')
-        else:
-            flux_interp.append(i)
-        
-    # -- remove orbit nan gap -------------------------------------------------
+    # >> remove remaining nan gaps from all light curves
     flux = np.array(flux_interp)
     nan_inds = np.nonzero(np.prod(~np.isnan(flux), 
                                   axis = 0) == False)
     time = np.delete(time, nan_inds)
     flux = np.delete(flux, nan_inds, 1)
     if DEBUG:
-        ax[5].plot(time, flux[1042], '.k', markersize=2)
-        ax[5].set_title('removed orbit gap')
+        fig, ax = plt.subplots()
+        ax.plot(time, flux[debug_ind], '.k', markersize=2)
+        ax.set_title('removed orbit gap')
         fig.tight_layout()
-
-        # for a in ax.flatten():
-        #     format_axes(a, xlabel=True, ylabel=True)
-        fig.savefig(output_dir + prefix + 'interpolate_debug.png',
+        fig.savefig(output_dir + prefix + 'nanmask_debug.png',
                     bbox_inches='tight')
         plt.close(fig) 
     
@@ -814,6 +828,7 @@ def interpolate_lc(flux, time, flux_err=False, interp_tol=20./(24*60),
         return flux, time, flux_err
     else:
         return flux, time
+    
 
 # :: mock data ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -1252,7 +1267,7 @@ def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
     ngroups = int(len(inds)/ncols)
     nrows = int(3*ngroups)
     fig, axes = plt.subplots(nrows, ncols, figsize=(15,5), sharey=sharey,
-                             sharex=True)
+                             sharex=False)
     plt.subplots_adjust(hspace=0)
     for i in range(ncols):
         for ngroup in range(ngroups):
@@ -1269,6 +1284,7 @@ def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
             for j in range(3):
                 format_axes(axes[ngroup*3+j,i])
         axes[1, i].set_xlabel('\u03C6', fontsize='small')
+        axes[1,i].set_xticklabels([])
         if feature_vector:
             axes[0, i].set_xlabel('\u03C8', fontsize='small')            
             axes[-1, i].set_xlabel('\u03C8', fontsize='small') 
@@ -1599,7 +1615,13 @@ def plot_lof(time, intensity, targets, features, n, path,
             elif i == 1: ind = smallest_indices[k]
             elif i == 2: ind = np.random.choice(range(len(lof)-1))
             
-            
+            # >> plot momentum dumps
+            for t in mom_dumps:
+                ymin = 0.85*np.min(intensity[ind])
+                ymax = 1.15*np.max(intensity[ind])
+                # ax[k].plot([t,t], [0, 1], '--g', alpha=0.5)
+                ax[k].plot([t,t], [ymin, ymax], '--g', alpha=0.5)
+                
             # >> plot light curve
             ax[k].plot(time, intensity[ind] + addend, '.k', markersize=2)
             ax[k].text(0.98, 0.02, '%.3g'%lof[ind], transform=ax[k].transAxes,
@@ -1609,10 +1631,6 @@ def plot_lof(time, intensity, targets, features, n, path,
             if not mock_data:
                 ticid_label(ax[k], targets[ind], title=True)
 
-            # >> plot momentum dumps
-            for t in mom_dumps:
-                ax[k].plot([t,t], [0, 1], '--g', alpha=0.5,
-                           transform=ax[k].transAxes)
         if feature_vector:
             ax[n-1].set_xlabel('\u03C8')
         else:
@@ -1800,11 +1818,90 @@ def plot_classification(time, intensity, targets, labels, path,
                     bbox_inches='tight')
         plt.close(fig)
         
+def plot_pca(bottleneck, classes, n_components=2, output_dir='./'):
+    from sklearn.decomposition import PCA
+    import pandas as pd
+    pca = PCA(n_components=n_components)
+    principalComponents = pca.fit_transform(bottleneck)
+    # principalDf = pd.DataFrame(data = principalComponents,
+    #                            columns=['principal component 1',
+    #                                     'principal component 2'])
+    fig, ax = plt.subplots()
+    ax.set_ylabel('Principal Component 1')
+    ax.set_xlabel('Principal Component 2')
+    ax.set_title('2 component PCA')
+    
+    # >> loop through classes
+    class_labels = np.unique(classes)
+    for i in range(len(class_labels)):
+        inds = np.nonzero(classes == class_labels[i])
+        if class_labels[i] == 0:
+            color='r'
+        elif class_labels[i] == 1:
+            color = 'b'
+        elif class_labels[i] == 2:
+            color='g'
+        elif class_labels[i] == 3:
+            color='m'
+        else:
+            color='k'
+        
+        ax.plot(principalComponents[inds][:,0], principalComponents[inds][:,1],
+                '.'+color, markersize=2)
+    fig.savefig(output_dir + 'PCA_plot.png')
+        
+    
+        
 # :: pull files with astroquery :::::::::::::::::::::::::::::::::::::::::::::::
 # adapted from pipeline.py
     
 
+def get_lc(ticid, out='./', DEBUG_INTERP=False, download_fits=True):
+    '''input a ticid, returns light curve'''
+    from astroquery.mast import Observations
+    from astropy.io import fits
+    import fnmatch
+    
+    # >> download fits file
+    targ = 'TIC ' + str(int(ticid))
+    
+    if download_fits:
+        try: 
+            obs_table = Observations.query_object(targ, radius=".02 deg")
+            
+            # >> find all data products for ticid
+            data_products_by_obs = Observations.get_product_list(obs_table[0:2])
+            
+            filter_products = \
+                Observations.filter_products(data_products_by_obs,
+                                             dataproduct_type = 'timeseries',
+                                             description = 'Light curves',
+                                             extension='fits')
+                
+            # >> download fits file
+            manifest = \
+                Observations.download_products(filter_products,
+                                               download_dir = out)
+        except (ConnectionError, OSError, TimeoutError):
+            print(targ + "could not be accessed due to an error")
+        
+    # >> find fits file
+    fnames_all = os.listdir(out)
+    fname = fnmatch.filter(fnames_all, '*'+str(int(ticid))+'*fits*')[0]
+    
+    # >> read fits file
+    f = fits.open(out+fname)
+    time = f[1].data['TIME']
+    flux = f[1].data['PDCSAP_FLUX']
+    # time = fits.getdata(out+fname, 1)['TIME']
+    # flux = fits.getdata(out+fname, 1)['PDCSAP_FLUX']
+    flux = interpolate_lc(flux, time, DEBUG_INTERP=DEBUG_INTERP,
+                          output_dir=out)
+    return flux
+    
+
 def get_fits_files(mypath, target_list):
+    '''target_list from tess.txt generated in get_target_list'''
     from astroquery.mast import Observations
     for ticid in target_list:
         targ = 'TIC ' + str(int(ticid))
@@ -1822,6 +1919,52 @@ def get_fits_files(mypath, target_list):
                                                download_dir = mypath)
         except (ConnectionError, OSError, TimeoutError):
             print(targ + "could not be accessed due to an error")
+            
+def get_target_list(sector_num, output_dir='./'):
+    '''Get TICID from sector_num (given as int)'''
+    from astroquery.mast import Observations
+    from astroquery.mast import Tesscut
+    obs_table = Observations.query_criteria(obs_collection='TESS',
+                                            dataproduct_type='TIMESERIES',
+                                            sequence_number=sector_num)
+    
+    print(obs_table)
+    target_list = np.copy(obs_table['target_name'])
+    
+    cam_list = []
+    ccd_list = []
+    for target in target_list:
+        obj_name = 'TIC ' + target
+        try:
+            obj_table = Tesscut.get_sectors(obj_name)
+            ind = np.nonzero(obj_table['sector']==sector_num)
+            cam_list.append(obj_table['camera'][ind][0])
+            ccd_list.append(obj_table['ccd'][ind][0])
+            
+            with open(output_dir+'tess-s00'+str(sector_num)+'.txt', 'a') as f:
+                f.write(obj_name + ' {} {} {}\n'.format(obj_table['sector'][ind][0],
+                                                        obj_table['camera'][ind][0],
+                                                        obj_table['ccd'][ind][0]))
+        except:
+            print('failed! '+target)
+            with open(output_dir+'tess-s00'+str(sector_num)+'skip.txt', 'a') as f:
+                f.write(obj_name+'\n')
+                        
+    # >> also save .txt files for each camera and ccd
+    cam_list = np.array(cam_list)
+    ccd_list = np.array(ccd_list)
+    print(np.unique(cam_list))
+    print(np.unique(ccd_list))
+    for cam in range(4):
+        for ccd in range(4):
+            inds = np.nonzero( (cam_list==cam) * (cam_list==ccd) )[0]
+            with open(output_dir+'tess-s00'+str(sector_num)+'-'+str(cam)+'-'+\
+                      str(ccd)+'.txt', 'a') as f:
+                for i in inds:
+                    f.write(target_list[i]+'\n')
+        
+    return target_list
+    
             
 
 # move all fits files into one folder?
