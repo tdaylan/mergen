@@ -18,7 +18,7 @@ import modellibrary as ml
 
 # fitspath = './tessdata_sector20/'
 fitspath = './tessdata_lc/'
-output_dir = './plots/plots060620/'
+output_dir = './plots/plots060620-1/'
 
 fnames_all = os.listdir(fitspath)
 fnames = fnmatch.filter(fnames_all, '*fits*')
@@ -26,15 +26,15 @@ fnames = fnmatch.filter(fnames_all, '*fits*')
 # fnames.pop(fnames.index('tess2019357164649-s0020-0000000156168236-0165-s_lc.fits'))
 
 interp_tol = 20. / (24*60) # >> interpolate small gaps (less than 20 minutes)
-num_sigma=10
+num_sigma=5
 DEBUG = True
 debug_ticid = 428885434
 
 intensity = []
-prefix = 's0020-before_orbit-'
+prefix = 's0020-full_orbit-'
 
 plot = False
-before_orbit = True
+before_orbit = False
 
 classified = False
 if classified:
@@ -76,7 +76,11 @@ for file in fnames:
 intensity = np.array(intensity)
 intensity_interp, time_interp = ml.interpolate_lc(intensity, time,
                                                   interp_tol = interp_tol,
-                                                  num_sigma=num_sigma)
+                                                  num_sigma=num_sigma,
+                                                  DEBUG=True,
+                                                  output_dir=output_dir,
+                                                  prefix='sigma_clip'+'-'+\
+                                                      str(num_sigma)+'-')
 
 if before_orbit:
     orbit_gap_start = np.argmax(np.diff(time_interp))
@@ -108,7 +112,7 @@ if DEBUG:
 if plot:
     for i in range(np.shape(intensity)[0]):
         fig, ax = plt.subplots(1,1)
-        ax.plot(time, intensity[i], '.')
+        ax.plot(time, intensity[i], '.k', markersize=2)
         plt.savefig(output_dir + fnames[i][14:-5] + 'interpolated' + '.png')
         plt.close(fig)
     
