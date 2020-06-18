@@ -57,15 +57,18 @@ def diagnostic_plots(history, model, p, output_dir,
                      addend = 1., feature_vector=False, percentage=False,
                      plot_epoch = True,
                      plot_in_out = True,
-                     plot_in_bottle_out=True,
+                     plot_in_bottle_out=False,
                      plot_latent_test = False,
                      plot_latent_train = False,
                      plot_kernel=False,
                      plot_intermed_act=False,
                      plot_clustering=False,
                      make_movie = False,
-                     plot_lof_test=True,
-                     plot_lof_train=True):
+                     plot_lof_test=False,
+                     plot_lof_train=False,
+                     plot_lof_all=True,
+                     plot_reconstruction_error_test=False,
+                     plot_reconstruction_error_all=True):
     '''Produces all plots.
     Parameters:
         * history : Keras model.history
@@ -108,6 +111,21 @@ def diagnostic_plots(history, model, p, output_dir,
                                      sharey=False, mock_data=mock_data,
                                      feature_vector=feature_vector)
             
+    # >> plot light curves with highest, smallest and random reconstruction
+    #    error
+    if plot_reconstruction_error_test:
+        plot_reconstruction_error(x, x_test, x_test, x_predict, ticid_test,
+                                  output_dir=output_dir)
+    
+    if plot_reconstruction_error_all:
+        # >> concatenate test and train sets
+        tmp = np.concatenate([x_test, x_train], axis=0)
+        tmp_predict = model.predict(tmp)
+        plot_reconstruction_error(x, tmp, tmp, tmp_predict, 
+                                  np.concatenate([ticid_test, ticid_train],
+                                                 axis=0),
+                                  output_dir=output_dir)
+        
     # -- supervised -----------------------------------------------------------
     if supervised:
         y_train_classes = np.argmax(y_train, axis = 1)
@@ -141,7 +159,6 @@ def diagnostic_plots(history, model, p, output_dir,
                 plot_lof(x, x_test, ticid_test, bottleneck, 20, output_dir,
                          prefix = 'test-', n_neighbors=n, mock_data=mock_data,
                          feature_vector=feature_vector)
-
             
     if plot_lof_train:
         activations_train = get_activations(model, x_train, rms_test=rms_train,
@@ -155,8 +172,17 @@ def diagnostic_plots(history, model, p, output_dir,
             else:
                 plot_lof(x, x_train, ticid_train, bottleneck_train, 20,
                          output_dir, prefix = 'train-', n_neighbors=n,
-                         mock_data=mock_data, feature_vector=feature_vector)            
-        
+                         mock_data=mock_data, feature_vector=feature_vector)   
+                
+    if plot_lof_all:
+        activations_train = get_activations(model, x_train, rms_test=rms_train,
+                                    input_rms=input_rms)
+        bottleneck_train = get_bottleneck(model, activations_train, p)
+        bottleneck_all = np.concatenate([bottleneck, bottleneck_train], axis=0)
+        plot_lof(x, np.concatenate([x_test, x_train], axis=0),
+                 np.concatenate([ticid_test, ticid_train], axis=0),
+                 bottleneck_all, 20, output_dir, prefix='all-', n_neighbors=n,
+                 mock_data=mock_data, feature_vector=feature_vector)
 
     # >> plot kernel vs. filter
     if plot_kernel:
@@ -671,11 +697,12 @@ def normalize(flux):
     return flux
 
 def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
-                   num_sigma=5, orbit_gap_len = 3, DEBUG_INTERP=False,
+                   num_sigma=5, orbit_gap_len = 1.5*(24*3600.),
+                   DEBUG_INTERP=False,
                    output_dir='./', prefix=''):
-    '''Linearly interpolates nan gaps less than 20 minutes long. Spline
-    interpolates nan gaps more than 20 minutes long (and shorter than orbit
-    gap)'''
+    '''Interpolation for one light curve. Linearly interpolates nan gaps less
+    than 20 minutes long. Spline interpolates nan gaps more than 20 minutes
+    long (and shorter than orbit gap)'''
     from astropy.stats import SigmaClip
     from scipy import interpolate
     
@@ -723,7 +750,7 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
         ax[2].set_title('interpolated')
     
     # -- spline interpolate large nan gaps -----------------------------------
-    orbit_gap_len = np.count_nonzero(np.isnan(time))*tdim
+    # orbit_gap_len = np.count_nonzero(np.isnan(time))*tdim
     interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
                              (run_lengths*tdim < 0.9*orbit_gap_len) * \
                              np.isnan(i[run_starts]))
@@ -737,6 +764,7 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
                      len(time))
     t1 = np.delete(t1, np.nonzero(np.isnan(time)))
     i_cs = cs(t1)
+    
     if DEBUG_INTERP:
         i_plot = i_cs
         ax[3].plot(t1, i_cs, '-')
@@ -755,6 +783,7 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
             end_ind_cs = np.argmin(np.abs(t1 - time[end_ind]))
             start_ind_cs = end_ind_cs - (end_ind-start_ind)
         i_interp[start_ind:end_ind] = i_cs[start_ind_cs:end_ind_cs]
+        
     if DEBUG_INTERP:
         ax[4].plot(time, i_interp, '.k', markersize=2)
         ax[4].set_title('spline interpolate')
@@ -766,7 +795,8 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     return i_interp
         
 def nan_mask(flux, time, flux_err=False, interp_tol=20/(24*60),
-             num_sigma=5, orbit_gap_len = 3, DEBUG=False, debug_ind=1042,
+             num_sigma=5, orbit_gap_len = 1.*(24*3600.),
+             DEBUG=False, debug_ind=1042,
              output_dir='./', prefix='',
              spline_interpolate=True):
     # >> interpolate 
@@ -777,7 +807,7 @@ def nan_mask(flux, time, flux_err=False, interp_tol=20/(24*60),
         i_interp = interpolate_lc(i, time, flux_err=flux_err,
                                   interp_tol=interp_tol, num_sigma=num_sigma,
                                   orbit_gap_len=orbit_gap_len,
-                                  DEBUG_INTERP=DEBUG_INTERP,
+                                  DEBUG_INTERP=DEBUG,
                                   output_dir=output_dir, prefix=prefix)
         flux_interp.append(i_interp)
     
@@ -1223,6 +1253,7 @@ def epoch_plots(history, p, out_dir, supervised):
         ax1.tick_params('both', labelsize='x-small')
         fig.tight_layout()
         plt.savefig(out_dir + 'loss.png')
+        plt.close(fig)
             
     
 def input_bottleneck_output_plot(x, x_test, x_predict, activations, model,
@@ -1312,6 +1343,7 @@ def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
         axes.set_ylim(ymin=ymin, ymax=ymax)
         # fig.tight_layout()
         fig.savefig('./image-000.png')
+        plt.close(fig)
 
         # >> plot intermediate activations
         n=1
@@ -1329,6 +1361,7 @@ def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
                 axes.set_ylim(ymin=ymin, ymax =ymax)
                 # fig.tight_layout()
                 fig.savefig('./image-' + f'{n:03}.png')
+                plt.close(fig)
                 n += 1
             elif len(np.shape(activation)) > 2:
                 # >> don't plot activations with multiple filters
@@ -1345,6 +1378,7 @@ def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
                     axes.set_ylim(ymin = ymin, ymax = ymax)
                     # fig.tight_layout()
                     fig.savefig('./image-' + f'{n:03}.png')
+                    plt.close(fig)
                     n += 1
         os.system('ffmpeg -framerate 2 -i ./image-%03d.png -pix_fmt yuv420p '+\
                   out_dir+str(c)+'ind-movie.mp4')
@@ -1542,24 +1576,29 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
     # fig1.tight_layout()
     fig.savefig(out+'train.png')
     fig1.savefig(out+'test.png')
+    plt.close(fig)
+    plt.close(fig1)
 
 def plot_lof(time, intensity, targets, features, n, path,
              momentum_dump_csv = './Table_of_momentum_dumps.csv',
              n_neighbors=20,
-             prefix='', mock_data=False, addend=1., feature_vector=False):
+             prefix='', mock_data=False, addend=1., feature_vector=False,
+             n_tot=200):
     """ Adapted from Lindsey Gordon's feature_functions.py
     Plots the 20 most and least interesting light curves based on LOF.
     Parameters:
-        * time array
+        * time : array with shape 
         * intensity
         * targets : list of TICIDs
         * feature vector
-        * n : number of curves to plot
+        * n : number of curves to plot in each figure
+        * n_tot : total number of light curves to plots (number of figures =
+                  n_tot / n)
         * path : output directory
     """
     from sklearn.neighbors import LocalOutlierFactor
 
-    # >> calculate LOF
+    # -- calculate LOF -------------------------------------------------------
     clf = LocalOutlierFactor(n_neighbors=n_neighbors)
     fit_predictor = clf.fit_predict(features)
     negative_factor = clf.negative_outlier_factor_
@@ -1569,6 +1608,12 @@ def plot_lof(time, intensity, targets, features, n, path,
     largest_indices = ranked[::-1][:n] # >> outliers
     smallest_indices = ranked[:n] # >> inliers
     
+    # >> save LOF values in txt file 
+    with open(path+'lof-'+prefix+'.txt') as f:
+        for i in range(len(targets)):
+            f.write('{} {}\n'.format(targets[i], lof[i]))
+    
+    # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
     with open(momentum_dump_csv, 'r') as f:
         lines = f.readlines()
@@ -1577,49 +1622,93 @@ def plot_lof(time, intensity, targets, features, n, path,
                           (mom_dumps <= np.max(time)))
         mom_dumps = np.array(mom_dumps)[inds]
 
-    # [etc 052620] merged for loops, now reports random lof
-    for i in range(3): # >> loop through smallest, largest, random LOF plots
-        # fig, ax = plt.subplots(n, 1, sharex=True)
-        fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
-        # fig.subplots_adjust(hspace=0)
+    # -- plot smallest and largest LOF light curves --------------------------
+    num_figs = int(n_tot/n) # >> number of figures to generate
+    
+    for j in range(num_figs):
         
-        for k in range(n): # >> loop through each row
-            if i == 0: ind = largest_indices[k]
-            elif i == 1: ind = smallest_indices[k]
-            elif i == 2: ind = np.random.choice(range(len(lof)-1))
+        for i in range(2): # >> loop through smallest and largest LOF plots
+            fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
             
-            # >> plot momentum dumps
-            for t in mom_dumps:
-                ymin = 0.85*np.min(intensity[ind])
-                ymax = 1.15*np.max(intensity[ind])
-                # ax[k].plot([t,t], [0, 1], '--g', alpha=0.5)
-                ax[k].plot([t,t], [ymin, ymax], '--g', alpha=0.5)
+            for k in range(n): # >> loop through each row
+                if i == 0: ind = largest_indices[j*n + k]
+                elif i == 1: ind = smallest_indices[j*n + k]\
                 
-            # >> plot light curve
-            ax[k].plot(time, intensity[ind] + addend, '.k', markersize=2)
-            ax[k].text(0.98, 0.02, '%.3g'%lof[ind], transform=ax[k].transAxes,
-                       horizontalalignment='right', verticalalignment='bottom',
-                       fontsize='xx-small')
-            format_axes(ax[k], ylabel=True)
-            if not mock_data:
-                ticid_label(ax[k], targets[ind], title=True)
-
-        if feature_vector:
-            ax[n-1].set_xlabel('\u03C8')
-        else:
-            ax[n-1].set_xlabel('time [BJD - 2457000]')
-        if i == 0:
-            fig.suptitle(str(n) + ' largest LOF targets', fontsize=16, y=0.9)
-            fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
-                        + "-largest.png", bbox_inches='tight')
-        elif i == 1:
-            fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16, y=0.9)
-            fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors)  \
-                        + "-smallest.png", bbox_inches='tight')
-        elif i == 2:
-            fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
-            fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
-                        + "-random.png", bbox_inches='tight')
+                # >> plot momentum dumps
+                for t in mom_dumps:
+                    ymin = 0.85*np.min(intensity[ind])
+                    ymax = 1.15*np.max(intensity[ind])
+                    # ax[k].plot([t,t], [0, 1], '--g', alpha=0.5)
+                    ax[k].plot([t,t], [ymin, ymax], '--g', alpha=0.5)
+                    
+                # >> plot light curve
+                ax[k].plot(time, intensity[ind] + addend, '.k', markersize=2)
+                ax[k].text(0.98, 0.02, '%.3g'%lof[ind],
+                           transform=ax[k].transAxes,
+                           horizontalalignment='right',
+                           verticalalignment='bottom',
+                           fontsize='xx-small')
+                format_axes(ax[k], ylabel=True)
+                if not mock_data:
+                    ticid_label(ax[k], targets[ind], title=True)
+    
+            # >> label axes
+            if feature_vector:
+                ax[n-1].set_xlabel('\u03C8')
+            else:
+                ax[n-1].set_xlabel('time [BJD - 2457000]')
+                
+            # >> save figures
+            if i == 0:
+                fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
+                             y=0.9)
+                fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
+                            str(n_neighbors) + '-largest_' + str(j*n) + 'to' +\
+                            str(j*n + n) + '.png',
+                            bbox_inches='tight')
+                plt.close(fig)
+            elif i == 1:
+                fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
+                             y=0.9)
+                fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
+                            str(n_neighbors) + '-smallest' + str(j*n) + 'to' +\
+                            str(j*n + n) + '.png',
+                            bbox_inches='tight')
+                plt.close(fig)
+                    
+    # -- plot n random LOF light curves --------------------------------------
+    fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))   
+                 
+    for k in range(n):
+        ind = np.random.choice(range(len(lof)-1))
+            
+        # >> plot momentum dumps
+        for t in mom_dumps:
+            ymin = 0.85*np.min(intensity[ind])
+            ymax = 1.15*np.max(intensity[ind])
+            # ax[k].plot([t,t], [0, 1], '--g', alpha=0.5)
+            ax[k].plot([t,t], [ymin, ymax], '--g', alpha=0.5)
+            
+        # >> plot light curve
+        ax[k].plot(time, intensity[ind] + addend, '.k', markersize=2)
+        ax[k].text(0.98, 0.02, '%.3g'%lof[ind], transform=ax[k].transAxes,
+                   horizontalalignment='right', verticalalignment='bottom',
+                   fontsize='xx-small')
+        
+        # >> formatting
+        format_axes(ax[k], ylabel=True)
+        if not mock_data:
+            ticid_label(ax[k], targets[ind], title=True)
+    if feature_vector:
+        ax[n-1].set_xlabel('\u03C8')
+    else:
+        ax[n-1].set_xlabel('time [BJD - 2457000]')     
+    fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
+    
+    # >> save figure
+    fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
+                + "-random.png", bbox_inches='tight')
+    plt.close(fig)
     
 def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     import pandas as pd
@@ -1686,15 +1775,14 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
 
 def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
                               output_dir='./', addend=1., mock_data=False,
-                              feature_vector=False):
+                              feature_vector=False, n=20):
     '''For autoencoder, intensity = x_test'''
     # >> calculate reconstruction error (mean squared error)
     err = (x_test - x_predict)**2
     err = np.mean(err, axis=1)
     err = err.reshape(np.shape(err)[0])
     
-    # >> get top 20
-    n=20
+    # >> get top n light curves
     ranked = np.argsort(err)
     largest_inds = ranked[::-1][:n]
     smallest_inds = ranked[:n]
@@ -1870,7 +1958,7 @@ def get_lc(ticid, out='./', DEBUG_INTERP=False, download_fits=True):
     # flux = fits.getdata(out+fname, 1)['PDCSAP_FLUX']
     flux = interpolate_lc(flux, time, DEBUG_INTERP=DEBUG_INTERP,
                           output_dir=out)
-    return flux
+    return time, flux
     
 
 def get_fits_files(mypath, target_list):
