@@ -14,15 +14,16 @@ import pickle
 import feature_functions as ff
 from keras.models import load_model
 
-output_dir = './plots/plots061720/'
+output_dir = './plots/plots061920/'
 
 hyperparameter_optimization = False
 run_model = True
 diag_plots = True
+classification=False # >> runs dbscan
 run_tic = True # >> input a TICID
 DBSCAN_parameter_search=True
 
-tics = [219107776.0] # >> for run_tic
+tics = [219107776.0, 185336364.0] # >> for run_tic
 
 # >> unsupervised mode
 fname_time='./sector_20_lc/Sector20Cam1CCD1_times_processed.txt'
@@ -44,21 +45,26 @@ fname_ticid=['./sector_20_lc/Sector20Cam1CCD1_targets.txt',
              './sector_20_lc/Sector20Cam1CCD2_targets.txt',
              './sector_20_lc/Sector20Cam1CCD3_targets.txt']
 
+fname_time=['./s0020-time.txt']
+fname_flux=['./s0020-flux.csv']
+fname_ticid=['./s0020-ticid.txt']
+
 lengths = []
 time_list = []
 flux_list = []
 ticid_list = []
 for i in range(len(fname_time)):
     x     = np.loadtxt(fname_time[i])
-    flux  = np.loadtxt(fname_flux[i])
+    flux  = np.loadtxt(fname_flux[i], delimiter=',')
     ticid = np.loadtxt(fname_ticid[i])
     lengths.append(len(x))
     time_list.append(x)
     flux_list.append(flux)
     ticid_list.append(ticid)
     
-# !! won't need to concatenate once interpolation scheme changes 
-new_length = np.min(lengths)
+# # !! won't need to concatenate once interpolation scheme changes 
+# new_length = np.min(lengths)
+new_length = 18757 # !! length of tabby star
 x = []
 flux = []
 ticid = []
@@ -68,15 +74,25 @@ for i in range(len(fname_time)):
     ticid.extend(ticid_list[i])
 
 # !! tmp
+# new_length = np.shape(flux)[1]
 if run_tic:
     for i in range(len(tics)):
-        flux_tmp = ml.get_lc(str(int(tics[i])), out=output_dir, DEBUG_INTERP=True,
-                             download_fits=False)
-        flux_tmp = np.delete(flux_tmp, np.nonzero(np.isnan(flux_tmp)))
+        x_tmp, flux_tmp = ml.get_lc(str(int(tics[i])), out=output_dir,
+                                    DEBUG_INTERP=True,
+                                    download_fits=False)
+        # flux_tmp = np.delete(flux_tmp, np.nonzero(np.isnan(flux_tmp)))
+        # flux.append([flux_tmp[:new_length]])
+        flux_tmp = ml.interpolate_lc(flux_tmp, x_tmp,
+                                     prefix=str(int(tics[i])),
+                                     DEBUG_INTERP=True)
+        # flux_tmp = np.array([flux_tmp[:new_length]])
+        # flux = np.append(flux, flux_tmp, axis=0)
         flux.append([flux_tmp[:new_length]])
         ticid.extend([tics[i]])
+        # ticid = np.append(ticid, [tics[i]])
     
 flux = np.concatenate(flux, axis=0)
+flux, x = ml.nan_mask(flux, x, interpolate=False)
 
 # fname_time  = 's0020-before_orbit_only-time.txt'
 # fname_flux  = 's0020-before_orbit_only-flux.csv'
@@ -111,7 +127,7 @@ else:
     p = {'kernel_size': 7,
           'latent_dim': 21,
           'strides': 1,
-          'epochs': 10,
+          'epochs': 40,
           'dropout': 0.5,
           'num_filters': 64,
           'num_conv_layers': 4,
@@ -145,7 +161,7 @@ x_train, x_test, y_train, y_test, x = \
 
 ticid_train = ticid[:np.shape(x_train)[0]]
 ticid_test = ticid[-1 * np.shape(x_test)[0]:]
-        
+
 # == talos experiment =========================================================
 if hyperparameter_optimization:
     t = talos.Scan(x=np.concatenate([x_train, x_test]),
@@ -167,6 +183,10 @@ if hyperparameter_optimization:
 if run_model:
     history, model = ml.conv_autoencoder(x_train, x_train, x_test, x_test, p)
     x_predict = model.predict(x_test)
+    np.savetxt(output_dir+'x_predict.txt',
+               np.reshape(x_predict, (np.shape(x_predict)[0],
+                                      np.shape(x_predict)[1])),
+               delimiter=',')
     model.save(output_dir+"model.h5")
     print("Saved model!")
     
@@ -180,15 +200,18 @@ if run_model:
 
 if diag_plots:
     if run_model == False:
-        model = load_model(output_dir + 'model.h5')
+        # model = load_model(output_dir + 'model.h5')
         # history = pickle.load( open(output_dir + 'historydict.p', 'rb'))
         history = []
-        x_predict = model.predict(x_test)
+        x_predict = np.loadtxt(output_dir+'x_predict.txt', delimiter=',')
+        x_predict = np.reshape(x_predict, (np.shape(x_predict)[0],
+                                           np.shape(x_predict)[1], 1))
+        
         ml.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
                             x_predict, mock_data=mock_data, ticid_train=ticid_train,
-                            ticid_test=ticid_test,plot_intermed_act=True,
-                            plot_latent_test=True, plot_latent_train=True,
-                            make_movie=False, percentage=True, plot_epoch=False)
+                            ticid_test=ticid_test,plot_intermed_act=False,
+                            plot_latent_test=False, plot_latent_train=False,
+                            make_movie=False, percentage=False, plot_epoch=False)
     else:
         # ml.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
         #                     x_predict, mock_data=mock_data, ticid_train=ticid_train,
@@ -196,18 +219,20 @@ if diag_plots:
         #                     plot_latent_test=True, plot_latent_train=True,
         #                     make_movie=False, percentage=True)
         ml.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
-                            x_predict, mock_data=mock_data, ticid_train=ticid_train,
-                            ticid_test=ticid_test,plot_intermed_act=True,
-                            plot_latent_test=True, plot_latent_train=False,
+                            x_predict, mock_data=mock_data,
+                            ticid_train=ticid_train,
+                            ticid_test=ticid_test,
+                            plot_intermed_act=False,
+                            plot_latent_test=False,
+                            plot_latent_train=False,
                             make_movie=False, percentage=False)        
         # ml.param_summary(history, x_test, x_predict, p, output_dir, 0,
         #                   'tess-unsupervised')
         # ml.model_summary_txt(output_dir, model)
-    ml.plot_reconstruction_error(x, x_test, x_test, x_predict, ticid_test,
-                                  output_dir=output_dir)
-    
-    # >> Feature plots
-    
+
+
+# >> Feature plots
+if classification:
     activations = ml.get_activations(model, x_test)
     bottleneck = ml.get_bottleneck(model, activations, p)
     
