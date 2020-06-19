@@ -178,10 +178,14 @@ def diagnostic_plots(history, model, p, output_dir,
         activations_train = get_activations(model, x_train, rms_test=rms_train,
                                     input_rms=input_rms)
         bottleneck_train = get_bottleneck(model, activations_train, p)
+        bottleneck = get_bottleneck(model, activations, p)
         bottleneck_all = np.concatenate([bottleneck, bottleneck_train], axis=0)
+        np.savetxt(output_dir+'latent_space.txt', bottleneck_all,
+                   delimiter=',')
         plot_lof(x, np.concatenate([x_test, x_train], axis=0),
                  np.concatenate([ticid_test, ticid_train], axis=0),
-                 bottleneck_all, 20, output_dir, prefix='all-', n_neighbors=n,
+                 bottleneck_all, 20, output_dir, prefix='all-',
+                 n_neighbors=20,
                  mock_data=mock_data, feature_vector=feature_vector)
 
     # >> plot kernel vs. filter
@@ -697,8 +701,7 @@ def normalize(flux):
     return flux
 
 def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
-                   num_sigma=5, orbit_gap_len = 1.5*(24*3600.),
-                   DEBUG_INTERP=False,
+                   num_sigma=10, DEBUG_INTERP=False,
                    output_dir='./', prefix=''):
     '''Interpolation for one light curve. Linearly interpolates nan gaps less
     than 20 minutes long. Spline interpolates nan gaps more than 20 minutes
@@ -733,7 +736,7 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     
     # -- interpolate small nan gaps ------------------------------------------
     interp_gaps = np.nonzero((run_lengths * tdim <= interp_tol) * \
-                                        np.isnan(i[run_starts]))
+                             np.isnan(i[run_starts]))
     interp_inds = run_starts[interp_gaps]
     interp_lens = run_lengths[interp_gaps]
 
@@ -750,39 +753,64 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
         ax[2].set_title('interpolated')
     
     # -- spline interpolate large nan gaps -----------------------------------
-    # orbit_gap_len = np.count_nonzero(np.isnan(time))*tdim
-    interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
-                             (run_lengths*tdim < 0.9*orbit_gap_len) * \
-                             np.isnan(i[run_starts]))
-    interp_inds = run_starts[interp_gaps]
-    interp_lens = run_lengths[interp_gaps]
-    
     # >> fit spline to non-nan points
-    num_inds = np.nonzero( (~np.isnan(i)) * (~np.isnan(time)) )
-    cs= interpolate.CubicSpline(time[num_inds], i[num_inds])
-    t1 = np.linspace(np.min(time[num_inds]), np.max(time[num_inds]),
-                     len(time))
-    t1 = np.delete(t1, np.nonzero(np.isnan(time)))
-    i_cs = cs(t1)
+    num_inds = np.nonzero( (~np.isnan(i)) * (~np.isnan(time)) )[0]
+    ius = interpolate.InterpolatedUnivariateSpline(time[num_inds], i[num_inds])
+    
+    # >> new time array (take out orbit gap)
+    orbit_gap_start = num_inds[ np.argmax(np.diff(time[num_inds])) ]
+    orbit_gap_end = num_inds[ orbit_gap_start+1 ]
+    orbit_gap_len = orbit_gap_end - orbit_gap_start
+    # orbit_gap_len = (time[num_inds][orbit_gap_ind]-\
+    #                  time[num_inds][orbit_gap_ind+1]) * tdim
+    t_spl = np.copy(time)
+    t_spl = np.delete(t_spl, range(num_inds[-1], len(t_spl)))
+    t_spl = np.delete(t_spl, range(orbit_gap_start, orbit_gap_end))
+    t_spl = np.delete(t_spl, range(num_inds[0]))
+    # t_spl = np.copy(time[ np.nonzero(~np.isnan(time)) ])
+    # orbit_gap_inds = np.nonzero((t_spl > time[num_inds][orbit_gap_ind]) *\
+    #                             (t_spl < time[num_inds][orbit_gap_ind+1]))
+    # t_spl = np.delete(t_spl, orbit_gap_inds)
+    # t_spl = np.delete(t_spl, range(-num_inds[0][-1], ))
+    # t_spl = np.delete(t_spl, range(num_inds[0][0]))
+    
+    
+    # t1 = np.concatenate([np.linspace(np.nanmin(time[num_inds]),
+    #                                  time[num_inds][orbit_gap_ind],
+    #                                  num_inds[0][orbit_gap_ind]),
+    #                      np.linspace(time[num_inds][orbit_gap_ind+1],
+    #                                  np.nanmax(time[num_inds]),
+    #                                  len(time)-num_inds[0][orbit_gap_ind+1])],
+    #                     axis=0)
+    
+    # >> spline fit for new time array
+    i_spl = ius(t_spl)
     
     if DEBUG_INTERP:
-        i_plot = i_cs
-        ax[3].plot(t1, i_cs, '-')
-        
+        ax[3].plot(t_spl, i_spl, '.')
         ax[3].set_title('spline') 
     
+    # >> find nan gaps to spline interpolate over
+    interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
+                              np.isnan(i[run_starts]) * \
+                              (((run_starts > orbit_gap_start) * \
+                                (run_starts < orbit_gap_end)) == False))       
+    interp_inds = run_starts[interp_gaps]
+    interp_lens = run_lengths[interp_gaps]  
+    
+    # >> spline interpolate nan gaps
     i_interp = np.copy(i)
     for a in range(np.shape(interp_inds)[0]):
         start_ind = interp_inds[a]
         end_ind   = interp_inds[a] + interp_lens[a] - 1
 
         if not np.isnan(time[start_ind]):
-            start_ind_cs = np.argmin(np.abs(t1 - time[start_ind]))
-            end_ind_cs = start_ind_cs + (end_ind-start_ind)
+            start_ind_spl = np.argmin(np.abs(t_spl - time[start_ind]))
+            end_ind_spl = start_ind_spl + (end_ind-start_ind)
         else:
-            end_ind_cs = np.argmin(np.abs(t1 - time[end_ind]))
-            start_ind_cs = end_ind_cs - (end_ind-start_ind)
-        i_interp[start_ind:end_ind] = i_cs[start_ind_cs:end_ind_cs]
+            end_ind_spl = np.argmin(np.abs(t_spl - time[end_ind]))
+            start_ind_spl = end_ind_spl - (end_ind-start_ind)
+        i_interp[start_ind:end_ind] = i_spl[start_ind_spl:end_ind_spl]
         
     if DEBUG_INTERP:
         ax[4].plot(time, i_interp, '.k', markersize=2)
@@ -794,25 +822,27 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
         
     return i_interp
         
+
+
 def nan_mask(flux, time, flux_err=False, interp_tol=20/(24*60),
-             num_sigma=5, orbit_gap_len = 1.*(24*3600.),
+             num_sigma=5, 
              DEBUG=False, debug_ind=1042,
-             output_dir='./', prefix='',
-             spline_interpolate=True):
-    # >> interpolate 
-    flux_interp = []
-    for j in range(len(flux)):
-        i = flux[j]
-        if j == debug_ind: DEBUG_INTERP=True
-        i_interp = interpolate_lc(i, time, flux_err=flux_err,
-                                  interp_tol=interp_tol, num_sigma=num_sigma,
-                                  orbit_gap_len=orbit_gap_len,
-                                  DEBUG_INTERP=DEBUG,
-                                  output_dir=output_dir, prefix=prefix)
-        flux_interp.append(i_interp)
-    
-    # >> remove remaining nan gaps from all light curves
-    flux = np.array(flux_interp)
+             output_dir='./', prefix='', interpolate=False):
+    if interpolate:
+        # >> interpolate 
+        flux_interp = []
+        for j in range(len(flux)):
+            i = flux[j]
+            if j == debug_ind: DEBUG_INTERP=True
+            i_interp = interpolate_lc(i, time, flux_err=flux_err,
+                                      interp_tol=interp_tol,
+                                      num_sigma=num_sigma,
+                                      DEBUG_INTERP=DEBUG,
+                                      output_dir=output_dir, prefix=prefix)
+            flux_interp.append(i_interp)
+        
+        # >> remove remaining nan gaps from all light curves
+        flux = np.array(flux_interp)
     nan_inds = np.nonzero(np.prod(~np.isnan(flux), 
                                   axis = 0) == False)
     time = np.delete(time, nan_inds)
@@ -1605,13 +1635,16 @@ def plot_lof(time, intensity, targets, features, n, path,
     
     lof = -1 * negative_factor
     ranked = np.argsort(lof)
-    largest_indices = ranked[::-1][:n] # >> outliers
-    smallest_indices = ranked[:n] # >> inliers
+    largest_indices = ranked[::-1][:n_tot] # >> outliers
+    smallest_indices = ranked[:n_tot] # >> inliers
     
     # >> save LOF values in txt file 
-    with open(path+'lof-'+prefix+'.txt') as f:
+    with open(path+'lof-'+prefix+'.txt', 'w') as f:
         for i in range(len(targets)):
             f.write('{} {}\n'.format(targets[i], lof[i]))
+    # !! Tmp
+    print('Ex Dra LOF: '+str(lof[-2]))
+    print('Tabby LOF: '+str(lof[-1]))
     
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
@@ -1917,7 +1950,8 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./'):
 # adapted from pipeline.py
     
 
-def get_lc(ticid, out='./', DEBUG_INTERP=False, download_fits=True):
+def get_lc(ticid, out='./', DEBUG_INTERP=False, download_fits=True,
+           prefix=''):
     '''input a ticid, returns light curve'''
     from astroquery.mast import Observations
     from astropy.io import fits
@@ -1956,8 +1990,8 @@ def get_lc(ticid, out='./', DEBUG_INTERP=False, download_fits=True):
     flux = f[1].data['PDCSAP_FLUX']
     # time = fits.getdata(out+fname, 1)['TIME']
     # flux = fits.getdata(out+fname, 1)['PDCSAP_FLUX']
-    flux = interpolate_lc(flux, time, DEBUG_INTERP=DEBUG_INTERP,
-                          output_dir=out)
+    # flux = interpolate_lc(flux, time, DEBUG_INTERP=DEBUG_INTERP,
+    #                       output_dir=out, prefix=prefix)
     return time, flux
     
 
