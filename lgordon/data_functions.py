@@ -87,53 +87,46 @@ def load_in_a_group(sector, camera, ccd, path):
 
 
 #data process an entire group of TICs
-    
-def data_access_by_group(yourpath, sectorfile, sector, camera, ccd):
+def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd):
     """you will need:
         your path into the main folder you're working in - must end with /
         the file for your sector from TESS (full path)
         sector number (as int)
         camera number you want (as int/float)
         ccd number you want (as int/float)
-        this ONLY """
+        this ONLY 
+        returns the target list and folderpath for the group"""
     # produce the folder to save everything into and set up file names
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
     path = yourpath + folder_name
-    fname_time = path + "/" + folder_name + "_times_raw.txt"
-    fname_int = path + "/" + folder_name + "_intensities_raw.txt"
+    fname_time_intensities_raw = path + "/" + folder_name + "_raw_lightcurves.fits"
     fname_targets = path + "/" + folder_name + "_targets.txt"
     fname_notes = path + "/" + folder_name + "_group_notes.txt"
     
     try:
         os.makedirs(path)
         print ("Successfully created the directory %s" % path) 
-        with open(fname_time, 'a') as file_object:
-            file_object.write("This file contains the raw time indices for this group")
-        with open(fname_int, 'a') as file_object:
-            file_object.write("This file contains the raw intensities for this group")
         with open(fname_targets, 'a') as file_object:
-            file_object.write("This file contains the target TICs for this group")
+            file_object.write("This file contains the target TICs for this group. Fits light curves are 1-indexed, so first target is all zeroes \n 00000000")
         with open(fname_notes, 'a') as file_object:
             file_object.write("This file contains group notes, including any TICs that could not be accessed.")
         # get just the list of targets for the specified sector, camera, ccd --------
         target_list = lc_by_camera_ccd(sectorfile, camera, ccd)
         print("there are ", len(target_list), "targets")
     # get the light curve for each target on the list, and save into a text file
-        confirmation = lc_from_target_list(yourpath, target_list, fname_time, fname_int, fname_targets, fname_notes)
+        confirmation = lc_from_target_list_fits(yourpath, target_list, fname_time_intensities_raw, fname_targets, fname_notes)
         print(confirmation)
         #print("failed to get", len(failed_to_get), "targets")
-    # import the files you just created
-        times = np.loadtxt(fname_time, skiprows=1)
-        intensities = np.loadtxt(fname_int, skiprows=1)
         targets = np.loadtxt(fname_targets, skiprows=1)
         print("found data for ", len(targets), " targets")
     #check to be sure all have the same size, if not, report back an error
         
     except OSError: #if there is an error creating the folder
         print("There was an OS Error trying to create the folder. Checking to see if data is already saved there")
-        times = intensities = targets = path = "empty"
+        targets = "empty"
         
-    return times, intensities, targets, path
+    return targets, path
+
 
 def follow_up_on_missed_targets(yourpath, sector, camera, ccd):
     """ function to follow up on rejected TIC ids"""
@@ -218,34 +211,44 @@ def lc_by_camera_ccd(sectorfile, camera, ccd):
     matching_targets = target_list[indexes] #just grab those indexes
     return matching_targets #return list of only targets on that specific ccd
 
-def lc_from_target_list(yourpath, targetList, fname_time, fname_int, fname_targets, fname_notes):
+
+def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw, fname_targets, fname_notes):
     """ runs getting the files and data for all targets on the list
     then appends the time & intensity arrays and the TIC number into text files
     that can later be accessed"""
 
     for n in range(len(targetList)): #for each item on the list
-        target = targetList[n][0] #get that target number
-        time1, i1 = get_lc_file_and_data(yourpath, target) #go in and get the time and int
-        if type(time1) != np.ndarray: #if there was an error, add it to the list and continue
-        #    failed_to_get.append(target)
-            with open(fname_notes, 'a') as file_object:
-                file_object.write("\n")
-                file_object.write(str(int(target)))
-            continue
-    # add data to the files
-        with open(fname_targets, 'a') as file_object:
-            file_object.write("\n")
-            file_object.write(str(int(target)))
-        with open(fname_int, 'a') as file_object:   
-            file_object.write("\n")
-            np.savetxt(file_object, i1, delimiter = ',', newline = ' ')
-            
-        if n == 1:
-            with open(fname_time, 'a') as file_object:
-                file_object.write("\n")
-                np.savetxt(file_object, time1, delimiter = ',', newline = ' ')
+        if n == 0: #for the first target only do you need to get the time index
+            target = targetList[n][0] #get that target number
+            time1, i1 = get_lc_file_and_data(yourpath, target) #grab that data
+            if type(i1) == np.ndarray: #if the data IS data
+                hdr = fits.Header() #make-a the header
+                hdu = fits.PrimaryHDU(time1, header=hdr)
+                hdu.writeto(fname_time_intensities_raw) #make the fits file
+                fits.append(fname_time_intensities_raw, i1, header=hdr) #append the light curve as an image hdu
+                with open(fname_targets, 'a') as file_object:
+                    file_object.write("\n")
+                    file_object.write(str(int(target))) #put the target name into the target file
+            else: #if the data is NOT a data
+                print("oops the first one failed, no time index was saved")
+                with open(fname_notes, 'a') as file_object:
+                    file_object.write("\n")
+                    file_object.write(str(int(target)))
+        else: #only saving the light curve into the fits file because it's all you need
+            target = targetList[n][0] #get that target number
+            time1, i1 = get_lc_file_and_data(yourpath, target)
+            if type(i1) == np.ndarray: #IF THE DATA IS FORMATTED LKE DATA
+                fits.append(fname_time_intensities_raw, i1, header=hdr)
+                with open(fname_targets, 'a') as file_object:
+                    file_object.write("\n")
+                    file_object.write(str(int(target)))
+            else: #IF THE DATA IS NOT DATA
+                print("File failed to return targets")
+                with open(fname_notes, 'a') as file_object:
+                    file_object.write("\n")
+                    file_object.write(str(int(target)))
         
-        if n %50 == 0: #every 50, print how many have been done
+        if n %10 == 0: #every 50, print how many have been done
             print(str(n), "completed")
     confirmation = "lc_from_target_list has finished running"
     return confirmation
@@ -260,7 +263,7 @@ def get_lc_file_and_data(yourpath, target):
     try:
         #find and download data products for your target
         obs_table = Observations.query_object(targ, radius=".02 deg")
-        data_products_by_obs = Observations.get_product_list(obs_table[0:5])
+        data_products_by_obs = Observations.get_product_list(obs_table[0:4])
             
         #in theory, filter_products should let you sort out the non fits files but i 
         #simply could not get it to accept it despite following the API guidelines
@@ -283,7 +286,7 @@ def get_lc_file_and_data(yourpath, target):
             time1 = 0
             i1 = 0
         else: #if there are lc.fits files, open them and get the goods
-                #get the goods and then close it
+                #get the goods and then close it #!!!!!!!!!!!!!!!!!!!! GET THE TIC FROM THE F I L E 
             f = fits.open(filepaths[0], memmap=False)
             time1 = f[1].data['TIME']
             i1 = f[1].data['PDCSAP_FLUX']                
@@ -752,7 +755,37 @@ def data_process_a_group(yourpath, sectorfile, sector, camera, ccd):
         
     return times, intensities, failed_to_get, targets, path, features
     
-    
+def lc_from_target_list_text(yourpath, targetList, fname_time, fname_int, fname_targets, fname_notes):
+    """ runs getting the files and data for all targets on the list
+    then appends the time & intensity arrays and the TIC number into text files
+    that can later be accessed"""
+
+    for n in range(len(targetList)): #for each item on the list
+        target = targetList[n][0] #get that target number
+        time1, i1 = get_lc_file_and_data(yourpath, target) #go in and get the time and int
+        if type(time1) != np.ndarray: #if there was an error, add it to the list and continue
+        #    failed_to_get.append(target)
+            with open(fname_notes, 'a') as file_object:
+                file_object.write("\n")
+                file_object.write(str(int(target)))
+            continue
+    # add data to the files
+        with open(fname_targets, 'a') as file_object:
+            file_object.write("\n")
+            file_object.write(str(int(target)))
+        with open(fname_int, 'a') as file_object:   
+            file_object.write("\n")
+            np.savetxt(file_object, i1, delimiter = ',', newline = ' ')
+            
+        if n == 1:
+            with open(fname_time, 'a') as file_object:
+                file_object.write("\n")
+                np.savetxt(file_object, time1, delimiter = ',', newline = ' ')
+        
+        if n %10 == 0: #every 50, print how many have been done
+            print(str(n), "completed")
+    confirmation = "lc_from_target_list has finished running"
+    return confirmation    
 #Functions for if you have a large batch of files already downloaded
 #def print_header(index):
  #   """ this isa very specific function that isn't used much anymore. 
@@ -821,6 +854,52 @@ def data_process_a_group(yourpath, sectorfile, sector, camera, ccd):
    # time = np.delete(time, nan_inds)
    # intensity = np.delete(intensity, nan_inds, 1) #each row of intensity is one interpolated light curve.
    # return time, intensity, targets
+def data_access_by_group_text(yourpath, sectorfile, sector, camera, ccd):
+    """you will need:
+        your path into the main folder you're working in - must end with /
+        the file for your sector from TESS (full path)
+        sector number (as int)
+        camera number you want (as int/float)
+        ccd number you want (as int/float)
+        this ONLY """
+    # produce the folder to save everything into and set up file names
+    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+    path = yourpath + folder_name
+    fname_time = path + "/" + folder_name + "_times_raw.txt"
+    fname_int = path + "/" + folder_name + "_intensities_raw.txt"
+    fname_targets = path + "/" + folder_name + "_targets.txt"
+    fname_notes = path + "/" + folder_name + "_group_notes.txt"
+    
+    try:
+        os.makedirs(path)
+        print ("Successfully created the directory %s" % path) 
+        with open(fname_time, 'a') as file_object:
+            file_object.write("This file contains the raw time indices for this group")
+        with open(fname_int, 'a') as file_object:
+            file_object.write("This file contains the raw intensities for this group")
+        with open(fname_targets, 'a') as file_object:
+            file_object.write("This file contains the target TICs for this group")
+        with open(fname_notes, 'a') as file_object:
+            file_object.write("This file contains group notes, including any TICs that could not be accessed.")
+        # get just the list of targets for the specified sector, camera, ccd --------
+        target_list = lc_by_camera_ccd(sectorfile, camera, ccd)
+        print("there are ", len(target_list), "targets")
+    # get the light curve for each target on the list, and save into a text file
+        confirmation = lc_from_target_list(yourpath, target_list, fname_time, fname_int, fname_targets, fname_notes)
+        print(confirmation)
+        #print("failed to get", len(failed_to_get), "targets")
+    # import the files you just created
+        times = np.loadtxt(fname_time, skiprows=1)
+        intensities = np.loadtxt(fname_int, skiprows=1)
+        targets = np.loadtxt(fname_targets, skiprows=1)
+        print("found data for ", len(targets), " targets")
+    #check to be sure all have the same size, if not, report back an error
+        
+    except OSError: #if there is an error creating the folder
+        print("There was an OS Error trying to create the folder. Checking to see if data is already saved there")
+        times = intensities = targets = path = "empty"
+        
+    return times, intensities, targets, path
 def interpolate_lc_old(time, intensities):
     """interpolates all light curves in an array of all light curves"""
     

@@ -18,6 +18,7 @@ rcParams['figure.figsize'] = 10,10
 rcParams["lines.markersize"] = 2
 from scipy.signal import argrelextrema
 
+
 import astropy
 from astropy.io import fits
 import scipy.signal as signal
@@ -64,10 +65,88 @@ from plotting_functions import *
 test_data() #should return 8 * 4
 test_plotting()
 #%%
+#convert into fits files
+#add TLS
+t, inty, targ, feats, notes = load_in_a_group(20,1,1,"/Users/conta/UROP_Spring_2020/")
 
-t, inty, targ, feats, notes = load_in_a_group(20,1,4,"/Users/conta/UROP_Spring_2020/")
 
-plot_lof(t, inty, targ, feats, 20, "/Users/conta/UROP_Spring_2020/Sector20Cam1CCD4/")
+#%%
+
+hdr = fits.Header()
+hdr['SECTOR'] = 20
+hdr['CAM'] = 1
+hdr['CCD'] = 1
+
+
+hdu = fits.PrimaryHDU(t, header=hdr)
+hdu.writeto('/Users/conta/UROP_Spring_2020/fitstesting3.fits')
+n2 = inty[0]
+fits.append('/Users/conta/UROP_Spring_2020/fitstesting3.fits', n2, header=hdr)
+
+#%%
+
+### timeout faster in script!
+
+def get_lc_file_and_data(yourpath, target):
+    """ goes in, grabs the data for the target, gets the time index, intensity,
+    etc. for the image. if connection error w/ MAST, skips it"""
+    fitspath = yourpath + 'mastDownload/TESS/'
+    targ = "TIC " + str(int(target))
+    print(targ)
+    try:
+        #find and download data products for your target
+        obs_table = Observations.query_object(targ, radius=".02 deg")
+        data_products_by_obs = Observations.get_product_list(obs_table[0:4])
+            
+        #in theory, filter_products should let you sort out the non fits files but i 
+        #simply could not get it to accept it despite following the API guidelines
+        filter_products = Observations.filter_products(data_products_by_obs, dataproduct_type = 'timeseries')
+        manifest = Observations.download_products(filter_products)
+            
+        #get all the paths to lc.fits files
+        filepaths = []
+        for root, dirs, files in os.walk(fitspath):
+            for name in files:
+                print(name)
+                if name.endswith(("lc.fits")):
+                    filepaths.append(root + "/" + name)
+                    #print("appended", name, "to filepaths")
+        
+        print(len(filepaths))
+        
+        if len(filepaths) == 0: #if no lc.fits were downloaded, move on
+            print(targ, "no light curve available")
+            time1 = 0
+            i1 = 0
+        else: #if there are lc.fits files, open them and get the goods
+                #get the goods and then close it #!!!!!!!!!!!!!!!!!!!! GET THE TIC FROM THE F I L E 
+            f = fits.open(filepaths[0], memmap=False)
+            time1 = f[1].data['TIME']
+            i1 = f[1].data['PDCSAP_FLUX']                
+            f.close()
+                  
+        #then delete all downloads in the folder, no matter what type
+        if os.path.isdir("mastDownload") == True:
+            shutil.rmtree("mastDownload")
+            print("folder deleted")
+            
+        #corrects for connnection errors
+    except (ConnectionError, OSError, TimeoutError, RemoteServiceError):
+        print(targ + "could not be accessed due to an error")
+        i1 = 0
+        time1 = 0
+    
+    return time1, i1
+
+
+#%%
+#how to put a time limit on this bitch
+    
+
+
+
+#%%
+data_access_by_group_fits("/Users/conta/UROP_Spring_2020/", "/Users/conta/UROP_Spring_2020/all_targets_S020_v1.txt", 20, 2, 1)
 #%%
 
 def get_lc_file_and_data(yourpath, target):
