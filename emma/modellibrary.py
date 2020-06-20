@@ -833,7 +833,6 @@ def nan_mask(flux, time, flux_err=False, interp_tol=20/(24*60),
         flux_interp = []
         for j in range(len(flux)):
             i = flux[j]
-            if j == debug_ind: DEBUG_INTERP=True
             i_interp = interpolate_lc(i, time, flux_err=flux_err,
                                       interp_tol=interp_tol,
                                       num_sigma=num_sigma,
@@ -843,10 +842,22 @@ def nan_mask(flux, time, flux_err=False, interp_tol=20/(24*60),
         
         # >> remove remaining nan gaps from all light curves
         flux = np.array(flux_interp)
-    nan_inds = np.nonzero(np.prod(~np.isnan(flux), 
-                                  axis = 0) == False)
-    time = np.delete(time, nan_inds)
-    flux = np.delete(flux, nan_inds, 1)
+    mask = np.nonzero(np.prod(~np.isnan(flux), axis = 0) == False)
+    
+    # >> plot histogram of number of data points thrown out
+    num_masked = []
+    for lc in flux:
+        num_inds = np.nonzero( ~np.isnan(lc) )
+        num_masked.append( len( np.intersect1d(num_inds, mask) ) )
+    plt.figure()
+    plt.hist(num_masked, bins=50)
+    plt.ylabel('number of light curves')
+    plt.xlabel('number of data points masked')
+    plt.savefig(output_dir + 'nan_mask.png')
+    plt.close()
+    
+    time = np.delete(time, mask)
+    flux = np.delete(flux, mask, 1)
     if DEBUG:
         fig, ax = plt.subplots()
         ax.plot(time, flux[debug_ind], '.k', markersize=2)
@@ -857,7 +868,7 @@ def nan_mask(flux, time, flux_err=False, interp_tol=20/(24*60),
         plt.close(fig) 
     
     if type(flux_err) != bool:
-        flux_err = np.delete(flux_err, nan_inds, 1)
+        flux_err = np.delete(flux_err, mask, 1)
         return flux, time, flux_err
     else:
         return flux, time
@@ -1642,9 +1653,6 @@ def plot_lof(time, intensity, targets, features, n, path,
     with open(path+'lof-'+prefix+'.txt', 'w') as f:
         for i in range(len(targets)):
             f.write('{} {}\n'.format(targets[i], lof[i]))
-    # !! Tmp
-    print('Ex Dra LOF: '+str(lof[-2]))
-    print('Tabby LOF: '+str(lof[-1]))
     
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
@@ -1819,6 +1827,12 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
     ranked = np.argsort(err)
     largest_inds = ranked[::-1][:n]
     smallest_inds = ranked[:n]
+    
+    # >> save in txt file
+    with open(output_dir+'reconstruction_error.txt', 'w') as f:
+        for i in range(len(ticid_test)):
+            f.write('{} {}\n'.format(ticid_test[i], err[i]))
+    
     for i in range(2):
         fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
         for k in range(n): # >> loop through each row
