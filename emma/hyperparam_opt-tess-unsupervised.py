@@ -10,6 +10,7 @@ import modellibrary as ml
 import numpy as np
 import talos
 import pdb
+import os
 import pickle
 import feature_functions as ff
 from keras.models import load_model
@@ -19,22 +20,13 @@ output_dir = './plots/plots061920/'
 hyperparameter_optimization = False
 run_model = True
 diag_plots = True
-classification=False # >> runs dbscan
-run_tic = True # >> input a TICID
+classification=False # >> runs dbscan, classifies light curves
+run_tic = True # >> input a TICID (temporary)
 DBSCAN_parameter_search=True
 
 tics = [219107776.0, 185336364.0] # >> for run_tic
 
-# >> unsupervised mode
-fname_time='./sector_20_lc/Sector20Cam1CCD1_times_processed.txt'
-fname_flux='./sector_20_lc/Sector20Cam1CCD1_intensities_processed.txt'
-fname_ticid='./sector_20_lc/Sector20Cam1CCD1_targets.txt'
-
-
-# x     = np.loadtxt(fname_time)
-# flux  = np.loadtxt(fname_flux, delimiter=',')
-# ticid = np.loadtxt(fname_ticid)
-
+# >> file names
 fname_time=['./sector_20_lc/Sector20Cam1CCD1_times_processed.txt',
             './sector_20_lc/Sector20Cam1CCD2_times_processed.txt',
             './sector_20_lc/Sector20Cam1CCD3_times_processed.txt']
@@ -49,70 +41,13 @@ fname_time=['./s0020-time.txt']
 fname_flux=['./s0020-flux.csv']
 fname_ticid=['./s0020-ticid.txt']
 
-lengths = []
-time_list = []
-flux_list = []
-ticid_list = []
-for i in range(len(fname_time)):
-    x     = np.loadtxt(fname_time[i])
-    flux  = np.loadtxt(fname_flux[i], delimiter=',')
-    ticid = np.loadtxt(fname_ticid[i])
-    lengths.append(len(x))
-    time_list.append(x)
-    flux_list.append(flux)
-    ticid_list.append(ticid)
-    
-# # !! won't need to concatenate once interpolation scheme changes 
-# new_length = np.min(lengths)
-new_length = 18757 # !! length of tabby star
-x = []
-flux = []
-ticid = []
-for i in range(len(fname_time)):
-    x = time_list[i][:new_length]
-    flux.append(flux_list[i][:,:new_length])
-    ticid.extend(ticid_list[i])
-
-# !! tmp
-# new_length = np.shape(flux)[1]
-if run_tic:
-    for i in range(len(tics)):
-        x_tmp, flux_tmp = ml.get_lc(str(int(tics[i])), out=output_dir,
-                                    DEBUG_INTERP=True,
-                                    download_fits=False)
-        # flux_tmp = np.delete(flux_tmp, np.nonzero(np.isnan(flux_tmp)))
-        # flux.append([flux_tmp[:new_length]])
-        flux_tmp = ml.interpolate_lc(flux_tmp, x_tmp,
-                                     prefix=str(int(tics[i])),
-                                     DEBUG_INTERP=True)
-        # flux_tmp = np.array([flux_tmp[:new_length]])
-        # flux = np.append(flux, flux_tmp, axis=0)
-        flux.append([flux_tmp[:new_length]])
-        ticid.extend([tics[i]])
-        # ticid = np.append(ticid, [tics[i]])
-    
-flux = np.concatenate(flux, axis=0)
-flux, x = ml.nan_mask(flux, x, interpolate=False)
-
-# fname_time  = 's0020-before_orbit_only-time.txt'
-# fname_flux  = 's0020-before_orbit_only-flux.csv'
-# fname_ticid = 's0020-before_orbit_only-ticid.txt'
-# fname_time  = 's0020-full_orbit-time.txt'
-# fname_flux  = 's0020-full_orbit-flux.csv'
-# fname_ticid = 's0020-full_orbit-ticid.txt'
-# fname_time  = 's0020-before_orbit-time.txt'
-# fname_flux  = 's0020-before_orbit-flux.csv'
-# fname_ticid = 's0020-before_orbit-ticid.txt'
-# fname_time  = 's0020-before_orbit-1155-time.txt' # s0020-1155-
-# fname_flux  = 's0020-before_orbit-1155-flux.csv'
-# fname_ticid = 's0020-before_orbit-1155-ticid.txt'
-
+# >> hyperparameters
 if hyperparameter_optimization:
     p = {'kernel_size': [3,5,7],
-      'latent_dim': [10],
+      'latent_dim': [50],
       'strides': [1],
       'epochs': [10],
-      'dropout': [0.1,0.3,0.5],
+      'dropout': list(np.arange(0.1, 0.5, 0.02)),
       'num_filters': [8, 16, 32, 64],
       'num_conv_layers': [2,4,6,8,10],
       'batch_size': [128],
@@ -139,9 +74,60 @@ else:
           'lr': 0.001,
           'initializer': 'random_uniform'}
 
+# -- create output directory --------------------------------------------------
+    
+if os.path.isdir(output_dir) == False:
+    os.mkdir(output_dir)
+
+# -- load data ----------------------------------------------------------------
+    
+lengths = []
+time_list = []
+flux_list = []
+ticid_list = []
+for i in range(len(fname_time)):
+    x     = np.loadtxt(fname_time[i])
+    flux  = np.loadtxt(fname_flux[i], delimiter=',')
+    ticid = np.loadtxt(fname_ticid[i])
+    lengths.append(len(x))
+    time_list.append(x)
+    flux_list.append(flux)
+    ticid_list.append(ticid)
+
+# !! tmp
+# new_length = np.shape(flux)[1]
+if run_tic:
+    # new_length = np.min(lengths)
+    new_length = 18757 # !! length of tabby star
+    x = []
+    flux = []
+    ticid = []
+    
+    # >> truncate all light curves
+    for i in range(len(fname_time)):
+        x = time_list[i][:new_length]
+        flux.append(flux_list[i][:,:new_length])
+        ticid.extend(ticid_list[i])
+        
+    # >> load and truncate tabby star, ex dra
+    for i in range(len(tics)):
+        x_tmp, flux_tmp = ml.get_lc(str(int(tics[i])), out=output_dir,
+                                    DEBUG_INTERP=True,
+                                    download_fits=False)
+        flux_tmp = ml.interpolate_lc(flux_tmp, x_tmp,
+                                     prefix=str(int(tics[i])),
+                                     DEBUG_INTERP=True)
+        flux.append([flux_tmp[:new_length]])
+        ticid.extend([tics[i]])
+        
+    # >> concatenate all light curves
+    flux = np.concatenate(flux, axis=0)
+    
+# >> apply nan mask
+flux, x = ml.nan_mask(flux, x, interpolate=False, output_dir=output_dir)
+pdb.set_trace()
 
 title='TESS-unsupervised'
-mock_data=False
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -208,18 +194,18 @@ if diag_plots:
                                            np.shape(x_predict)[1], 1))
         
         ml.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
-                            x_predict, mock_data=mock_data, ticid_train=ticid_train,
+                            x_predict, mock_data=False, ticid_train=ticid_train,
                             ticid_test=ticid_test,plot_intermed_act=False,
                             plot_latent_test=False, plot_latent_train=False,
                             make_movie=False, percentage=False, plot_epoch=False)
     else:
         # ml.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
-        #                     x_predict, mock_data=mock_data, ticid_train=ticid_train,
+        #                     x_predict, mock_data=False, ticid_train=ticid_train,
         #                     ticid_test=ticid_test,plot_intermed_act=True,
         #                     plot_latent_test=True, plot_latent_train=True,
         #                     make_movie=False, percentage=True)
         ml.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
-                            x_predict, mock_data=mock_data,
+                            x_predict, mock_data=False,
                             ticid_train=ticid_train,
                             ticid_test=ticid_test,
                             plot_intermed_act=False,
