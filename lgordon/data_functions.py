@@ -127,13 +127,11 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd):
         
     return targets, path
 
-
-def follow_up_on_missed_targets(yourpath, sector, camera, ccd):
+def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     """ function to follow up on rejected TIC ids"""
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
     path = yourpath + folder_name
-    fname_time = path + "/" + folder_name + "_times_raw.txt"
-    fname_int = path + "/" + folder_name + "_intensities_raw.txt"
+    fname_time_intensities_raw = path + "/" + folder_name + "_raw_lightcurves.fits"
     fname_targets = path + "/" + folder_name + "_targets.txt"
     fname_notes = path + "/" + folder_name + "_group_notes.txt"
     fname_notes_followed_up = path + "/" + folder_name + "_targets_still_no_data.txt"
@@ -146,15 +144,26 @@ def follow_up_on_missed_targets(yourpath, sector, camera, ccd):
         file_object.write("Data could not be found for the following TICs after two attempts")
     
     
-    confirmation = lc_from_target_list(yourpath, retry_targets, fname_time, fname_int, fname_targets, fname_notes_followed_up)
-    print(confirmation)
+    for n in range(len(retry_targets)):
+        target = retry_targets[n][0] #get that target number
+        time1, i1 = get_lc_file_and_data(yourpath, target)
+        if type(i1) == np.ndarray: #IF THE DATA IS FORMATTED LKE DATA
+            fits.append(fname_time_intensities_raw, i1, header=hdr)
+            with open(fname_targets, 'a') as file_object:
+                file_object.write("\n")
+                file_object.write(str(int(target)))
+        else: #IF THE DATA IS NOT DATA
+            print("File failed to return targets")
+            with open(fname_notes_followed_up, 'a') as file_object:
+                file_object.write("\n")
+                file_object.write(str(int(target)))
     
-    times = np.loadtxt(fname_time, skiprows=1)
-    intensities = np.loadtxt(fname_int, skiprows=1)
+    
     targets = np.loadtxt(fname_targets, skiprows=1)
     print("after following up, found data for ", len(targets), " targets")
     
-    return times, intensities, targets, path
+    return targets, path
+
 
 def interp_norm_sigmaclip_features(yourpath, times, intensities, targets, sector, camera, ccd):
     """interpolates, normalizes, and sigma clips all light curves
@@ -218,6 +227,8 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw, f
     that can later be accessed"""
 
     for n in range(len(targetList)): #for each item on the list
+        hdr = fits.Header() #make-a the header
+        
         if n == 0: #for the first target only do you need to get the time index
             target = targetList[n][0] #get that target number
             time1, i1 = get_lc_file_and_data(yourpath, target) #grab that data
@@ -947,3 +958,31 @@ def interpolate_lc_old(time, intensities):
     print(len(time_corrected), len(interpolated_intensities[0]))
     #interpolated_times = np.array(interpolated_times)
     return time_corrected, interpolated_intensities
+
+def follow_up_on_missed_targets(yourpath, sector, camera, ccd):
+    """ function to follow up on rejected TIC ids"""
+    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+    path = yourpath + folder_name
+    fname_time = path + "/" + folder_name + "_times_raw.txt"
+    fname_int = path + "/" + folder_name + "_intensities_raw.txt"
+    fname_targets = path + "/" + folder_name + "_targets.txt"
+    fname_notes = path + "/" + folder_name + "_group_notes.txt"
+    fname_notes_followed_up = path + "/" + folder_name + "_targets_still_no_data.txt"
+    
+    
+    retry_targets = np.loadtxt(fname_notes, skiprows=1)
+    retry_targets = np.column_stack((retry_targets, retry_targets)) #loak this is a crude way to get around some indexing issues and we're working with it
+    
+    with open(fname_notes_followed_up, 'a') as file_object:
+        file_object.write("Data could not be found for the following TICs after two attempts")
+    
+    
+    confirmation = lc_from_target_list(yourpath, retry_targets, fname_time, fname_int, fname_targets, fname_notes_followed_up)
+    print(confirmation)
+    
+    times = np.loadtxt(fname_time, skiprows=1)
+    intensities = np.loadtxt(fname_int, skiprows=1)
+    targets = np.loadtxt(fname_targets, skiprows=1)
+    print("after following up, found data for ", len(targets), " targets")
+    
+    return times, intensities, targets, path

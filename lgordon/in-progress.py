@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 """
 Created on Mon May 18 17:01:26 2020
 
@@ -53,7 +53,7 @@ import shapely
 from shapely import geometry
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
-
+#%%
 import classification_functions
 from classification_functions import *
 import data_functions
@@ -67,80 +67,173 @@ test_plotting()
 #%%
 #convert into fits files
 #add TLS
+
+#how to put a time limit on this bitch?
+# there was something else to do that was relevant - redoing interpolation routines
+#let's put the new features in
 t, inty, targ, feats, notes = load_in_a_group(20,1,1,"/Users/conta/UROP_Spring_2020/")
 
-
 #%%
-
-hdr = fits.Header()
-hdr['SECTOR'] = 20
-hdr['CAM'] = 1
-hdr['CCD'] = 1
-
-
-hdu = fits.PrimaryHDU(t, header=hdr)
-hdu.writeto('/Users/conta/UROP_Spring_2020/fitstesting3.fits')
-n2 = inty[0]
-fits.append('/Users/conta/UROP_Spring_2020/fitstesting3.fits', n2, header=hdr)
-
+import batman
+import numba
 #%%
+from transitleastsquares import transitleastsquares
+#%%
+model = transitleastsquares(t, inty)
+results = model.power()
+print(results)
+#%%
+t=np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD1/Sector20Cam1CCD1_times_processed.txt")
+inty = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD1/Sector20Cam1CCD1_intensities_processed.txt")[0]
 
-### timeout faster in script!
+#%%%
 
-def get_lc_file_and_data(yourpath, target):
-    """ goes in, grabs the data for the target, gets the time index, intensity,
-    etc. for the image. if connection error w/ MAST, skips it"""
-    fitspath = yourpath + 'mastDownload/TESS/'
-    targ = "TIC " + str(int(target))
-    print(targ)
-    try:
-        #find and download data products for your target
-        obs_table = Observations.query_object(targ, radius=".02 deg")
-        data_products_by_obs = Observations.get_product_list(obs_table[0:4])
-            
-        #in theory, filter_products should let you sort out the non fits files but i 
-        #simply could not get it to accept it despite following the API guidelines
-        filter_products = Observations.filter_products(data_products_by_obs, dataproduct_type = 'timeseries')
-        manifest = Observations.download_products(filter_products)
-            
-        #get all the paths to lc.fits files
-        filepaths = []
-        for root, dirs, files in os.walk(fitspath):
-            for name in files:
-                print(name)
-                if name.endswith(("lc.fits")):
-                    filepaths.append(root + "/" + name)
-                    #print("appended", name, "to filepaths")
-        
-        print(len(filepaths))
-        
-        if len(filepaths) == 0: #if no lc.fits were downloaded, move on
-            print(targ, "no light curve available")
-            time1 = 0
-            i1 = 0
-        else: #if there are lc.fits files, open them and get the goods
-                #get the goods and then close it #!!!!!!!!!!!!!!!!!!!! GET THE TIC FROM THE F I L E 
-            f = fits.open(filepaths[0], memmap=False)
-            time1 = f[1].data['TIME']
-            i1 = f[1].data['PDCSAP_FLUX']                
-            f.close()
-                  
-        #then delete all downloads in the folder, no matter what type
-        if os.path.isdir("mastDownload") == True:
-            shutil.rmtree("mastDownload")
-            print("folder deleted")
-            
-        #corrects for connnection errors
-    except (ConnectionError, OSError, TimeoutError, RemoteServiceError):
-        print(targ + "could not be accessed due to an error")
-        i1 = 0
-        time1 = 0
+def interp_norm_sigmaclip(yourpath, sector, camera, ccd):
+    """interpolates, normalizes, and sigma clips all light curves
+    then produces feature vectors for them"""
+    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+    path = yourpath + folder_name
+    fname_time_intensities_raw = path + "/" + folder_name + "_raw_lightcurves.fits"
+    fname_lc_processed = path + "/" + folder_name + "_processed_lightcurves.fits"
     
-    return time1, i1
+    f = fits.open(fname_time_intensities_raw)
+    t = f[0].data
+    
+    i = np.zeroes((len(f), len(t))) #f rows, t columns
+    
+    for n in range(len(f)): 
+        i[n] = f[n].data
+    
+    interp_t, interp_i = interpolate_lc(i, t, flux_err=False, interp_tol=20./(24*60),num_sigma=5, orbit_gap_len = 3, DEBUG=False,spline_interpolate=True)
+    i_norm = normalize(interp_i)
+    
+    hdr = fits.Header()
+    hdu = fits.PrimaryHDU(interp_t, header=hdr)
+    hdu.writeto(fname_lc_processed)
+    
+    for n in range(len(interp_i)):
+        fits.append(interp_i[n], header=hdr)
+    
+    
+    
+    return interp_t, interp_i
+
+def produce_save_feature_vectors(yourpath, times, intensities, targets, sector, camera, ccd):
+    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+    path = yourpath + folder_name
+    fname_features = path + "/"+ folder_name + "_features.fits"
+    
+    hdr = fits.Header()
+    hdu = fits.PrimaryHDU(folder_name,header=hdr)
+    hdu.writeto(fname_features)
+    
+    for n in range(len(intensities)):
+        feat = featvec(times, intensities[n])
+        fits.append(fnames_features, feat, header=hdr)
+    
 
 
 #%%
-#how to put a time limit on this bitch
+
+def featvec(x_axis, sampledata): 
+    """calculates the feature vector of the single set of data (ie, intensity[0])
+    currently returns 16: 
+        0 - Average
+        1 - Variance
+        2 - Skewness
+        3 - Kurtosis
+        
+        4 - ln variance
+        5 - ln skewness
+        6 - ln kurtosis
+        
+        (over 0.1 to 10 days)
+        7 - maximum power
+        8 - ln maximum power
+        9 - period of maximum power
+        
+        10 - slope
+        11 - ln slope
+        
+        (integration of periodogram over time frame)
+        12 - P0 - 0.1-1 days
+        13 - P1 - 1-3 days
+        14 - P2 - 3-10 days
+        
+        (over 0-0.1 days, for moving objects)
+        15 - Period of max power
+        
+        
+        ***if you update the number of features, 
+        you have to update the number of features in create_list_featvec!!!!"""
+    #empty feature vector
+    featvec = [] 
+    #moments
+    featvec.append(np.mean(sampledata)) #mean (don't use moment, always gives 0)
+    featvec.append(moment(sampledata, moment = 2)) #variance
+    featvec.append(moment(sampledata, moment = 3)) #skew
+    featvec.append(moment(sampledata, moment = 4)) #kurtosis
+    featvec.append(np.log(np.abs(moment(sampledata, moment = 2)))) #ln variance
+    featvec.append(np.log(np.abs(moment(sampledata, moment = 3)))) #ln skew
+    featvec.append(np.log(np.abs(moment(sampledata, moment = 4)))) #ln kurtosis
+    
+    #periods
+    f = np.linspace(0.6, 62.8, 5000)  #period range converted to frequencies
+    periods = np.linspace(0.1, 10, 5000)#0.1 to 10 day period
+    pg = signal.lombscargle(x_axis, sampledata, f, normalize = True)
+    rel_maxes = argrelextrema(pg, np.greater)
+    
+    powers = []
+    indexes = []
+    for n in range(len(rel_maxes[0])):
+        index = rel_maxes[0][n]
+        indexes.append(index)
+        power_level_at_rel_max = pg[index]
+        powers.append(power_level_at_rel_max)
+    
+    max_power = np.max(powers)
+    index_of_max_power = np.argmax(powers)
+    index_of_f_max = rel_maxes[0][index_of_max_power]
+    f_max_power = f[index_of_f_max]
+    period_max_power = 2*np.pi / f_max_power
+    
+    featvec.append(max_power)
+    featvec.append(np.log(np.abs(max_power)))
+    featvec.append(period_max_power)
+    
+    slope = stats.linregress(x_axis, sampledata)[0]
+    featvec.append(slope)
+    featvec.append(np.log(np.abs(slope)))
+    
+    #integrates the whole 0.1-10 day range
+    integrating1 = np.trapz(pg[457:5000], periods[457:5000]) #0.1 days to 1 days
+    integrating2 = np.trapz(pg[121:457], periods[121:457])#1-3 days
+    integrating3 = np.trapz(pg[0:121], periods[0:121]) #3-10 days
+    
+    featvec.append(integrating1)
+    featvec.append(integrating2)
+    featvec.append(integrating3)
+    
+    #for 0.001 to 1 day periods
+    f2 = np.linspace(62.8, 6283.2, 20)  #period range converted to frequencies
+    p2 = np.linspace(0.001, 0.1, 20)#0.001 to 1 day periods
+    pg2 = signal.lombscargle(x_axis, sampledata, f2, normalize = True)
+    rel_maxes2 = argrelextrema(pg2, np.greater)
+    powers2 = []
+    indexes2 = []
+    for n in range(len(rel_maxes2[0])):
+        index2 = rel_maxes2[0][n]
+        indexes2.append(index2)
+        power_level_at_rel_max2 = pg2[index2]
+        powers2.append(power_level_at_rel_max2)
+    max_power2 = np.max(powers2)
+    index_of_max_power2 = np.argmax(powers2)
+    index_of_f_max2 = rel_maxes2[0][index_of_max_power2]
+    f_max_power2 = f2[index_of_f_max2]
+    period_max_power2 = 2*np.pi / f_max_power2
+    featvec.append(period_max_power2)
+    #print("done")
+    return(featvec) 
     
 
 
@@ -370,138 +463,4 @@ path = "/Users/conta/UROP_Spring_2020/plot_output/6-5/color-shape-2D-plots-kmean
 hand_classes = classifications[:,1] #there are no class 5s for this group!!
 
 
-   
-#%%  
-
-features_insets2D_colored(t[0], inty, feats, targ, hand_classes, 'plot_output/6-12')
-
-#%%
-features_insets2D(t[0], inty, feats, targ, 'plot_output/6-12')
-
-#%%
-def calculate_polygon(inset_x, inset_y, inset_width, inset_height):
-    """ calculates the polygon of the inset plot"""
-    inset_BL = (inset_x, inset_y)
-    inset_BR = (inset_x + inset_width, inset_y)
-    inset_TL = (inset_x, inset_y + inset_height)
-    inset_TR = (inset_x + inset_width, inset_y + inset_height)
-    polygon = Polygon([inset_BL, inset_BR, inset_TL, inset_TR])
-    return polygon
-        
-def check_box_location(feature_vectors, coordtuple, feat1, feat2, range_x, range_y, x, y, inset_positions):
-    """ checks if data points lie within the area of the inset plot
-    coordtuple is the (x,y) point in feature space
-    feat1, feat2 are the number for the features being used
-    range_x and range_y are ranges for each feature
-    x is whether it will be left or right of the point
-    y is whether it will be above/below the point
-    inset_positions is a list  from a diff. function that holds the pos of insets
-    last updated 5/29/20"""
-    #position of box - needs to be dependent on location
-    #max and min of the x axis features
-    xmax = feature_vectors[:,feat1].max() 
-    xmin = feature_vectors[:,feat1].min()
-    
-    ymax = feature_vectors[:,feat2].max() #min/max of y axis feature vectors
-    ymin = feature_vectors[:,feat2].min()
-    
-    inset_width = range_x / 6 #this needs to be normalized to prevent weird stretching on graphs w/ bad proportions
-    inset_height = range_y /16
-    if x == 0:
-        inset_x = coordtuple[0] - (inset_width * 1.5) #move left of point
-    elif x == 1:
-        inset_x = coordtuple[0] + (inset_width * 1.5) #move right of point
-    if y == 0:
-        inset_y = coordtuple[1] + (inset_height) #move up from point
-    elif y == 1:
-        inset_y = coordtuple[1] - (inset_height) #move down from point
-    
-    conc = np.column_stack((feature_vectors[:,feat1], feature_vectors[:,feat2]))
-    polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-    
-    m = 0
-    i = 0
-    n = len(conc)
-    k = 0
-    
-    while i < n:
-        #is it on the graph? if it is not, move it, recalculate, and go back to the beginning
-        while m == 0:
-            if inset_x >= xmax:
-                inset_x = inset_x - inset_width
-                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                i = 0
-                k = 0
-            elif inset_x < xmin:
-                inset_x = inset_x + inset_width
-                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                i = 0
-                k = 0
-            elif inset_y >= ymax:
-                inset_y = inset_y - inset_height
-                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                i = 0
-                k = 0
-            elif inset_y < ymin:
-                inset_y = inset_y + inset_height
-                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                i = 0
-                k = 0
-            else: 
-                m = 1 #it is on the graph
-            
-        #is it on top of another plot? if it is, move it, recalculate, and go back to the 
-        #absolute beginning to double check if it's in the borders still
-        while k < 8:
-            bx, by = inset_positions[k]
-            p1 = calculate_polygon(bx, by, inset_width, inset_height)
-            if polygon.intersects(p1):
-                inset_x = inset_x + (0.1*range_x)
-                inset_y = inset_y + (0.1*range_y) 
-            
-                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                m = 0
-                k = 0
-                i = 0
-            else: 
-                k = k + 1 #check next inset in list
-            
-        #is it on top of a point? if it is, move it, recalculate, and go back to beginning
-        point = Point(conc[i])
-        if polygon.contains(point) == True:
-            if x == 0: 
-                inset_x = inset_x - (0.01 * range_x)
-            else:
-                inset_x = inset_x + (0.01 * range_x)
-                
-            if y == 0:
-                inset_y = inset_y + (0.01 * range_y)
-            else:
-                inset_y = inset_y - (0.01 * range_y)
-            
-            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-            
-            m = 0
-            k = 0
-            i = 0
-            #print("moving")
-        elif polygon.contains(point) == False:
-        #if not on top of a point, move to the next one
-            i = i + 1
-            
-    print("position determined")
-    
-    return inset_x, inset_y, inset_width, inset_height
-
-#%%
-    
-times, intensities, features = interp_norm_sigmaclip_features("/Users/conta/UROP_Spring_2020/", raw_time, raw_int, targets, 20, 1, 3)
-    
-#%%
-raw_time = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD3/Sector20Cam1CCD3_times_raw.txt", skiprows=1)
-raw_int = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD3/Sector20Cam1CCD3_intensities_raw.txt", skiprows=1)
-
-targets = np.loadtxt("/Users/conta/UROP_Spring_2020/Sector20Cam1CCD3/Sector20Cam1CCD3_targets.txt", skiprows=1)
-
-#%%
-plot_lof(times, intensities, targets, features, 20, "/Users/conta/UROP_Spring_2020/Sector20Cam1CCD3")
+s
