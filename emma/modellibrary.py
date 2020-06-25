@@ -1,7 +1,7 @@
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # 
 # 2020-05-26 - modellibrary.py
-# Keras novelty detection in TESS dataset and data visualization
+# Keras novelty detection in TESS dataset
 # / Emma Chickles
 # 
 # TODO: finish these function summaries
@@ -16,9 +16,6 @@
 # * simple autoencoder: fully-connected layers
 # * compile_model
 # 
-# Data visualization
-# * diagnostic_plots : runs all plots
-# 
 # Helper functions
 # * ticid_label
 #
@@ -28,6 +25,7 @@ import os
 import pdb
 import matplotlib.pyplot as plt
 import numpy as np
+import plots_lib as pl
 
 def run_model(x_train, y_train, x_test, y_test, p, supervised=False,
               mock_data=False):
@@ -515,14 +513,14 @@ def split_data(flux, time, p, train_test_ratio = 0.9, cutoff=16336,
     return x_train, x_test, y_train, y_test, time
     
 
-def rms(x):
-    rms = np.sqrt(np.mean(x**2, axis = 1))
+def rms(x, axis=1):
+    rms = np.sqrt(np.nanmean(x**2, axis = axis))
     return rms
 
 def standardize(x, ax=1):
-    means = np.mean(x, axis = ax, keepdims=True) # >> subtract mean
+    means = np.nanmean(x, axis = ax, keepdims=True) # >> subtract mean
     x = x - means
-    stdevs = np.std(x, axis = ax, keepdims=True) # >> divide by standard dev
+    stdevs = np.nanstd(x, axis = ax, keepdims=True) # >> divide by standard dev
     x = x / stdevs   
     return x
     
@@ -671,17 +669,22 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     return i_interp
     
 def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
-             output_dir='./', prefix=''):
+             ticid=False, output_dir='./', prefix='', tol1=0.05, tol2=0.1):
     '''Apply nan mask to flux and time array.
-    Returns masked, homogenous flux and time array.'''
+    Returns masked, homogenous flux and time array.
+    If there are only a few (less than tol1 % light curves) light curves that
+    contribute (more than tol2 % data points are NaNs) to NaN mask, then will
+    remove those light curves.'''
 
     mask = np.nonzero(np.prod(~np.isnan(flux), axis = 0) == False)
     
     # >> plot histogram of number of data points thrown out
     num_masked = []
+    num_nan = []
     for lc in flux:
         num_inds = np.nonzero( ~np.isnan(lc) )
         num_masked.append( len( np.intersect1d(num_inds, mask) ) )
+        num_nan.append( len(num_inds) )
     plt.figure()
     plt.hist(num_masked, bins=50)
     plt.ylabel('number of light curves')
@@ -689,8 +692,7 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
     plt.savefig(output_dir + 'nan_mask.png')
     plt.close()
     
-    time = np.delete(time, mask)
-    flux = np.delete(flux, mask, 1)
+    # >> debugging plots
     if DEBUG:
         fig, ax = plt.subplots()
         ax.plot(time, flux[debug_ind], '.k', markersize=2)
@@ -699,6 +701,43 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
         fig.savefig(output_dir + prefix + 'nanmask_debug.png',
                     bbox_inches='tight')
         plt.close(fig) 
+        
+        # >> plot nan-y light curves
+        sorted_inds = np.argsort(num_masked)
+        for k in range(2): # >> plot top and lowest
+            fig, ax = plt.subplots(nrows=10, figsize=(8, 3*10))
+            for i in range(10):
+                if k == 0:
+                    ind = sorted_inds[i]
+                else:
+                    ind = sorted_inds[-i-1]
+                ax[i].plot(time, flux[ind], '.k', markersize=2)
+                pl.ticid_label(ax[i], ticid[ind], title=True)
+                num_nans = np.count_nonzero(np.isnan(flux[ind]))
+                ax[i].text(0.98, 0.98, 'Num NaNs: '+str(num_nans)+\
+                           '\nNum masked: '+str(num_masked[ind]),
+                           transform=ax[i].transAxes,
+                           horizontalalignment='right',
+                           verticalalignment='top', fontsize='xx-small')
+            if k == 0:
+                fig.savefig(output_dir + prefix + 'nanmask_top.png',
+                            bbox_inches='tight')
+            else:
+                fig.savefig(output_dir + prefix + 'nanmask_low.png',
+                            bbox_inches='tight')
+       
+    # >> check if only a few light curves contribute to NaN mask
+    num_nan = np.array(num_nan)
+    worst_inds = np.nonzero( num_nan > tol2 )
+    if len(worst_inds[0]) < tol1 * len(flux): # >> only a few bad light curves
+        np.delete(flux, worst_inds, 0)
+        
+        # >> and calculate new mask
+        mask = np.nonzero(np.prod(~np.isnan(flux), axis = 0) == False)    
+        
+    # >> apply NaN mask
+    time = np.delete(time, mask)
+    flux = np.delete(flux, mask, 1)
     
     if type(flux_err) != bool:
         flux_err = np.delete(flux_err, mask, 1)
