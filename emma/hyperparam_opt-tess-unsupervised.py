@@ -13,33 +13,48 @@ import pdb
 import os
 import pickle
 import feature_functions as ff
+import plots_lib as pl
 from keras.models import load_model
 
-output_dir = './plots/plots061920/'
+output_dir = './plots/plots062420-0/'
+# dat_dir = './plots/plots062420/'
+dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/Sector_20_LC/'
 
 hyperparameter_optimization = False
 run_model = True
 diag_plots = True
 classification=False # >> runs dbscan, classifies light curves
-run_tic = True # >> input a TICID (temporary)
+run_tic = False # >> input a TICID (temporary)
 DBSCAN_parameter_search=True
+input_features=False
+input_rms=False
+
 
 tics = [219107776.0, 185336364.0] # >> for run_tic
 
 # >> file names
-fname_time=['./sector_20_lc/Sector20Cam1CCD1_times_processed.txt',
-            './sector_20_lc/Sector20Cam1CCD2_times_processed.txt',
-            './sector_20_lc/Sector20Cam1CCD3_times_processed.txt']
-fname_flux=['./sector_20_lc/Sector20Cam1CCD1_intensities_processed.txt',
-            './sector_20_lc/Sector20Cam1CCD2_intensities_processed.txt',
-            './sector_20_lc/Sector20Cam1CCD3_intensities_processed.txt']
-fname_ticid=['./sector_20_lc/Sector20Cam1CCD1_targets.txt',
-             './sector_20_lc/Sector20Cam1CCD2_targets.txt',
-             './sector_20_lc/Sector20Cam1CCD3_targets.txt']
+fname_time = []
+fname_flux = []
+fname_ticid = []
+fname_rms = []
 
-fname_time=['./s0020-time.txt']
-fname_flux=['./s0020-flux.csv']
-fname_ticid=['./s0020-ticid.txt']
+for i in [4]:
+    for j in [1,2,3,4]:
+        fname_time.append('Sector20Cam'+str(i)+'CCD'+str(j)+'-time.txt')
+        fname_flux.append('Sector20Cam'+str(i)+'CCD'+str(j)+'-flux.csv')
+        fname_ticid.append('Sector20Cam'+str(i)+'CCD'+str(j)+'-ticid.txt') 
+        fname_rms.append('Sector20Cam'+str(i)+'CCD'+str(j)+'-rms.txt')
+
+# fname_time=['Sector20Cam1CCD1-time.txt', 'Sector20Cam1CCD2-time.txt',
+#             'Sector20Cam1CCD3-time.txt', 'Sector20Cam1CCD4-time.txt',
+#             'Sector20Cam2CCD1-time.txt', 'Sector20Cam2CCD2-time.txt',
+#             'Sector20Cam2CCD3-time.txt', 'Sector20Cam3CCD4-time.txt']
+# fname_flux=['Sector20Cam1CCD1-flux.csv', 'Sector20Cam1CCD1-flux.csv',
+#             'Sector20Cam1CCD1-flux.csv', 'Sector20Cam1CCD1-flux.csv',
+#             'Sector20Cam1CCD1-flux.csv','Sector20Cam1CCD1-flux.csv',
+#             'Sector20Cam1CCD1-flux.csv']
+# fname_ticid=['Sector20Cam1CCD1-ticid.txt']
+# fname_rms=['Sector20Cam1CCD1-rms.txt']
 
 # >> hyperparameters
 if hyperparameter_optimization:
@@ -62,7 +77,7 @@ else:
     p = {'kernel_size': 7,
           'latent_dim': 21,
           'strides': 1,
-          'epochs': 40,
+          'epochs': 10,
           'dropout': 0.5,
           'num_filters': 64,
           'num_conv_layers': 4,
@@ -85,14 +100,19 @@ lengths = []
 time_list = []
 flux_list = []
 ticid_list = []
+rms_list = []
 for i in range(len(fname_time)):
-    x     = np.loadtxt(fname_time[i])
-    flux  = np.loadtxt(fname_flux[i], delimiter=',')
-    ticid = np.loadtxt(fname_ticid[i])
+    x     = np.loadtxt(dat_dir+fname_time[i])
+    flux  = np.loadtxt(dat_dir+fname_flux[i], delimiter=',')
+    ticid = np.loadtxt(dat_dir+fname_ticid[i])
     lengths.append(len(x))
     time_list.append(x)
     flux_list.append(flux)
     ticid_list.append(ticid)
+    
+    if input_rms:
+        rms = np.loadtxt(dat_dir + fname_rms[i])
+        rms_list.append(rms)
 
 # !! tmp
 # new_length = np.shape(flux)[1]
@@ -122,31 +142,34 @@ if run_tic:
         
     # >> concatenate all light curves
     flux = np.concatenate(flux, axis=0)
+else:
+    flux = np.concatenate(flux_list, axis=0)
+    x = time_list[0]
+    if input_rms:
+        rms = np.concatenate(rms_list, axis=0)
+    
+    ticid = []
+    for i in range(len(fname_ticid)):
+        ticid.extend(ticid_list[i])
     
 # >> apply nan mask
-flux, x = ml.nan_mask(flux, x, interpolate=False, output_dir=output_dir)
-pdb.set_trace()
-
+flux, x = ml.nan_mask(flux, x, output_dir=output_dir, ticid=ticid, 
+                      DEBUG=True, debug_ind=10)
 title='TESS-unsupervised'
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-orbit_gap_start = len(x)-1 # !!
-orbit_gap_end = orbit_gap_start + 1
-
-# >> normalize
-# flux, x = ml.normalize(flux, x)
-flux = ml.standardize(flux)
-
-# >> take before orbit gap            
-flux = flux[:,:orbit_gap_start]
-x = x[:orbit_gap_start]
 
 x_train, x_test, y_train, y_test, x = \
     ml.split_data(flux, x, p, train_test_ratio=0.90, supervised=False)
 
 ticid_train = ticid[:np.shape(x_train)[0]]
 ticid_test = ticid[-1 * np.shape(x_test)[0]:]
+
+if input_rms:
+    rms_train = rms[:np.shape(x_train)[0]]
+    rms_test = rms[-1 * np.shape(x_test)[0]:]
+else:
+    rms_train, rms_test = False, False
 
 # == talos experiment =========================================================
 if hyperparameter_optimization:
@@ -169,15 +192,16 @@ if hyperparameter_optimization:
 if run_model:
     history, model = ml.conv_autoencoder(x_train, x_train, x_test, x_test, p)
     x_predict = model.predict(x_test)
-    np.savetxt(output_dir+'x_predict.txt',
-               np.reshape(x_predict, (np.shape(x_predict)[0],
-                                      np.shape(x_predict)[1])),
-               delimiter=',')
-    model.save(output_dir+"model.h5")
-    print("Saved model!")
+    # !!
+    # np.savetxt(output_dir+'x_predict.txt',
+    #            np.reshape(x_predict, (np.shape(x_predict)[0],
+    #                                   np.shape(x_predict)[1])),
+    #            delimiter=',')
+    # model.save(output_dir+"model.h5")
+    # print("Saved model!")
     
-    with open(output_dir+'historydict.p', 'wb') as file_pi:
-        pickle.dump(history.history, file_pi)
+    # with open(output_dir+'historydict.p', 'wb') as file_pi:
+    #     pickle.dump(history.history, file_pi)
         
     ml.param_summary(history, x_test, x_predict, p, output_dir, 0,
                       'tess-unsupervised')
@@ -193,25 +217,42 @@ if diag_plots:
         x_predict = np.reshape(x_predict, (np.shape(x_predict)[0],
                                            np.shape(x_predict)[1], 1))
         
-        ml.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
+        activations, bottleneck = pl.diagnostic_plots(history, model, p,
+                                                      output_dir, x, x_train, x_test,
                             x_predict, mock_data=False, ticid_train=ticid_train,
                             ticid_test=ticid_test,plot_intermed_act=False,
                             plot_latent_test=False, plot_latent_train=False,
-                            make_movie=False, percentage=False, plot_epoch=False)
+                            make_movie=False, percentage=False, plot_epoch=False,
+                            input_features=input_features, input_rms=input_rms,
+                            rms_test=rms_test, rms_train=rms_train)
     else:
-        # ml.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
-        #                     x_predict, mock_data=False, ticid_train=ticid_train,
-        #                     ticid_test=ticid_test,plot_intermed_act=True,
-        #                     plot_latent_test=True, plot_latent_train=True,
-        #                     make_movie=False, percentage=True)
-        ml.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
+        activations, bottleneck = pl.diagnostic_plots(history, model, p,
+                                                      output_dir, x, x_train,
+                                                      x_test,
                             x_predict, mock_data=False,
                             ticid_train=ticid_train,
                             ticid_test=ticid_test,
                             plot_intermed_act=False,
                             plot_latent_test=False,
                             plot_latent_train=False,
-                            make_movie=False, percentage=False)        
+                            plot_reconstruction_error_all=False,
+                            make_movie=False, percentage=False,
+                            input_features=input_features,
+                            input_rms=input_rms, rms_test=rms_test,
+                            rms_train=rms_train)    
+        # activations, bottleneck = pl.diagnostic_plots(history, model, p,
+        #                                               output_dir, x, x_train,
+        #                                               x_test,
+        #                     x_predict, mock_data=False,
+        #                     ticid_train=ticid_train,
+        #                     ticid_test=ticid_test,
+        #                     plot_intermed_act=False,
+        #                     plot_latent_test=False,
+        #                     plot_latent_train=False,
+        #                     make_movie=False, percentage=False,
+        #                     input_features=input_features,
+        #                     input_rms=input_rms, rms_test=rms_test,
+        #                     rms_train=rms_train)        
         # ml.param_summary(history, x_test, x_predict, p, output_dir, 0,
         #                   'tess-unsupervised')
         # ml.model_summary_txt(output_dir, model)
@@ -219,8 +260,8 @@ if diag_plots:
 
 # >> Feature plots
 if classification:
-    activations = ml.get_activations(model, x_test)
-    bottleneck = ml.get_bottleneck(model, activations, p)
+    # activations = ml.get_activations(model, x_test)
+    # bottleneck = ml.get_bottleneck(model, activations, p)
     
     if DBSCAN_parameter_search:
         from sklearn.cluster import DBSCAN
@@ -308,3 +349,11 @@ if classification:
     for i in ticid_test:
         targets.append('TIC ' + str(int(i)))
     ff.features_insets2D(x, x_test, bottleneck, targets, output_dir)
+
+
+# orbit_gap_start = len(x)-1 # !!
+# orbit_gap_end = orbit_gap_start + 1
+
+# # >> take before orbit gap            
+# flux = flux[:,:orbit_gap_start]
+# x = x[:orbit_gap_start]
