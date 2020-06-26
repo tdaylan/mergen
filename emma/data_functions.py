@@ -240,7 +240,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw, f
             time1, i1 = get_lc_file_and_data(yourpath, target, sector) #grab that data
             
             if type(i1) == np.ndarray: #if the data IS data
-                i_interp = ml.interpolate_lc(i1, time1)
+                i1 = ml.interpolate_lc(i1, time1)
                 intensity.append(i1)
                 hdr = fits.Header() #make-a the header
                 hdu = fits.PrimaryHDU(time1, header=hdr)
@@ -259,7 +259,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw, f
             target = targetList[n][0] #get that target number
             time1, i1 = get_lc_file_and_data(yourpath, target, sector)
             if type(i1) == np.ndarray:
-                i_interp = ml.interpolate_lc(i1, time1)
+                i1 = ml.interpolate_lc(i1, time1)
                 intensity.append(i1)    
                 ticids.append(target)
             # if type(i1) == np.ndarray: #IF THE DATA IS FORMATTED LKE DATA
