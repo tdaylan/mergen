@@ -258,19 +258,20 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw, f
         else: #only saving the light curve into the fits file because it's all you need
             target = targetList[n][0] #get that target number
             time1, i1 = get_lc_file_and_data(yourpath, target, sector)
-            i_interp = ml.interpolate_lc(i1, time1)
-            intensity.append(i1)    
-            ticids.append(target)
+            if type(i1) == np.ndarray:
+                i_interp = ml.interpolate_lc(i1, time1)
+                intensity.append(i1)    
+                ticids.append(target)
             # if type(i1) == np.ndarray: #IF THE DATA IS FORMATTED LKE DATA
             #     fits.append(fname_time_intensities_raw, i1, header=hdr)
             #     with open(fname_targets, 'a') as file_object:
             #         file_object.write("\n")
             #         file_object.write(str(int(target)))
-            # else: #IF THE DATA IS NOT DATA
-            #     print("File failed to return targets")
-            #     with open(fname_notes, 'a') as file_object:
-            #         file_object.write("\n")
-            #         file_object.write(str(int(target)))
+            else: #IF THE DATA IS NOT DATA
+                print("File failed to return targets")
+                with open(fname_notes, 'a') as file_object:
+                    file_object.write("\n")
+                    file_object.write(str(int(target)))
         
         # if n %10 == 0: #every 50, print how many have been done
         print(str(n), "completed")
@@ -295,7 +296,8 @@ def get_lc_file_and_data(yourpath, target, sector):
         obs_table = astroquery.mast.Observations.query_criteria(obs_collection='TESS',
                                                                dataproduct_type='timeseries',
                                                                target_name=str(int(target)),
-                                                               sequence_number=sector)
+                                                               sequence_number=sector,
+                                                               objectname='TIC '+str(int(target)))
         # obs_table = Observations.query_object(targ, radius=".02 deg")
         data_products_by_obs = Observations.get_product_list(obs_table[0:4])
             
@@ -303,37 +305,34 @@ def get_lc_file_and_data(yourpath, target, sector):
         # #simply could not get it to accept it despite following the API guidelines
         filter_products = Observations.filter_products(data_products_by_obs,
                                                        description = 'Light curves')
-        if len(filter_products) > 0:
-            manifest = Observations.download_products(filter_products)
+        manifest = Observations.download_products(filter_products)
                 
-            #get all the paths to lc.fits files
-            filepaths = []
-            for root, dirs, files in os.walk(fitspath):
-                for name in files:
-                    print(name)
-                    if name.endswith(("lc.fits")):
-                        filepaths.append(root + "/" + name)
-                        #print("appended", name, "to filepaths")
-            
-            print(len(filepaths))
-            
-            if len(filepaths) == 0: #if no lc.fits were downloaded, move on
-                print(targ, "no light curve available")
-                time1 = 0
-                i1 = 0
-            else: #if there are lc.fits files, open them and get the goods
-                    #get the goods and then close it #!!!!!!!!!!!!!!!!!!!! GET THE TIC FROM THE F I L E 
-                f = fits.open(filepaths[0], memmap=False)
-                time1 = f[1].data['TIME']
-                i1 = f[1].data['PDCSAP_FLUX']                
-                f.close()
-                      
-            #then delete all downloads in the folder, no matter what type
-            if os.path.isdir("mastDownload") == True:
-                shutil.rmtree("mastDownload")
-                print("folder deleted")
-        else:
-            print(targ + "no light curve found!")
+        #get all the paths to lc.fits files
+        filepaths = []
+        for root, dirs, files in os.walk(fitspath):
+            for name in files:
+                print(name)
+                if name.endswith(("lc.fits")):
+                    filepaths.append(root + "/" + name)
+                    #print("appended", name, "to filepaths")
+        
+        print(len(filepaths))
+        
+        if len(filepaths) == 0: #if no lc.fits were downloaded, move on
+            print(targ, "no light curve available")
+            time1 = 0
+            i1 = 0
+        else: #if there are lc.fits files, open them and get the goods
+                #get the goods and then close it #!!!!!!!!!!!!!!!!!!!! GET THE TIC FROM THE F I L E 
+            f = fits.open(filepaths[0], memmap=False)
+            time1 = f[1].data['TIME']
+            i1 = f[1].data['PDCSAP_FLUX']                
+            f.close()
+                  
+        #then delete all downloads in the folder, no matter what type
+        if os.path.isdir("mastDownload") == True:
+            shutil.rmtree("mastDownload")
+            print("folder deleted")
             
         #corrects for connnection errors
     except (ConnectionError, OSError, TimeoutError, RemoteServiceError):
