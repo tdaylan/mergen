@@ -4,9 +4,9 @@ Created on Thu Jun  4 21:54:56 2020
 
 Data access, data processing, feature vector creation functions.
 
-@author: Lindsey Gordon @lcgordon
+@author: Lindsey Gordon @lcgordon and Emma Chickles (@??)
 
-Updated: June 4 2020
+Updated: June 26 2020
 """
 
 import numpy as np
