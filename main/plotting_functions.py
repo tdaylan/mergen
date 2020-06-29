@@ -424,45 +424,64 @@ def features_insets2D(time, intensity, feature_vectors, targets, folder):
     
             plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
             plt.show()
-            
+
+def inset_plotting(datax, datay, insetx, insety, inset_indexes, filename):
+    """ datax and datay are the base for the scatter plot
+    insetx is the time axis for the group
+    insety is the entire list of intensities
+    inset_indexes in an array of the most interesting light curves. if it is more than 8 it will be truncated to 8
+    filename is the exact path + filename that you will be saving the picture as
+    modified [lcg 06292020]"""
     
-def plot_inset(ax1, axis_name, targets, intensity, time, feature_vectors, feat1, feat2):
-    """ plots the inset plots. 
-    ax1 is the name of the axis being used. it is ESSENTIAL to getting this to run
-    axis_name should be axins + a number as a STRING
-    feat1 is x axis, feat2 is yaxis (n and m)"""
-    range_x = feature_vectors[:,feat1].max() - feature_vectors[:,feat1].min()
-    range_y = feature_vectors[:,feat2].max() - feature_vectors[:,feat2].min()
-    x_offset = range_x * 0.001
-    y_offset = range_y * 0.001
-    inset_positions = np.zeros((12,2))
+    x_range = datax.max() - datax.min()
+    y_range = datay.max() - datay.min()
+    y_offset = 0.2 * y_range
+    x_offset = 0.01 * x_range
     
-    indexes_unique, targets_to_plot, tuples_plotting, titles = get_extrema(feature_vectors, targets, feat1, feat2)
-    #print(indexes_unique)
-    for n in range(len(indexes_unique)):
-        x_shift = np.random.randint(0,2)
-        y_shift = np.random.randint(0,2)
-        index = indexes_unique[n]
-        thetuple = tuples_plotting[n]
-        title = titles[n]
+    fig, ax1 = plt.subplots()
+
+    ax1.scatter(datax,datay, s=2)
+    ax1.set_xlim(datax.min() - x_offset, datax.max() + x_offset)
+    ax1.set_ylim(datay.min() - y_offset,  datay.max() + y_offset)
+    
+    i_height = y_offset / 2
+    i_width = x_range/4.5
+    
+    x_init = datax.min() 
+    y_init = datay.max() + (0.4*y_offset)
+    n = 0
+    inset_indexes = inset_indexes[0:8]
+    while n < (len(inset_indexes)):
+        axis_name = "axins" + str(n)
+    
+        axis_name = ax1.inset_axes([x_init, y_init, i_width, i_height], transform = ax1.transData) #x pos, y pos, width, height
+        axis_name.scatter(insetx, insety[inset_indexes[n]], c='black', s = 0.3, rasterized=True)
         
-        inset_x, inset_y, inset_width, inset_height = check_box_location(feature_vectors, thetuple, feat1, feat2, range_x, range_y, x_shift, y_shift, inset_positions)
-        inset_positions[n] = (inset_x, inset_y)
-        #print(inset_positions)
-        axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
-        axis_name.scatter(time, intensity[index], c='black', s = 0.01, rasterized=True)
-            
-        x1, x2, y1, y2 =  feature_vectors[index][feat1], feature_vectors[index][feat1] + x_offset, feature_vectors[index][feat2], feature_vectors[index][feat2] + y_offset
+        #this sets where the pointer goes to
+        x1, x2 = datax[inset_indexes[n]], datax[inset_indexes[n]] + 0.001*x_range
+        y1, y2 =  datay[inset_indexes[n]], datay[inset_indexes[n]] + 0.001*y_range
         axis_name.set_xlim(x1, x2)
         axis_name.set_ylim(y1, y2)
         ax1.indicate_inset_zoom(axis_name)
+              
+        #this sets the actual axes limits    
+        axis_name.set_xlim(insetx[0], insetx[-1])
+        axis_name.set_ylim(insety[inset_indexes[n]].min(), insety[inset_indexes[n]].max())
+        axis_name.set_title("text")
+        axis_name.set_xticklabels([])
+        axis_name.set_yticklabels([])
+        
+        x_init += 1.1* i_width
+        n = n + 1
+        
+        if n == 4: 
+            y_init = datay.min() - (0.8*y_offset)
+            x_init = datax.min()
             
-        axis_name.set_xlim(time[0], time[-1])
-        axis_name.set_ylim(intensity[index].min(), intensity[index].max())
-        axis_name.set_title("TIC " + str(targets[index]) + title, fontsize=6)       
+    plt.savefig(filename)            
 
-def get_extrema(feature_vectors, targets, feat1, feat2):
-    """ identifies the 6 extrema in each direction and pulls the data needed on each
+def get_extrema(feature_vectors, feat1, feat2):
+    """ identifies the extrema in each direction and pulls the data needed on each
     eliminates any duplicate extrema (ie, if the xmax is also the ymax)"""
     indexes = []
     index_feat1 = np.argsort(feature_vectors[:,feat1])
@@ -483,129 +502,14 @@ def get_extrema(feature_vectors, targets, feat1, feat2):
 
     indexes_unique = np.unique(np.asarray(indexes))
     
-    targets_to_plot = []
-    tuples_plotting = []
-    titles = []
     
-    for n in range(len(indexes_unique)):
-        targets_to_plot.append(targets[indexes_unique[n]])
-        tuples_plotting.append( (feature_vectors[:,feat1][indexes_unique[n]], feature_vectors[:,feat2][indexes_unique[n]]) )
-        title = astroquery_pull_data(targets[indexes_unique[n]])
-        titles.append(title)
-    return indexes_unique, targets_to_plot, tuples_plotting, titles
+    return indexes_unique      
 
-def calculate_polygon(inset_x, inset_y, inset_width, inset_height):
-    """ calculates the polygon of the inset plot"""
-    inset_BL = (inset_x, inset_y)
-    inset_BR = (inset_x + inset_width, inset_y)
-    inset_TL = (inset_x, inset_y + inset_height)
-    inset_TR = (inset_x + inset_width, inset_y + inset_height)
-    polygon = Polygon([inset_BL, inset_BR, inset_TL, inset_TR])
-    return polygon
+
+
+
         
-def check_box_location(feature_vectors, coordtuple, feat1, feat2, range_x, range_y, x, y, inset_positions):
-    """ checks if data points lie within the area of the inset plot
-    coordtuple is the (x,y) point in feature space
-    feat1, feat2 are the number for the features being used
-    range_x and range_y are ranges for each feature
-    x is whether it will be left or right of the point
-    y is whether it will be above/below the point
-    inset_positions is a list  from a diff. function that holds the pos of insets
-    last updated 5/29/20"""
-    #position of box - needs to be dependent on location
-    xmax = feature_vectors[:,feat1].max() 
-    xmin = feature_vectors[:,feat1].min()
-    
-    ymax = feature_vectors[:,feat2].max() 
-    ymin = feature_vectors[:,feat2].min()
-    
-    inset_width = range_x / 6
-    inset_height = range_y /16
-    if x == 0:
-        inset_x = coordtuple[0] - (inset_width * 1.2) #move left
-    elif x == 1:
-        inset_x = coordtuple[0] + (inset_width * 1.2) #move right
-    if y == 0:
-        inset_y = coordtuple[1] + (inset_height) #move up
-    elif y == 1:
-        inset_y = coordtuple[1] - (inset_height) #move down
-    
-    conc = np.column_stack((feature_vectors[:,feat1], feature_vectors[:,feat2]))
-    polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-    
-    m = 0
-    i = 0
-    n = len(conc)
-    k = 0
-    
-    while i < n:
-        #is it on the graph? if it is not, move it, recalculate, and go back to the beginning
-        while m == 0:
-            if inset_x >= xmax:
-                inset_x = inset_x - inset_width
-                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                i = 0
-                k = 0
-            elif inset_x < xmin:
-                inset_x = inset_x + inset_width
-                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                i = 0
-                k = 0
-            elif inset_y >= ymax:
-                inset_y = inset_y - inset_height
-                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                i = 0
-                k = 0
-            elif inset_y < ymin:
-                inset_y = inset_y + inset_height
-                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                i = 0
-                k = 0
-            else: 
-                m = 1 #it is on the graph
-            
-        #is it on top of another plot? if it is, move it, recalculate, and go back to the 
-        #absolute beginning to double check if it's in the borders still
-        while k < 8:
-            bx, by = inset_positions[k]
-            p1 = calculate_polygon(bx, by, inset_width, inset_height)
-            if polygon.intersects(p1):
-                inset_x = inset_x + (0.1*range_x)
-                inset_y = inset_y + (0.1*range_y) 
-            
-                polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-                m = 0
-                k = 0
-                i = 0
-            else: 
-                k = k + 1 #check next inset in list
-            
-        #is it on top of a point? if it is, move it, recalculate, and go back to beginning
-        point = Point(conc[i])
-        if polygon.contains(point) == True:
-            if x == 0: 
-                inset_x = inset_x - (0.01 * range_x)
-            else:
-                inset_x = inset_x + (0.01 * range_x)
-                
-            if y == 0:
-                inset_y = inset_y + (0.01 * range_y)
-            else:
-                inset_y = inset_y - (0.01 * range_y)
-            
-            polygon = calculate_polygon(inset_x, inset_y, inset_width, inset_height)
-            
-            m = 0
-            k = 0
-            i = 0
-            #print("moving")
-        elif polygon.contains(point) == False:
-        #if not on top of a point, move to the next one
-            i = i + 1
-            
-    print("position determined")
-    
-    return inset_x, inset_y, inset_width, inset_height
+
 
 def features_2D_colorshape(feature_vectors, path, clusteralg, hand_classes):
     """ plots features against each other
