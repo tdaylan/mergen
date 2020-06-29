@@ -382,12 +382,17 @@ def plot_inset_color(ax1, axis_name, targets, intensity, time, feature_vectors, 
 
 #PLOTTING INSET PLOTS (x/y max/min points per feature)
 
-def features_insets2D(time, intensity, feature_vectors, targets, folder):
-    """plotting (n 2) features against each other w/ extremes inset plotted
-    feature_vectors is the list of ALL feature vectors
-    folder is a string, to be sandwiched in. typically "plot_output/date"
+def features_insets2D(time, intensity, feature_vectors, targets, path):
+    """ Plots 2 features against each other with the extrema points' associated light curves plotted as insets
+    along the top and bottom of the plot. 
+    time is the time axis for the group
+    intensity is the full list of intensities
+    feature_vectors is the complete list of feature vectors
+    targets is the complete list of targets
+    folder is the folder into which you wish to save the folder of plots. it should be formatted as a string, with no trailing /
+    modified [lcg 06292020]
     """   
-    path = "/Users/conta/UROP_Spring_2020/" + folder + "/2DFeatures-insets"
+    path = path + "/2DFeatures-insets"
     try:
         os.makedirs(path)
     except OSError:
@@ -412,25 +417,24 @@ def features_insets2D(time, intensity, feature_vectors, targets, folder):
             if m == n:
                 continue
             graph_label2 = graph_labels[m]
-            fname_label2 = fname_labels[m]                
-            
-            
-            fig, ax1 = plt.subplots()
-            ax1.scatter(feature_vectors[:,n], feature_vectors[:,m], c = "black")
-            ax1.set_xlabel(graph_label1)
-            ax1.set_ylabel(graph_label2)
-            
-            plot_inset(ax1, "axins1", targets, intensity, time, feature_vectors, n, m)
-    
-            plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
-            plt.show()
+            fname_label2 = fname_labels[m]  
 
-def inset_plotting(datax, datay, insetx, insety, inset_indexes, filename):
-    """ datax and datay are the base for the scatter plot
-    insetx is the time axis for the group
-    insety is the entire list of intensities
-    inset_indexes in an array of the most interesting light curves. if it is more than 8 it will be truncated to 8
-    filename is the exact path + filename that you will be saving the picture as
+            filename = path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png"     
+            
+            inset_indexes = get_extrema(feature_vectors, n,m)
+            
+            inset_plotting(feature_vectors[n], feature_vectors[m], graph_label1, graph_label2, time, intensity, inset_indexes, targets, filename)
+            
+
+def inset_plotting(datax, datay, label1, label2, insetx, insety, inset_indexes, targets, filename):
+    """ Plots the extrema of a 2D feature plot as insets on the top and bottom border
+    datax and datay are the features being plotted as a scatter plot beneath it
+    label1 and label2 are the x and y labels
+    insetx is the time axis for the insets
+    insety is the complete list of intensities 
+    inset_indexes are the identified extrema to be plotted
+    targets is the complete list of target TICs
+    filename is the exact path that the plot is to be saved to.
     modified [lcg 06292020]"""
     
     x_range = datax.max() - datax.min()
@@ -443,6 +447,8 @@ def inset_plotting(datax, datay, insetx, insety, inset_indexes, filename):
     ax1.scatter(datax,datay, s=2)
     ax1.set_xlim(datax.min() - x_offset, datax.max() + x_offset)
     ax1.set_ylim(datay.min() - y_offset,  datay.max() + y_offset)
+    ax1.set_xlabel(label1)
+    ax1.set_ylabel(label2)
     
     i_height = y_offset / 2
     i_width = x_range/4.5
@@ -453,6 +459,7 @@ def inset_plotting(datax, datay, insetx, insety, inset_indexes, filename):
     inset_indexes = inset_indexes[0:8]
     while n < (len(inset_indexes)):
         axis_name = "axins" + str(n)
+        
     
         axis_name = ax1.inset_axes([x_init, y_init, i_width, i_height], transform = ax1.transData) #x pos, y pos, width, height
         axis_name.scatter(insetx, insety[inset_indexes[n]], c='black', s = 0.3, rasterized=True)
@@ -467,7 +474,7 @@ def inset_plotting(datax, datay, insetx, insety, inset_indexes, filename):
         #this sets the actual axes limits    
         axis_name.set_xlim(insetx[0], insetx[-1])
         axis_name.set_ylim(insety[inset_indexes[n]].min(), insety[inset_indexes[n]].max())
-        axis_name.set_title("text")
+        axis_name.set_title(astroquery_pull_data(targets[inset_indexes[n]]), fontsize=6)
         axis_name.set_xticklabels([])
         axis_name.set_yticklabels([])
         
@@ -478,37 +485,30 @@ def inset_plotting(datax, datay, insetx, insety, inset_indexes, filename):
             y_init = datay.min() - (0.8*y_offset)
             x_init = datax.min()
             
-    plt.savefig(filename)            
+    plt.savefig(filename)                      
 
 def get_extrema(feature_vectors, feat1, feat2):
-    """ identifies the extrema in each direction and pulls the data needed on each
-    eliminates any duplicate extrema (ie, if the xmax is also the ymax)"""
+    """ Identifies the extrema in each direction for the pair of features given. 
+    Eliminates any duplicate extrema (ie, the xmax that is also the ymax)
+    Returns array of unique indexes of the extrema
+    modified [lcg 06292020]"""
     indexes = []
     index_feat1 = np.argsort(feature_vectors[:,feat1])
     index_feat2 = np.argsort(feature_vectors[:,feat2])
+    
     indexes.append(index_feat1[-1]) #largest
     indexes.append(index_feat1[-2]) #second largest
     indexes.append(index_feat1[-3]) #third largest
     indexes.append(index_feat1[0]) #smallest
     indexes.append(index_feat1[1]) #second smallest
-    #indexes.append(index_feat1[2]) #third smallest
-
     indexes.append(index_feat2[-1]) #largest
     indexes.append(index_feat2[-2]) #second largest
-    #indexes.append(index_feat2[-3]) #third largest
     indexes.append(index_feat2[0]) #smallest
     indexes.append(index_feat2[1]) #second smallest
-    #indexes.append(index_feat2[2]) #third smallest
 
     indexes_unique = np.unique(np.asarray(indexes))
     
-    
     return indexes_unique      
-
-
-
-
-        
 
 
 def features_2D_colorshape(feature_vectors, path, clusteralg, hand_classes):
