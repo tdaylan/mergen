@@ -183,7 +183,9 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
                 
 def plot_lof(time, intensity, targets, features, n, path):
     """plots the 20 most and least interesting light curves based on LOF
-    takes input: time, intensity, targets, featurelist, n number of curves you want, date as a string """
+    takes input: time, intensity, targets, featurelist, n number of curves you want, path to where you want it
+    saved (no end slash)
+    modified [lcg 06292020]"""
     fname_lof = path + "/LOF-features.txt"
     from sklearn.neighbors import LocalOutlierFactor
 
@@ -196,6 +198,13 @@ def plot_lof(time, intensity, targets, features, n, path):
     ranked = np.argsort(lof)
     largest_indices = ranked[::-1][:n]
     smallest_indices = ranked[:n]
+
+    #plot a histogram of the lof values
+    fig1, ax1 = plt.subplots()
+    n, bins, patches = ax1.hist(lof, 50, density=1)
+    ax1.title("LOF Histogram")
+    plt.savefig(path+"/LOF-histogram.png")
+    plt.close()
 
     with open(fname_lof, 'a') as file_object:
         file_object.write("Largest LOF's features: \n")
