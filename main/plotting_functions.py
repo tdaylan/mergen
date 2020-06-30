@@ -75,17 +75,6 @@ def plot_lc(time, intensity, target, sector):
         for n in range(len(dumppoints)):
             plt.axvline(dumppoints[n], linewidth=0.5)
 
-def post_process_plotting(time, intensity, features_all, features_using, targets, path):
-    """plotting all the things"""
-    features_plotting_2D(features_all, features_using, path, "none")
-    features_plotting_2D(features_all, features_using, path, "kmeans")
-    features_plotting_2D(features_all, features_using, path, "dbscan")
-    
-    plot_lof(time, intensity, targets, features_all, 20, path)
-
-    features_insets2D(time, intensity, features_all, targets, path)
-
-
 def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
     """plotting (n 2) features against each other
     feature_vectors is the list of ALL feature_vectors
@@ -94,24 +83,21 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
     date must be a string in the format of the folder you are saving into ie "4-13"
     clustering must equal 'dbscan', 'kmeans', or 'empty'
     """
-    cluster = "empty"
+    clustering = "empty"
     folder_label = "blank"
     if clustering == 'dbscan':
         db = DBSCAN(eps=2.2, min_samples=18).fit(cluster_columns) #eps is NOT epochs
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
-        cluster = 'dbscan'
         folder_label = "dbscan-colored"
     elif clustering == 'kmeans': 
         Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
         x = Kmean.fit(cluster_columns)
         classes_kmeans = x.labels_
-        cluster = 'kmeans'
         folder_label = "kmeans-colored"
     else: 
         print("no clustering chosen")
-        cluster = 'none'
-        folder_label = "2DFeatures"
+        folder_label = "2DFeatures-NoCluster"
     #makes folder and saves to it    
     folder_path = path + "/" + folder_label
     try:
@@ -130,6 +116,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
     fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
                     "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
                     "P0", "P1", "P2", "Period0to0_1"]
+    color = ["red", "blue", "green", "purple", "black"]
     for n in range(16):
         feat1 = feature_vectors[:,n]
         graph_label1 = graph_labels[n]
@@ -141,34 +128,16 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
             fname_label2 = fname_labels[m]                
             feat2 = feature_vectors[:,m]
             
-            if cluster == 'dbscan':
+            if clustering == 'dbscan':
                 for p in range(len(feature_vectors)):
-                    if classes_dbscan[p] == 0:
-                        color = "red"
-                    elif classes_dbscan[p] == -1:
-                        color = "black"
-                    elif classes_dbscan[p] == 1:
-                        color = "blue"
-                    elif classes_dbscan[p] == 2:
-                        color = "green"
-                    elif classes_dbscan[p] == 3:
-                        color = "purple"
-                    plt.scatter(feat1[p], feat2[p], c = color, s = 5)
+                    plt.scatter(feat1[p], feat2[p], c = color[classes_dbscan[p]], s = 5)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
                 plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.pdf"))
                 plt.show()
-            elif cluster == 'kmeans':
+            elif clustering == 'kmeans':
                 for p in range(len(feature_vectors)):
-                    if classes_kmeans[p] == 0:
-                        color = "red"
-                    elif classes_kmeans[p] == 1:
-                        color = "blue"
-                    elif classes_kmeans[p] == 2:
-                        color = "green"
-                    elif classes_kmeans[p] == 3:
-                        color = "purple"
-                    plt.scatter(feat1[p], feat2[p], c = color)
+                    plt.scatter(feat1[p], feat2[p], c = color[classes_kmeans[p]])
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.pdf")
@@ -251,8 +220,16 @@ def plot_lof(time, intensity, targets, features, n, path):
     fig1.savefig(path +  "/smallest-lof.png")
                 
 def astroquery_pull_data(target):
-    """pulls data on object from astroquery
-    target needs to be JUST the number- can be any format, will be reformatted appropriately"""
+    """Give a TIC ID - ID /only/, any format is fine, it'll get converted to str
+    Searches the TIC catalog and pulls: 
+        T_eff
+        object type
+        gaia magnitude
+        radius
+        mass
+        distance
+    returns a plot title string
+    modified: [lcg 06302020]"""
     try: 
         catalog_data = Catalogs.query_object("TIC " + str(int(target)), radius=0.02, catalog="TIC")
         #https://arxiv.org/pdf/1905.10694.pdf
@@ -326,7 +303,7 @@ def inset_plotting(datax, datay, label1, label2, insetx, insety, inset_indexes, 
     inset_indexes are the identified extrema to be plotted
     targets is the complete list of target TICs
     filename is the exact path that the plot is to be saved to.
-    modified [lcg 06292020]"""
+    modified [lcg 06302020]"""
     
     x_range = datax.max() - datax.min()
     y_range = datay.max() - datay.min()
