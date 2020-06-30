@@ -262,134 +262,25 @@ def astroquery_pull_data(target):
         radius = np.round(catalog_data[0]["rad"], 2)
         mass = np.round(catalog_data[0]["mass"], 2)
         distance = np.round(catalog_data[0]["d"], 1)
-        title = "\nT_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+        title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
         title = "connection error, no data"
     return title
 
-#plotting DBSCAN classification color coded inset plots:
-def features_insets2D_colored(time, intensity, feature_vectors, targets, hand_classes, folder):
-    """plotting (n 2) features against each other w/ inset plots
-    inset plots are colored based on the hand classification value given to them
-    feature_vectors is the list of ALL feature_vectors
-    folder in string format, usually plot_output/date"
-    """   
-    path = "/Users/conta/UROP_Spring_2020/" + folder + "/2DFeatures-insets-colored"
-    try:
-        os.makedirs(path)
-    except OSError:
-        print ("Creation of the directory %s failed" % path)
-        print("New folder created will have -new at the end. Please rename.")
-        path = path + "-new"
-        os.makedirs(path)
-    else:
-        print ("Successfully created the directory %s" % path) 
- 
-    graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-                    "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-                    "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-                    "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
-    fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                    "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                    "P0", "P1", "P2", "Period0to0_1"]
-    
-    db = DBSCAN(eps=2.2, min_samples=18).fit(feats) #eps is NOT epochs
-    classes_dbscan = db.labels_
-    
-    for n in range(16):
-        graph_label1 = graph_labels[n]
-        fname_label1 = fname_labels[n]
-        feat1 = feature_vectors[:,n]
-        for m in range(16):
-            if m == n:
-                continue
-            graph_label2 = graph_labels[m]
-            fname_label2 = fname_labels[m]   
-            feat2 = feature_vectors[:,m]             
-            
-            
-            fig, ax1 = plt.subplots()
-            
-            for p in range(len(feature_vectors)):
-                if hand_classes[p] == 0:
-                    color = "red"
-                elif hand_classes[p] == 1:
-                    color = "blue"
-                elif hand_classes[p] == 2:
-                    color = "green"
-                elif hand_classes[p] == 3:
-                    color = "purple"
-                elif hand_classes[p] == 4:
-                    color = "yellow"
-                elif hand_classes[p] == 5:
-                    color = "magenta"
-                
-                ax1.scatter(feat1[p], feat2[p], c = color, s = 2)
-            
-            
-            
-            #ax1.scatter(feature_vectors[:,n], feature_vectors[:,m], c = "black")
-            ax1.set_xlabel(graph_label1)
-            ax1.set_ylabel(graph_label2)
-            
-            plot_inset_color(ax1, "axins1", targets, intensity, time, feature_vectors, hand_classes, classes_dbscan, n, m)
-    
-            plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
-            plt.show()
-            
 
-    
-def plot_inset_color(ax1, axis_name, targets, intensity, time, feature_vectors, realclasses, guessclasses, feat1, feat2):
-    """ plots the inset plots. colored to match the hand classification assigned to it 
-    ax1 is the name of the axis being used. it is ESSENTIAL to getting this to run
-    axis_name should be axins + a number as a STRING
-    feat1 is x axis, feat2 is yaxis (n and m)
-    colors the inset plot with what the predictor thinks it is
-    colors the points and lines connecting with what the actual class is"""
-    range_x = feature_vectors[:,feat1].max() - feature_vectors[:,feat1].min()
-    range_y = feature_vectors[:,feat2].max() - feature_vectors[:,feat2].min()
-    x_offset = range_x * 0.001
-    y_offset = range_y * 0.001
-    inset_positions = np.zeros((12,2))
-    
-    indexes_unique, targets_to_plot, tuples_plotting, titles = get_extrema(feature_vectors, targets, feat1, feat2)
-    #print(indexes_unique)
-    for n in range(len(indexes_unique)):
-        x_shift = np.random.randint(0,2)
-        y_shift = np.random.randint(0,2)
-        index = indexes_unique[n]
-        thetuple = tuples_plotting[n]
-        title = titles[n]
-        real_class = int(realclasses[index])
-        guessed_class = int(guessclasses[index])
-        colors = ["red","blue", "green", "purple" ,"yellow", "magenta", 'black']
-        
-        inset_x, inset_y, inset_width, inset_height = check_box_location(feature_vectors, thetuple, feat1, feat2, range_x, range_y, x_shift, y_shift, inset_positions)
-        inset_positions[n] = (inset_x, inset_y)
-        #print(inset_positions)
-        axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
-        axis_name.scatter(time, intensity[index], c=colors[guessed_class], s = 0.01, rasterized=True)
-            
-        x1, x2, y1, y2 =  feature_vectors[index][feat1], feature_vectors[index][feat1] + x_offset, feature_vectors[index][feat2], feature_vectors[index][feat2] + y_offset
-        axis_name.set_xlim(x1, x2)
-        axis_name.set_ylim(y1, y2)
-        ax1.indicate_inset_zoom(axis_name, edgecolor=colors[real_class])
-            
-        axis_name.set_xlim(time[0], time[-1])
-        axis_name.set_ylim(intensity[index].min(), intensity[index].max())
-        axis_name.set_title("TIC " + str(int(targets[index])) + title, fontsize=6)
+#inset plotting -------------------------------------------------------------------------------------------
 
-#PLOTTING INSET PLOTS (x/y max/min points per feature)
-
-def features_insets2D(time, intensity, feature_vectors, targets, path):
-    """ Plots 2 features against each other with the extrema points' associated light curves plotted as insets
-    along the top and bottom of the plot. 
+def features_insets(time, intensity, feature_vectors, targets, path):
+    """ Plots 2 features against each other with the extrema points' associated
+    light curves plotted as insets along the top and bottom of the plot. 
+    
     time is the time axis for the group
     intensity is the full list of intensities
     feature_vectors is the complete list of feature vectors
     targets is the complete list of targets
-    folder is the folder into which you wish to save the folder of plots. it should be formatted as a string, with no trailing /
+    folder is the folder into which you wish to save the folder of plots. it 
+    should be formatted as a string, with no trailing /
     modified [lcg 06292020]
     """   
     path = path + "/2DFeatures-insets"
@@ -423,7 +314,7 @@ def features_insets2D(time, intensity, feature_vectors, targets, path):
             
             inset_indexes = get_extrema(feature_vectors, n,m)
             
-            inset_plotting(feature_vectors[n], feature_vectors[m], graph_label1, graph_label2, time, intensity, inset_indexes, targets, filename)
+            inset_plotting(feature_vectors[:,n], feature_vectors[:,m], graph_label1, graph_label2, time, intensity, inset_indexes, targets, filename)
             
 
 def inset_plotting(datax, datay, label1, label2, insetx, insety, inset_indexes, targets, filename):
@@ -462,7 +353,7 @@ def inset_plotting(datax, datay, label1, label2, insetx, insety, inset_indexes, 
         
     
         axis_name = ax1.inset_axes([x_init, y_init, i_width, i_height], transform = ax1.transData) #x pos, y pos, width, height
-        axis_name.scatter(insetx, insety[inset_indexes[n]], c='black', s = 0.3, rasterized=True)
+        axis_name.scatter(insetx, insety[inset_indexes[n]], c='black', s = 0.1, rasterized=True)
         
         #this sets where the pointer goes to
         x1, x2 = datax[inset_indexes[n]], datax[inset_indexes[n]] + 0.001*x_range
@@ -485,7 +376,8 @@ def inset_plotting(datax, datay, label1, label2, insetx, insety, inset_indexes, 
             y_init = datay.min() - (0.8*y_offset)
             x_init = datax.min()
             
-    plt.savefig(filename)                      
+    plt.savefig(filename)   
+    plt.close()
 
 def get_extrema(feature_vectors, feat1, feat2):
     """ Identifies the extrema in each direction for the pair of features given. 
@@ -510,7 +402,133 @@ def get_extrema(feature_vectors, feat1, feat2):
     
     return indexes_unique      
 
+# colored inset plotting -------------------------------------------------------
+def features_insets_colored(time, intensity, feature_vectors, targets, path, realclasses):
+    """Plots features in pairs against each other with inset plots. 
+    Inset plots are colored based on the hand-identified classes, with the 
+    lines connecting them to the feature point and the feature point colored by
+    the predicted class. 
+    currently only uses dbscan to sort them.
+    Time, intensity, feature_vectors, targets are arrays
+    path is the path into which you want the folder of plots ot be saved, it
+    should not have a trailing /
+    realclasses should be an array. 
+    modified [lcg 06302020]"""   
+    folderpath = path + "/2DFeatures-insets-colored"
+    try:
+        os.makedirs(folderpath)
+    except OSError:
+        print ("Creation of the directory %s failed" % folderpath)
+        print("New folder created will have -new at the end. Please rename.")
+        path = path + "-new"
+        os.makedirs(folderpath)
+    else:
+        print ("Successfully created the directory %s" % folderpath) 
+ 
+    graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                    "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                    "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                    "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+    fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                    "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                    "P0", "P1", "P2", "Period0to0_1"]
+    
+    db = DBSCAN(eps=2.2, min_samples=18).fit(feature_vectors) #eps is NOT epochs
+    guessclasses = db.labels_
+    
+    for n in range(16):
+        graph_label1 = graph_labels[n]
+        fname_label1 = fname_labels[n]
+        for m in range(16):
+            if m == n:
+                continue
+            graph_label2 = graph_labels[m]
+            fname_label2 = fname_labels[m]   
+                      
+            
+            
+            filename = folderpath + "/" + fname_label1 + "-vs-" + fname_label2 + ".png"     
+            
+            inset_indexes = get_extrema(feature_vectors, n,m)
+            inset_plotting_colored(feature_vectors[:,n], feature_vectors[:,m], graph_label1, graph_label2, time, intensity, inset_indexes, targets, filename, realclasses, guessclasses)
+            
+            
+def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_indexes, targets, filename, realclasses, guessclasses):
+    """ Plots the extrema of a 2D feature plot as insets on the top and bottom border
+    Variant on inset_plotting. Colors insets by guessed classes, and the 
+    connecting lines by the real classes.
+    datax and datay are the features being plotted as a scatter plot beneath it
+    label1 and label2 are the x and y labels
+    insetx is the time axis for the insets
+    insety is the complete list of intensities 
+    inset_indexes are the identified extrema to be plotted
+    targets is the complete list of target TICs
+    filename is the exact path that the plot is to be saved to.
+    realclasses is the array of hand labeled classes
+    guessclasses are the predicted classes
+    modified [lcg 06302020]"""
+    
+    x_range = datax.max() - datax.min()
+    y_range = datay.max() - datay.min()
+    y_offset = 0.2 * y_range
+    x_offset = 0.01 * x_range
+    colors = ["red","blue", "green", "purple" ,"yellow", "magenta", 'black']
+    
+    fig, ax1 = plt.subplots()
+    
+    for n in range(len(datax)):
+        c = colors[int(guessclasses[n])]
+        ax1.scatter(datax[n], datay[n], s=2)
 
+    ax1.set_xlim(datax.min() - x_offset, datax.max() + x_offset)
+    ax1.set_ylim(datay.min() - y_offset,  datay.max() + y_offset)
+    ax1.set_xlabel(label1)
+    ax1.set_ylabel(label2)
+    
+    i_height = y_offset / 2
+    i_width = x_range/4.5
+    
+    x_init = datax.min() 
+    y_init = datay.max() + (0.4*y_offset)
+    n = 0
+    inset_indexes = inset_indexes[0:8]
+    
+    while n < (len(inset_indexes)):
+        axis_name = "axins" + str(n)
+        real_class = int(realclasses[inset_indexes[n]])
+        guessed_class = int(guessclasses[inset_indexes[n]])
+        
+    
+        axis_name = ax1.inset_axes([x_init, y_init, i_width, i_height], transform = ax1.transData) #x pos, y pos, width, height
+        axis_name.scatter(insetx, insety[inset_indexes[n]], c=colors[guessed_class], s = 0.1, rasterized=True)
+        
+        #this sets where the pointer goes to
+        x1, x2 = datax[inset_indexes[n]], datax[inset_indexes[n]] + 0.001*x_range
+        y1, y2 =  datay[inset_indexes[n]], datay[inset_indexes[n]] + 0.001*y_range
+        axis_name.set_xlim(x1, x2)
+        axis_name.set_ylim(y1, y2)
+        ax1.indicate_inset_zoom(axis_name, edgecolor=colors[real_class])
+              
+        #this sets the actual axes limits    
+        axis_name.set_xlim(insetx[0], insetx[-1])
+        axis_name.set_ylim(insety[inset_indexes[n]].min(), insety[inset_indexes[n]].max())
+        axis_name.set_title("TIC " + str(int(targets[inset_indexes[n]])) + " " + astroquery_pull_data(targets[inset_indexes[n]]), fontsize=8)
+        axis_name.set_xticklabels([])
+        axis_name.set_yticklabels([])
+        
+        x_init += 1.1* i_width
+        n = n + 1
+        
+        if n == 4: 
+            y_init = datay.min() - (0.8*y_offset)
+            x_init = datax.min()
+            
+    plt.savefig(filename)
+    plt.close()
+
+
+
+# plotting features by color and shape
 def features_2D_colorshape(feature_vectors, path, clusteralg, hand_classes):
     """ plots features against each other
     COLORING based on the given hand classes. 
