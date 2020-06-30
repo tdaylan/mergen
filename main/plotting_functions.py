@@ -51,10 +51,6 @@ from astroquery.mast import Observations
 from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
 
-import shapely
-from shapely import geometry
-from shapely.geometry import Point
-from shapely.geometry.polygon import Polygon
 
 def test_plotting():
     print("plotting loaded in successfully")
