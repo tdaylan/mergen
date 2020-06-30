@@ -248,7 +248,7 @@ def compile_model(model, params, mlp=False):
 def encoder(x_train, params):
     '''https://towardsdatascience.com/autoencoders-in-keras-c1f57b9a2fd7'''
     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
-    from keras.layers import Dense, AveragePooling1D
+    from keras.layers import Dense, AveragePooling1D, BatchNormalization
     from keras.models import Model
     
     input_dim = np.shape(x_train)[1]
@@ -261,12 +261,14 @@ def encoder(x_train, params):
             x = Conv1D(params['num_filters'], int(params['kernel_size']),
                     activation=params['activation'], padding='same',
                     kernel_initializer=params['initializer'])(input_img)
+            x = BatchNormalization()(x)
             # x = Conv1D(params['num_filters'], int(params['kernel_size']),
             #             activation=params['activation'], padding='same')(x)
         else:
             x = Conv1D(params['num_filters'], int(params['kernel_size']),
                         activation=params['activation'], padding='same',
                         kernel_initializer=params['initializer'])(x)
+            x = BatchNormalization()(x)
             # x = Conv1D(params['num_filters'], int(params['kernel_size']),
             #             activation=params['activation'], padding='same')(x)
         x = MaxPooling1D(2, padding='same')(x)
@@ -283,7 +285,7 @@ def encoder(x_train, params):
 
 def decoder(x_train, bottleneck, params):
     from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout
-    from keras.layers import Lambda
+    from keras.layers import Lambda, BatchNormalization
     input_dim = np.shape(x_train)[1]
     # num_iter = int(len(params['num_filters'])/2)
     num_iter = int(params['num_conv_layers']/2)
@@ -305,6 +307,7 @@ def decoder(x_train, bottleneck, params):
         x = Dropout(params['dropout'])(x)
         x = UpSampling1D(2)(x)
         if i == num_iter-1:
+            x = BatchNormalization()(x)
             decoded = Conv1D(1, int(params['kernel_size']),
                               activation=params['last_activation'],
                               padding='same',
@@ -313,6 +316,7 @@ def decoder(x_train, bottleneck, params):
             #                  activation=params['last_activation'],
             #                  padding='same')(x)
         else:
+            x = BatchNormalization()(x)
             x = Conv1D(params['num_filters'], int(params['kernel_size']),
                        activation=params['activation'], padding='same',
                        kernel_initializer=params['initializer'])(x)            
@@ -524,8 +528,8 @@ def standardize(x, ax=1):
     x = x / stdevs   
     return x
     
-def normalize(flux):
-    medians = np.median(flux, axis = 1, keepdims=True)
+def normalize(flux, ax=1):
+    medians = np.median(flux, axis = ax, keepdims=True)
     flux = flux / medians - 1.
     return flux
 
@@ -564,7 +568,8 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     # -- sigma clip ----------------------------------------------------------
     sigclip = SigmaClip(sigma=num_sigma, maxiters=None, cenfunc='median')
     clipped_inds = np.nonzero(np.ma.getmask(sigclip(i, masked=True)))
-    i[clipped_inds] = np.nan
+    if np.shape(clipped_inds)[1] != 0:
+        i[clipped_inds] = np.nan
     if DEBUG_INTERP:
         ax[1].plot(time, i, '.k', markersize=2)
         ax[1].set_title('clipped')
@@ -734,6 +739,18 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
         
         # >> and calculate new mask
         mask = np.nonzero(np.prod(~np.isnan(flux), axis = 0) == False)    
+        
+        # >> make new histogram
+        num_masked = []
+        for lc in flux:
+            num_inds = np.nonzero( ~np.isnan(lc) )
+            num_masked.append( len( np.intersect1d(num_inds, mask) ) )
+        plt.figure()
+        plt.hist(num_masked, bins=50)
+        plt.ylabel('number of light curves')
+        plt.xlabel('number of data points masked')
+        plt.savefig(output_dir + 'nan_mask_new.png')
+        plt.close()
         
     # >> apply NaN mask
     time = np.delete(time, mask)
