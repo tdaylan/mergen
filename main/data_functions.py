@@ -7,6 +7,28 @@ Data access, data processing, feature vector creation functions.
 @author: Lindsey Gordon @lcgordon and Emma Chickles (@??)
 
 Updated: June 26 2020
+
+Data access
+* test_data()
+* load_in_a_group()
+* data_access_by_group_fits()
+* follow_up_on_missed_targets_fits()
+* interp_norm_sigmaclip_features()
+* lc_by_camera_ccd()
+* lc_from_target_list_fits()
+* get_lc_file_and_data()
+
+Data processing
+* normalize()       : median normalization
+* interpolate_all() : sigma clip and interpolate flux array
+* interpolate_lc()  : sigma clip and interpolate one light curve
+* nan_mask()        : apply NaN mask to flux array
+
+Engineered features
+* create_list_featvec
+* featvec
+
+
 """
 
 import numpy as np
@@ -56,9 +78,9 @@ from astroquery.exceptions import RemoteServiceError
 
 import modellibrary as ml
 
-import batman
+# import batman # >> I don't have this library yet [etc 063020]
 import numba
-from transitleastsquares import transitleastsquares
+# from transitleastsquares import transitleastsquares
 
 def test_data():
     """make sure the module loads in"""
@@ -229,15 +251,15 @@ def lc_by_camera_ccd(sectorfile, camera, ccd):
     return matching_targets #return list of only targets on that specific ccd
 
 
-def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw, fname_targets, fname_notes,
-                             sector):
+def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
+                             fname_targets, fname_notes, sector):
     """ runs getting the files and data for all targets on the list
     then appends the time & intensity arrays and the TIC number into text files
     that can later be accessed
     modified [lcg 062620]
     """
     intensity = []
-    i_interpolated
+    i_interpolated = []
     ticids = []
     for n in range(len(targetList)): #for each item on the list
         hdr = fits.Header() #make the header
