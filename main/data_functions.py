@@ -59,10 +59,11 @@ import numba
 from transitleastsquares import transitleastsquares
 
 def test_data():
+    """make sure the module loads in"""
     print("data functions loaded in")
     
 def load_in_a_group(sector, camera, ccd, path):
-    """loads in a given group's data provided you have it saved in metafiles already
+    """loads in a given group's data provided you have it saved in TEXT metafiles already
     path needs to be a string, ending with a forward slash
     camera, ccd, secotr all should be integers
     """

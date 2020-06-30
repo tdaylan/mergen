@@ -66,10 +66,10 @@ def classification_test():
 
 
 #confusion matrix functions ------------------------------------------------
-def dbscan_param_scan(filedb, features, epsmin, epsmax, epsstep, sampmin, sampmax, sampstep, hand_classes):
+def dbscan_param_scan(path, features, epsmin, epsmax, epsstep, sampmin, sampmax, sampstep, hand_classes):
     """run parameter scan for dbscan over given range of eps and samples,
     knowing the hand classified values"""
-
+    filedb = path + "/dbscan-confusion-matrices-scan.txt"
     #feature optimizing for dbscan
     #0 flat 1 sine 2 multiple transits 3 flares 4 single transits 5 not sure
     text1 = "\n Eps values between " + str(epsmin) + " and " + str(epsmax) + ". Min samples between " + str(sampmin) + " and " + str(sampmax)
@@ -111,7 +111,42 @@ def dbscan_param_scan(filedb, features, epsmin, epsmax, epsstep, sampmin, sampma
                     file_object.write("\n The 0th row and column represent a noise class (-1)")
                 #file_object.write("\n")
                 file_object.write("\n" + str(db_matrix) + "\n Accuracy:" + str(db_accuracy) + "\n Precisions:" + str(db_precision) + "\n Recalls:" + str(db_recall) + "\n")
+        #then do color-coded plotting for the different ranges: 
+        
+    #plotting eps value ranges: 
+    num_eps = len(eps_values)
+    num_samps = len(min_samps)
+    num_combos = num_eps*num_samps
+    color_division = num_combos / 5
+    y_axes = [accuracies, avg_precision, avg_recall]
+    y_labels = ["accuracies", "average-precision", "average-recall"]
+    for m in range(3):
+        y_axis = y_axes[m]
+        y_label = y_labels[m]
+        for n in range(num_combos):
+            k = n % num_eps #what eps value is it
+            
+            if n <= color_division: 
+                color = 'red'
+            elif color_division <n<= 2*color_division:
+                color = 'pink'
+            elif 2*color_division < n <= 3*color_division:
+                color = 'green'
+            elif 3*color_division < n <= 4*color_division:
+                color = 'blue'
+            elif n > 4*color_division:
+                color = 'purple'
+            
+            plt.scatter(eps_values[k], y_axis[n], c = color)
+        
+        plt.xlabel("eps value")
+        plt.ylabel(y_label)
+        plt.title("sample range by color: red, pink, green, blue, purple, are increasing by # of samples")
+        
+        plt.savefig(path + "/dbscan-paramscan-" + y_label +"-eps-colored.pdf")
+        plt.show()
 
+    return accuracies, avg_precision, avg_recall
 
 def matrix_accuracy(c_matrix):
     """calculate the accuracy of the matrix"""
@@ -166,58 +201,3 @@ def matrix_recall(matrix):
         recalls.append(rec)
     
     return np.asarray(recalls)
-
-#Other functions (old/rarely used) ---------------------
-def get_pdcsap_and_sap(yourpath, target):
-    """ goes in, grabs the data for the target, gets the time index, intensity,
-    etc. for the image. if connection error w/ MAST, skips it"""
-    fitspath = yourpath + 'mastDownload/TESS/'
-    targ = "TIC " + str(int(target))
-    print(targ)
-    try:
-        #find and download data products for your target
-        obs_table = Observations.query_object(targ, radius=".02 deg")
-        data_products_by_obs = Observations.get_product_list(obs_table[0:2])
-            
-        #in theory, filter_products should let you sort out the non fits files but i 
-        #simply could not get it to accept it despite following the API guidelines
-        filter_products = Observations.filter_products(data_products_by_obs, dataproduct_type = 'timeseries')
-        manifest = Observations.download_products(filter_products)
-            
-        #get all the paths to lc.fits files
-        filepaths = []
-        for root, dirs, files in os.walk(fitspath):
-            for name in files:
-                if name.endswith(("lc.fits")):
-                    filepaths.append(root + "/" + name)
-                 
-        if len(filepaths) == 0: #if no lc.fits were downloaded, move on
-            print(targ, "no light curve available")
-            time1 = 0
-            i1 = 0
-        else: #if there are lc.fits files, open them and get the goods
-            for file in filepaths:
-                #get the goods and then close it
-                f = fits.open(file, memmap=False)
-                time1 = f[1].data['TIME']
-                i1 = f[1].data['PDCSAP_FLUX']  
-                i2 = f[1].data['SAP_FLUX']
-                f.close()
-                  
-        #then delete all downloads in the folder, no matter what type
-        if os.path.isdir("mastDownload") == True:
-            shutil.rmtree("mastDownload")
-            print("folder deleted")
-            
-        #corrects for connnection errors
-    except (ConnectionError, OSError, TimeoutError):
-        print(targ + "could not be accessed due to an error")
-        i1 = 0
-        time1 = 0
-    
-    return time1, i1, i2 
-
-def gaussian(datapoints, a, b, c):
-    """Produces a gaussian function"""
-    x = np.linspace(0, xmax, datapoints)
-    return  a * np.exp(-(x-b)**2 / 2*c**2) + np.random.normal(size=(datapoints))
