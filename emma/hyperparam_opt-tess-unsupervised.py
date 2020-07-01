@@ -22,12 +22,12 @@ import model as ml
 import data_functions as df
 import plotting_functions as pl
 
-output_dir = '../../plots/cae-cam4ccd1/'
+output_dir = '../../plots/cae-cam4ccd1-hyperparamopt/'
 # output_dir = './plots/test/'
 
 hyperparameter_optimization = False
-run_model = True
-diag_plots = True
+run_model = False
+diag_plots = False
 classification=True # >> runs dbscan, classifies light curves
 run_tic = False # >> input a TICID (temporary)
 DBSCAN_parameter_search=True
@@ -45,9 +45,9 @@ fnames = ['../../Sector20Cam4CCD1_raw_lightcurves.fits']
 # >> hyperparameters
 if hyperparameter_optimization:
     p = {'kernel_size': [3,5,7],
-      'latent_dim': list(np.arange(5, 30, 2)),
+      'latent_dim': list(np.arange(5, 30, 5)),
       'strides': [1],
-      'epochs': [50],
+      'epochs': [40],
       'dropout': list(np.arange(0.1, 0.5, 0.1)),
       'num_filters': [8, 16, 32, 64],
       'num_conv_layers': [2,4,6,8,10],
@@ -60,20 +60,20 @@ if hyperparameter_optimization:
       'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
                       'glorot_uniform']}
 else:
-    p = {'kernel_size': 7,
-          'latent_dim': 21,
+    p = {'kernel_size': 3,
+          'latent_dim': 17,
           'strides': 1,
           'epochs': 20,
-          'dropout': 0.5,
-          'num_filters': 64,
-          'num_conv_layers': 4,
+          'dropout': 0.3,
+          'num_filters': 32,
+          'num_conv_layers': 2,
           'batch_size': 128,
           'activation': 'elu',
-          'optimizer': 'adam',
+          'optimizer': 'adadelta',
           'last_activation': 'linear',
           'losses': 'mean_squared_error',
           'lr': 0.001,
-          'initializer': 'random_uniform'}
+          'initializer': 'glorot_normal'}
 
 # -- create output directory --------------------------------------------------
     
@@ -197,9 +197,9 @@ if hyperparameter_optimization:
                     experiment_name=title, 
                     reduction_metric = 'val_loss',
                     minimize_loss=True,
-                    reduction_method='correlation') # fraction_limit=0.0001
+                    reduction_method='correlation')
     analyze_object = talos.Analyze(t)
-    df, best_param_ind,p = ml.hyperparam_opt_diagnosis(analyze_object,
+    df, best_param_ind,p = pl.hyperparam_opt_diagnosis(analyze_object,
                                                        output_dir,
                                                        supervised=False)
 
@@ -245,7 +245,7 @@ if run_model:
                                          rms=rms_train)
     hdr = fits.Header()
     hdu = fits.PrimaryHDU(bottleneck_train, header=hdr)
-    hdu.writeto(output_dir + 'bottleneck_train.fits')    
+    hdu.writeto(output_dir + 'bottleneck_train.fits')
 
 # == Plots ====================================================================
 if diag_plots:
@@ -283,20 +283,41 @@ if diag_plots:
                             plot_epoch=False,
                             load_bottleneck=True)
     else:
+        # pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
+        #                     x_test, x_predict, mock_data=False,
+        #                     ticid_train=ticid_train,
+        #                     ticid_test=ticid_test, percentage=False,
+        #                     input_features=input_features,
+        #                     input_rms=input_rms, rms_test=rms_test,
+        #                     rms_train=rms_train,
+        #                     plot_intermed_act=False,
+        #                     plot_latent_test=False,
+        #                     plot_latent_train=False,
+        #                     plot_reconstruction_error_all=False,
+        #                     make_movie=False,
+        #                     plot_epoch=False,
+        #                     plot_kernel=False)   
         pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
                             x_test, x_predict, mock_data=False,
                             ticid_train=ticid_train,
                             ticid_test=ticid_test, percentage=False,
                             input_features=input_features,
                             input_rms=input_rms, rms_test=rms_test,
-                            rms_train=rms_train,
-                            plot_intermed_act=False,
-                            plot_latent_test=False,
-                            plot_latent_train=False,
-                            plot_reconstruction_error_all=False,
-                            make_movie=False,
-                            plot_epoch=False,
-                            plot_kernel=False)    
+                            rms_train=rms_train, n_tot=40,
+                             plot_epoch = False,
+                             plot_in_out = False,
+                             plot_in_bottle_out=False,
+                             plot_latent_test = True,
+                             plot_latent_train = False,
+                             plot_kernel=False,
+                             plot_intermed_act=False,
+                             plot_clustering=False,
+                             make_movie = False,
+                             plot_lof_test=False,
+                             plot_lof_train=False,
+                             plot_lof_all=False,
+                             plot_reconstruction_error_test=False,
+                             plot_reconstruction_error_all=False)                            
 
 
 # >> Feature plots
@@ -368,7 +389,7 @@ if classification:
             
             # 2.9000000000000004 2 minkowski auto 30 4
             # (array([-1,  0,  1,  2]), array([23, 85,  6,  2]))
-            classes = ff.features_plotting_2D(bottleneck, bottleneck,
+            classes = pl.features_plotting_2D(bottleneck, bottleneck,
                                               output_dir, 'dbscan',
                                               x, x_test, ticid_test,
                                               feature_engineering=False,
@@ -376,17 +397,20 @@ if classification:
                                               metric=p[2], algorithm=p[3],
                                               leaf_size=p[4], p=p[5],
                                               folder_suffix='_'+str(i)+\
-                                                  'classes')
+                                                  'classes',
+                        momentum_dmp_csv='../../Table_of_momentum_dumps.csv')
     
     else:
-        classes = ff.features_plotting_2D(bottleneck, bottleneck, output_dir,
+        classes = pl.features_plotting_2D(bottleneck, bottleneck, output_dir,
                                           'dbscan', x, x_test, ticid_test,
                                           feature_engineering=False, eps=2.9,
                                           min_samples=2, metric='minkowski',
-                                          algorithm='auto', leaf_size=30, p=4)
-    ff.features_plotting_2D(bottleneck, bottleneck, output_dir, 'kmeans',
+                                          algorithm='auto', leaf_size=30, p=4
+                                          momentum_dmp_csv='../../Table_of_momentum_dumps.csv')        
+    pl.features_plotting_2D(bottleneck, bottleneck, output_dir, 'kmeans',
                             x, x_test, ticid_test,
-                            feature_engineering=False)
+                            feature_engineering=False,
+                            momentum_dmp_csv='../../Table_of_momentum_dumps.csv')
     
     pl.plot_pca(bottleneck, classes, output_dir=output_dir)
     
@@ -488,3 +512,19 @@ if classification:
 #   'lr': list(np.arange(0.001, 0.1, 0.01)),
 #   'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
 #                   'glorot_uniform', 'zeros']}
+    
+    
+    # p = {'kernel_size': 7,
+    #       'latent_dim': 21,
+    #       'strides': 1,
+    #       'epochs': 20,
+    #       'dropout': 0.5,
+    #       'num_filters': 64,
+    #       'num_conv_layers': 4,
+    #       'batch_size': 128,
+    #       'activation': 'elu',
+    #       'optimizer': 'adam',
+    #       'last_activation': 'linear',
+    #       'losses': 'mean_squared_error',
+    #       'lr': 0.001,
+    #       'initializer': 'random_uniform'}
