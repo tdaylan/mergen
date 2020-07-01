@@ -76,7 +76,7 @@ from astroquery.mast import Observations
 from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
 
-import modellibrary as ml
+import model as ml # >> autoencoder functions
 
 # import batman # >> I don't have this library yet [etc 063020]
 import numba
@@ -468,10 +468,22 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
 
 #normalizing each light curve
 def normalize(flux, axis=1):
-    '''Using Numpy arrays.'''
+    '''Dividing by median.'''
     medians = np.median(flux, axis = axis, keepdims=True)
     flux = flux / medians - 1.
     return flux
+
+def rms(x, axis=1):
+    rms = np.sqrt(np.nanmean(x**2, axis = axis))
+    return rms
+
+def standardize(x, ax=1):
+    means = np.nanmean(x, axis = ax, keepdims=True) # >> subtract mean
+    x = x - means
+    stdevs = np.nanstd(x, axis = ax, keepdims=True) # >> divide by standard dev
+    x = x / stdevs   
+    return x
+
 # def normalize(intensity):
 #     """normalizes the intensity from the median value 
 #     by dividing out. then sigmaclips using astropy
