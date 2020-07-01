@@ -7,6 +7,37 @@ Plotting functions only.
 @author: Lindsey Gordon @lcgordon
 
 Last updated: June 4 2020
+
+Helper functions
+* plot_lc()
+* ticid_label()
+* astroquery_pull_data !! combine with get_features() and ticid_label()
+* format_axes()
+
+Feature visualization
+* features_plotting_2d()
+* features_insets()
+* inset_plotting()
+* get_extrema()
+* features_insets_colored()
+* inset_plotting_colored()
+* features_2D_colorshape()
+* plot_lof()
+* plot_pca()
+
+Autoencoder visualizations
+* diagnostic_plots()
+* epoch_plots() 
+* input_output_plot()
+* kernel_filter_plot()
+* intermed_act_plot()
+* input_bottleneck_output_plot()
+* movie()
+* training_test_plot()
+* hyperparam_opt_diagnosis()
+* plot_reconstruction_error()
+* plot_classification()
+
 """
 import numpy as np
 import numpy.ma as ma 
@@ -14,7 +45,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)                
 import pdb # >> debugging tool
-import modellibrary as ml
+import model as ml
 
 
 import scipy.signal as signal
@@ -141,7 +172,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
                 plt.ylabel(graph_label2)
                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.pdf")
                 plt.show()
-            elif cluster == 'none':
+            elif clustering == 'none':
                 plt.scatter(feat1, feat2, s = 2, color = 'black')
                 #plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
@@ -149,74 +180,74 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".pdf")
                 plt.show()
                 
-def plot_lof(time, intensity, targets, features, n, path):
-    """plots the 20 most and least interesting light curves based on LOF
-    takes input: time, intensity, targets, featurelist, n number of curves you want, path to where you want it
-    saved (no end slash)
-    modified [lcg 06292020]"""
-    fname_lof = path + "/LOF-features.txt"
-    from sklearn.neighbors import LocalOutlierFactor
+# def plot_lof(time, intensity, targets, features, n, path):
+#     """plots the 20 most and least interesting light curves based on LOF
+#     takes input: time, intensity, targets, featurelist, n number of curves you want, path to where you want it
+#     saved (no end slash)
+#     modified [lcg 06292020]"""
+#     fname_lof = path + "/LOF-features.txt"
+#     from sklearn.neighbors import LocalOutlierFactor
 
-    clf = LocalOutlierFactor(n_neighbors=50)
+#     clf = LocalOutlierFactor(n_neighbors=50)
     
-    fit_predictor = clf.fit_predict(features)
-    negative_factor = clf.negative_outlier_factor_
+#     fit_predictor = clf.fit_predict(features)
+#     negative_factor = clf.negative_outlier_factor_
     
-    lof = -1 * negative_factor
-    ranked = np.argsort(lof)
-    largest_indices = ranked[::-1][:n]
-    smallest_indices = ranked[:n]
+#     lof = -1 * negative_factor
+#     ranked = np.argsort(lof)
+#     largest_indices = ranked[::-1][:n]
+#     smallest_indices = ranked[:n]
 
-    #plot a histogram of the lof values
-    fig1, ax1 = plt.subplots()
-    n, bins, patches = ax1.hist(lof, 50, density=1)
-    ax1.title("LOF Histogram")
-    plt.savefig(path+"/LOF-histogram.png")
-    plt.close()
+#     #plot a histogram of the lof values
+#     fig1, ax1 = plt.subplots()
+#     n, bins, patches = ax1.hist(lof, 50, density=1)
+#     ax1.title("LOF Histogram")
+#     plt.savefig(path+"/LOF-histogram.png")
+#     plt.close()
 
-    with open(fname_lof, 'a') as file_object:
-        file_object.write("Largest LOF's features: \n")
-        np.savetxt(file_object, features[largest_indices])
-        file_object.write("\n Smallest LOF's features: \n")
-        np.savetxt(file_object, features[smallest_indices])
-    #plot just the largest indices
-    #rows, columns
-    fig, axs = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
-    fig.subplots_adjust(hspace=0)
-    dumppoints = [1842.5, 1847.9, 1853.3, 1856.4, 1861.9, 1867.4]
-    for k in range(n):
-        ind = largest_indices[k]
-        axs[k].plot(time, intensity[ind], '.k', label="TIC " + str(int(targets[ind])) + ", LOF:" + str(np.round(lof[ind], 2)))
-        for a in range(len(dumppoints)):
-            axs[k].axvline(dumppoints[a], linewidth=0.5)
-        axs[k].legend(loc="upper left")
-        axs[k].set_ylabel("relative flux")
-        title = astroquery_pull_data(targets[ind])
-        axs[k].set_title(title)
-        axs[-1].set_xlabel("BJD [-2457000]")
-    fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
-    fig.tight_layout()
-    fig.subplots_adjust(top=0.96)
-    fig.savefig(path + "/largest-lof.png")
+#     with open(fname_lof, 'a') as file_object:
+#         file_object.write("Largest LOF's features: \n")
+#         np.savetxt(file_object, features[largest_indices])
+#         file_object.write("\n Smallest LOF's features: \n")
+#         np.savetxt(file_object, features[smallest_indices])
+#     #plot just the largest indices
+#     #rows, columns
+#     fig, axs = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
+#     fig.subplots_adjust(hspace=0)
+#     dumppoints = [1842.5, 1847.9, 1853.3, 1856.4, 1861.9, 1867.4]
+#     for k in range(n):
+#         ind = largest_indices[k]
+#         axs[k].plot(time, intensity[ind], '.k', label="TIC " + str(int(targets[ind])) + ", LOF:" + str(np.round(lof[ind], 2)))
+#         for a in range(len(dumppoints)):
+#             axs[k].axvline(dumppoints[a], linewidth=0.5)
+#         axs[k].legend(loc="upper left")
+#         axs[k].set_ylabel("relative flux")
+#         title = astroquery_pull_data(targets[ind])
+#         axs[k].set_title(title)
+#         axs[-1].set_xlabel("BJD [-2457000]")
+#     fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
+#     fig.tight_layout()
+#     fig.subplots_adjust(top=0.96)
+#     fig.savefig(path + "/largest-lof.png")
 
-    #plot the smallest indices
-    fig1, axs1 = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
-    fig1.subplots_adjust(hspace=0)
+#     #plot the smallest indices
+#     fig1, axs1 = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
+#     fig1.subplots_adjust(hspace=0)
     
-    for m in range(n):
-        ind = smallest_indices[m]
-        axs1[m].plot(time, intensity[ind], '.k', label="TIC " + str(int(targets[ind])) + ", LOF:" + str(np.round(lof[ind], 2)))
-        axs1[m].legend(loc="upper left")
-        for a in range(len(dumppoints)):
-            axs1[m].axvline(dumppoints[a], linewidth=0.5)
-        axs1[m].set_ylabel("relative flux")
-        title = astroquery_pull_data(targets[ind])
-        axs1[m].set_title(title)
-        axs1[-1].set_xlabel("BJD [-2457000]")
-    fig1.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
-    fig1.tight_layout()
-    fig1.subplots_adjust(top=0.96)
-    fig1.savefig(path +  "/smallest-lof.png")
+#     for m in range(n):
+#         ind = smallest_indices[m]
+#         axs1[m].plot(time, intensity[ind], '.k', label="TIC " + str(int(targets[ind])) + ", LOF:" + str(np.round(lof[ind], 2)))
+#         axs1[m].legend(loc="upper left")
+#         for a in range(len(dumppoints)):
+#             axs1[m].axvline(dumppoints[a], linewidth=0.5)
+#         axs1[m].set_ylabel("relative flux")
+#         title = astroquery_pull_data(targets[ind])
+#         axs1[m].set_title(title)
+#         axs1[-1].set_xlabel("BJD [-2457000]")
+#     fig1.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
+#     fig1.tight_layout()
+#     fig1.subplots_adjust(top=0.96)
+#     fig1.savefig(path +  "/smallest-lof.png")
                 
 def astroquery_pull_data(target):
     """Give a TIC ID - ID /only/, any format is fine, it'll get converted to str
@@ -593,7 +624,7 @@ def diagnostic_plots(history, model, p, output_dir,
                      intermed_inds = [6,0],
                      input_bottle_inds = [0,1,2,-6,-7],
                      addend = 1., feature_vector=False, percentage=False,
-                     input_features = False, load_bottleneck=False,
+                     input_features = False, load_bottleneck=False, n_tot=100,
                      plot_epoch = True,
                      plot_in_out = True,
                      plot_in_bottle_out=False,
@@ -605,7 +636,7 @@ def diagnostic_plots(history, model, p, output_dir,
                      make_movie = False,
                      plot_lof_test=True,
                      plot_lof_train=True,
-                     plot_lof_all=False,
+                     plot_lof_all=True,
                      plot_reconstruction_error_test=False,
                      plot_reconstruction_error_all=True):
     '''Produces all plots.
@@ -652,7 +683,7 @@ def diagnostic_plots(history, model, p, output_dir,
         
     # -- intermediate activations visualization -------------------------------
     if plot_intermed_act or make_movie:
-        activations = get_activations(model, x_test) 
+        activations = ml.get_activations(model, x_test) 
     if plot_intermed_act:
         intermed_act_plot(x, model, activations, x_test,
                           output_dir+prefix+'intermed_act-', addend=addend,
@@ -681,12 +712,13 @@ def diagnostic_plots(history, model, p, output_dir,
             with fits.open(output_dir + 'bottleneck_test.fits') as hdul:
                 bottleneck = hdul[0].data
         else:
-            bottleneck = get_bottleneck(model, x_test,
-                                        input_features=input_features,
-                                        features=features, input_rms=input_rms,
-                                        rms=rms_test)
-            # activations = get_activations(model, x_test)
-            # bottleneck = get_bottleneck(model, activations, p,
+            bottleneck = ml.get_bottleneck(model, x_test,
+                                           input_features=input_features,
+                                           features=features,
+                                           input_rms=input_rms,
+                                           rms=rms_test)
+            # activations = ml.get_activations(model, x_test)
+            # bottleneck = ml.get_bottleneck(model, activations, p,
             #                             input_features=input_features,
             #                             features=features,
             #                             input_rms=input_rms, rms=rms_test)
@@ -713,22 +745,23 @@ def diagnostic_plots(history, model, p, output_dir,
             if type(flux_test) != bool:
                 plot_lof(time, flux_test, ticid_test, bottleneck, 20,
                          output_dir, prefix='test-'+prefix, n_neighbors=n,
-                         mock_data=mock_data, feature_vector=feature_vector)
+                         mock_data=mock_data, feature_vector=feature_vector,
+                         n_tot=n_tot)
             else:
                 plot_lof(x, x_test, ticid_test, bottleneck, 20, output_dir,
                          prefix = 'test-'+prefix, n_neighbors=n, mock_data=mock_data,
-                         feature_vector=feature_vector)
+                         feature_vector=feature_vector, n_tot=n_tot)
     
     if plot_latent_train or plot_lof_train or plot_lof_all:
         if load_bottleneck:
             with fits.open(output_dir + 'bottleneck_train.fits') as hdul:
                 bottleneck_train = hdul[0].data
         else:
-            bottleneck_train = get_bottleneck(model, x_train,
-                                              input_features=input_features,
-                                              features=features,
-                                              input_rms=input_rms,
-                                              rms=rms_train)
+            bottleneck_train = ml.get_bottleneck(model, x_train,
+                                                 input_features=input_features,
+                                                 features=features,
+                                                 input_rms=input_rms,
+                                                 rms=rms_train)
             # activations_train = get_activations(model, x_train)        
             # bottleneck_train = get_bottleneck(model, activations_train, p,
             #                                   input_features=input_features,
@@ -747,11 +780,13 @@ def diagnostic_plots(history, model, p, output_dir,
             if type(flux_train) != bool:
                 plot_lof(time, flux_train, ticid_train, bottleneck_train, 20,
                          output_dir, prefix='train-'+prefix, n_neighbors=n,
-                         mock_data=mock_data, feature_vector=feature_vector)
+                         mock_data=mock_data, feature_vector=feature_vector,
+                         n_tot=n_tot)
             else:
                 plot_lof(x, x_train, ticid_train, bottleneck_train, 20,
                          output_dir, prefix = 'train-'+prefix, n_neighbors=n,
-                         mock_data=mock_data, feature_vector=feature_vector)   
+                         mock_data=mock_data, feature_vector=feature_vector,
+                         n_tot=n_tot)   
                 
     if plot_lof_all:
         bottleneck_all = np.concatenate([bottleneck, bottleneck_train], axis=0)
@@ -762,7 +797,7 @@ def diagnostic_plots(history, model, p, output_dir,
         plot_lof(x, np.concatenate([x_test, x_train], axis=0),
                  np.concatenate([ticid_test, ticid_train], axis=0),
                  bottleneck_all, 20, output_dir, prefix='all-'+prefix,
-                 n_neighbors=20,
+                 n_neighbors=20, n_tot=n_tot,
                  mock_data=mock_data, feature_vector=feature_vector)
     
     # -- plot reconstruction error (unsupervised) -----------------------------
@@ -1008,11 +1043,7 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.,
             fig.tight_layout()
             fig.savefig(out_dir+str(c)+'ind-'+str(a+1)+model.layers[a+1].name\
                         +'.png')
-            plt.close(fig)
-
-
-
-            
+            plt.close(fig)          
     
 def input_bottleneck_output_plot(x, x_test, x_predict, bottleneck, model,
                                  ticid_test, out, inds=[0,1,-1,-2,-3],
@@ -1141,6 +1172,8 @@ def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
         os.system('ffmpeg -framerate 2 -i ./image-%03d.png -pix_fmt yuv420p '+\
                   out_dir+str(c)+'ind-movie.mp4')
 
+# :: supervised pipeline ::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
 def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
                        y_predict, num_classes, out, ticid_train, ticid_test,
                        mock_data=False):
@@ -1197,20 +1230,24 @@ def plot_lof(time, intensity, targets, features, n, path,
              n_neighbors=20,
              prefix='', mock_data=False, addend=1., feature_vector=False,
              n_tot=200):
-    """ Adapted from Lindsey Gordon's feature_functions.py
+    """ Adapted from Lindsey Gordon's plot_lof()
     Plots the 20 most and least interesting light curves based on LOF.
     Parameters:
         * time : array with shape 
         * intensity
         * targets : list of TICIDs
-        * feature vector
         * n : number of curves to plot in each figure
+        * path : output directory
         * n_tot : total number of light curves to plots (number of figures =
                   n_tot / n)
-        * path : output directory
+        * feature vector : assumes x axis is latent dimensions, not time  
+        * mock_data : if True, will not plot TICID label
+    Outputs:
+        * Text file with TICID in column 1, and LOF in column 2 (lof-*.txt)
+        * Log histogram of LOF (lof-histogram.png)
+        * Top 20 light curves with highest and lowest LOF
+        * Random 20 light curves
     """
-    from sklearn.neighbors import LocalOutlierFactor
-
     # -- calculate LOF -------------------------------------------------------
     clf = LocalOutlierFactor(n_neighbors=n_neighbors)
     fit_predictor = clf.fit_predict(features)
@@ -1224,7 +1261,7 @@ def plot_lof(time, intensity, targets, features, n, path,
     # >> save LOF values in txt file 
     with open(path+'lof-'+prefix+'.txt', 'w') as f:
         for i in range(len(targets)):
-            f.write('{} {}\n'.format(targets[i], lof[i]))
+            f.write('{} {}\n'.format(int(targets[i]), lof[i]))
             
     # >> make histogram of LOF values
     plt.figure()
@@ -1257,10 +1294,6 @@ def plot_lof(time, intensity, targets, features, n, path,
                 
                 # >> plot momentum dumps
                 for t in mom_dumps:
-                    # ymin = 0.85*np.min(intensity[ind])
-                    # ymax = 1.15*np.max(intensity[ind])
-                    # ax[k].plot([t,t], [0, 1], '--g', alpha=0.5)
-                    # ax[k].plot([t,t], [ymin, ymax], '--g', alpha=0.5)
                     ax[k].axvline(t, color='g', linestyle='--')
                     
                 # >> plot light curve
@@ -1307,10 +1340,6 @@ def plot_lof(time, intensity, targets, features, n, path,
         # >> plot momentum dumps
         for t in mom_dumps:
             ax[k].axvline(t, color='g', linestyle='--')
-            # ymin = 0.85*np.min(intensity[ind])
-            # ymax = 1.15*np.max(intensity[ind])
-            # # ax[k].plot([t,t], [0, 1], '--g', alpha=0.5)
-            # ax[k].plot([t,t], [ymin, ymax], '--g', alpha=0.5)
             
         # >> plot light curve
         ax[k].plot(time, intensity[ind] + addend, '.k', markersize=2)
@@ -1608,73 +1637,6 @@ def format_axes(ax, xlabel=False, ylabel=False):
     if ylabel:
         ax.set_ylabel('Relative flux')
     
-def get_activations(model, x_test, input_rms = False, rms_test = False):
-    '''Returns intermediate activations.'''
-    from keras.models import Model
-    layer_outputs = [layer.output for layer in model.layers][1:]
-    activation_model = Model(inputs=model.input, outputs=layer_outputs)
-    if input_rms:
-        activations = activation_model.predict([x_test, rms_test])
-    else:
-        activations = activation_model.predict(x_test)        
-    return activations
-
-def get_bottleneck_from_activations(model, activations, p, input_features=False, 
-                   features=False, input_rms=False, rms=False):
-    '''Get bottleneck layer, with shape (num light curves, latent dimension)
-    Parameters:
-        * model : Keras Model()
-        * activations : from get_activations()
-        * p : parameter set, with p['latent_dim'] = dimension of latent space
-        * input_features : bool
-        * features : array of features to concatenate with bottleneck, must be
-                     given if input_features=True
-        * rms : list of RMS must be given if input_rms=True
-    '''
-
-    # >> first find all Dense layers
-    inds = np.nonzero(['dense' in x.name for x in model.layers])[0]
-    
-    # >> now check which Dense layers has number of units = latent_dim
-    for ind in inds:
-        ind = ind - 1 # >> len(activations) = len(model.layers) - 1, since
-                      #    activations doesn't include the Input layer
-        num_units = np.shape(activations[ind])[1]
-        if num_units == p['latent_dim']:
-            bottleneck_ind = ind
-    
-    bottleneck = activations[bottleneck_ind]
-    
-    if input_features: # >> concatenate features to bottleneck
-        bottleneck = np.concatenate([bottleneck, input_features], axis=1)
-    if input_rms:
-        bottleneck = np.concatenate([bottleneck,
-                                      np.reshape(rms, (np.shape(rms)[0],1))],
-                                    axis=1)
-        
-    return bottleneck
-
-def get_bottleneck(model, x_test, input_features=False, features=False,
-                   input_rms=False, rms=False):
-    from keras.models import Model
-    # >> first find all Dense layers
-    inds = np.nonzero(['dense' in x.name for x in model.layers])[0]
-    
-    # >> bottleneck layer is the first Dense layer
-    bottleneck_ind = inds[0]
-    activation_model = Model(inputs=model.input,
-                             outputs=model.layers[bottleneck_ind].output)
-    bottleneck = activation_model.predict(x_test)    
-    if input_features: # >> concatenate features to bottleneck
-        bottleneck = np.concatenate([bottleneck, features], axis=1)
-    if input_rms:
-        bottleneck = np.concatenate([bottleneck,
-                                      np.reshape(rms, (np.shape(rms)[0],1))],
-                                        axis=1)    
-    
-    bottleneck = ml.standardize(bottleneck, ax=0)
-    return bottleneck
-
 def latent_space_plot(activation, p, out, n_bins = 50, log = True):
     '''Creates corner plot of latent space.
         Parameters:
