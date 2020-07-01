@@ -10,7 +10,7 @@ Updated: June 26 2020
 
 Data access
 * test_data()
-* load_in_a_group()
+* load_group_from_txt()
 * data_access_by_group_fits()
 * follow_up_on_missed_targets_fits()
 * interp_norm_sigmaclip_features()
@@ -76,7 +76,7 @@ from astroquery.mast import Observations
 from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
 
-import model as ml # >> autoencoder functions
+#import model as ml # >> autoencoder functions
 
 # import batman # >> I don't have this library yet [etc 063020]
 import numba
@@ -84,9 +84,9 @@ import numba
 
 def test_data():
     """make sure the module loads in"""
-    print("data functions loaded in")
+    print("Data functions loaded in.")
     
-def load_in_a_group(sector, camera, ccd, path):
+def load_group_from_txt(sector, camera, ccd, path):
     """loads in a given group's data provided you have it saved in TEXT metafiles already
     path needs to be a string, ending with a forward slash
     camera, ccd, secotr all should be integers
@@ -362,17 +362,13 @@ def get_lc_file_and_data(yourpath, target, sector):
     print(targ)
     try:
         #find and download data products for your target objectname='TIC '+str(int(target)),
-        obs_table = \
-            Observations.query_criteria(obs_collection='TESS',
+        obs_table = Observations.query_criteria(obs_collection='TESS',
                                         dataproduct_type='timeseries',
                                         target_name=str(int(target)),
                                         sequence_number=sector,
                                         objectname=targ)
-        # obs_table = Observations.query_object(targ, radius=".02 deg")
         data_products_by_obs = Observations.get_product_list(obs_table[0:4])
             
-        # #in theory, filter_products should let you sort out the non fits files but i 
-        # #simply could not get it to accept it despite following the API guidelines
         filter_products = Observations.filter_products(data_products_by_obs,
                                                        description = 'Light curves')
         manifest = Observations.download_products(filter_products, extension='fits')
@@ -384,9 +380,7 @@ def get_lc_file_and_data(yourpath, target, sector):
                 print(name)
                 if name.endswith(("lc.fits")):
                     filepaths.append(root + "/" + name)
-                    #print("appended", name, "to filepaths")
-        
-        print(len(filepaths))
+        #print(len(filepaths))
         
         if len(filepaths) == 0: #if no lc.fits were downloaded, move on
             print(targ, "no light curve available")
@@ -744,19 +738,33 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
 
 #producing the feature vector list -----------------------------
 
-    
-def create_list_featvec(time_axis, datasets):
-    """input: all of the datasets being turned into feature vectors (ie, intensity)
-        num_features is the number of features currently being worked on. 
-    you just changed to a range, if it hates you it's because of that
-    returns a list of featurevectors, one for each input . """
+def create_save_featvec(yourpath, times, intensities, sector, camera, ccd):
+    """Produces the feature vectors for each light curve and saves them all
+    into a single fits file
+    Takes: 
+        your path (folder you want the file saved into)
+        time axis
+        all intensity arrays
+        sector, camera, ccd values
+    returns list of feature vectors
+    modified: [lcg 07012020]"""
+    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+    path = yourpath + folder_name
+    fname_features = path + "/"+ folder_name + "_features.fits"
     num_data = len(datasets) #how many datasets
     x = time_axis #creates the x axis
-    feature_list = np.zeros((num_data, 16)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
+    feature_list = np.zeros((num_data, 20)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
     print("creating feature vectors about to begin")
     for n in range(num_data):
         feature_list[n] = featvec(x, datasets[n])
         if n % 50 == 0: print(str(n) + " completed")
+    
+    feature_list = np.asarray(feature_list)
+    hdr = fits.Header()
+    
+    hdu = fits.PrimaryHDU(feature_list, header=hdr)
+    hdu.writeto(fname_features)
+    
     return feature_list
 
 def featvec(x_axis, sampledata): 
@@ -794,7 +802,7 @@ def featvec(x_axis, sampledata):
         19 - power
         
         ***if you update the number of features, 
-        you have to update the number of features in create_list_featvec!!!!
+        you have to update the number of features in create_list_featvec
         modified [lcg 06242020]"""
     from transitleastsquares import transitleastsquares
     

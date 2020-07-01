@@ -4,7 +4,7 @@ Created on Mon Mar 30 00:18:52 2020
 
 @author: Lindsey Gordon 
 
-Functions used across files. Last updated May 31th 2020.
+Functions used across files. Last updated June 30th 2020
 """
 
 #Imports ---------------------------------------
@@ -50,11 +50,6 @@ from astroquery.mast import Catalogs
 from astroquery.mast import Observations
 from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
-
-import shapely
-from shapely import geometry
-from shapely.geometry import Point
-from shapely.geometry.polygon import Polygon
 
 
 #Testing that this file imported correctly ------
