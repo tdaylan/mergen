@@ -4,7 +4,7 @@ Created on Thu Jun  4 21:58:45 2020
 
 Plotting functions only. 
 
-@author: Lindsey Gordon @lcgordon
+@author: Lindsey Gordon @lcgordon and Emma Chickles @emmachickles
 
 Last updated: June 4 2020
 
@@ -45,7 +45,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)                
 import pdb # >> debugging tool
-import model as ml
+#import model as ml
 
 
 import scipy.signal as signal
@@ -87,7 +87,7 @@ from astroquery.exceptions import RemoteServiceError
 
 
 def test_plotting():
-    print("plotting loaded in successfully")
+    print("Plotting functions loaded in")
     
 def plot_lc(time, intensity, target, sector):
     """plots a formatted light curve"""
