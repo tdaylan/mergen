@@ -80,7 +80,7 @@ import modellibrary as ml
 
 # import batman # >> I don't have this library yet [etc 063020]
 import numba
-# from transitleastsquares import transitleastsquares
+
 
 def test_data():
     """make sure the module loads in"""
@@ -113,7 +113,8 @@ def load_in_a_group(sector, camera, ccd, path):
 
 
 #data process an entire group of TICs
-def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd):
+def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
+                              bulk_download=False, bulk_download_dir='./'):
     """you will need:
         your path into the main folder you're working in - must end with /
         the file for your sector from TESS (full path)
@@ -138,13 +139,24 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd):
         with open(fname_targets, 'a') as file_object:
             file_object.write("This file contains the target TICs for this group. Fits light curves are 1-indexed, so first target is all zeroes \n 00000000")
         with open(fname_notes, 'a') as file_object:
-            file_object.write("This file contains group notes, including any TICs that could not be accessed.")
+            file_object.write("This file contains group notes, including any TICs that could not be accessed.\n")
         # get just the list of targets for the specified sector, camera, ccd --------
         target_list = lc_by_camera_ccd(sectorfile, camera, ccd)
         print("there are ", len(target_list), "targets")
-    # get the light curve for each target on the list, and save into a text file
-        confirmation = lc_from_target_list_fits(yourpath, target_list, fname_time_intensities_raw, fname_targets, fname_notes,
-                                                sector)
+        
+        # >> get the light curve for each target on the list, and save into a
+        # >> fits file
+        if bulk_download:
+            confirmation = lc_from_bulk_download(bulk_download_dir,
+                                                 target_list,
+                                                 fname_time_intensities_raw,
+                                                 fname_targets,
+                                                 fname_notes)
+        else: # >> download each light curve
+            confirmation = lc_from_target_list_fits(yourpath, target_list,
+                                                    fname_time_intensities_raw,
+                                                    fname_targets, fname_notes,
+                                                    sector)
         print(confirmation)
         #print("failed to get", len(failed_to_get), "targets")
         targets = np.loadtxt(fname_targets, skiprows=1)
@@ -302,7 +314,8 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     ticids = np.array(ticids)
     i_interp = np.array(i_interp)
     with open(fname_time_intensities_raw, 'rb+') as f:
-        fits.append(fname_time_intensities_raw, intensity)
+        # >> don't want to save 2x data we need to, so only save interpolated
+        # fits.append(fname_time_intensities_raw, intensity)
         fits.append(fname_time_intensities_raw, i_interp)
         fits.append(fname_time_intensities_raw, ticids)
     confirmation = "lc_from_target_list has finished running"
@@ -312,16 +325,17 @@ def get_lc_file_and_data(yourpath, target, sector):
     """ goes in, grabs the data for the target, gets the time index, intensity,and TIC
     if connection error w/ MAST, skips it
     modified [lcg 06262020] - now pulls TICID as well, in case accidentally gets the wrong lc"""
-    fitspath = yourpath #+ 'mastDownload/TESS/'
+    fitspath = yourpath + 'mastDownload/TESS/' # >> download directory
     targ = "TIC " + str(int(target))
     print(targ)
     try:
         #find and download data products for your target objectname='TIC '+str(int(target)),
-        obs_table = astroquery.mast.Observations.query_criteria(obs_collection='TESS',
-                                                               dataproduct_type='timeseries',
-                                                               target_name=str(int(target)),
-                                                               sequence_number=sector,
-                                                               objectname='TIC '+str(int(target)))
+        obs_table = \
+            Observations.query_criteria(obs_collection='TESS',
+                                        dataproduct_type='timeseries',
+                                        target_name=str(int(target)),
+                                        sequence_number=sector,
+                                        objectname=targ)
         # obs_table = Observations.query_object(targ, radius=".02 deg")
         data_products_by_obs = Observations.get_product_list(obs_table[0:4])
             
@@ -369,7 +383,88 @@ def get_lc_file_and_data(yourpath, target, sector):
     
     return time1, i1, ticid
 
-
+def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
+                          fname_notes):
+    '''Saves interpolated fluxes to fits file fname_out.
+    Parameters:
+        * fits_path : directory containing all light curve fits files 
+                      (ending with '/')
+        * target_list : returned by lc_by_camera_ccd()
+        * fname_out : name of fits file to save time, flux and ticids into
+        * fname_targets : saves ticid of every target saved 
+        * fname_notes : saves the ticid of any target it fails on
+    Returns:
+        * confirmation : boolean, returns False if failure
+    '''
+    import fnmatch
+    import gc
+    
+    # >> get list of all light curve fits files
+    fnames_all = os.listdir(fits_path)
+    fnames = fnmatch.filter(fnames_all, '*fits*')
+    
+    # >> find all light curves in a group
+    fnames_group = []
+    target_list = target_list[:,0]
+    for target in target_list:
+        try:
+            fname = list(filter(lambda x: str(int(target)) in x, fnames))[0]
+            fnames_group.append(fname)
+        except:
+            print('Missing ' + str(int(target)))
+            with open(fname_notes, 'a') as f:
+                f.write(str(int(target)) + '\n')
+        
+    fnames = fnames_group
+    count = 0
+    
+    ticid_list = []
+    intensity = []
+    for n in range(len(fnames)):
+        
+        file = fnames[n]
+        print(count)
+        
+        # >> open file
+        with fits.open(fits_path + file) as hdul:
+            hdu_data = hdul[1].data
+            
+            # >> get time array (only for the first light curve)
+            if n == 0: 
+                time = hdu_data['TIME']
+                # >> save to fits file
+                hdr = fits.Header()
+                hdu = fits.PrimaryHDU(time, header=hdr)
+                hdu.writeto(fname_out)
+                
+            # >> get flux array
+            i = hdu_data['PDCSAP_FLUX']
+            # >> interpolate
+            i = ml.interpolate_lc(i, time)
+            intensity.append(i)
+            
+            # >> get ticid
+            ticid = hdul[1].header['TICID']
+            ticid_list.append(ticid)
+            with open(fname_targets, 'a') as f:
+                f.write(str(int(ticid)) + '\n')
+            
+            # >> clear memory
+            del hdu_data
+            del hdul[1].data
+            del hdul[0].data
+            gc.collect()
+            
+        count += 1
+            
+    # >> save intensity array and ticids to fits file
+    intensity = np.array(intensity)
+    ticid_list = np.array(ticid_list)
+    with open(fname_out, 'rb+') as f:
+        fits.append(fname_out, intensity)
+        fits.append(fname_out, ticid_list)
+    confirmation=True
+    return confirmation
 
 #normalizing each light curve
 def normalize(flux, axis=1):
@@ -644,6 +739,8 @@ def featvec(x_axis, sampledata):
         ***if you update the number of features, 
         you have to update the number of features in create_list_featvec!!!!
         modified [lcg 06242020]"""
+    from transitleastsquares import transitleastsquares
+    
     #empty feature vector
     featvec = [] 
     #moments
