@@ -555,7 +555,7 @@ def post_process_plotting(time, intensity, features_all, features_using, targets
 
 
 def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
-                         time, intensity, targets,
+                         time, intensity, targets, folder_suffix='',
                          feature_engineering=True, eps=0.5, min_samples=10,
                          metric='euclidean', algorithm='auto', leaf_size=30,
                          p=2):
@@ -568,29 +568,27 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     """
     import pdb # >> [etc 060620]
     import modellibrary as ml
+    import plots_lib as pl
     cluster = "empty"
     folder_label = "blank"
     if clustering == 'dbscan':
         # !! TODO parameter optimization (eps, min_samples)
-        cluster_columns = ml.standardize(cluster_columns, ax=0)
+        # cluster_columns = ml.standardize(cluster_columns, ax=0)
         db = DBSCAN(eps=eps, min_samples=min_samples, metric=metric,
                     algorithm=algorithm, leaf_size=leaf_size,
                     p=p).fit(cluster_columns) #eps is NOT epochs
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
         cluster = 'dbscan'
-        folder_label = "dbscan-colored"
+        folder_label = "dbscan-colored" + folder_suffix
         # pdb.set_trace()
-        ml.plot_classification(time, intensity, targets, db.labels_,
-                               path, prefix='dbscan')
+
     elif clustering == 'kmeans': 
         Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
         x = Kmean.fit(cluster_columns)
         classes_kmeans = x.labels_
         cluster = 'kmeans'
         folder_label = "kmeans-colored"
-        ml.plot_classification(time, intensity, targets, x.labels_,
-                               path, prefix='kmeans')
     else: 
         print("no clustering chosen")
         cluster = 'none'
@@ -606,6 +604,14 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     else:
         print ("Successfully created the directory %s" % folder_path) 
  
+    if clustering == 'dbscan':
+        pl.plot_classification(time, intensity, targets, db.labels_,
+                               path+folder_label+'/', prefix='dbscan')
+        pl.plot_pca(cluster_columns, db.labels_,
+                    output_dir=path+folder_label+'/')
+    elif clustering == 'kmeans':
+        pl.plot_classification(time, intensity, targets, x.labels_,
+                               path+folder_label+'/', prefix='kmeans')
     # >> [etc 060620]
     if feature_engineering:
         graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
@@ -652,7 +658,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                     plt.scatter(feat1[p], feat2[p], c = color, s = 2)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.pdf"))
+                plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
 
                 # plt.show()
             elif cluster == 'kmeans':
@@ -668,15 +674,21 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                     plt.scatter(feat1[p], feat2[p], c = color, s=2)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.pdf")
+                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
                 # plt.show()
             elif cluster == 'none':
                 plt.scatter(feat1, feat2, s = 2, color = 'black')
                 #plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".pdf")
+                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
                 # plt.show()
+                
+    if cluster == 'dbscan':
+        return db.labels_
+    if cluster == 'kmeans':
+        return x.labels
+        
                 
 def plot_lof(time, intensity, targets, features, path):
     """plots the 20 most and least interesting light curves based on LOF
