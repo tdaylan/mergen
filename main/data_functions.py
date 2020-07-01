@@ -281,7 +281,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
             time1, i1, tic = get_lc_file_and_data(yourpath, target, sector) #grab that data
             
             if type(i1) == np.ndarray: #if the data IS data
-                i_interp = ml.interpolate_lc(i1, time1)
+                i_interp = interpolate_lc(i1, time1)
                 i_interpolated.append(i_interp)
                 intensity.append(i1)
                 hdr = fits.Header() #make-a the header
@@ -297,7 +297,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
             target = targetList[n][0] #get that target number
             time1, i1, tic = get_lc_file_and_data(yourpath, target, sector)
             if type(i1) == np.ndarray:
-                i_interp = ml.interpolate_lc(i1, time1)
+                i_interp = interpolate_lc(i1, time1)
                 i_interpolated.append(i_interp)
                 intensity.append(i1)    
                 ticids.append(tic)
@@ -440,7 +440,7 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
             # >> get flux array
             i = hdu_data['PDCSAP_FLUX']
             # >> interpolate
-            i = ml.interpolate_lc(i, time)
+            i = interpolate_lc(i, time)
             intensity.append(i)
             
             # >> get ticid
