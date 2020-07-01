@@ -112,6 +112,26 @@ def load_in_a_group(sector, camera, ccd, path):
     return t, intensities, targets, features, notes 
 
 
+def data_access_sector_by_bulk(yourpath, sectorfile, sector,
+                               bulk_download_dir):
+    '''Get interpolated flux array for each group, if you already have all the
+    _lc.fits files downloaded in bulk_download_dir.
+    Parameters:
+        * yourpath : directory to store outputs in
+        * sectorfile : txt file containing the camera and ccd of each light
+          curve in the sector
+        * sector : int
+        * bulk_download_dir : directory containing all the _lc.fits files,
+          can be downloaded from 
+          http://archive.stsci.edu/tess/bulk_downloads.html
+    '''
+    
+    for cam in [1,2,3,4]:
+        for ccd in [1,2,3,4]:
+            data_access_by_group_fits(yourpath, sectorfile, sector, cam,
+                                      ccd, bulk_download=True,
+                                      bulk_download_dir=bulk_download_dir)
+
 #data process an entire group of TICs
 def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
                               bulk_download=False, bulk_download_dir='./'):
