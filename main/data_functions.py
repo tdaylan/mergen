@@ -481,7 +481,11 @@ def standardize(x, ax=1):
     means = np.nanmean(x, axis = ax, keepdims=True) # >> subtract mean
     x = x - means
     stdevs = np.nanstd(x, axis = ax, keepdims=True) # >> divide by standard dev
-    x = x / stdevs   
+    
+    # >> avoid dividing by 0.0
+    stdevs[ np.nonzero(stdevs == 0.) ] = 1e-8
+    
+    x = x / stdevs
     return x
 
 # def normalize(intensity):
