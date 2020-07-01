@@ -25,7 +25,7 @@ import os
 import pdb
 import matplotlib.pyplot as plt
 import numpy as np
-import plots_lib as pl
+import plotting_functions as pl
 import data_functions as df
 
 def run_model(x_train, y_train, x_test, y_test, p, supervised=False,
