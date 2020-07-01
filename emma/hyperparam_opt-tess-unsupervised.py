@@ -8,34 +8,39 @@
 
 import modellibrary as ml       # >> autoencoder and pre-processing
 import feature_functions as ff  # >> DBSCAN classification
-import plots_lib as pl          # >> plotting functions
 import talos                    # >> hyperparameter optimization library
 
 import numpy as np
 import pdb
 import os
+import sys
 # import pickle
 # from keras.models import load_model
 from astropy.io import fits
+sys.path.insert(0, '../main/')
+import model as ml
+import data_functions as df
+import plotting_functions as pl
 
-output_dir = './plots/cae-normalization/'
+output_dir = '../../plots/cae-cam4ccd1/'
 # output_dir = './plots/test/'
 
 hyperparameter_optimization = False
 run_model = True
 diag_plots = True
-classification=False # >> runs dbscan, classifies light curves
+classification=True # >> runs dbscan, classifies light curves
 run_tic = False # >> input a TICID (temporary)
 DBSCAN_parameter_search=True
 input_features=False
 input_rms=True
 
 tics = [219107776.0, 185336364.0] # >> for run_tic
+targets = [219107776]
 
 # >> file names
 # dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/Sector_20_LC/'
 dat_dir = './'
-fnames = ['Sector20Cam3CCD1_interp_lightcurves.fits']
+fnames = ['../../Sector20Cam4CCD1_raw_lightcurves.fits']
 
 # >> hyperparameters
 if hyperparameter_optimization:
@@ -58,7 +63,7 @@ else:
     p = {'kernel_size': 7,
           'latent_dim': 21,
           'strides': 1,
-          'epochs': 5,
+          'epochs': 20,
           'dropout': 0.5,
           'num_filters': 64,
           'num_conv_layers': 4,
@@ -130,24 +135,36 @@ else:
     ticid = []
     for i in range(len(fnames)):
         ticid.extend(ticid_list[i])
+    ticid = np.array(ticid)
+        
+    # !! tmp
+    # >> moves target object to the testing set (and will be plotted first
+    # >> in the input-output-residual plot)
+    if len(targets) > 0:
+        for t in targets:
+            target_ind = np.nonzero( ticid == t )[0][0]
+            flux = np.insert(flux, -1, flux[target_ind], axis=0)
+            flux = np.delete(flux, target_ind, axis=0)
+            ticid = np.insert(ticid, -1, ticid[target_ind])
+            ticid = np.delete(ticid, target_ind)
     
 # -- nan mask -----------------------------------------------------------------
 # >> apply nan mask
 print('Applying NaN mask...')
-flux, x = ml.nan_mask(flux, x, output_dir=output_dir, ticid=ticid, 
+flux, x = df.nan_mask(flux, x, output_dir=output_dir, ticid=ticid, 
                       DEBUG=True, debug_ind=10)
 
 # -- partition data -----------------------------------------------------------
 # >> calculate rms and standardize
 if input_rms:
     print('Calculating RMS..')
-    rms = ml.rms(flux)
+    rms = df.rms(flux)
     
     # print('Standardizing fluxes...')
-    # flux = ml.standardize(flux)
+    # flux = df.standardize(flux)
     
     print('Normalizing fluxes (dividing by median)...')
-    flux = ml.normalize(flux)
+    flux = df.normalize(flux)
     
     # print('Normalizing fluxes (changing minimum and range)...')
     # mins = np.min(flux, axis = 1, keepdims=True)
@@ -218,13 +235,13 @@ if run_model:
     # hdu.writeto(output_dir + 'x_train.fits')
     
     # >> save bottleneck_test, bottleneck_train
-    bottleneck = pl.get_bottleneck(model, x_test, input_rms=input_rms,
+    bottleneck = ml.get_bottleneck(model, x_test, input_rms=input_rms,
                                    rms=rms_test)    
     hdr = fits.Header()
     hdu = fits.PrimaryHDU(bottleneck, header=hdr)
     hdu.writeto(output_dir + 'bottleneck_test.fits')       
     
-    bottleneck_train = pl.get_bottleneck(model, x_train, input_rms=input_rms,
+    bottleneck_train = ml.get_bottleneck(model, x_train, input_rms=input_rms,
                                          rms=rms_train)
     hdr = fits.Header()
     hdu = fits.PrimaryHDU(bottleneck_train, header=hdr)
@@ -278,7 +295,8 @@ if diag_plots:
                             plot_latent_train=False,
                             plot_reconstruction_error_all=False,
                             make_movie=False,
-                            plot_epoch=False)    
+                            plot_epoch=False,
+                            plot_kernel=False)    
 
 
 # >> Feature plots
