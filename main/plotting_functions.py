@@ -527,13 +527,34 @@ def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_i
     plt.savefig(filename)
     plt.close()
 
+def histo_features(features, bins, t, intensities, path):
+    """ Plot histograms of each feature, both with and without inset light curves
+    features (array of ALL), bins, time axis, intensities, path to put folder in
+    modified [lcg 07012020]"""
+    folderpath = path + "/feature_histograms/"
+    try:
+        os.makedirs(folderpath)
+    except OSError:
+        print ("Directory %s already exists" % folderpath)
+        
+    fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                        "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                        "P0", "P1", "P2", "Period0to0_1"]
+    for n in range(16):
+        filename = folderpath + fname_labels[n] + "histogram.png"
+        plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, filename, insets=False)
+        filename = folderpath + fname_labels[n] + "histogram-insets.png"
+        plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, filename, insets=True)
+
 def plot_histogram(data, bins, x_label, insetx, insety, filename, insets=True):
     """ plot a histogram with one light curve from each bin plotted on top
     data is the histogram data
     bins is bins
+    x-label is what you want the xaxis to be labelled as
     insetx is the SAME x-axis to plot
     insety is the full list of light curves
     filename is the exact place you want it saved
+    insets is a true/false of if you want them
     modified [lcg 07012020]
     """
     fig, ax1 = plt.subplots()
@@ -1271,8 +1292,7 @@ def plot_lof(time, intensity, targets, features, n, path,
              n_neighbors=20,
              prefix='', mock_data=False, addend=1., feature_vector=False,
              n_tot=100):
-    """ Adapted from Lindsey Gordon's plot_lof()
-    Plots the 20 most and least interesting light curves based on LOF.
+    """ Plots the 20 most and least interesting light curves based on LOF.
     Parameters:
         * time : array with shape 
         * intensity
@@ -1288,6 +1308,7 @@ def plot_lof(time, intensity, targets, features, n, path,
         * Log histogram of LOF (lof-histogram.png)
         * Top 20 light curves with highest and lowest LOF
         * Random 20 light curves
+    modified [lcg 07012020 - includes inset histogram plotting]
     """
     # -- calculate LOF -------------------------------------------------------
     clf = LocalOutlierFactor(n_neighbors=n_neighbors)
@@ -1305,7 +1326,8 @@ def plot_lof(time, intensity, targets, features, n, path,
             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
       
     # >> make histogram of LOF values
-    plot_histogram(lof, 50, "Local Outlier Factor (LOF)", time, intensity, path+'lof-'+prefix+'histogram.png', insets=True)
+    plot_histogram(lof, 50, "Local Outlier Factor (LOF)", time, intensity, path+'lof-'+prefix+'histogram-insets.png', insets=True)
+    plot_histogram(lof, 50, "Local Outlier Factor (LOF)", time, intensity, path+'lof-'+prefix+'histogram.png', insets=False)
     
     
     
