@@ -527,7 +527,7 @@ def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_i
     plt.savefig(filename)
     plt.close()
 
-def inset_histogram(data, bins, insetx, insety, filename):
+def plot_histogram(data, bins, x_label, insetx, insety, filename, insets=True):
     """ plot a histogram with one light curve from each bin plotted on top
     data is the histogram data
     bins is bins
@@ -539,30 +539,37 @@ def inset_histogram(data, bins, insetx, insety, filename):
     fig, ax1 = plt.subplots()
     n_in, bins, patches = ax1.hist(data, bins)
     
-    y_range = n_in.max() - n_in.min()
+    y_range = np.abs(n_in.max() - n_in.min())
+    x_range = np.abs(data.max() - data.min())
     y_offset = 0.5 * y_range
     ax1.set_ylabel('Number of light curves')
-    ax1.set_xlabel('Local Outlier Factor (LOF)')
+    ax1.set_xlabel(x_label)
     
-    for n in range(len(n_in)):
-        if n_in[n] == 0: 
-            continue
-        else: 
-            axis_name = "axins" + str(n)
-            inset_height = 60
-            axis_name = ax1.inset_axes([bins[n] - 5, n_in[n], 10, inset_height], transform = ax1.transData) #x pos, y pos, width, height
-            
-            #identify a light curve from that one
-            for m in range(len(data)):
-                #print(bins[n], bins[n+1])
-                if bins[n] <= data[m] <= bins[n+1]:
-                    print(data[m], m)
-                    lc_to_plot = insety[m]
-                    break
-                else: 
-                    continue
-            
-            axis_name.scatter(insetx, lc_to_plot, c='black', s = 0.1, rasterized=True)
+    if insets == True:
+        for n in range(len(n_in)):
+            if n_in[n] == 0: 
+                continue
+            else: 
+                axis_name = "axins" + str(n)
+                inset_width = 0.1 * x_range
+                inset_x = bins[n] - (0.5*inset_width)
+                inset_y = n_in[n]
+                inset_height = 0.1 * y_range
+                axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
+                
+                lc_to_plot = insetx
+                
+                #identify a light curve from that one
+                for m in range(len(data)):
+                    #print(bins[n], bins[n+1])
+                    if bins[n] <= data[m] <= bins[n+1]:
+                        #print(data[m], m)
+                        lc_to_plot = insety[m]
+                        break
+                    else: 
+                        continue
+                
+                axis_name.scatter(insetx, lc_to_plot, c='black', s = 0.1, rasterized=True)
     plt.savefig(filename)
     plt.close()
 
@@ -1298,7 +1305,7 @@ def plot_lof(time, intensity, targets, features, n, path,
             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
       
     # >> make histogram of LOF values
-    inset_histogram(lof, 50, time, intensity, path+'lof-'+prefix+'histogram.png')
+    plot_histogram(lof, 50, "Local Outlier Factor (LOF)", time, intensity, path+'lof-'+prefix+'histogram.png', insets=True)
     
     
     
