@@ -132,6 +132,29 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
             data_access_by_group_fits(yourpath, sectorfile, sector, cam,
                                       ccd, bulk_download=True,
                                       bulk_download_dir=bulk_download_dir)
+            
+def bulk_download_helper(yourpath, shell_script):
+    '''If bulk download failed / need to start where you left off.
+    Shell script from http://archive.stsci.edu/tess/bulk_downloads.html'''
+    import fnmatch
+    with open(yourpath+shell_script, 'r') as f:
+        sector_targets = f.readlines()[1:]
+        
+    downloaded_targets = os.listdir(yourpath)
+    
+    # >> loop through all the sector_targets
+    for i in range(len(sector_targets)):
+        
+        # >> check if already downloaded
+        fname = sector_targets[i].split()[5]
+        matches = fnmatch.filter(downloaded_targets, fname)
+        
+        # >> if not downloaded, download the light curve
+        if len(matches) == 0:
+            os.system(sector_targets[i])
+        else:
+            print('Already downloaded '+fname)
+            
 
 #data process an entire group of TICs
 def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
