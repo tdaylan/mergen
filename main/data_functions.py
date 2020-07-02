@@ -119,7 +119,8 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
     Parameters:
         * yourpath : directory to store outputs in
         * sectorfile : txt file containing the camera and ccd of each light
-          curve in the sector
+          curve in the sector, from
+          https://tess.mit.edu/observations/target-lists/
         * sector : int
         * bulk_download_dir : directory containing all the _lc.fits files,
           can be downloaded from 
@@ -149,7 +150,8 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
     # produce the folder to save everything into and set up file names
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
     path = yourpath + folder_name
-    fname_time_intensities_raw = path + "/" + folder_name + "_raw_lightcurves.fits"
+    # fname_time_intensities_raw = path + "/" + folder_name + "_raw_lightcurves.fits"
+    fname_time_intensities_raw = path + "/" + folder_name + "_lightcurves.fits"
     fname_targets = path + "/" + folder_name + "_targets.txt"
     fname_notes = path + "/" + folder_name + "_group_notes.txt"
     
