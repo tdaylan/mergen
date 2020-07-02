@@ -15,6 +15,8 @@
 dat_dir = './' # >> directory with input data (ending with /)
 output_dir = '../../plots/sector20/' # >> directory to save diagnostic plots
 mom_dump = '../../Table_of_momentum_dumps.csv'
+lib_dir = '../main/' # >> directory containing model.py, data_functions.py
+                     # >> and plotting_functions.py
 
 # >> input data
 sectors = ['20']
@@ -52,7 +54,7 @@ import os
 from astropy.io import fits
 
 import sys
-sys.path.insert(0, '../main/')  # >> needed if scripts not in current dir
+sys.path.insert(0, lib_dir)  # >> needed if scripts not in current dir
 import model as ml              # >> for autoencoder
 import data_functions as df     # >> for classification, pre-processing
 import plotting_functions as pl # >> for vsualizations
