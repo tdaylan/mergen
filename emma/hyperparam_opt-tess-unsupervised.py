@@ -1,53 +1,77 @@
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 #
-# 2020-05-26 - hyperparam_opt-tess-unsupervised.py
-# Runs a convolutional autoencoder on TESS data.
-# / Emma Chickles
+# 2020-07-02 - hyperparam_opt-tess-unsupervised.py
+# Runs a convolutional autoencoder on TESS data. Run with:
+# 1. First download data folders from Dropbox (named Sector*Cam*CCD*/) for all
+#    groups you want to run on. Move data folders to dat_dir
+# 2. Download Table_of_momentum_dumps.csv, and change path in mom_dump
+# 3. Run this script with 
+#    $ python hyperparam_opt-tess-unsupervised.py
+# 
+# Emma Chickles
 # 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-import modellibrary as ml       # >> autoencoder and pre-processing
-import feature_functions as ff  # >> DBSCAN classification
-import talos                    # >> hyperparameter optimization library
+dat_dir = './' # >> directory with input data (ending with /)
+output_dir = '../../plots/sector20/' # >> directory to save diagnostic plots
+mom_dump = '../../Table_of_momentum_dumps.csv'
 
+# >> input data
+sectors = ['20']
+cams = ['1', '2', '3', '4']
+ccds =  ['1', '2', '3', '4']
+train_test_ratio = 0.1 # >> fraction of training set size to testing set size
+
+# >> what this script will run:
+hyperparameter_optimization = True # >> run hyperparameter search
+run_model = True # >> train autoencoder on a parameter set p
+diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
+                  # >> load bottleneck*.fits for plotting
+classification=True # >> runs DBSCAN on learned features
+DBSCAN_parameter_search=True # >> runs grid search for DBSCAN
+
+# >> normalization options:
+#    * standardization : sets mean to 0. and standard deviation to 1.
+#    * median_normalization : divides by median
+#    * minmax_normalization : sets range of values from 0. to 1.
+#    * none : no normalization
+norm_type = 'standardization'
+
+input_rms=True # >> concatenate RMS to learned features
+input_features=False # >> this option cannot be used yet
+
+# >> move targets out of training set and into testing set (integer)
+targets = [219107776] # >> EX DRA
+
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+import talos                    # >> hyperparameter optimization library
 import numpy as np
 import pdb
 import os
-import sys
-# import pickle
-# from keras.models import load_model
 from astropy.io import fits
-sys.path.insert(0, '../main/')
-import model as ml
-import data_functions as df
-import plotting_functions as pl
 
-output_dir = '../../plots/cae-cam4ccd1-hyperparamopt/'
-# output_dir = './plots/test/'
-
-hyperparameter_optimization = False
-run_model = False
-diag_plots = False
-classification=True # >> runs dbscan, classifies light curves
-run_tic = False # >> input a TICID (temporary)
-DBSCAN_parameter_search=True
-input_features=False
-input_rms=True
-
-tics = [219107776.0, 185336364.0] # >> for run_tic
-targets = [219107776]
+import sys
+sys.path.insert(0, '../main/')  # >> needed if scripts not in current dir
+import model as ml              # >> for autoencoder
+import data_functions as df     # >> for classification, pre-processing
+import plotting_functions as pl # >> for vsualizations
 
 # >> file names
-# dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/Sector_20_LC/'
-dat_dir = './'
-fnames = ['../../Sector20Cam4CCD1_raw_lightcurves.fits']
+fnames = []
+for sector in sectors:
+    for cam in cams:
+        for ccd in ccds:
+            s = 'Sector{sector}Cam{cam}CCD{ccd}/' + \
+                'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+            fnames.append(dat_dir+s.format(sector=sector, cam=cam, ccd=ccd))
 
 # >> hyperparameters
 if hyperparameter_optimization:
     p = {'kernel_size': [3,5,7],
       'latent_dim': list(np.arange(5, 30, 5)),
       'strides': [1],
-      'epochs': [40],
+      'epochs': [20],
       'dropout': list(np.arange(0.1, 0.5, 0.1)),
       'num_filters': [8, 16, 32, 64],
       'num_conv_layers': [2,4,6,8,10],
@@ -63,7 +87,7 @@ else:
     p = {'kernel_size': 3,
           'latent_dim': 17,
           'strides': 1,
-          'epochs': 20,
+          'epochs': 7,
           'dropout': 0.3,
           'num_filters': 32,
           'num_conv_layers': 2,
@@ -77,7 +101,7 @@ else:
 
 # -- create output directory --------------------------------------------------
     
-if os.path.isdir(output_dir) == False:
+if os.path.isdir(output_dir) == False: # >> check if dir already exists
     os.mkdir(output_dir)
     
 # -- load data ----------------------------------------------------------------
@@ -99,54 +123,26 @@ for i in range(len(fnames)):
     flux_list.append(flux)
     ticid_list.append(ticid)
     
+    # >> shuffle flux array
+    # np.random.shuffle(flux)
 
-# !! tmp
-# new_length = np.shape(flux)[1]
-if run_tic:
-    # new_length = np.min(lengths)
-    new_length = 18757 # !! length of tabby star
-    x = []
-    flux = []
-    ticid = []
-    
-    # >> truncate all light curves
-    for i in range(len(fnames)):
-        x = time_list[i][:new_length]
-        flux.append(flux_list[i][:,:new_length])
-        ticid.extend(ticid_list[i])
-        
-    # >> load and truncate tabby star, ex dra
-    for i in range(len(tics)):
-        x_tmp, flux_tmp = ml.get_lc(str(int(tics[i])), out=output_dir,
-                                    DEBUG_INTERP=True,
-                                    download_fits=False)
-        flux_tmp = ml.interpolate_lc(flux_tmp, x_tmp,
-                                     prefix=str(int(tics[i])),
-                                     DEBUG_INTERP=True)
-        flux.append([flux_tmp[:new_length]])
-        ticid.extend([tics[i]])
-        
-    # >> concatenate all light curves
-    flux = np.concatenate(flux, axis=0)
-else:
-    flux = np.concatenate(flux_list, axis=0)
-    x = time_list[0]
-    
-    ticid = []
-    for i in range(len(fnames)):
-        ticid.extend(ticid_list[i])
-    ticid = np.array(ticid)
-        
-    # !! tmp
-    # >> moves target object to the testing set (and will be plotted first
-    # >> in the input-output-residual plot)
-    if len(targets) > 0:
-        for t in targets:
-            target_ind = np.nonzero( ticid == t )[0][0]
-            flux = np.insert(flux, -1, flux[target_ind], axis=0)
-            flux = np.delete(flux, target_ind, axis=0)
-            ticid = np.insert(ticid, -1, ticid[target_ind])
-            ticid = np.delete(ticid, target_ind)
+flux = np.concatenate(flux_list, axis=0)
+x = time_list[0]
+
+ticid = []
+for i in range(len(fnames)):
+    ticid.extend(ticid_list[i])
+ticid = np.array(ticid)
+
+# >> moves target object to the testing set (and will be plotted in the
+# >> input-output-residual plot)
+if len(targets) > 0:
+    for t in targets:
+        target_ind = np.nonzero( ticid == t )[0][0]
+        flux = np.insert(flux, -1, flux[target_ind], axis=0)
+        flux = np.delete(flux, target_ind, axis=0)
+        ticid = np.insert(ticid, -1, ticid[target_ind])
+        ticid = np.delete(ticid, target_ind)
     
 # -- nan mask -----------------------------------------------------------------
 # >> apply nan mask
@@ -160,21 +156,28 @@ if input_rms:
     print('Calculating RMS..')
     rms = df.rms(flux)
     
-    # print('Standardizing fluxes...')
-    # flux = df.standardize(flux)
+    if norm_type == 'standardization':
+        print('Standardizing fluxes...')
+        flux = df.standardize(flux)
     
-    print('Normalizing fluxes (dividing by median)...')
-    flux = df.normalize(flux)
-    
-    # print('Normalizing fluxes (changing minimum and range)...')
-    # mins = np.min(flux, axis = 1, keepdims=True)
-    # flux = flux - mins
-    # maxs = np.max(flux, axis=1, keepdims=True)
-    # flux = flux / maxs
+    elif norm_type == 'median_normalization':
+        print('Normalizing fluxes (dividing by median)...')
+        flux = df.normalize(flux)
+        
+    elif norm_type == 'minmax_normalization':
+        print('Normalizing fluxes (changing minimum and range)...')
+        mins = np.min(flux, axis = 1, keepdims=True)
+        flux = flux - mins
+        maxs = np.max(flux, axis=1, keepdims=True)
+        flux = flux / maxs
+        
+    else:
+        print('Light curves are not normalized!')
 
 print('Partitioning data...')
 x_train, x_test, y_train, y_test, x = \
-    ml.split_data(flux, x, p, train_test_ratio=0.90, supervised=False)
+    ml.split_data(flux, x, p, train_test_ratio=train_test_ratio,
+                  supervised=False)    
 
 ticid_train = ticid[:np.shape(x_train)[0]]
 ticid_test = ticid[-1 * np.shape(x_test)[0]:]
@@ -197,12 +200,12 @@ if hyperparameter_optimization:
                     experiment_name=title, 
                     reduction_metric = 'val_loss',
                     minimize_loss=True,
-                    reduction_method='correlation')
+                    reduction_method='correlation', fraction_limit=0.001)
+    # fraction_limit = 0.002
     analyze_object = talos.Analyze(t)
     df, best_param_ind,p = pl.hyperparam_opt_diagnosis(analyze_object,
                                                        output_dir,
                                                        supervised=False)
-
 
 # == run model ================================================================
 if run_model:
@@ -223,17 +226,6 @@ if run_model:
     hdu = fits.PrimaryHDU(x_predict, header=hdr)
     hdu.writeto(output_dir + 'x_predict.fits')
     
-    # # >> save time, x_train, x_test
-    # hdr = fits.Header()
-    # hdu = fits.PrimaryHDU(x, header=hdr)
-    # hdu.writeto(output_dir + 'x.fits')
-    # hdr = fits.Header()
-    # hdu = fits.PrimaryHDU(x_test, header=hdr)
-    # hdu.writeto(output_dir + 'x_test.fits')
-    # hdr = fits.Header()
-    # hdu = fits.PrimaryHDU(x_train, header=hdr)
-    # hdu.writeto(output_dir + 'x_train.fits')
-    
     # >> save bottleneck_test, bottleneck_train
     bottleneck = ml.get_bottleneck(model, x_test, input_rms=input_rms,
                                    rms=rms_test)    
@@ -252,23 +244,10 @@ if diag_plots:
     print('Creating plots...')
     if run_model == False:
 
-        model, history = [], []
-        
-        # >> load everything
-        # with fits.open(output_dir + 'x.fits') as hdul:
-        #     x = hdul[0].data
-            
-        # with fits.open(output_dir + 'x_train.fits') as hdul:
-        #     x_train = hdul[0].data          
-            
-        # with fits.open(output_dir + 'x_test.fits') as hdul:
-        #     x_test = hdul[0].data        
+        model, history = [], []    
             
         with fits.open(output_dir + 'x_predict.fits') as hdul:
             x_predict = hdul[0].data
-    
-        # x_predict = np.reshape(x_predict, (np.shape(x_predict)[0],
-        #                                    np.shape(x_predict)[1], 1))
         
         pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
                             x_test, x_predict, mock_data=False,
@@ -282,21 +261,7 @@ if diag_plots:
                             make_movie=False,
                             plot_epoch=False,
                             load_bottleneck=True)
-    else:
-        # pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
-        #                     x_test, x_predict, mock_data=False,
-        #                     ticid_train=ticid_train,
-        #                     ticid_test=ticid_test, percentage=False,
-        #                     input_features=input_features,
-        #                     input_rms=input_rms, rms_test=rms_test,
-        #                     rms_train=rms_train,
-        #                     plot_intermed_act=False,
-        #                     plot_latent_test=False,
-        #                     plot_latent_train=False,
-        #                     plot_reconstruction_error_all=False,
-        #                     make_movie=False,
-        #                     plot_epoch=False,
-        #                     plot_kernel=False)   
+    else: 
         pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
                             x_test, x_predict, mock_data=False,
                             ticid_train=ticid_train,
@@ -305,17 +270,17 @@ if diag_plots:
                             input_rms=input_rms, rms_test=rms_test,
                             rms_train=rms_train, n_tot=40,
                              plot_epoch = False,
-                             plot_in_out = False,
+                             plot_in_out = True,
                              plot_in_bottle_out=False,
                              plot_latent_test = True,
-                             plot_latent_train = False,
+                             plot_latent_train = True,
                              plot_kernel=False,
                              plot_intermed_act=False,
                              plot_clustering=False,
                              make_movie = False,
-                             plot_lof_test=False,
-                             plot_lof_train=False,
-                             plot_lof_all=False,
+                             plot_lof_test=True,
+                             plot_lof_train=True,
+                             plot_lof_all=True,
                              plot_reconstruction_error_test=False,
                              plot_reconstruction_error_all=False)                            
 
@@ -384,11 +349,6 @@ if classification:
             print('best_parameter_set: ' + str(parameter_sets[best]))
             print(str(counts[best]))
             p=parameter_sets[best]
-            # 2.4000000000000004 2 minkowski auto 30 4
-            # (array([-1,  0,  1,  2]), array([24, 84,  6,  2]))
-            
-            # 2.9000000000000004 2 minkowski auto 30 4
-            # (array([-1,  0,  1,  2]), array([23, 85,  6,  2]))
             classes = pl.features_plotting_2D(bottleneck, bottleneck,
                                               output_dir, 'dbscan',
                                               x, x_test, ticid_test,
@@ -398,28 +358,27 @@ if classification:
                                               leaf_size=p[4], p=p[5],
                                               folder_suffix='_'+str(i)+\
                                                   'classes',
-                        momentum_dmp_csv='../../Table_of_momentum_dumps.csv')
+                                              momentum_dump_csv=mom_dump)
     
     else:
         classes = pl.features_plotting_2D(bottleneck, bottleneck, output_dir,
                                           'dbscan', x, x_test, ticid_test,
                                           feature_engineering=False, eps=2.9,
                                           min_samples=2, metric='minkowski',
-                                          algorithm='auto', leaf_size=30, p=4
-                                          momentum_dmp_csv='../../Table_of_momentum_dumps.csv')        
+                                          algorithm='auto', leaf_size=30, p=4,
+                                          momentum_dump_csv=mom_dump)        
     pl.features_plotting_2D(bottleneck, bottleneck, output_dir, 'kmeans',
                             x, x_test, ticid_test,
                             feature_engineering=False,
-                            momentum_dmp_csv='../../Table_of_momentum_dumps.csv')
+                            momentum_dump_csv=mom_dump)
     
     pl.plot_pca(bottleneck, classes, output_dir=output_dir)
-    
-    targets = []
-    for i in ticid_test:
-        targets.append('TIC ' + str(int(i)))
-    ff.features_insets2D(x, x_test, bottleneck, targets, output_dir)
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+    # targets = []
+    # for i in ticid_test:
+    #     targets.append('TIC ' + str(int(i)))
+    # ff.features_insets2D(x, x_test, bottleneck, targets, output_dir)    
 
 # activations = ml.get_activations(model, x_test)
 # bottleneck = ml.get_bottleneck(model, activations, p)
@@ -528,3 +487,75 @@ if classification:
     #       'losses': 'mean_squared_error',
     #       'lr': 0.001,
     #       'initializer': 'random_uniform'}
+
+# run_tic = False # >> input a TICID (temporary)
+# tics = [219107776.0, 185336364.0] # >> for run_tic
+        
+        # >> load everything
+        # with fits.open(output_dir + 'x.fits') as hdul:
+        #     x = hdul[0].data
+            
+        # with fits.open(output_dir + 'x_train.fits') as hdul:
+        #     x_train = hdul[0].data          
+            
+        # with fits.open(output_dir + 'x_test.fits') as hdul:
+        #     x_test = hdul[0].data        
+    
+# if run_tic:
+#     # new_length = np.min(lengths)
+#     new_length = 18757 # !! length of tabby star
+#     x = []
+#     flux = []
+#     ticid = []
+    
+#     # >> truncate all light curves
+#     for i in range(len(fnames)):
+#         x = time_list[i][:new_length]
+#         flux.append(flux_list[i][:,:new_length])
+#         ticid.extend(ticid_list[i])
+        
+#     # >> load and truncate tabby star, ex dra
+#     for i in range(len(tics)):
+#         x_tmp, flux_tmp = ml.get_lc(str(int(tics[i])), out=output_dir,
+#                                     DEBUG_INTERP=True,
+#                                     download_fits=False)
+#         flux_tmp = ml.interpolate_lc(flux_tmp, x_tmp,
+#                                      prefix=str(int(tics[i])),
+#                                      DEBUG_INTERP=True)
+#         flux.append([flux_tmp[:new_length]])
+#         ticid.extend([tics[i]])
+        
+#     # >> concatenate all light curves
+#     flux = np.concatenate(flux, axis=0)
+# else:    
+    # # >> save time, x_train, x_test
+    # hdr = fits.Header()
+    # hdu = fits.PrimaryHDU(x, header=hdr)
+    # hdu.writeto(output_dir + 'x.fits')
+    # hdr = fits.Header()
+    # hdu = fits.PrimaryHDU(x_test, header=hdr)
+    # hdu.writeto(output_dir + 'x_test.fits')
+    # hdr = fits.Header()
+    # hdu = fits.PrimaryHDU(x_train, header=hdr)
+    # hdu.writeto(output_dir + 'x_train.fits')    
+        # pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
+        #                     x_test, x_predict, mock_data=False,
+        #                     ticid_train=ticid_train,
+        #                     ticid_test=ticid_test, percentage=False,
+        #                     input_features=input_features,
+        #                     input_rms=input_rms, rms_test=rms_test,
+        #                     rms_train=rms_train,
+        #                     plot_intermed_act=False,
+        #                     plot_latent_test=False,
+        #                     plot_latent_train=False,
+        #                     plot_reconstruction_error_all=False,
+        #                     make_movie=False,
+        #                     plot_epoch=False,
+        #                     plot_kernel=False)      
+            # 2.4000000000000004 2 minkowski auto 30 4
+            # (array([-1,  0,  1,  2]), array([24, 84,  6,  2]))
+            
+            # 2.9000000000000004 2 minkowski auto 30 4
+            # (array([-1,  0,  1,  2]), array([23, 85,  6,  2]))    
+        # x_predict = np.reshape(x_predict, (np.shape(x_predict)[0],
+        #                                    np.shape(x_predict)[1], 1))
