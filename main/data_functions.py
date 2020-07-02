@@ -125,6 +125,7 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
         * bulk_download_dir : directory containing all the _lc.fits files,
           can be downloaded from 
           http://archive.stsci.edu/tess/bulk_downloads.html
+          Also see bulk_download_helper()
     '''
     
     for cam in [1,2,3,4]:
@@ -134,9 +135,10 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
                                       bulk_download_dir=bulk_download_dir)
             
 def bulk_download_helper(yourpath, shell_script):
-    '''If bulk download failed / need to start where you left off.
+    '''If bulk download failed / need to start where you left off. Can also be
+    used to go back and check you have all the light curves from a sector.
     Shell script from http://archive.stsci.edu/tess/bulk_downloads.html'''
-    import fnmatch
+    import fnmatch as fm
     with open(yourpath+shell_script, 'r') as f:
         sector_targets = f.readlines()[1:]
         
@@ -147,7 +149,7 @@ def bulk_download_helper(yourpath, shell_script):
         
         # >> check if already downloaded
         fname = sector_targets[i].split()[5]
-        matches = fnmatch.filter(downloaded_targets, fname)
+        matches = fm.filter(downloaded_targets, fname)
         
         # >> if not downloaded, download the light curve
         if len(matches) == 0:
