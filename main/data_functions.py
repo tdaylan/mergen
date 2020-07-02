@@ -25,7 +25,7 @@ Data processing
 * nan_mask()        : apply NaN mask to flux array
 
 Engineered features
-* create_list_featvec
+* create_save_featvec
 * featvec
 
 

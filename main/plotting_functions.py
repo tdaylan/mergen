@@ -21,6 +21,7 @@ Feature visualization
 * get_extrema()
 * features_insets_colored()
 * inset_plotting_colored()
+* inset_histogram()
 * features_2D_colorshape()
 * plot_lof()
 * plot_pca()
@@ -241,76 +242,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
         return db.labels_
     if cluster == 'kmeans':
         return x.labels
-                
-# def plot_lof(time, intensity, targets, features, n, path):
-#     """plots the 20 most and least interesting light curves based on LOF
-#     takes input: time, intensity, targets, featurelist, n number of curves you want, path to where you want it
-#     saved (no end slash)
-#     modified [lcg 06292020]"""
-#     fname_lof = path + "/LOF-features.txt"
-#     from sklearn.neighbors import LocalOutlierFactor
-
-#     clf = LocalOutlierFactor(n_neighbors=50)
-    
-#     fit_predictor = clf.fit_predict(features)
-#     negative_factor = clf.negative_outlier_factor_
-    
-#     lof = -1 * negative_factor
-#     ranked = np.argsort(lof)
-#     largest_indices = ranked[::-1][:n]
-#     smallest_indices = ranked[:n]
-
-#     #plot a histogram of the lof values
-#     fig1, ax1 = plt.subplots()
-#     n, bins, patches = ax1.hist(lof, 50, density=1)
-#     ax1.title("LOF Histogram")
-#     plt.savefig(path+"/LOF-histogram.png")
-#     plt.close()
-
-#     with open(fname_lof, 'a') as file_object:
-#         file_object.write("Largest LOF's features: \n")
-#         np.savetxt(file_object, features[largest_indices])
-#         file_object.write("\n Smallest LOF's features: \n")
-#         np.savetxt(file_object, features[smallest_indices])
-#     #plot just the largest indices
-#     #rows, columns
-#     fig, axs = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
-#     fig.subplots_adjust(hspace=0)
-#     dumppoints = [1842.5, 1847.9, 1853.3, 1856.4, 1861.9, 1867.4]
-#     for k in range(n):
-#         ind = largest_indices[k]
-#         axs[k].plot(time, intensity[ind], '.k', label="TIC " + str(int(targets[ind])) + ", LOF:" + str(np.round(lof[ind], 2)))
-#         for a in range(len(dumppoints)):
-#             axs[k].axvline(dumppoints[a], linewidth=0.5)
-#         axs[k].legend(loc="upper left")
-#         axs[k].set_ylabel("relative flux")
-#         title = astroquery_pull_data(targets[ind])
-#         axs[k].set_title(title)
-#         axs[-1].set_xlabel("BJD [-2457000]")
-#     fig.suptitle(str(n) + ' largest LOF targets', fontsize=16)
-#     fig.tight_layout()
-#     fig.subplots_adjust(top=0.96)
-#     fig.savefig(path + "/largest-lof.png")
-
-#     #plot the smallest indices
-#     fig1, axs1 = plt.subplots(n, 1, sharex = True, figsize = (8,n*3), constrained_layout=False)
-#     fig1.subplots_adjust(hspace=0)
-    
-#     for m in range(n):
-#         ind = smallest_indices[m]
-#         axs1[m].plot(time, intensity[ind], '.k', label="TIC " + str(int(targets[ind])) + ", LOF:" + str(np.round(lof[ind], 2)))
-#         axs1[m].legend(loc="upper left")
-#         for a in range(len(dumppoints)):
-#             axs1[m].axvline(dumppoints[a], linewidth=0.5)
-#         axs1[m].set_ylabel("relative flux")
-#         title = astroquery_pull_data(targets[ind])
-#         axs1[m].set_title(title)
-#         axs1[-1].set_xlabel("BJD [-2457000]")
-#     fig1.suptitle(str(n) + ' smallest LOF targets', fontsize=16)
-#     fig1.tight_layout()
-#     fig1.subplots_adjust(top=0.96)
-#     fig1.savefig(path +  "/smallest-lof.png")
-                
+                          
 def astroquery_pull_data(target):
     """Give a TIC ID - ID /only/, any format is fine, it'll get converted to str
     Searches the TIC catalog and pulls: 
@@ -595,6 +527,44 @@ def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_i
     plt.savefig(filename)
     plt.close()
 
+def inset_histogram(data, bins, insetx, insety, filename):
+    """ plot a histogram with one light curve from each bin plotted on top
+    data is the histogram data
+    bins is bins
+    insetx is the SAME x-axis to plot
+    insety is the full list of light curves
+    filename is the exact place you want it saved
+    modified [lcg 07012020]
+    """
+    fig, ax1 = plt.subplots()
+    n_in, bins, patches = ax1.hist(data, bins)
+    
+    y_range = n_in.max() - n_in.min()
+    y_offset = 0.5 * y_range
+    ax1.set_ylabel('Number of light curves')
+    ax1.set_xlabel('Local Outlier Factor (LOF)')
+    
+    for n in range(len(n_in)):
+        if n_in[n] == 0: 
+            continue
+        else: 
+            axis_name = "axins" + str(n)
+            inset_height = 60
+            axis_name = ax1.inset_axes([bins[n] - 5, n_in[n], 10, inset_height], transform = ax1.transData) #x pos, y pos, width, height
+            
+            #identify a light curve from that one
+            for m in range(len(data)):
+                #print(bins[n], bins[n+1])
+                if bins[n] <= data[m] <= bins[n+1]:
+                    print(data[m], m)
+                    lc_to_plot = insety[m]
+                    break
+                else: 
+                    continue
+            
+            axis_name.scatter(insetx, lc_to_plot, c='black', s = 0.1, rasterized=True)
+    plt.savefig(filename)
+    plt.close()
 
 
 # plotting features by color and shape
@@ -1293,7 +1263,7 @@ def plot_lof(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
              n_neighbors=20,
              prefix='', mock_data=False, addend=1., feature_vector=False,
-             n_tot=200):
+             n_tot=100):
     """ Adapted from Lindsey Gordon's plot_lof()
     Plots the 20 most and least interesting light curves based on LOF.
     Parameters:
@@ -1326,14 +1296,11 @@ def plot_lof(time, intensity, targets, features, n, path,
     with open(path+'lof-'+prefix+'.txt', 'w') as f:
         for i in range(len(targets)):
             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
-            
+      
     # >> make histogram of LOF values
-    plt.figure()
-    plt.hist(lof, bins=50, log=True)
-    plt.ylabel('Number of light curves')
-    plt.xlabel('Local Outlier Factor (LOF)')
-    plt.savefig(path+'lof-'+prefix+'histogram.png')
-    plt.close()
+    inset_histogram(lof, 50, time, intensity, path+'lof-'+prefix+'histogram.png')
+    
+    
     
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
@@ -1638,29 +1605,34 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./'):
 
 def ticid_label(ax, ticid, title=False):
     '''Query catalog data and add text to axis.'''
+    try:
+        # >> query catalog data
+        target, Teff, rad, mass, GAIAmag, d, objType = get_features(ticid)
 
-    # >> query catalog data
-    target, Teff, rad, mass, GAIAmag, d, objType = get_features(ticid)
-    
-    # >> change sigfigs for effective temperature
-    if np.isnan(Teff):
-        Teff = 'nan'
-    else: Teff = '%.4d'%Teff
-    
-    info = target+'\nTeff {}\nrad {}\nmass {}\nG {}\nd {}\nO {}'
-    info1 = target+', Teff {}, rad {}, mass {},\nG {}, d {}, O {}'
-    
-    # >> make text
-    if title:
-        ax.set_title(info1.format(Teff, '%.2g'%rad, '%.2g'%mass, 
-                                  '%.3g'%GAIAmag, '%.3g'%d, objType),
-                     fontsize='xx-small')
-    else:
-        ax.text(0.98, 0.98, info.format(Teff, '%.2g'%rad, '%.2g'%mass, 
-                                        '%.3g'%GAIAmag, '%.3g'%d, objType),
-                  transform=ax.transAxes, horizontalalignment='right',
-                  verticalalignment='top', fontsize='xx-small')
-    
+        # >> change sigfigs for effective temperature
+        if np.isnan(Teff):
+            Teff = 'nan'
+        else: Teff = '%.4d'%Teff
+        
+        info = target+'\nTeff {}\nrad {}\nmass {}\nG {}\nd {}\nO {}'
+        info1 = target+', Teff {}, rad {}, mass {},\nG {}, d {}, O {}'
+        
+        
+        # >> make text
+        if title:
+            ax.set_title(info1.format(Teff, '%.2g'%rad, '%.2g'%mass, 
+                                      '%.3g'%GAIAmag, '%.3g'%d, objType),
+                         fontsize='xx-small')
+        else:
+            ax.text(0.98, 0.98, info.format(Teff, '%.2g'%rad, '%.2g'%mass, 
+                                            '%.3g'%GAIAmag, '%.3g'%d, objType),
+                      transform=ax.transAxes, horizontalalignment='right',
+                      verticalalignment='top', fontsize='xx-small')
+    except (ConnectionError, OSError, TimeoutError):
+        print("there was a connection error!")
+        ax.text(0.98, 0.98, "there was a connection error",
+                      transform=ax.transAxes, horizontalalignment='right',
+                      verticalalignment='top', fontsize='xx-small')
 def get_features(ticid):
     '''Query catalog data https://arxiv.org/pdf/1905.10694.pdf'''
     from astroquery.mast import Catalogs
