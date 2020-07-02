@@ -5,7 +5,7 @@
 # 1. First download data folders from Dropbox (named Sector*Cam*CCD*/) for all
 #    groups you want to run on. Move data folders to dat_dir
 # 2. Download Table_of_momentum_dumps.csv, and change path in mom_dump
-# 3. Run this script with 
+# 3. Run this script in the command line with 
 #    $ python hyperparam_opt-tess-unsupervised.py
 # 
 # Emma Chickles
