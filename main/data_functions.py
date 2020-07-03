@@ -747,16 +747,16 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd):
         all intensity arrays
         sector, camera, ccd values
     returns list of feature vectors
-    modified: [lcg 07012020]"""
+    modified: [lcg 07032020]"""
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
     path = yourpath + folder_name
     fname_features = path + "/"+ folder_name + "_features.fits"
-    num_data = len(datasets) #how many datasets
-    x = time_axis #creates the x axis
-    feature_list = np.zeros((num_data, 20)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
+    feature_list = []
     print("creating feature vectors about to begin")
-    for n in range(num_data):
-        feature_list[n] = featvec(x, datasets[n])
+    for n in range(len(intensities)):
+        feature_vector = featvec(times, intensities[n], tls=False)
+        feature_list.append(feature_vector)
+        
         if n % 50 == 0: print(str(n) + " completed")
     
     feature_list = np.asarray(feature_list)
@@ -767,7 +767,7 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd):
     
     return feature_list
 
-def featvec(x_axis, sampledata): 
+def featvec(x_axis, sampledata, tls=False): 
     """calculates the feature vector of the single light curve
     currently returns 16: 
         0 - Average
@@ -795,7 +795,7 @@ def featvec(x_axis, sampledata):
         (over 0-0.1 days, for moving objects)
         15 - Period of max power
         
-        (from transitleastsquares)
+        (from transitleastsquares, OPTIONAL based on tls argument)
         16 - period
         17 - best duration
         18 - depth
@@ -803,8 +803,8 @@ def featvec(x_axis, sampledata):
         
         ***if you update the number of features, 
         you have to update the number of features in create_list_featvec
-        modified [lcg 06242020]"""
-    from transitleastsquares import transitleastsquares
+        modified [lcg 07032020]"""
+    
     
     #empty feature vector
     featvec = [] 
@@ -875,12 +875,14 @@ def featvec(x_axis, sampledata):
     #print("done")
     
     #tls 
-    model = transitleastsquares(x_axis, sampledata)
-    results = model.power()
-    featvec.append(results.period)
-    featvec.append(results.duration)
-    featvec.append(results.depth)
-    featvec.append(results.power)
+    if tls == True: 
+        from transitleastsquares import transitleastsquares
+        model = transitleastsquares(x_axis, sampledata)
+        results = model.power()
+        featvec.append(results.period)
+        featvec.append(results.duration)
+        featvec.append(results.depth)
+        featvec.append(results.power)
     
     return(featvec) 
 

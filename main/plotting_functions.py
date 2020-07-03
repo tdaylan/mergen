@@ -527,7 +527,7 @@ def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_i
     plt.savefig(filename)
     plt.close()
 
-def histo_features(features, bins, t, intensities, path):
+def histo_features(features, bins, t, intensities, targets, path):
     """ Plot histograms of each feature, both with and without inset light curves
     features (array of ALL), bins, time axis, intensities, path to put folder in
     modified [lcg 07012020]"""
@@ -542,11 +542,11 @@ def histo_features(features, bins, t, intensities, path):
                         "P0", "P1", "P2", "Period0to0_1"]
     for n in range(16):
         filename = folderpath + fname_labels[n] + "histogram.png"
-        plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, filename, insets=False)
+        plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=False)
         filename = folderpath + fname_labels[n] + "histogram-insets.png"
-        plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, filename, insets=True)
+        plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=True)
 
-def plot_histogram(data, bins, x_label, insetx, insety, filename, insets=True):
+def plot_histogram(data, bins, x_label, insetx, insety,targets, filename, insets=True):
     """ plot a histogram with one light curve from each bin plotted on top
     data is the histogram data
     bins is bins
@@ -562,7 +562,6 @@ def plot_histogram(data, bins, x_label, insetx, insety, filename, insets=True):
     
     y_range = np.abs(n_in.max() - n_in.min())
     x_range = np.abs(data.max() - data.min())
-    y_offset = 0.5 * y_range
     ax1.set_ylabel('Number of light curves')
     ax1.set_xlabel(x_label)
     
@@ -572,10 +571,10 @@ def plot_histogram(data, bins, x_label, insetx, insety, filename, insets=True):
                 continue
             else: 
                 axis_name = "axins" + str(n)
-                inset_width = 0.1 * x_range
+                inset_width = 0.33 * x_range * 0.5
                 inset_x = bins[n] - (0.5*inset_width)
                 inset_y = n_in[n]
-                inset_height = 0.1 * y_range
+                inset_height = 0.125 * y_range * 0.5
                 axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
                 
                 lc_to_plot = insetx
@@ -586,11 +585,13 @@ def plot_histogram(data, bins, x_label, insetx, insety, filename, insets=True):
                     if bins[n] <= data[m] <= bins[n+1]:
                         #print(data[m], m)
                         lc_to_plot = insety[m]
+                        lc_ticid = targets[m]
                         break
                     else: 
                         continue
                 
                 axis_name.scatter(insetx, lc_to_plot, c='black', s = 0.1, rasterized=True)
+                axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=6)
     plt.savefig(filename)
     plt.close()
 
