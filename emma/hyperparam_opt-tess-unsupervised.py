@@ -218,7 +218,7 @@ if hyperparameter_optimization:
 
 # == run model ================================================================
 if run_model:
-    print('Training autoencoder...')
+    print('Training autoencoder...') 
     history, model = ml.conv_autoencoder(x_train, x_train, x_test, x_test, p)
     x_predict = model.predict(x_test)
     
