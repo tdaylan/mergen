@@ -201,7 +201,8 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
         this ONLY returns the target list and folderpath for the group
         
         Saves a .fits file with primaryHDU=f[0]=time,
-        f[1]=raw intensity array, f[2] = interpolated intensity array, f[3]=TICIDs
+        f[1]=raw intensity array, f[2] = interpolated intensity array (not normalized!)
+        , f[3]=TICIDs
         """
     # produce the folder to save everything into and set up file names
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
@@ -573,19 +574,7 @@ def standardize(x, ax=1):
     x = x / stdevs
     return x
 
-# def normalize(intensity):
-#     """normalizes the intensity from the median value 
-#     by dividing out. then sigmaclips using astropy
-#     returns a masked array"""
-#     sigclip = SigmaClip(sigma=5, maxiters=None, cenfunc='median')
-#     intense = []
-#     for i in np.arange(len(intensity)):
-#         intensity[i] = intensity[i] / np.median(intensity[i])
-#         inte = sigclip(intensity[i], masked=True, copy = False)
-#         intense.append(inte)
-#     intensity = np.ma.asarray(intense)
-#     print("Normalization and sigma clipping complete")
-#     return intensity
+
 
 #interpolate and sigma clip
 def interpolate_all(flux, time, flux_err=False, interp_tol=20./(24*60),
@@ -805,8 +794,8 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd):
     returns list of feature vectors
     modified: [lcg 07032020]"""
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
-    path = yourpath + folder_name
-    fname_features = path + "/"+ folder_name + "_features.fits"
+    #path = yourpath + folder_name
+    fname_features = yourpath + "/"+ folder_name + "_features.fits"
     feature_list = []
     print("creating feature vectors about to begin")
     for n in range(len(intensities)):
