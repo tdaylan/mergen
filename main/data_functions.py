@@ -10,6 +10,7 @@ Updated: June 26 2020
 
 Data access
 * test_data()
+* load_group_from_fits()
 * load_group_from_txt()
 * data_access_by_group_fits()
 * follow_up_on_missed_targets_fits()
@@ -85,6 +86,23 @@ import numba
 def test_data():
     """make sure the module loads in"""
     print("Data functions loaded in.")
+    
+def load_group_from_fits(path, sector, camera, ccd): 
+    
+    """ pull the light curves and target list from fits metafiles
+    path is the folder in which all the metafiles are saved. ends in a backslash 
+    sector camera ccd are integers you want the info from
+    modified [lcg 07032020]"""
+    filename_lc = path + "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd) + "_lightcurves.fits"
+   
+    f = fits.open(filename_lc)
+    
+    time = f[0].data
+    intensities = f[1].data
+    targets = f[2].data
+    f.close()
+    
+    return time, intensities, targets
     
 def load_group_from_txt(sector, camera, ccd, path):
     """loads in a given group's data provided you have it saved in TEXT metafiles already
@@ -183,7 +201,8 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
         this ONLY returns the target list and folderpath for the group
         
         Saves a .fits file with primaryHDU=f[0]=time,
-        f[1]=raw intensity array, f[2] = interpolated intensity array, f[3]=TICIDs
+        f[1]=raw intensity array, f[2] = interpolated intensity array (not normalized!)
+        , f[3]=TICIDs
         """
     # produce the folder to save everything into and set up file names
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
@@ -197,7 +216,7 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
         os.makedirs(path)
         print ("Successfully created the directory %s" % path) 
         with open(fname_targets, 'a') as file_object:
-            file_object.write("This file contains the target TICs for this group. Fits light curves are 1-indexed, so first target is all zeroes \n 00000000")
+            file_object.write("This file contains the target TICs for this group.")
         with open(fname_notes, 'a') as file_object:
             file_object.write("This file contains group notes, including any TICs that could not be accessed.\n")
         # get just the list of targets for the specified sector, camera, ccd --------
@@ -555,19 +574,7 @@ def standardize(x, ax=1):
     x = x / stdevs
     return x
 
-# def normalize(intensity):
-#     """normalizes the intensity from the median value 
-#     by dividing out. then sigmaclips using astropy
-#     returns a masked array"""
-#     sigclip = SigmaClip(sigma=5, maxiters=None, cenfunc='median')
-#     intense = []
-#     for i in np.arange(len(intensity)):
-#         intensity[i] = intensity[i] / np.median(intensity[i])
-#         inte = sigclip(intensity[i], masked=True, copy = False)
-#         intense.append(inte)
-#     intensity = np.ma.asarray(intense)
-#     print("Normalization and sigma clipping complete")
-#     return intensity
+
 
 #interpolate and sigma clip
 def interpolate_all(flux, time, flux_err=False, interp_tol=20./(24*60),
@@ -788,16 +795,16 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd):
         all intensity arrays
         sector, camera, ccd values
     returns list of feature vectors
-    modified: [lcg 07012020]"""
+    modified: [lcg 07032020]"""
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
-    path = yourpath + folder_name
-    fname_features = path + "/"+ folder_name + "_features.fits"
-    num_data = len(datasets) #how many datasets
-    x = time_axis #creates the x axis
-    feature_list = np.zeros((num_data, 20)) #MANUALLY UPDATE WHEN CHANGING NUM FEATURES
+    #path = yourpath + folder_name
+    fname_features = yourpath + "/"+ folder_name + "_features.fits"
+    feature_list = []
     print("creating feature vectors about to begin")
-    for n in range(num_data):
-        feature_list[n] = featvec(x, datasets[n])
+    for n in range(len(intensities)):
+        feature_vector = featvec(times, intensities[n], tls=False)
+        feature_list.append(feature_vector)
+        
         if n % 50 == 0: print(str(n) + " completed")
     
     feature_list = np.asarray(feature_list)
@@ -808,7 +815,7 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd):
     
     return feature_list
 
-def featvec(x_axis, sampledata): 
+def featvec(x_axis, sampledata, tls=False): 
     """calculates the feature vector of the single light curve
     currently returns 16: 
         0 - Average
@@ -836,7 +843,7 @@ def featvec(x_axis, sampledata):
         (over 0-0.1 days, for moving objects)
         15 - Period of max power
         
-        (from transitleastsquares)
+        (from transitleastsquares, OPTIONAL based on tls argument)
         16 - period
         17 - best duration
         18 - depth
@@ -844,8 +851,8 @@ def featvec(x_axis, sampledata):
         
         ***if you update the number of features, 
         you have to update the number of features in create_list_featvec
-        modified [lcg 06242020]"""
-    from transitleastsquares import transitleastsquares
+        modified [lcg 07032020]"""
+    
     
     #empty feature vector
     featvec = [] 
@@ -916,12 +923,14 @@ def featvec(x_axis, sampledata):
     #print("done")
     
     #tls 
-    model = transitleastsquares(x_axis, sampledata)
-    results = model.power()
-    featvec.append(results.period)
-    featvec.append(results.duration)
-    featvec.append(results.depth)
-    featvec.append(results.power)
+    if tls == True: 
+        from transitleastsquares import transitleastsquares
+        model = transitleastsquares(x_axis, sampledata)
+        results = model.power()
+        featvec.append(results.period)
+        featvec.append(results.duration)
+        featvec.append(results.depth)
+        featvec.append(results.power)
     
     return(featvec) 
 
