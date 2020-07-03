@@ -126,6 +126,10 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
           can be downloaded from 
           http://archive.stsci.edu/tess/bulk_downloads.html
           Also see bulk_download_helper()
+    e.g. df.data_access_sector_by_bulk('../../',
+                                       '../../all_targets_S020_v1.txt', 20,
+                                       '../../tessdata_sector_20/')
+          
     '''
     
     for cam in [1,2,3,4]:
@@ -137,7 +141,13 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
 def bulk_download_helper(yourpath, shell_script):
     '''If bulk download failed / need to start where you left off. Can also be
     used to go back and check you have all the light curves from a sector.
-    Shell script from http://archive.stsci.edu/tess/bulk_downloads.html'''
+    Parameters:
+        * yourpath : directory to save .fits files in, contains shell_script
+        * shell_script : file name for shell script (tesscurl_sector_*_lc.sh)
+          from http://archive.stsci.edu/tess/bulk_downloads.html
+    e.g. bulk_download_helper('./tessdata_sector_18/',
+                              'tesscurl_sector_18_lc.sh')
+    '''
     import fnmatch as fm
     with open(yourpath+shell_script, 'r') as f:
         sector_targets = f.readlines()[1:]
@@ -153,11 +163,14 @@ def bulk_download_helper(yourpath, shell_script):
         
         # >> if not downloaded, download the light curve
         if len(matches) == 0:
-            os.system(sector_targets[i])
+            print(str(i) + '/' + str(len(sector_targets)))            
+            print(fname)
+            command = sector_targets[i].split()[:5] + [yourpath+fname] + \
+                [sector_targets[i].split()[6]]
+            os.system(' '.join(command))
         else:
             print('Already downloaded '+fname)
             
-
 #data process an entire group of TICs
 def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
                               bulk_download=False, bulk_download_dir='./'):
@@ -670,7 +683,7 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
             start_ind_spl = np.argmin(np.abs(t_spl - time[start_ind]))
             end_ind_spl = start_ind_spl + (end_ind-start_ind)
         else:
-            end_ind_spl = np.argmin(np.abs(t_spl - time[end_ind]))
+            end_ind_spl = np.argmin(np.abs(t_spl - time[end_ind+1]))
             start_ind_spl = end_ind_spl - (end_ind-start_ind)
         i_interp[start_ind:end_ind] = i_spl[start_ind_spl:end_ind_spl]
         
