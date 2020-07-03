@@ -768,6 +768,9 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
     time = np.delete(time, mask)
     flux = np.delete(flux, mask, 1)
     
+    # # >> will need to truncate if using multiple sectors
+    # new_length = np.min([np.shape(i)[1] for i in flux])
+    
     if type(flux_err) != bool:
         flux_err = np.delete(flux_err, mask, 1)
         return flux, time, flux_err

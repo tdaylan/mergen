@@ -12,20 +12,20 @@
 # 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-dat_dir = './' # >> directory with input data (ending with /)
-output_dir = '../../plots/sector20/' # >> directory to save diagnostic plots
+dat_dir = '../../' # >> directory with input data (ending with /)
+output_dir = '../../plots/sector18_20/' # >> directory to save diagnostic plots
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
                      # >> and plotting_functions.py
 
 # >> input data
-sectors = ['20']
+sectors = ['18', '20']
 cams = ['1', '2', '3', '4']
 ccds =  ['1', '2', '3', '4']
-train_test_ratio = 0.1 # >> fraction of training set size to testing set size
+train_test_ratio = 0.05 # >> fraction of training set size to testing set size
 
 # >> what this script will run:
-hyperparameter_optimization = True # >> run hyperparameter search
+hyperparameter_optimization = False # >> run hyperparameter search
 run_model = True # >> train autoencoder on a parameter set p
 diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
@@ -43,7 +43,8 @@ input_rms=True # >> concatenate RMS to learned features
 input_features=False # >> this option cannot be used yet
 
 # >> move targets out of training set and into testing set (integer)
-targets = [219107776] # >> EX DRA
+targets = [219107776] # >> EX DRA # !!
+# targets = []
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -66,14 +67,14 @@ for sector in sectors:
         for ccd in ccds:
             s = 'Sector{sector}Cam{cam}CCD{ccd}/' + \
                 'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
-            fnames.append(dat_dir+s.format(sector=sector, cam=cam, ccd=ccd))
+            fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
 
 # >> hyperparameters
-if hyperparameter_optimization:
+if hyperparameter_optimization: # !! change epochs
     p = {'kernel_size': [3,5,7],
       'latent_dim': list(np.arange(5, 30, 5)),
       'strides': [1],
-      'epochs': [50],
+      'epochs': [30],
       'dropout': list(np.arange(0.1, 0.5, 0.1)),
       'num_filters': [8, 16, 32, 64],
       'num_conv_layers': [2,4,6,8,10],
@@ -87,19 +88,19 @@ if hyperparameter_optimization:
                       'glorot_uniform']}
 else:
     p = {'kernel_size': 3,
-          'latent_dim': 17,
+          'latent_dim': 25,
           'strides': 1,
-          'epochs': 7,
-          'dropout': 0.3,
+          'epochs': 10,
+          'dropout': 0.2,
           'num_filters': 32,
-          'num_conv_layers': 2,
+          'num_conv_layers': 6,
           'batch_size': 128,
           'activation': 'elu',
-          'optimizer': 'adadelta',
+          'optimizer': 'adam',
           'last_activation': 'linear',
           'losses': 'mean_squared_error',
-          'lr': 0.001,
-          'initializer': 'glorot_normal'}
+          'lr': 0.01,
+          'initializer': 'random_normal'}
 
 # -- create output directory --------------------------------------------------
     
@@ -125,11 +126,17 @@ for i in range(len(fnames)):
     flux_list.append(flux)
     ticid_list.append(ticid)
     
-    # >> shuffle flux array
-    # np.random.shuffle(flux)
+# >> shuffle flux array
+# np.random.shuffle(flux)
 
-flux = np.concatenate(flux_list, axis=0)
-x = time_list[0]
+# !! truncate if using multiple sectors
+new_length = np.min([np.shape(i)[1] for i in flux_list])
+flux = []
+for i in range(len(fnames)):
+    flux.append(flux_list[i][:,:new_length])
+
+flux = np.concatenate(flux, axis=0)
+x = time_list[0][:new_length]
 
 ticid = []
 for i in range(len(fnames)):
@@ -202,8 +209,8 @@ if hyperparameter_optimization:
                     experiment_name=title, 
                     reduction_metric = 'val_loss',
                     minimize_loss=True,
-                    reduction_method='correlation', fraction_limit=0.001)
-    # fraction_limit = 0.002
+                    reduction_method='correlation')
+    # fraction_limit = 0.001
     analyze_object = talos.Analyze(t)
     df, best_param_ind,p = pl.hyperparam_opt_diagnosis(analyze_object,
                                                        output_dir,
