@@ -1327,8 +1327,8 @@ def plot_lof(time, intensity, targets, features, n, path,
             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
       
     # >> make histogram of LOF values
-    plot_histogram(lof, 50, "Local Outlier Factor (LOF)", time, intensity, path+'lof-'+prefix+'histogram-insets.png', insets=True)
-    plot_histogram(lof, 50, "Local Outlier Factor (LOF)", time, intensity, path+'lof-'+prefix+'histogram.png', insets=False)
+    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram-insets.png', insets=True)
+    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram.png', insets=False)
     
     
     
