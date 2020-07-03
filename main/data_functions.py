@@ -10,6 +10,7 @@ Updated: June 26 2020
 
 Data access
 * test_data()
+* load_group_from_fits()
 * load_group_from_txt()
 * data_access_by_group_fits()
 * follow_up_on_missed_targets_fits()
@@ -85,6 +86,23 @@ import numba
 def test_data():
     """make sure the module loads in"""
     print("Data functions loaded in.")
+    
+def load_group_from_fits(path, sector, camera, ccd): 
+    
+    """ pull the light curves and target list from fits metafiles
+    path is the folder in which all the metafiles are saved. ends in a backslash 
+    sector camera ccd are integers you want the info from
+    modified [lcg 07032020]"""
+    filename_lc = path + "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd) + "_lightcurves.fits"
+   
+    f = fits.open(filename_lc)
+    
+    time = f[0].data
+    intensities = f[1].data
+    targets = f[2].data
+    f.close()
+    
+    return time, intensities, targets
     
 def load_group_from_txt(sector, camera, ccd, path):
     """loads in a given group's data provided you have it saved in TEXT metafiles already
@@ -197,7 +215,7 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
         os.makedirs(path)
         print ("Successfully created the directory %s" % path) 
         with open(fname_targets, 'a') as file_object:
-            file_object.write("This file contains the target TICs for this group. Fits light curves are 1-indexed, so first target is all zeroes \n 00000000")
+            file_object.write("This file contains the target TICs for this group.")
         with open(fname_notes, 'a') as file_object:
             file_object.write("This file contains group notes, including any TICs that could not be accessed.\n")
         # get just the list of targets for the specified sector, camera, ccd --------
