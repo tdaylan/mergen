@@ -62,12 +62,15 @@ import plotting_functions as pl # >> for vsualizations
 
 # >> file names
 fnames = []
+target_info = []
 for sector in sectors:
     for cam in cams:
         for ccd in ccds:
             s = 'Sector{sector}Cam{cam}CCD{ccd}/' + \
                 'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
+            target_info.append([sector, cam, ccd])
+target_info = np.array(target_info)
 
 # >> hyperparameters
 if hyperparameter_optimization: # !! change epochs
@@ -127,7 +130,10 @@ for i in range(len(fnames)):
     ticid_list.append(ticid)
     
 # >> shuffle flux array
-# np.random.shuffle(flux)
+inds = np.arange(len(flux))
+np.random.shuffle(inds)
+flux = flux[inds]
+ticid_list = ticid[inds]
 
 # !! truncate if using multiple sectors
 new_length = np.min([np.shape(i)[1] for i in flux_list])
@@ -260,6 +266,7 @@ if diag_plots:
         
         pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
                             x_test, x_predict, mock_data=False,
+                            target_info=target_info,
                             ticid_train=ticid_train, ticid_test=ticid_test,
                             rms_test=rms_test, rms_train=rms_train,
                             input_features=input_features,

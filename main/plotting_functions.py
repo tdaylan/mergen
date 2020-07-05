@@ -85,6 +85,7 @@ from astroquery.mast import Catalogs
 from astroquery.mast import Observations
 from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
+from astroquery.mast import Tesscut
 
 
 def test_plotting():
@@ -661,7 +662,9 @@ def features_2D_colorshape(feature_vectors, path, clusteralg, hand_classes):
                 
 
 def diagnostic_plots(history, model, p, output_dir, 
-                     x, x_train, x_test, x_predict, sharey=False, prefix='',
+                     x, x_train, x_test, x_predict, 
+                     target_info=False,
+                     sharey=False, prefix='',
                      mock_data=False, ticid_train=False, ticid_test=False,
                      supervised=False, y_true=False, y_predict=False,
                      y_train=False, y_test=False,
@@ -713,7 +716,7 @@ def diagnostic_plots(history, model, p, output_dir,
         fig, axes = input_output_plot(x, x_test, x_predict,
                                       output_dir+prefix+'input_output.png',
                                       ticid_test=ticid_test,
-                                      inds=inds,
+                                      inds=inds, target_info=target_info,
                                       addend=addend, sharey=sharey,
                                       mock_data=mock_data,
                                       feature_vector=feature_vector,
@@ -853,7 +856,8 @@ def diagnostic_plots(history, model, p, output_dir,
     #    error
     if plot_reconstruction_error_test:
         plot_reconstruction_error(x, x_test, x_test, x_predict, ticid_test,
-                                  output_dir=output_dir)
+                                  output_dir=output_dir,
+                                  target_info=target_info)
     
     if plot_reconstruction_error_all:
         # >> concatenate test and train sets
@@ -862,7 +866,8 @@ def diagnostic_plots(history, model, p, output_dir,
         plot_reconstruction_error(x, tmp, tmp, tmp_predict, 
                                   np.concatenate([ticid_test, ticid_train],
                                                  axis=0),
-                                  output_dir=output_dir)
+                                  output_dir=output_dir,
+                                  target_info=target_info)
         # >> remove x_train reconstructions from memory
         del tmp    
         
@@ -916,7 +921,7 @@ def epoch_plots(history, p, out_dir, supervised):
 def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
                       inds = [0, -14, -10, 1, 2], addend = 0., sharey=False,
                       mock_data=False, feature_vector=False,
-                      percentage=False):
+                      percentage=False, target_info=False):
     '''Plots input light curve, output light curve and the residual.
     Can only handle len(inds) divisible by 3 or 5.
     Parameters:
@@ -947,7 +952,8 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
         for ngroup in range(ngroups):
             ind = int(ngroup*ncols + i)
             if not mock_data:
-                ticid_label(axes[ngroup*3,i], ticid_test[inds[ind]],title=True)
+                ticid_label(axes[ngroup*3,i], ticid_test[inds[ind]],
+                            target_info, title=True)
                 
             # >> plot input
             axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend,'.k',markersize=2)
@@ -1276,7 +1282,7 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
 
 def plot_lof(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
-             n_neighbors=20,
+             n_neighbors=20, target_info=False,
              prefix='', mock_data=False, addend=1., feature_vector=False,
              n_tot=100):
     """ Plots the 20 most and least interesting light curves based on LOF.
@@ -1290,6 +1296,7 @@ def plot_lof(time, intensity, targets, features, n, path,
                   n_tot / n)
         * feature vector : assumes x axis is latent dimensions, not time  
         * mock_data : if True, will not plot TICID label
+        * target_input : [sector, camera, ccd]
     Outputs:
         * Text file with TICID in column 1, and LOF in column 2 (lof-*.txt)
         * Log histogram of LOF (lof-histogram.png)
@@ -1352,7 +1359,8 @@ def plot_lof(time, intensity, targets, features, n, path,
                            fontsize='xx-small')
                 format_axes(ax[k], ylabel=True)
                 if not mock_data:
-                    ticid_label(ax[k], targets[ind], title=True)
+                    ticid_label(ax[k], targets[ind], target_info[ind],
+                                title=True)
     
             # >> label axes
             if feature_vector:
@@ -1397,7 +1405,7 @@ def plot_lof(time, intensity, targets, features, n, path,
         # >> formatting
         format_axes(ax[k], ylabel=True)
         if not mock_data:
-            ticid_label(ax[k], targets[ind], title=True)
+            ticid_label(ax[k], targets[ind], target_info=False, title=True)
     if feature_vector:
         ax[n-1].set_xlabel('\u03C8')
     else:
@@ -1474,7 +1482,7 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
 
 def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
                               output_dir='./', addend=1., mock_data=False,
-                              feature_vector=False, n=20):
+                              feature_vector=False, n=20, target_info=False):
     '''For autoencoder, intensity = x_test'''
     # >> calculate reconstruction error (mean squared error)
     err = (x_test - x_predict)**2
@@ -1506,7 +1514,8 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
                        verticalalignment='bottom', fontsize='xx-small')
             format_axes(ax[k], ylabel=True)
             if not mock_data:
-                ticid_label(ax[k], ticid_test[ind], title=True)
+                ticid_label(ax[k], ticid_test[ind], target_info[ind],
+                            title=True)
                 
         if feature_vector:
             ax[n-1].set_xlabel('\u03C8')
@@ -1619,8 +1628,10 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./'):
 
 # == helper functions =========================================================
 
-def ticid_label(ax, ticid, title=False):
-    '''Query catalog data and add text to axis.'''
+def ticid_label(ax, ticid, target_info, title=False):
+    '''Query catalog data and add text to axis.
+    Parameters:
+        * target_info : [sector, camera, ccd]'''
     try:
         # >> query catalog data
         target, Teff, rad, mass, GAIAmag, d, objType = get_features(ticid)
@@ -1630,8 +1641,17 @@ def ticid_label(ax, ticid, title=False):
             Teff = 'nan'
         else: Teff = '%.4d'%Teff
         
+        # >> query sector, camera, ccd
+        sector, cam, ccd = target_info
+        # obj_name = 'TIC ' + str(int(ticid))
+        # obj_table = Tesscut.get_sectors(obj_name)
+        # ind = np.nonzero(obj_table['sector']==sector)
+        # cam = obj_table['camera'][ind][0]
+        # ccd = obj_table['ccd'][ind][0]
+    
         info = target+'\nTeff {}\nrad {}\nmass {}\nG {}\nd {}\nO {}'
-        info1 = target+', Teff {}, rad {}, mass {},\nG {}, d {}, O {}'
+        info1 = target+', Sector {}, Cam {}. CCD {},\n' +\
+            'Teff {}, rad {}, mass {}, G {}, d {}, O {}'
         
         
         # >> make text
