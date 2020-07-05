@@ -95,7 +95,7 @@ def load_group_from_fits(path, sector, camera, ccd):
     modified [lcg 07032020]"""
     filename_lc = path + "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd) + "_lightcurves.fits"
    
-    f = fits.open(filename_lc)
+    f = fits.open(filename_lc, mmap=False)
     
     time = f[0].data
     intensities = f[1].data
@@ -510,7 +510,7 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
         print(count)
         
         # >> open file
-        with fits.open(fits_path + file) as hdul:
+        with fits.open(fits_path + file, mmap=False) as hdul:
             hdu_data = hdul[1].data
             
             # >> get time array (only for the first light curve)
@@ -849,8 +849,8 @@ def featvec(x_axis, sampledata, tls=False):
         18 - depth
         19 - power
         
-        ***if you update the number of features, 
-        you have to update the number of features in create_list_featvec
+        version 0: features 0-15
+        version 1: features 0-19
         modified [lcg 07032020]"""
     
     

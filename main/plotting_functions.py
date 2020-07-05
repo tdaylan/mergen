@@ -194,28 +194,25 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
             graph_label2 = graph_labels[m]
             fname_label2 = fname_labels[m]                
             feat2 = feature_vectors[:,m]
+            colors = ["red","blue", "green", "purple" ,"yellow", "magenta", 'black']
+    
+    fig, ax1 = plt.subplots()
+    
+    for n in range(len(datax)):
+        c = colors[int(guessclasses[n])]
+        ax1.scatter(datax[n], datay[n], s=2)
             
-            if cluster == 'dbscan':
+        if cluster == 'dbscan':
                 plt.figure() # >> [etc 060520]
                 plt.clf()
-                for p in range(len(feature_vectors)):
-                    if classes_dbscan[p] == 0:
-                        color = "red"
-                    elif classes_dbscan[p] == -1:
-                        color = "black"
-                    elif classes_dbscan[p] == 1:
-                        color = "blue"
-                    elif classes_dbscan[p] == 2:
-                        color = "green"
-                    elif classes_dbscan[p] == 3:
-                        color = "purple"
-                    plt.scatter(feat1[p], feat2[p], c = color, s = 2)
+                for n in range(len(feature_vectors)):
+                    plt.scatter(feat1[n], feat2[n], c=colors[classes_dbscan[n]], s=2)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
                 plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
 
-                # plt.show()
-            elif cluster == 'kmeans':
+             
+        elif cluster == 'kmeans':
                 for p in range(len(feature_vectors)):
                     if classes_kmeans[p] == 0:
                         color = "red"
@@ -229,8 +226,8 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
-                # plt.show()
-            elif cluster == 'none':
+              
+        elif cluster == 'none':
                 plt.scatter(feat1, feat2, s = 2, color = 'black')
                 #plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
@@ -770,7 +767,7 @@ def diagnostic_plots(history, model, p, output_dir,
     else: features=False
     if plot_in_bottle_out or plot_latent_test or plot_lof_test or plot_lof_all:
         if load_bottleneck:
-            with fits.open(output_dir + 'bottleneck_test.fits') as hdul:
+            with fits.open(output_dir + 'bottleneck_test.fits', mmap=False) as hdul:
                 bottleneck = hdul[0].data
         else:
             bottleneck = ml.get_bottleneck(model, x_test,
@@ -816,7 +813,7 @@ def diagnostic_plots(history, model, p, output_dir,
     
     if plot_latent_train or plot_lof_train or plot_lof_all:
         if load_bottleneck:
-            with fits.open(output_dir + 'bottleneck_train.fits') as hdul:
+            with fits.open(output_dir + 'bottleneck_train.fits', mmap=False) as hdul:
                 bottleneck_train = hdul[0].data
         else:
             bottleneck_train = ml.get_bottleneck(model, x_train,
