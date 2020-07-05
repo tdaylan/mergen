@@ -95,7 +95,7 @@ def load_group_from_fits(path, sector, camera, ccd):
     modified [lcg 07032020]"""
     filename_lc = path + "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd) + "_lightcurves.fits"
    
-    f = fits.open(filename_lc)
+    f = fits.open(filename_lc, mmap=False)
     
     time = f[0].data
     intensities = f[1].data
@@ -286,45 +286,7 @@ def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     return targets, path
 
 
-def interp_norm_sigmaclip_features(yourpath, times, intensities, targets, sector, camera, ccd):
-    """interpolates, normalizes, and sigma clips all light curves
-    then produces feature vectors for them"""
-    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
-    path = yourpath + folder_name
-    fname_times_interp = path + "/" + folder_name + "_times_processed.txt"
-    fname_ints_processed = path + "/" + folder_name + "_intensities_processed.txt"
-    fname_features = path + "/"+ folder_name + "_features.txt"
-    
-    with open(fname_times_interp, 'a') as file_object:
-        file_object.write("This file contains the processed time indices for this group")
-    with open(fname_ints_processed, 'a') as file_object:
-        file_object.write("This file contains the processed intensities for this group")
-    with open(fname_features, 'a') as file_object:
-        file_object.write("This file contains the feature vectors for each target in this group. ")
-    
-    
-    if len(intensities) == len(targets):
-    #interpolate and normalize/sigma clip
-        interp_times, interp_intensities = interpolate_lc(intensities, times, flux_err=False, interp_tol=20./(24*60),num_sigma=5, orbit_gap_len = 3, DEBUG=False,spline_interpolate=True)
-        normalized_intensities = normalize(interp_intensities)
-    #save these into their own files, and report these arrays back
-        with open(fname_times_interp, 'a') as file_object:
-            np.savetxt(fname_times_interp, interp_times)
-        with open(fname_ints_processed, 'a') as file_object:
-            np.savetxt(fname_ints_processed, normalized_intensities)
-        times = np.loadtxt(fname_times_interp)
-        intensities = np.loadtxt(fname_ints_processed)
-        print("You can now access time arrays, processed intensities, targets, and an array of TICs you could not get")
-        
-        features = create_list_featvec(times, intensities)
-        with open(fname_features, 'a') as file_object:
-            np.savetxt(fname_features, features)
-        print("Feature vector creation complete")
-            
-    else: #if there is an error with the number of lines in times vs ints vs targets
-        print("There is a disagreement between the number of lines saved in intensities and targets, cannot process data")
-        
-    return times, intensities, features
+
 
 
 ######
@@ -510,7 +472,7 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
         print(count)
         
         # >> open file
-        with fits.open(fits_path + file) as hdul:
+        with fits.open(fits_path + file, mmap=False) as hdul:
             hdu_data = hdul[1].data
             
             # >> get time array (only for the first light curve)
@@ -786,7 +748,7 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
 
 #producing the feature vector list -----------------------------
 
-def create_save_featvec(yourpath, times, intensities, sector, camera, ccd):
+def create_save_featvec(yourpath, times, intensities, sector, camera, ccd, version):
     """Produces the feature vectors for each light curve and saves them all
     into a single fits file
     Takes: 
@@ -794,15 +756,16 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd):
         time axis
         all intensity arrays
         sector, camera, ccd values
+        version of feature vectors - default should be 0
     returns list of feature vectors
-    modified: [lcg 07032020]"""
+    modified: [lcg 07042020]"""
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
     #path = yourpath + folder_name
-    fname_features = yourpath + "/"+ folder_name + "_features.fits"
+    fname_features = yourpath + "/"+ folder_name + "_features_v"+str(version)+".fits"
     feature_list = []
     print("creating feature vectors about to begin")
     for n in range(len(intensities)):
-        feature_vector = featvec(times, intensities[n], tls=False)
+        feature_vector = featvec(times, intensities[n], v=version)
         feature_list.append(feature_vector)
         
         if n % 50 == 0: print(str(n) + " completed")
@@ -815,7 +778,7 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd):
     
     return feature_list
 
-def featvec(x_axis, sampledata, tls=False): 
+def featvec(x_axis, sampledata, v=0): 
     """calculates the feature vector of the single light curve
     currently returns 16: 
         0 - Average
@@ -849,9 +812,9 @@ def featvec(x_axis, sampledata, tls=False):
         18 - depth
         19 - power
         
-        ***if you update the number of features, 
-        you have to update the number of features in create_list_featvec
-        modified [lcg 07032020]"""
+        version 0: features 0-15
+        version 1: features 0-19
+        modified [lcg 07042020]"""
     
     
     #empty feature vector
@@ -923,7 +886,7 @@ def featvec(x_axis, sampledata, tls=False):
     #print("done")
     
     #tls 
-    if tls == True: 
+    if v != 0: 
         from transitleastsquares import transitleastsquares
         model = transitleastsquares(x_axis, sampledata)
         results = model.power()
@@ -934,3 +897,66 @@ def featvec(x_axis, sampledata, tls=False):
     
     return(featvec) 
 
+def feature_gen_from_lc_fits(folderpath, sector, feature_version):
+    """ Create feature vectors and save them into fits files per group
+    then grab them ALL for the sector and save into one big fits file
+    Folderpath is path into place where the lc fits files are saved. 
+        must end in a backslash
+    sector is the sector being worked on
+    feature_version is the feature vector version being generated
+    modified [lcg 07042020]"""
+    
+    import datetime
+    from datetime import datetime
+    
+    now = datetime.now()
+    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+    print("Starting Feature Generation at", dt_string)	
+
+    ticids_all = [10]
+    ticids_all = np.asarray(ticids_all)
+    sector = sector
+    for n in range(1,5):
+        camera = int(n)
+        for m in range(1,5):
+            ccd = int(m)
+
+            t, i1, targets = load_group_from_fits(folderpath, sector, camera, ccd)
+            ticids_all = np.concatenate((ticids_all, targets))
+                    
+            i2, t2 = nan_mask(i1, t, flux_err=False, DEBUG=False, debug_ind=1042,
+                                ticid=False, output_dir=folderpath, prefix='', tol1=0.05, tol2=0.1)
+                        
+            i3 = normalize(i2, axis=1)
+               
+            now = datetime.now()
+            dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+            print("Starting feature vectors for camera ", camera, "ccd ", ccd, "at ", dt_string)
+            
+            create_save_featvec(folderpath, t2, i3, sector, camera, ccd)
+    
+    ticids_all = ticids_all[1:]
+    feats_all = np.zeros((2,16))
+
+    for n in range(1,5):
+        camera = int(n)
+        for m in range(1,5):
+            ccd = int(m)
+            f = fits.open(folderpath + "Sector" + str(sector) + "Cam" + str(n) + "CCD" + str(m) + "_features.fits", mmap=False)
+            feats = f[0].data
+            feats_all = np.concatenate((feats_all, feats))
+            f.close()
+            #print(n,m)
+    
+    feats_all = feats_all[2:]
+    
+    hdr = fits.Header() # >> make the header
+    hdr["Sector"] = sector
+    hdr["Version"] = feature_version
+    hdr["Date"] = str(datetime.now())
+    #hdr["Creator"] = "L. Gordon"
+    hdu = fits.PrimaryHDU(feats_all, header=hdr)
+    hdu.writeto(folderpath + "Sector"+str(sector) + "_features_v" + str(feature_version) +"_all.fits")
+    fits.append(folderpath + "Sector"+str(sector) + "_features_v" + str(feature_version) +"_all.fits", ticids_all)
+    
+    return feats_all, ticids_all
