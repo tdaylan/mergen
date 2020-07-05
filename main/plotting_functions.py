@@ -224,9 +224,9 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
                 # plt.show()
                 
-    if cluster == 'dbscan':
+    if clustering == 'dbscan':
         return db.labels_
-    if cluster == 'kmeans':
+    if clustering == 'kmeans':
         return x.labels
                           
 def astroquery_pull_data(target):
