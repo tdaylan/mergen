@@ -117,11 +117,11 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     feature_vectors is the list of ALL feature_vectors
     cluster_columns is the vectors that you want to use to do the clustering based on
         this can be the same as feature_vectors
-    date must be a string in the format of the folder you are saving into ie "4-13"
+        path needs to end in a backslash
     clustering must equal 'dbscan', 'kmeans', or 'empty'
     """
-    import pdb # >> [etc 060620]
-    cluster = "empty"
+    #import pdb # >> [etc 060620]
+    #detrmine which of the clustering algoirthms you're using: 
     folder_label = "blank"
     if clustering == 'dbscan':
         # !! TODO parameter optimization (eps, min_samples)
@@ -131,7 +131,6 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                     p=p).fit(cluster_columns) #eps is NOT epochs
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
-        cluster = 'dbscan'
         folder_label = "dbscan-colored" + folder_suffix
         # pdb.set_trace()
 
@@ -139,14 +138,13 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
         Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
         x = Kmean.fit(cluster_columns)
         classes_kmeans = x.labels_
-        cluster = 'kmeans'
         folder_label = "kmeans-colored"
     else: 
         print("no clustering chosen")
-        cluster = 'none'
         folder_label = "2DFeatures"
+        
     #makes folder and saves to it    
-    folder_path = path + "/" + folder_label
+    folder_path = path + folder_label
     try:
         os.makedirs(folder_path)
     except OSError:
@@ -167,6 +165,8 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                             path+folder_label+'/', prefix='kmeans',
                             momentum_dump_csv=momentum_dump_csv)
     # >> [etc 060620]
+    colors = ["red","blue", "green", "purple" ,"yellow", "magenta", 'black']
+    #creates labels based on if engineered features or not
     if feature_engineering:
         graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
                         "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
@@ -194,42 +194,30 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
             graph_label2 = graph_labels[m]
             fname_label2 = fname_labels[m]                
             feat2 = feature_vectors[:,m]
-            colors = ["red","blue", "green", "purple" ,"yellow", "magenta", 'black']
-    
-    fig, ax1 = plt.subplots()
-    
-    for n in range(len(datax)):
-        c = colors[int(guessclasses[n])]
-        ax1.scatter(datax[n], datay[n], s=2)
             
-        if cluster == 'dbscan':
+    #actually plotting the damn things
+ 
+            if clustering == 'dbscan':
+                    plt.figure() # >> [etc 060520]
+                    plt.clf()
+                    for n in range(len(feature_vectors)):
+                        plt.scatter(feat1[n], feat2[n], c=colors[classes_dbscan[n]], s=2)
+                    plt.xlabel(graph_label1)
+                    plt.ylabel(graph_label2)
+                    plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
+    
+                 
+            elif clustering == 'kmeans':
                 plt.figure() # >> [etc 060520]
                 plt.clf()
                 for n in range(len(feature_vectors)):
-                    plt.scatter(feat1[n], feat2[n], c=colors[classes_dbscan[n]], s=2)
-                plt.xlabel(graph_label1)
-                plt.ylabel(graph_label2)
-                plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
-
-             
-        elif cluster == 'kmeans':
-                for p in range(len(feature_vectors)):
-                    if classes_kmeans[p] == 0:
-                        color = "red"
-                    elif classes_kmeans[p] == 1:
-                        color = "blue"
-                    elif classes_kmeans[p] == 2:
-                        color = "green"
-                    elif classes_kmeans[p] == 3:
-                        color = "purple"
-                    plt.scatter(feat1[p], feat2[p], c = color, s=2)
+                    plt.scatter(feat1[n], feat2[n], c=colors[classes_kmeans[n]], s=2)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
-              
-        elif cluster == 'none':
+                  
+            elif clustering == 'none':
                 plt.scatter(feat1, feat2, s = 2, color = 'black')
-                #plt.autoscale(enable=True, axis='both', tight=True)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
@@ -524,7 +512,7 @@ def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_i
     plt.savefig(filename)
     plt.close()
 
-def histo_features(features, bins, t, intensities, targets, path):
+def histo_features(features, bins, t, intensities, targets, path, insets=False):
     """ Plot histograms of each feature, both with and without inset light curves
     features (array of ALL), bins, time axis, intensities, path to put folder in
     modified [lcg 07012020]"""
@@ -540,8 +528,9 @@ def histo_features(features, bins, t, intensities, targets, path):
     for n in range(16):
         filename = folderpath + fname_labels[n] + "histogram.png"
         plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=False)
-        filename = folderpath + fname_labels[n] + "histogram-insets.png"
-        plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=True)
+        if insets == True:
+            filename = folderpath + fname_labels[n] + "histogram-insets.png"
+            plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=True)
 
 def plot_histogram(data, bins, x_label, insetx, insety,targets, filename, insets=True):
     """ plot a histogram with one light curve from each bin plotted on top
