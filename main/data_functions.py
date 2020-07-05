@@ -815,7 +815,7 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd):
     
     return feature_list
 
-def featvec(x_axis, sampledata, tls=False): 
+def featvec(x_axis, sampledata, v=0): 
     """calculates the feature vector of the single light curve
     currently returns 16: 
         0 - Average
@@ -923,7 +923,7 @@ def featvec(x_axis, sampledata, tls=False):
     #print("done")
     
     #tls 
-    if tls == True: 
+    if v != 0: 
         from transitleastsquares import transitleastsquares
         model = transitleastsquares(x_axis, sampledata)
         results = model.power()
@@ -934,3 +934,59 @@ def featvec(x_axis, sampledata, tls=False):
     
     return(featvec) 
 
+def feature_gen_from_lc_fits(folderpath, sector, feature_version):
+    """ Create feature vectors and save them into fits files per group
+    then grab them ALL for the sector and save into one big fits file
+    Folderpath is path into place where the lc fits files are saved. 
+        must end in a backslash
+    sector is the sector being worked on
+    feature_version is the feature vector version being generated
+    modified [lcg 07042020]"""
+    
+    import datetime
+    from datetime import datetime
+    
+    now = datetime.now()
+    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+    print("Starting Feature Generation at", dt_string)	
+
+    sector = sector
+    for n in range(1,5):
+        camera = int(n)
+        for m in range(1,5):
+            ccd = int(m)
+
+            t, i1, targets = load_group_from_fits(folderpath, sector, camera, ccd)
+                    
+            i2, t2 = nan_mask(i1, t, flux_err=False, DEBUG=False, debug_ind=1042,
+                                ticid=False, output_dir=folderpath, prefix='', tol1=0.05, tol2=0.1)
+                        
+            i3 = normalize(i2, axis=1)
+               
+            now = datetime.now()
+            dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+            print("Starting feature vectors for camera ", camera, "ccd ", ccd, "at ", dt_string)
+            
+            create_save_featvec(folderpath, t2, i3, sector, camera, ccd)
+            
+    feats_all = np.zeros((2,16))
+
+    for n in range(1,5):
+        camera = int(n)
+        for m in range(1,5):
+            ccd = int(m)
+            f = fits.open(folderpath + "Sector" + str(camera) + "Cam" + str(n) + "CCD" + str(m) + "_features.fits", mmap=False)
+            feats = f[0].data
+            feats_all = np.concatenate((feats_all, feats))
+            f.close()
+            #print(n,m)
+    
+    feats_all = feats_all[2:]
+    
+    hdr = fits.Header() # >> make the header
+    hdr["Sector"] = sector
+    hdr["Version"] = feature_version
+    hdr["Date"] = datetime.today()
+    #hdr["Creator"] = "L. Gordon"
+    hdu = fits.PrimaryHDU(feats_all, header=hdr)
+    hdu.writeto(folderpath + "Sector"+str(camera) + "_features_v" + str(feature_version) +"_all.fits")
