@@ -558,7 +558,8 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                          time, intensity, targets, folder_suffix='',
                          feature_engineering=True, eps=0.5, min_samples=10,
                          metric='euclidean', algorithm='auto', leaf_size=30,
-                         p=2):
+                         p=2,
+                         momentum_dump_csv='./Table_of_momentum_dumps.csv'):
     """plotting (n 2) features against each other
     feature_vectors is the list of ALL feature_vectors
     cluster_columns is the vectors that you want to use to do the clustering based on
@@ -606,7 +607,8 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
  
     if clustering == 'dbscan':
         pl.plot_classification(time, intensity, targets, db.labels_,
-                               path+folder_label+'/', prefix='dbscan')
+                               path+folder_label+'/', prefix='dbscan',
+                               momentum_dump_csv=momentum_dump_csv)
         pl.plot_pca(cluster_columns, db.labels_,
                     output_dir=path+folder_label+'/')
     elif clustering == 'kmeans':

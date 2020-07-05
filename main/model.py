@@ -529,9 +529,31 @@ def get_activations(model, x_test, input_rms = False, rms_test = False):
         activations = activation_model.predict(x_test)        
     return activations
 
+def get_bottleneck(model, x_test, input_features=False, features=False,
+                   input_rms=False, rms=False):
+    from keras.models import Model
+    # >> first find all Dense layers
+    inds = np.nonzero(['dense' in x.name for x in model.layers])[0]
+    
+    # >> bottleneck layer is the first Dense layer
+    bottleneck_ind = inds[0]
+    activation_model = Model(inputs=model.input,
+                             outputs=model.layers[bottleneck_ind].output)
+    bottleneck = activation_model.predict(x_test)    
+    if input_features: # >> concatenate features to bottleneck
+        bottleneck = np.concatenate([bottleneck, features], axis=1)
+    if input_rms:
+        bottleneck = np.concatenate([bottleneck,
+                                      np.reshape(rms, (np.shape(rms)[0],1))],
+                                        axis=1)    
+    
+    bottleneck = df.standardize(bottleneck, ax=0)
+    return bottleneck
+
 def get_bottleneck_from_activations(model, activations, p, input_features=False, 
                    features=False, input_rms=False, rms=False):
-    '''Get bottleneck layer, with shape (num light curves, latent dimension)
+    '''[deprecated 070320]
+    Get bottleneck layer, with shape (num light curves, latent dimension)
     Parameters:
         * model : Keras Model()
         * activations : from get_activations()
@@ -563,28 +585,6 @@ def get_bottleneck_from_activations(model, activations, p, input_features=False,
                                     axis=1)
         
     return bottleneck
-
-def get_bottleneck(model, x_test, input_features=False, features=False,
-                   input_rms=False, rms=False):
-    from keras.models import Model
-    # >> first find all Dense layers
-    inds = np.nonzero(['dense' in x.name for x in model.layers])[0]
-    
-    # >> bottleneck layer is the first Dense layer
-    bottleneck_ind = inds[0]
-    activation_model = Model(inputs=model.input,
-                             outputs=model.layers[bottleneck_ind].output)
-    bottleneck = activation_model.predict(x_test)    
-    if input_features: # >> concatenate features to bottleneck
-        bottleneck = np.concatenate([bottleneck, features], axis=1)
-    if input_rms:
-        bottleneck = np.concatenate([bottleneck,
-                                      np.reshape(rms, (np.shape(rms)[0],1))],
-                                        axis=1)    
-    
-    bottleneck = df.standardize(bottleneck, ax=0)
-    return bottleneck
-
 
 # :: mock data ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
