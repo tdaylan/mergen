@@ -113,7 +113,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                          time, intensity, targets, folder_suffix='',
                          feature_engineering=True, eps=0.5, min_samples=10,
                          metric='euclidean', algorithm='auto', leaf_size=30,
-                         p=2,
+                         p=2, target_info=False,
                          momentum_dump_csv='./Table_of_momentum_dumps.csv'):
     """plotting (n 2) features against each other
     feature_vectors is the list of ALL feature_vectors
@@ -159,15 +159,19 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     if clustering == 'dbscan':
         plot_classification(time, intensity, targets, db.labels_,
                             path+folder_label+'/', prefix='dbscan',
-                            momentum_dump_csv=momentum_dump_csv)
+                            momentum_dump_csv=momentum_dump_csv,
+                            target_info=target_info)
         plot_pca(cluster_columns, db.labels_,
                     output_dir=path+folder_label+'/')
     elif clustering == 'kmeans':
         plot_classification(time, intensity, targets, x.labels_,
                             path+folder_label+'/', prefix='kmeans',
-                            momentum_dump_csv=momentum_dump_csv)
+                            momentum_dump_csv=momentum_dump_csv,
+                            target_info=target_info)
     # >> [etc 060620]
     colors = ["red","blue", "green", "purple" ,"yellow", "magenta", 'black']
+    colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
+            'skyblue', 'sienna', 'palegreen']
     #creates labels based on if engineered features or not
     if feature_engineering:
         graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
@@ -200,14 +204,14 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     #actually plotting the damn things
  
             if clustering == 'dbscan':
-                    plt.figure() # >> [etc 060520]
-                    plt.clf()
-                    for n in range(len(feature_vectors)):
-                        plt.scatter(feat1[n], feat2[n], c=colors[classes_dbscan[n]], s=2)
-                    plt.xlabel(graph_label1)
-                    plt.ylabel(graph_label2)
-                    plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
-    
+                plt.figure() # >> [etc 060520]
+                plt.clf()
+                for n in range(len(feature_vectors)):
+                    plt.scatter(feat1[n], feat2[n], c=colors[classes_dbscan[n]], s=2)
+                plt.xlabel(graph_label1)
+                plt.ylabel(graph_label2)
+                plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
+
                  
             elif clustering == 'kmeans':
                 plt.figure() # >> [etc 060520]
@@ -534,7 +538,8 @@ def histo_features(features, bins, t, intensities, targets, path, insets=False):
             filename = folderpath + fname_labels[n] + "histogram-insets.png"
             plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=True)
 
-def plot_histogram(data, bins, x_label, insetx, insety,targets, filename, insets=True):
+def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
+                   insets=True):
     """ plot a histogram with one light curve from each bin plotted on top
     data is the histogram data
     bins is bins
@@ -662,9 +667,59 @@ def features_2D_colorshape(feature_vectors, path, clusteralg, hand_classes):
                 plt.show()
                 
 
+def dbscan_param_search(bottleneck, min_samples=[15],
+                        metric=['euclidean', 'minkowski'],
+                        algorithm=['auto', 'ball_tree', 'kd_tree', 'brute'],
+                        leaf_size=[30, 40, 50], p=[1,2,3,4],
+                        eps=[0.1, 0.5, 1., 2., 3., 4., 5.], output_dir='./',
+                        prefix=''):
+    '''Performs simple grid search. UNFINISHED'''
+
+    classes = []
+    num_classes = []
+    counts = []
+    num_noisy= []
+    parameter_sets=[]
+    
+    # >> loop through parameter sets
+    for i in range(len(eps)):
+        for j in range(len(min_samples)):
+            for k in range(len(metric)):
+                for l in range(len(algorithm)):
+                    for m in range(len(leaf_size)):
+                        for n in range(len(p)):
+                            db = DBSCAN(eps=eps[i],
+                                        min_samples=min_samples[j],
+                                        metric=metric[k],
+                                        algorithm=algorithm[l],
+                                        leaf_size=leaf_size[m],
+                                        p=p[n]).fit(bottleneck)
+                            print(db.labels_)
+                            print(np.unique(db.labels_, return_counts=True))
+                            classes_1, counts_1 = \
+                                np.unique(db.labels_, return_counts=True)
+                            classes.append(classes_1)
+                            num_classes.append(len(classes_1))
+                            counts.append(counts_1)
+                            num_noisy.append(counts[0])
+                            parameter_sets.append([eps[i], min_samples[j],
+                                                   metric[k],
+                                                   algorithm[l],
+                                                   leaf_size[m],
+                                                   p[n]])
+                            with open(output_dir + prefix + 'dbscan_param_search.txt', 'a') as f:
+                                f.write('{} {} {} {} {} {}\n'.format(eps[i],
+                                                                   min_samples[j],
+                                                                   metric[k],
+                                                                   algorithm[l],
+                                                                   leaf_size[m],
+                                                                   p[n]))
+                                f.write(str(np.unique(db.labels_, return_counts=True)))
+                                f.write('\n\n')    
+
 def diagnostic_plots(history, model, p, output_dir, 
                      x, x_train, x_test, x_predict, 
-                     target_info=False,
+                     target_info_test=False, target_info_train=[],
                      sharey=False, prefix='',
                      mock_data=False, ticid_train=False, ticid_test=False,
                      supervised=False, y_true=False, y_predict=False,
@@ -697,10 +752,29 @@ def diagnostic_plots(history, model, p, output_dir,
         * p : parameter set given as a dictionary, e.g. {'latent_dim': 21, ...}
         * outout_dir : directory to save plots in
         * x : time array
-        * x_train : 
-    TODO:
-        * get rid fo rms_* options (integrate into input_features)
-        * change supervised inputs to just y_train, y_test
+        * x_train : training set, shape=(num light curves, num data points)
+        * x_test : testing set, shape=(num light curves, num data points)
+        * x_predict : autoencoder prediction, same shape as x_test
+        
+        * mock_data : if False, the following are required:
+            * target_info_test : [sector, cam, ccd] for testing set,
+                                 shape=(num light curves in test set, 3)
+            * target_info_train
+            * ticid_test
+            * ticid_train
+        
+        * feature_vector : if True, the following are required:
+            * flux_train
+            * flux_test
+            * time
+        
+        * supervised : if True, the following are required:
+            * y_train
+            * y_test
+            * y_true
+            * y_predict
+            
+        * input_rms
         '''
 
     # >> remove any plot settings
@@ -709,16 +783,18 @@ def diagnostic_plots(history, model, p, output_dir,
     
     # >> plot loss, accuracy, precision, recall vs. epochs
     if plot_epoch:
+        print('Plotting loss vs. epoch')
         epoch_plots(history, p, output_dir+prefix+'epoch-',
                     supervised=supervised)   
 
     # -- unsupervised ---------------------------------------------------------
     # >> plot some decoded light curves
     if plot_in_out and not supervised:
+        print('Plotting input, output and residual')
         fig, axes = input_output_plot(x, x_test, x_predict,
                                       output_dir+prefix+'input_output.png',
                                       ticid_test=ticid_test,
-                                      inds=inds, target_info=target_info,
+                                      inds=inds, target_info=target_info_test,
                                       addend=addend, sharey=sharey,
                                       mock_data=mock_data,
                                       feature_vector=feature_vector,
@@ -726,6 +802,7 @@ def diagnostic_plots(history, model, p, output_dir,
         
     # -- supervised -----------------------------------------------------------
     if supervised:
+        print('Plotting classifications')
         y_train_classes = np.argmax(y_train, axis = 1)
         num_classes = len(np.unique(y_train_classes))
         training_test_plot(x,x_train,x_test,
@@ -735,18 +812,22 @@ def diagnostic_plots(history, model, p, output_dir,
         
     # -- intermediate activations visualization -------------------------------
     if plot_intermed_act or make_movie:
+        print('Calculating intermediate activations')
         activations = ml.get_activations(model, x_test) 
     if plot_intermed_act:
+        print('Plotting intermediate activations')
         intermed_act_plot(x, model, activations, x_test,
                           output_dir+prefix+'intermed_act-', addend=addend,
                           inds=intermed_inds, feature_vector=feature_vector)
     
     if make_movie:
+        print('Making movie of intermediate activations')
         movie(x, model, activations, x_test, p, output_dir+prefix+'movie-',
               ticid_test, addend=addend, inds=intermed_inds)        
         
     # >> plot kernel vs. filter
     if plot_kernel:
+        print('Plotting kernel vs. filter')
         kernel_filter_plot(model, output_dir+prefix+'kernel-')
         
     # -- latent space visualization -------------------------------------------
@@ -761,9 +842,11 @@ def diagnostic_plots(history, model, p, output_dir,
     else: features=False
     if plot_in_bottle_out or plot_latent_test or plot_lof_test or plot_lof_all:
         if load_bottleneck:
+            print('Loading bottleneck (testing set)')
             with fits.open(output_dir + 'bottleneck_test.fits', mmap=False) as hdul:
                 bottleneck = hdul[0].data
         else:
+            print('Getting bottleneck (testing set)')
             bottleneck = ml.get_bottleneck(model, x_test,
                                            input_features=input_features,
                                            features=features,
@@ -779,6 +862,7 @@ def diagnostic_plots(history, model, p, output_dir,
         
     # >> plot input, bottleneck, output
     if plot_in_bottle_out and not supervised:
+        print('Plotting input, bottleneck, output')
         input_bottleneck_output_plot(x, x_test, x_predict,
                                      bottleneck, model, ticid_test,
                                      output_dir+prefix+\
@@ -789,27 +873,31 @@ def diagnostic_plots(history, model, p, output_dir,
 
     # >> make corner plot of latent space
     if plot_latent_test:
+        print('Plotting latent space for testing set')
         latent_space_plot(bottleneck, p, output_dir+prefix+'latent_space.png')
     
     # >> plot the 20 light curves with the highest LOF
     if plot_lof_test:
+        print('Plotting LOF for testing set')
         for n in [20]: # [20, 50, 100]: loop through n_neighbors
-            if type(flux_test) != bool:
+            if feature_vector:
                 plot_lof(time, flux_test, ticid_test, bottleneck, 20,
                          output_dir, prefix='test-'+prefix, n_neighbors=n,
                          mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot)
+                         n_tot=n_tot, target_info=target_info_test)
             else:
                 plot_lof(x, x_test, ticid_test, bottleneck, 20, output_dir,
                          prefix = 'test-'+prefix, n_neighbors=n,
                          mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot)
+                         n_tot=n_tot, target_info=target_info_test)
     
     if plot_latent_train or plot_lof_train or plot_lof_all:
         if load_bottleneck:
+            print('Loading bottleneck (training set)')
             with fits.open(output_dir + 'bottleneck_train.fits', mmap=False) as hdul:
                 bottleneck_train = hdul[0].data
         else:
+            print('Getting bottleneck (training set)')
             bottleneck_train = ml.get_bottleneck(model, x_train,
                                                  input_features=input_features,
                                                  features=features,
@@ -825,23 +913,27 @@ def diagnostic_plots(history, model, p, output_dir,
             # del activations_train
         
     if plot_latent_train:
+        print('Plotting latent space for training set')
         latent_space_plot(bottleneck_train, p, output_dir+prefix+\
                           'latent_space-x_train.png')        
         
     if plot_lof_train:
+        print('Plotting LOF for testing set')
         for n in [20]: # [20, 50, 100]:
-            if type(flux_train) != bool:
+            # if type(flux_train) != bool:
+            if feature_vector: # >> x_train is features, not fluxes
                 plot_lof(time, flux_train, ticid_train, bottleneck_train, 20,
                          output_dir, prefix='train-'+prefix, n_neighbors=n,
                          mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot)
+                         n_tot=n_tot, target_info=target_info_train)
             else:
                 plot_lof(x, x_train, ticid_train, bottleneck_train, 20,
                          output_dir, prefix = 'train-'+prefix, n_neighbors=n,
                          mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot)   
+                         n_tot=n_tot, target_info=target_info_train)   
                 
     if plot_lof_all:
+        print('Plotting LOF for entire dataset')
         bottleneck_all = np.concatenate([bottleneck, bottleneck_train], axis=0)
         # # >> save to fits file
         # hdr = fits.Header()
@@ -851,17 +943,21 @@ def diagnostic_plots(history, model, p, output_dir,
                  np.concatenate([ticid_test, ticid_train], axis=0),
                  bottleneck_all, 20, output_dir, prefix='all-'+prefix,
                  n_neighbors=20, n_tot=n_tot,
-                 mock_data=mock_data, feature_vector=feature_vector)
+                 mock_data=mock_data, feature_vector=feature_vector,
+                 target_info=np.concatenate([target_info_test,
+                                             target_info_train], axis=0))
     
     # -- plot reconstruction error (unsupervised) -----------------------------
     # >> plot light curves with highest, smallest and random reconstruction
     #    error
     if plot_reconstruction_error_test:
+        print('Plotting reconstruction error for testing set')
         plot_reconstruction_error(x, x_test, x_test, x_predict, ticid_test,
                                   output_dir=output_dir,
-                                  target_info=target_info)
+                                  target_info=target_info_test)
     
     if plot_reconstruction_error_all:
+        print('Plotting reconstruction error for entire dataset')
         # >> concatenate test and train sets
         tmp = np.concatenate([x_test, x_train], axis=0)
         tmp_predict = model.predict(tmp)
@@ -869,7 +965,9 @@ def diagnostic_plots(history, model, p, output_dir,
                                   np.concatenate([ticid_test, ticid_train],
                                                  axis=0),
                                   output_dir=output_dir,
-                                  target_info=target_info)
+                                  target_info=\
+                                      np.concatenate([target_info_test,
+                                                      target_info_train]))
         # >> remove x_train reconstructions from memory
         del tmp    
         
@@ -955,7 +1053,7 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
             ind = int(ngroup*ncols + i)
             if not mock_data:
                 ticid_label(axes[ngroup*3,i], ticid_test[inds[ind]],
-                            target_info, title=True)
+                            target_info[ind], title=True)
                 
             # >> plot input
             axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend, '.k')
@@ -990,18 +1088,21 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
 
 def kernel_filter_plot(model, out_dir):
     '''Plots kernel against filters, i.e. an image with dimension
-    (kernel_size, num_filters).
+    (kernel_size, num_filters). Averages across 
     Parameters:
         * model : Keras Model()
         * out_dir : output directory (ending with '/')'''
     # >> get inds for plotting kernel and filters
     layer_inds = np.nonzero(['conv' in x.name for x in model.layers])[0]
-    pdb.set_trace()
     for a in layer_inds: # >> loop through conv layers
         filters, biases = model.layers[a].get_weights()
+        # >> average over channels (assumes data_format='channels_last')
+        filters = np.mean(filters, axis=-1)
+        
         fig, ax = plt.subplots()
-        ax.imshow(np.reshape(filters, (np.shape(filters)[0],
-                                       np.shape(filters)[2])))
+        ax.imshow(filters)
+        # ax.imshow(np.reshape(filters, (np.shape(filters)[0],
+        #                                np.shape(filters)[2])))
         ax.set_xlabel('filter')
         ax.set_ylabel('kernel')
         plt.savefig(out_dir + 'layer' + str(a) + '.png')
@@ -1281,7 +1382,7 @@ def plot_lof(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
              n_neighbors=20, target_info=False,
              prefix='', mock_data=False, addend=1., feature_vector=False,
-             n_tot=100):
+             n_tot=100, histogram=True):
     """ Plots the 20 most and least interesting light curves based on LOF.
     Parameters:
         * time : array with shape 
@@ -1302,6 +1403,7 @@ def plot_lof(time, intensity, targets, features, n, path,
     modified [lcg 07012020 - includes inset histogram plotting]
     """
     # -- calculate LOF -------------------------------------------------------
+    print('Calculating LOF')
     clf = LocalOutlierFactor(n_neighbors=n_neighbors)
     fit_predictor = clf.fit_predict(features)
     negative_factor = clf.negative_outlier_factor_
@@ -1311,19 +1413,25 @@ def plot_lof(time, intensity, targets, features, n, path,
     largest_indices = ranked[::-1][:n_tot] # >> outliers
     smallest_indices = ranked[:n_tot] # >> inliers
     
-    # >> save LOF values in txt file 
+    # >> save LOF values in txt file
+    print('Saving LOF values')
     with open(path+'lof-'+prefix+'.txt', 'w') as f:
         for i in range(len(targets)):
             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
       
     # >> make histogram of LOF values
-    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram-insets.png', insets=True)
-    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram.png', insets=False)
-    
-    
+    print('Make LOF histogram')
+    if histogram:
+        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+                       targets, path+'lof-'+prefix+'histogram-insets.png',
+                       insets=True)
+        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+                       targets, path+'lof-'+prefix+'histogram.png',
+                       insets=False)
     
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
+    print('Loading momentum dump times')
     with open(momentum_dump_csv, 'r') as f:
         lines = f.readlines()
         mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
@@ -1332,6 +1440,7 @@ def plot_lof(time, intensity, targets, features, n, path,
         mom_dumps = np.array(mom_dumps)[inds]
 
     # -- plot smallest and largest LOF light curves --------------------------
+    print('Plot highest LOF and lowest LOF light curves')
     num_figs = int(n_tot/n) # >> number of figures to generate
     
     for j in range(num_figs):
@@ -1403,7 +1512,7 @@ def plot_lof(time, intensity, targets, features, n, path,
         # >> formatting
         format_axes(ax[k], ylabel=True)
         if not mock_data:
-            ticid_label(ax[k], targets[ind], target_info=False, title=True)
+            ticid_label(ax[k], targets[ind], target_info[ind], title=True)
     if feature_vector:
         ax[n-1].set_xlabel('\u03C8')
     else:
@@ -1530,13 +1639,17 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
         plt.close(fig)
     
 def plot_classification(time, intensity, targets, labels, path,
-             momentum_dump_csv = './Table_of_momentum_dumps.csv',
-             n=20,
-             prefix='', mock_data=False, addend=1., feature_vector=False):
+                        momentum_dump_csv = './Table_of_momentum_dumps.csv',
+                        n=20, target_info=False,
+                        prefix='', mock_data=False, addend=1.,
+                        feature_vector=False):
     """ 
     """
 
     classes, counts = np.unique(labels, return_counts=True)
+    # !!
+    colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
+            'skyblue', 'sienna', 'palegreen']
     
     # >> get momentum dump times
     with open(momentum_dump_csv, 'r') as f:
@@ -1549,16 +1662,12 @@ def plot_classification(time, intensity, targets, labels, path,
     for i in range(len(classes)): # >> loop through each class
         fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
         class_inds = np.nonzero(labels == classes[i])[0]
-        if classes[i] == 0:
-            color = 'red'
-        elif classes[i] == -1:
+        if classes[i] == -1:
             color = 'black'
-        elif classes[i] == 1:
-            color = 'blue'
-        elif classes[i] == 2:
-            color = 'green'
+        elif classes[i] < len(colors):
+            color = colors[i]
         else:
-            color = 'purple'
+            color='black'
         
         for k in range(min(n, counts[i])): # >> loop through each row
             ind = class_inds[k]
@@ -1575,7 +1684,7 @@ def plot_classification(time, intensity, targets, labels, path,
                        fontsize='xx-small')
             format_axes(ax[k], ylabel=True)
             if not mock_data:
-                ticid_label(ax[k], targets[ind], title=True)
+                ticid_label(ax[k], targets[ind], target_info[ind], title=True)
 
         if feature_vector:
             ax[n-1].set_xlabel('\u03C8')
@@ -1640,7 +1749,7 @@ def ticid_label(ax, ticid, target_info, title=False):
         else: Teff = '%.4d'%Teff
         
         # >> query sector, camera, ccd
-        sector, cam, ccd = target_info
+        sector, cam, ccd = target_info.astype('int')
         # obj_name = 'TIC ' + str(int(ticid))
         # obj_table = Tesscut.get_sectors(obj_name)
         # ind = np.nonzero(obj_table['sector']==sector)

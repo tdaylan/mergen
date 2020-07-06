@@ -88,12 +88,87 @@ def test_data():
     """make sure the module loads in"""
     print("Data functions loaded in.")
     
+def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
+                             ccds=[1,2,3,4], shuffle=False, DEBUG=False,
+                             output_dir='./', debug_ind=10):
+    '''Pulls light curves from fits files, applies nan mask
+    
+    Parameters:
+        * data_dir : folder containing fits files for each group
+        * sector : sector, given as int
+        * cams : list of cameras
+        * ccds : list of CCDs
+        * shuffle : if True, shuffles array (useful for machine learning)
+        * DEBUG : makes nan_mask debugging plots. If True, the following are
+                  required:
+            * output_dir
+            * debug_ind
+            
+    
+    Returns:
+        * flux : array of light curve PDCSAP_FLUX,
+                 shape=(num light curves, num data points)
+        * x : time array, shape=(num data points)
+        * ticid : list of TICIDs, shape=(num light curves)
+        * target_info : [sector, cam, ccd] for each light curve,
+                        shape=(num light curves, 3)
+    '''
+    
+    # >> get file names for each group
+    fnames = []
+    fname_info = []
+    for cam in cams:
+        for ccd in ccds:
+            s = 'Sector{sector}Cam{cam}CCD{ccd}/' + \
+                'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+            fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
+            fname_info.append([sector, cam, ccd])
+                
+    # >> pull data from each fits file
+    print('Pulling data')
+    flux_list = []
+    ticid = np.empty((0, 1))
+    target_info = np.empty((0, 3)) # >> [sector, camera, ccd]
+    for i in range(len(fnames)):
+        print('Loading ' + fnames[i] + '...')
+        with fits.open(data_dir + fnames[i]) as hdul:
+            if i == 0:
+                x = hdul[0].data
+            flux = hdul[1].data
+            ticid_list = hdul[2].data
+    
+        flux_list.append(flux)
+        ticid = np.append(ticid, ticid_list)
+        target_info = np.append(target_info,
+                                np.repeat([fname_info[i]], len(flux), axis=0),
+                                axis=0)
+
+    # >> concatenate flux array         
+    flux = np.concatenate(flux, axis=0)
+    
+    # >> shuffle array
+    if shuffle:
+        inds = np.arange(len(flux))
+        np.random.shuffle(inds)
+        flux = flux[inds]
+        ticid = ticid[inds]
+        target_info = target_info[inds].astype('int')
+        
+    # >> apply nan mask
+    print('Applying nan mask')
+    flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid, debug_ind=debug_ind,
+                       target_info=target_info, output_dir=output_dir)
+    
+    return flux, x, ticid, target_info
+    
+    
 def load_group_from_fits(path, sector, camera, ccd): 
     
     """ pull the light curves and target list from fits metafiles
     path is the folder in which all the metafiles are saved. ends in a backslash 
     sector camera ccd are integers you want the info from
-    modified [lcg 07032020]"""
+    modified [lcg 07032020]
+    """
     filename_lc = path + "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd) + "_lightcurves.fits"
    
     f = fits.open(filename_lc, mmap=False)
@@ -365,6 +440,10 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     hdu.writeto(fname_time_intensities_raw)
     fits.append(fname_time_intensities_raw, intensity_interp)
     fits.append(fname_time_intensities_raw, ticids)
+    
+    # >> actually i'm going to save the raw intensities just in case
+    fits.append(fname_time_intensities_raw, intensity)
+    
     # with open(fname_time_intensities_raw, 'rb+') as f:
     #     # >> don't want to save 2x data we need to, so only save interpolated
     #     # fits.append(fname_time_intensities_raw, intensity)
@@ -502,7 +581,7 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
     print('Interpolating...')
     intensity = np.array(intensity)
     ticid_list = np.array(ticid_list)
-    intensity, time = interpolate_all(intensity, time)
+    intensity_interp, time = interpolate_all(intensity, time)
     
     # >> save time array, intensity array and ticids to fits file
     print('Saving to fits file...')
@@ -510,8 +589,11 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
     hdr = fits.Header()
     hdu = fits.PrimaryHDU(time, header=hdr)
     hdu.writeto(fname_out)
-    fits.append(fname_out, intensity)
+    fits.append(fname_out, intensity_interp)
     fits.append(fname_out, ticid_list)
+    # >> actually i'm going to save the raw intensities just in case
+    fits.append(fname_out, intensity)
+    
     confirmation="lc_from_bulk_download has finished running"
     return confirmation
 
