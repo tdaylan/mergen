@@ -80,7 +80,7 @@ from astroquery.exceptions import RemoteServiceError
 
 import pdb
 
-# import b    atman # >> I don't have this library yet [etc 063020]
+# import batman # >> I don't have this library yet [etc 063020]
 import numba
 
 
@@ -365,11 +365,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     hdu.writeto(fname_time_intensities_raw)
     fits.append(fname_time_intensities_raw, intensity_interp)
     fits.append(fname_time_intensities_raw, ticids)
-    # with open(fname_time_intensities_raw, 'rb+') as f:
-    #     # >> don't want to save 2x data we need to, so only save interpolated
-    #     # fits.append(fname_time_intensities_raw, intensity)
-    #     fits.append(fname_time_intensities_raw, i_interp)
-    #     fits.append(fname_time_intensities_raw, ticids)
+
     confirmation = "lc_from_target_list has finished running"
     return confirmation
 
