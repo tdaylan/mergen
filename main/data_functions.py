@@ -771,6 +771,29 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
         return flux, time, flux_err
     else:
         return flux, time
+    
+    
+def brightness_tic_list(path, criteria, n, filelabel, highest=True):
+    """ creates a fits file list of the top ten thousand TICs that fit the criteria
+    if you're looking for magnitudes, you'll need to set highest = False because
+    inverse system (rip)"""
+    catalog_data = Catalogs.query_criteria(catalog="Tic", Tmag=criteria, objType="STAR")
+    #print(catalog_data["ID", "GAIAmag", 'Tmag', 'd'])
+
+    T_mags = np.asarray(catalog_data["Tmag"], dtype= float)
+    TICIDS = np.asarray(catalog_data["ID"], dtype = int)
+    
+    tmag_index = np.argsort(T_mags)
+    
+    sorted_tmags = T_mags[tmag_index]
+    sorted_ticids = TICIDS[tmag_index]
+    
+    hdr = fits.Header() # >> make the header
+    hdu = fits.PrimaryHDU(sorted_ticids[0:n], header=hdr)
+    hdu.writeto(path + filelabel + ".fits")
+    fits.append(path + filelabel + ".fits",sorted_tmags[0:n])
+    
+    return sorted_ticids, sorted_tmags
 
 #producing the feature vector list -----------------------------
 
