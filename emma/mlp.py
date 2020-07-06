@@ -1,22 +1,29 @@
 # get x_train, x_test, y_train, y_test, time for MLP on engineered features
 
+lib_dir = '../main/'
+
 import numpy as np
-import modellibrary as ml
 import talos
 import pdb
-# from sklearn.preprocessing import StandardScaler
+from astropy.io import fits
+import sys
+sys.path.insert(0, lib_dir)
+import model as ml
+
+sectors = [20]
+cams = [1, 2, 3, 4]
+ccds = [1, 2, 3, 4]
 
 preprocessing = False
 supervised = False
-hyperparameter_optimization = True
+hyperparameter_optimization = False
 
-output_dir = 'plots/plots053120/'
+output_dir = 'plots/plots053120/' # >> make dir if doesn't exist
 dat_dir = './Sector20Cam1CCD1/'
 # prefix = 'Sector20Cam1CCD1_2'
 prefix = 'Sector20Cam1CCD1'
 
 num_classes = 4
-
       
 if hyperparameter_optimization:
     hidden = []
@@ -51,6 +58,7 @@ else:
 
 if preprocessing:
     if supervised:
+        # !!
         features = np.loadtxt(dat_dir+'sector_20_cam1_ccd1_features.txt')
         intensity = np.loadtxt(dat_dir+'sector20_cam1_ccd1_processed_intensities.txt')
         time = np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0]
@@ -78,31 +86,11 @@ if preprocessing:
                           resize_arr=False, truncate=False)
             
     else:
+        
         features = np.loadtxt(dat_dir+'sector_20_cam1_ccd1_features.txt')
         intensity = np.loadtxt(dat_dir+'sector20_cam1_ccd1_processed_intensities.txt')
         time = np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0]
         ticid = np.loadtxt(dat_dir+'sector20_cam1_ccd1_targets.txt').astype('int')
-            
-        # features = []
-        # intensity = []
-        # time = []
-        # ticid = []
-        
-        # features.append(np.loadtxt(dat_dir+'sector_20_cam1_ccd1_features.txt'))
-        # features.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_features.txt'))
-        # intensity.append(np.loadtxt(dat_dir+'sector20_cam1_ccd1_processed_intensities.txt'))
-        # intensity.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_ints_processed.txt'))
-        
-        # time = np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0]
-        # # time.append(np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0])
-        # # time.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_interp_times.txt')[:,0])
-        
-        # ticid.append(np.loadtxt(dat_dir+'sector20_cam1_ccd1_targets.txt').astype('int'))
-        # ticid.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_targets.txt').astype('int'))
-        
-        # features = np.concatenate(features)
-        # intensity = np.concatenate(intensity)
-        # ticid = np.concatenate(ticid)
 
         x_train, x_test, y_train, y_test, flux_train, flux_test, ticid_train, ticid_test, time = \
             ml.split_data_features(intensity, features, time, ticid, False, p,
@@ -122,22 +110,60 @@ if preprocessing:
         np.savetxt(prefix+'y_test.csv', y_test)
 
 else:
-    x_train = np.loadtxt(prefix+'x_train.csv')
-    x_test = np.loadtxt(prefix+'x_test.csv')
-    y_train = np.loadtxt(prefix+'y_train.csv')
-    y_test = np.loadtxt(prefix+'y_test.csv')
-    ticid_train = np.loadtxt(prefix+'ticid_train.txt')
-    ticid_test = np.loadtxt(prefix+'ticid_test.txt')
-    flux_train = np.loadtxt(prefix+'flux_train.csv')
-    flux_test = np.loadtxt(prefix+'flux_test.csv')
-    time = np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[0]
+    # x_train = np.loadtxt(prefix+'x_train.csv')
+    # x_test = np.loadtxt(prefix+'x_test.csv')
+    # y_train = np.loadtxt(prefix+'y_train.csv')
+    # y_test = np.loadtxt(prefix+'y_test.csv')
+    # ticid_train = np.loadtxt(prefix+'ticid_train.txt')
+    # ticid_test = np.loadtxt(prefix+'ticid_test.txt')
+    # flux_train = np.loadtxt(prefix+'flux_train.csv')
+    # flux_test = np.loadtxt(prefix+'flux_test.csv')
+    # time = np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[0]    
     
-    # x_train = x_train - np.min(x_train, axis=0)
-    # x_train = x_train / np.max(x_train, axis=0)
-    # x_test = x_test - np.min(x_test, axis=0)
-    # x_test = x_test / np.max(x_test, axis=0)
-    # x_train = ml.standardize(x_train, ax=0)
-    # x_test = ml.standardize(x_test, ax=0)
+    # >> get features
+    with fits.open(dat_dir + 'Sector20_v0_features/' +\
+                   'Sector20_features_v0_all.fits') as hdul:
+        features = hdul[0].data
+        ticid_features = hdul[1].data
+    
+    # >> get light curves
+    fnames = []
+    fname_info = []
+    for sector in sectors:
+        for cam in cams:
+            for ccd in ccds:
+                s = 'Sector{sector}Cam{cam}CCD{ccd}/' + \
+                    'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+                fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
+                fname_info.append([sector, cam, ccd])
+    lengths = []
+    time_list = []
+    flux_list = []
+    ticid = np.empty((0, 1))
+    target_info = np.empty((0, 3))
+    for i in range(len(fnames)):
+        print('Loading ' + fnames[i] + '...')
+        with fits.open(dat_dir + fnames[i]) as hdul:
+            x = hdul[0].data
+            flux = hdul[1].data
+            ticid_list = hdul[2].data
+    
+        lengths.append(len(x))
+        time_list.append(x)
+        flux_list.append(flux)
+        ticid = np.append(ticid, ticid_list)
+        target_info = np.append(target_info,
+                                np.repeat([fname_info[i]], len(flux), axis=0),
+                                axis=0)    
+    flux = np.concatenate(flux, axis=0)
+    # x = time_list[0][:new_length]
+    time = time_list[0]
+
+    pdb.set_trace()
+    x_train, x_test, y_train, y_test, flux_train, flux_test, ticid_train, ticid_test, time = \
+        ml.split_data_features(flux, features, time, ticid, False, p,
+                               supervised=False,
+                               resize_arr=False, truncate=False)    
     
     if supervised:
         history, model = ml.mlp(x_train, y_train, x_test, y_test, p, 
@@ -163,11 +189,16 @@ else:
                                                x_test, p, resize=False,
                                                batch_norm=False)
     x_predict = model.predict(x_test)
+    # >> save to fits file
+    hdr = fits.Header()
+    hdu = fits.PrimaryHDU(x_predict, header=hdr)
+    hdu.writeto(output_dir + 'x_predict.fits')
     
     ml.model_summary_txt(output_dir, model)
     ml.param_summary(history, x_test, x_predict, p, output_dir, 0, '',
-                     supervised=supervised, y_test=y_test) 
+                     supervised=supervised, y_test=y_test)
     
+    pdb.set_trace()
     if supervised:
         ml.epoch_plots(history, p, output_dir+'epoch-', supervised=True)
         y_train_classes = np.argmax(y_train, axis = 1)
@@ -191,5 +222,32 @@ else:
         # bottleneck = ml.get_bottleneck(model, activations, p)
         # ml.plot_lof(time, flux_test, ticid_test, bottleneck, 20, output_dir)
 
-
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+        # features = []
+        # intensity = []
+        # time = []
+        # ticid = []
+        
+        # features.append(np.loadtxt(dat_dir+'sector_20_cam1_ccd1_features.txt'))
+        # features.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_features.txt'))
+        # intensity.append(np.loadtxt(dat_dir+'sector20_cam1_ccd1_processed_intensities.txt'))
+        # intensity.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_ints_processed.txt'))
+        
+        # time = np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0]
+        # # time.append(np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0])
+        # # time.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_interp_times.txt')[:,0])
+        
+        # ticid.append(np.loadtxt(dat_dir+'sector20_cam1_ccd1_targets.txt').astype('int'))
+        # ticid.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_targets.txt').astype('int'))
+        
+        # features = np.concatenate(features)
+        # intensity = np.concatenate(intensity)
+        # ticid = np.concatenate(ticid)
+        
+    # x_train = x_train - np.min(x_train, axis=0)
+    # x_train = x_train / np.max(x_train, axis=0)
+    # x_test = x_test - np.min(x_test, axis=0)
+    # x_test = x_test / np.max(x_test, axis=0)
+    # x_train = ml.standardize(x_train, ax=0)
+    # x_test = ml.standardize(x_test, ax=0)        
 

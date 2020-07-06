@@ -55,6 +55,7 @@ from scipy import stats
 from pylab import rcParams
 rcParams['figure.figsize'] = 10, 10
 rcParams["lines.markersize"] = 2
+# rcParams['lines.color'] = 'k'
 from scipy.signal import argrelextrema
 
 import sklearn
@@ -703,7 +704,8 @@ def diagnostic_plots(history, model, p, output_dir,
         '''
 
     # >> remove any plot settings
-    plt.rcParams.update(plt.rcParamsDefault) 
+    plt.rcParams.update(plt.rcParamsDefault)
+    plt.rcParams['lines.markersize'] = 2 
     
     # >> plot loss, accuracy, precision, recall vs. epochs
     if plot_epoch:
@@ -956,18 +958,17 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
                             target_info, title=True)
                 
             # >> plot input
-            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend,'.k',markersize=2)
+            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend, '.k')
             
             # >> plot output
-            axes[ngroup*3+1,i].plot(x,x_predict[inds[ind]]+addend,'.k',
-                                    markersize=2)
+            axes[ngroup*3+1,i].plot(x,x_predict[inds[ind]]+addend, '.k')
             # >> calculate residual
             residual = (x_test[inds[ind]] - x_predict[inds[ind]])
             if percentage:
                 residual = residual / x_test[inds[ind]]
                 
             # >> plot residual
-            axes[ngroup*3+2, i].plot(x, residual, '.k', markersize=2)
+            axes[ngroup*3+2, i].plot(x, residual, '.k')
             for j in range(3):
                 format_axes(axes[ngroup*3+j,i])
             
@@ -1037,7 +1038,7 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.,
         fig, axes = plt.subplots(figsize=(8,3))
         addend = 1. - np.median(x_test[inds[c]])
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
-                x_test[inds[c]] + addend, '.k', markersize=2)
+                x_test[inds[c]] + addend, '.k')
         if feature_vector:
             axes.set_xlabel('\u03C8')
         else:
@@ -1075,10 +1076,9 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.,
                 # >> make new time array and plot
                 x1 = np.linspace(np.min(x), np.max(x), np.shape(activation)[1])
                 if num_filters > 1:
-                    ax.plot(x1, activation[inds[c]][:,b]+addend,'.k',
-                            markersize=2)
+                    ax.plot(x1, activation[inds[c]][:,b]+addend, '.k')
                 else:
-                    ax.plot(x1, activation[inds[c]]+addend, '.k', markersize=2)
+                    ax.plot(x1, activation[inds[c]]+addend, '.k')
                 
             # >> make x-axis and y-axis labels
             if nrows == 1:
@@ -1120,13 +1120,11 @@ def input_bottleneck_output_plot(x, x_test, x_predict, bottleneck, model,
     for i in range(ncols):
         for ngroup in range(ngroups):
             ind = int(ngroup*ncols + i)
-            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend,'.k',markersize=2)
+            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend, '.k')
             axes[ngroup*3+1,i].plot(np.linspace(np.min(x),np.max(x),
                                               len(bottleneck[inds[ind]])),
-                                              bottleneck[inds[ind]], '.k',
-                                              markersize=2)
-            axes[ngroup*3+2,i].plot(x,x_predict[inds[ind]]+addend,'.k',
-                                    markersize=2)
+                                              bottleneck[inds[ind]], '.k')
+            axes[ngroup*3+2,i].plot(x,x_predict[inds[ind]]+addend, '.k')
             if not mock_data:
                 ticid_label(axes[ngroup*3,i],ticid_test[inds[ind]], title=True)
             for j in range(3):
@@ -1181,7 +1179,7 @@ def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
 
         # >> plot input
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
-                  x_test[inds[c]] + addend, '.k', markersize=2)
+                  x_test[inds[c]] + addend, '.k')
         axes.set_xlabel('time [BJD - 2457000]')
         axes.set_ylabel('relative flux')
         axes.set_ylim(ymin=ymin, ymax=ymax)
@@ -1197,7 +1195,7 @@ def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
                 length = p['latent_dim']
                 axes.cla()
                 axes.plot(np.linspace(np.min(x), np.max(x), length),
-                          activation[inds[c]] + addend, '.k', markersize=2)
+                          activation[inds[c]] + addend, '.k')
                 axes.set_xlabel('time [BJD - 2457000]')
                 axes.set_ylabel('relative flux')
                 # format_axes(axes, xlabel=True, ylabel=True)
@@ -1214,7 +1212,7 @@ def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
                     y = np.reshape(activation[inds[c]], (length))
                     axes.cla()
                     axes.plot(np.linspace(np.min(x), np.max(x), length),
-                              y + addend, '.k', markersize=2)
+                              y + addend, '.k')
                     axes.set_xlabel('time [BJD - 2457000]')
                     axes.set_ylabel('relative flux')
                     # format_axes(axes, xlabel=True, ylabel=True)
@@ -1246,12 +1244,11 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
         inds = np.nonzero(y_train_classes == i)[0]
         inds1 = np.nonzero(y_test_classes == i)[0]
         for j in range(min(7, len(inds))): # >> loop through rows
-            ax[j,i].plot(x, x_train[inds[j]], '.'+colors[i], markersize=2)
+            ax[j,i].plot(x, x_train[inds[j]], '.'+colors[i])
             if not mock_data:
                 ticid_label(ax[j,i], ticid_train[inds[j]])
         for j in range(min(7, len(inds1))):
-            ax1[j,i].plot(x, x_test[inds1[j]], '.'+colors[y_predict[inds1[j]]],
-                          markersize=2)
+            ax1[j,i].plot(x, x_test[inds1[j]], '.'+colors[y_predict[inds1[j]]])
             if not mock_data:
                 ticid_label(ax1[j,i], ticid_test[inds1[j]])    
             ax1[j,i].text(0.98, 0.02, 'True: '+str(i)+'\nPredicted: '+\
@@ -1351,7 +1348,7 @@ def plot_lof(time, intensity, targets, features, n, path,
                     ax[k].axvline(t, color='g', linestyle='--')
                     
                 # >> plot light curve
-                ax[k].plot(time, intensity[ind] + addend, '.k', markersize=2)
+                ax[k].plot(time, intensity[ind] + addend, '.k')
                 ax[k].text(0.98, 0.02, '%.3g'%lof[ind],
                            transform=ax[k].transAxes,
                            horizontalalignment='right',
@@ -1370,6 +1367,7 @@ def plot_lof(time, intensity, targets, features, n, path,
                 
             # >> save figures
             if i == 0:
+                
                 fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
                              y=0.9)
                 fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
@@ -1397,7 +1395,7 @@ def plot_lof(time, intensity, targets, features, n, path,
             ax[k].axvline(t, color='g', linestyle='--')
             
         # >> plot light curve
-        ax[k].plot(time, intensity[ind] + addend, '.k', markersize=2)
+        ax[k].plot(time, intensity[ind] + addend, '.k')
         ax[k].text(0.98, 0.02, '%.3g'%lof[ind], transform=ax[k].transAxes,
                    horizontalalignment='right', verticalalignment='bottom',
                    fontsize='xx-small')
@@ -1506,7 +1504,7 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
             else: ind = smallest_inds[k]
             
             # >> plot light curve
-            ax[k].plot(time, intensity[ind]+addend, '.k', markersize=2)
+            ax[k].plot(time, intensity[ind]+addend, '.k')
             if not feature_vector:
                 ax[k].plot(time, x_predict[ind]+addend, '-')
             ax[k].text(0.98, 0.02, 'mse: ' +str(err[ind]),
@@ -1571,7 +1569,7 @@ def plot_classification(time, intensity, targets, labels, path,
                            transform=ax[k].transAxes)            
             
             # >> plot light curve
-            ax[k].plot(time, intensity[ind] + addend, '.k', markersize=2)
+            ax[k].plot(time, intensity[ind] + addend, '.k')
             ax[k].text(0.98, 0.02, str(labels[ind]), transform=ax[k].transAxes,
                        horizontalalignment='right', verticalalignment='bottom',
                        fontsize='xx-small')
@@ -1623,7 +1621,7 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./'):
             color='k'
         
         ax.plot(principalComponents[inds][:,0], principalComponents[inds][:,1],
-                '.'+color, markersize=2)
+                '.'+color)
     fig.savefig(output_dir + 'PCA_plot.png')
 
 # == helper functions =========================================================
@@ -1656,8 +1654,9 @@ def ticid_label(ax, ticid, target_info, title=False):
         
         # >> make text
         if title:
-            ax.set_title(info1.format(Teff, '%.2g'%rad, '%.2g'%mass, 
-                                      '%.3g'%GAIAmag, '%.3g'%d, objType),
+            ax.set_title(info1.format(sector, cam, ccd, Teff, '%.2g'%rad,
+                                      '%.2g'%mass, '%.3g'%GAIAmag, '%.3g'%d,
+                                      objType),
                          fontsize='xx-small')
         else:
             ax.text(0.98, 0.98, info.format(Teff, '%.2g'%rad, '%.2g'%mass, 

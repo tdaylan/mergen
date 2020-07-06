@@ -7,22 +7,25 @@
 # 2. Download Table_of_momentum_dumps.csv, and change path in mom_dump
 # 3. Run this script in the command line with 
 #    $ python hyperparam_opt-tess-unsupervised.py
+#
+# TODO:
+# * make load data function (nan mask, etc.), also integrate into mlp.py
 # 
 # Emma Chickles
 # 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 dat_dir = '../../' # >> directory with input data (ending with /)
-output_dir = '../../plots/sector18_20/' # >> directory to save diagnostic plots
+output_dir = '../../plots/sector19_20/' # >> directory to save diagnostic plots
+                                     # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
                      # >> and plotting_functions.py
-
 # >> input data
-sectors = ['18', '20']
-cams = ['1', '2', '3', '4']
-ccds =  ['1', '2', '3', '4']
-train_test_ratio = 0.05 # >> fraction of training set size to testing set size
+sectors = [19, 20]
+cams = [1, 2, 3, 4]
+ccds =  [1, 2, 3, 4]
+train_test_ratio = 0.1 # >> fraction of training set size to testing set size
 
 # >> what this script will run:
 hyperparameter_optimization = False # >> run hyperparameter search
@@ -62,15 +65,14 @@ import plotting_functions as pl # >> for vsualizations
 
 # >> file names
 fnames = []
-target_info = []
+fname_info = []
 for sector in sectors:
     for cam in cams:
         for ccd in ccds:
             s = 'Sector{sector}Cam{cam}CCD{ccd}/' + \
                 'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
-            target_info.append([sector, cam, ccd])
-target_info = np.array(target_info)
+            fname_info.append([sector, cam, ccd])
 
 # >> hyperparameters
 if hyperparameter_optimization: # !! change epochs
@@ -93,7 +95,7 @@ else:
     p = {'kernel_size': 3,
           'latent_dim': 25,
           'strides': 1,
-          'epochs': 10,
+          'epochs': 20,
           'dropout': 0.2,
           'num_filters': 32,
           'num_conv_layers': 6,
@@ -115,25 +117,22 @@ if os.path.isdir(output_dir) == False: # >> check if dir already exists
 lengths = []
 time_list = []
 flux_list = []
-ticid_list = []
-rms_list = []
+ticid = np.empty((0, 1))
+target_info = np.empty((0, 3))
 for i in range(len(fnames)):
     print('Loading ' + fnames[i] + '...')
     with fits.open(dat_dir + fnames[i]) as hdul:
         x = hdul[0].data
         flux = hdul[1].data
-        ticid = hdul[2].data
+        ticid_list = hdul[2].data
 
     lengths.append(len(x))
     time_list.append(x)
     flux_list.append(flux)
-    ticid_list.append(ticid)
-    
-# >> shuffle flux array
-inds = np.arange(len(flux))
-np.random.shuffle(inds)
-flux = flux[inds]
-ticid_list = ticid[inds]
+    ticid = np.append(ticid, ticid_list)
+    target_info = np.append(target_info,
+                            np.repeat([fname_info[i]], len(flux), axis=0),
+                            axis=0)
 
 # !! truncate if using multiple sectors
 new_length = np.min([np.shape(i)[1] for i in flux_list])
@@ -144,10 +143,12 @@ for i in range(len(fnames)):
 flux = np.concatenate(flux, axis=0)
 x = time_list[0][:new_length]
 
-ticid = []
-for i in range(len(fnames)):
-    ticid.extend(ticid_list[i])
-ticid = np.array(ticid)
+# >> shuffle flux array
+inds = np.arange(len(flux))
+np.random.shuffle(inds)
+flux = flux[inds]
+ticid = ticid[inds]
+target_info = target_info[inds].astype('int')
 
 # >> moves target object to the testing set (and will be plotted in the
 # >> input-output-residual plot)
@@ -163,7 +164,7 @@ if len(targets) > 0:
 # >> apply nan mask
 print('Applying NaN mask...')
 flux, x = df.nan_mask(flux, x, output_dir=output_dir, ticid=ticid, 
-                      DEBUG=True, debug_ind=10)
+                      DEBUG=True, debug_ind=10, target_info=target_info)
 
 # -- partition data -----------------------------------------------------------
 # >> calculate rms and standardize

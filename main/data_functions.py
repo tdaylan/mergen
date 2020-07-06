@@ -44,6 +44,7 @@ from scipy import stats
 from pylab import rcParams
 rcParams['figure.figsize'] = 10, 10
 rcParams["lines.markersize"] = 2
+# rcParams['lines.color'] = 'k'
 from scipy.signal import argrelextrema
 
 import plotting_functions as pf
@@ -77,9 +78,9 @@ from astroquery.mast import Observations
 from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
 
-#import model as ml # >> autoencoder functions
+import pdb
 
-# import batman # >> I don't have this library yet [etc 063020]
+# import b    atman # >> I don't have this library yet [etc 063020]
 import numba
 
 
@@ -573,18 +574,21 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     # >> plot original light curve
     if DEBUG_INTERP:
         fig, ax = plt.subplots(5, 1, figsize=(8, 3*5))
-        ax[0].plot(time, i, '.k', markersize=2)
+        ax[0].plot(time, i, '.k')
         ax[0].set_title('original')
+        
+    # >> get spacing in time array
+    dt = np.nanmin( np.diff(time) )
     
     # -- sigma clip ----------------------------------------------------------
     sigclip = SigmaClip(sigma=num_sigma, maxiters=None, cenfunc='median')
     clipped_inds = np.nonzero(np.ma.getmask(sigclip(i, masked=True)))
     i[clipped_inds] = np.nan
     if DEBUG_INTERP:
-        ax[1].plot(time, i, '.k', markersize=2)
+        ax[1].plot(time, i, '.k')
         ax[1].set_title('clipped')
     
-    # >> find nan windows
+    # >> find all runs
     n = np.shape(i)[0]
     loc_run_start = np.empty(n, dtype=bool)
     loc_run_start[0] = True
@@ -593,14 +597,35 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
 
     # >> find nan window lengths
     run_lengths = np.diff(np.append(run_starts, n))
-    tdim = time[1]-time[0]
+    
+    # >> find nan windows
+    nan_inds = np.nonzero(np.isnan(i[run_starts]))
+    run_starts = run_starts[ nan_inds ]
+    run_lengths = run_lengths[ nan_inds ]
+    
+    
+    # >> remove nan windows at the beginning and end
+    if run_starts[0] == 0:
+        run_starts = np.delete(run_starts, 0)
+        run_lengths = np.delete(run_lengths, 0)
+    if run_starts[-1] + run_lengths[-1] == len(i):
+        run_starts = np.delete(run_starts, -1)
+        run_lengths = np.delete(run_lengths, -1)
+        
+    # >> remove orbit gap
+    orbit_gap_ind = np.argmax(run_lengths)
+    orbit_gap_start = run_starts[ orbit_gap_ind ]
+    orbit_gap_end = orbit_gap_start + run_lengths[ orbit_gap_ind ]    
+    run_starts = np.delete(run_starts, orbit_gap_ind)
+    run_lengths = np.delete(run_lengths, orbit_gap_ind)
     
     # -- interpolate small nan gaps ------------------------------------------
-    interp_gaps = np.nonzero((run_lengths * tdim <= interp_tol) * \
-                             np.isnan(i[run_starts]))
+    interp_gaps = np.nonzero(run_lengths * dt <= interp_tol)
+    # interp_gaps = np.nonzero((run_lengths * tdim <= interp_tol) * \
+    #                          np.isnan(i[run_starts]))    
     interp_inds = run_starts[interp_gaps]
     interp_lens = run_lengths[interp_gaps]
-
+    
     i_interp = np.copy(i)
     for a in range(np.shape(interp_inds)[0]):
         start_ind = interp_inds[a]
@@ -610,7 +635,7 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
                                                 i[np.nonzero(~np.isnan(i))])
     i = i_interp
     if DEBUG_INTERP:
-        ax[2].plot(time, i, '.k', markersize=2)
+        ax[2].plot(time, i, '.k')
         ax[2].set_title('interpolated')
     
     # -- spline interpolate large nan gaps -----------------------------------
@@ -619,45 +644,47 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     ius = interpolate.InterpolatedUnivariateSpline(time[num_inds], i[num_inds])
     
     # >> new time array (take out orbit gap)
-    orbit_gap_start = num_inds[ np.argmax(np.diff(time[num_inds])) ]
-    orbit_gap_end = num_inds[ orbit_gap_start+1 ]
-    orbit_gap_len = orbit_gap_end - orbit_gap_start
-    t_spl = np.copy(time)
-    t_spl = np.delete(t_spl, range(num_inds[-1], len(t_spl)))
-    t_spl = np.delete(t_spl, range(orbit_gap_start, orbit_gap_end))
-    t_spl = np.delete(t_spl, range(num_inds[0]))
+    # t_spl = np.copy(time)
+    # t_spl = np.delete(t_spl, range(num_inds[-1], len(t_spl)))
+    # t_spl = np.delete(t_spl, range(orbit_gap_start, orbit_gap_end))
+    # t_spl = np.delete(t_spl, range(num_inds[0]))
+    t_spl = np.arange(np.min(time[num_inds]), np.max(time[num_inds]), dt)
+    orbit_gap_inds = np.nonzero( (t_spl > time[orbit_gap_start]) * \
+                                 (t_spl < time[orbit_gap_end]) )
+    t_spl = np.delete(t_spl, orbit_gap_inds)
     
     # >> spline fit for new time array
     i_spl = ius(t_spl)
     
     if DEBUG_INTERP:
-        ax[3].plot(t_spl, i_spl, '.')
+        ax[3].plot(t_spl, i_spl, '.k')
         ax[3].set_title('spline') 
     
-    # >> find nan gaps to spline interpolate over
-    interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
-                              np.isnan(i[run_starts]) * \
-                              (((run_starts > orbit_gap_start) * \
-                                (run_starts < orbit_gap_end)) == False))       
+    # >> spline interpolate over remaining nan gaps
+    interp_gaps = np.nonzero( ~np.isin(run_starts, interp_inds) )
     interp_inds = run_starts[interp_gaps]
-    interp_lens = run_lengths[interp_gaps]  
-    
+    interp_lens = run_lengths[interp_gaps]
+        
     # >> spline interpolate nan gaps
     i_interp = np.copy(i)
     for a in range(np.shape(interp_inds)[0]):
         start_ind = interp_inds[a]
-        end_ind   = interp_inds[a] + interp_lens[a] - 1
+        # end_ind   = interp_inds[a] + interp_lens[a] - 1
+        end_ind = interp_inds[a] + interp_lens[a]
 
         if not np.isnan(time[start_ind]):
             start_ind_spl = np.argmin(np.abs(t_spl - time[start_ind]))
             end_ind_spl = start_ind_spl + (end_ind-start_ind)
         else:
-            end_ind_spl = np.argmin(np.abs(t_spl - time[end_ind+1]))
-            start_ind_spl = end_ind_spl - (end_ind-start_ind)
+            start_time = time[start_ind-1] + dt
+            start_ind_spl = np.argmin(np.abs(t_spl - start_time))
+            end_ind_spl = start_ind_spl + (end_ind-start_ind)
+            # end_ind_spl = np.argmin(np.abs(t_spl - time[end_ind+1]))
+            # start_ind_spl = end_ind_spl - (end_ind-start_ind)
         i_interp[start_ind:end_ind] = i_spl[start_ind_spl:end_ind_spl]
         
     if DEBUG_INTERP:
-        ax[4].plot(time, i_interp, '.k', markersize=2)
+        ax[4].plot(time, i_interp, '.k')
         ax[4].set_title('spline interpolate')
         fig.tight_layout()
         fig.savefig(output_dir + prefix + 'interpolate_debug.png',
@@ -667,7 +694,8 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     return i_interp
     
 def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
-             ticid=False, output_dir='./', prefix='', tol1=0.05, tol2=0.1):
+             ticid=False, target_info=False,
+             output_dir='./', prefix='', tol1=0.05, tol2=0.1):
     '''Apply nan mask to flux and time array.
     Returns masked, homogenous flux and time array.
     If there are only a few (less than tol1 % light curves) light curves that
@@ -675,14 +703,14 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
     remove those light curves.'''
 
     mask = np.nonzero(np.prod(~np.isnan(flux), axis = 0) == False)
-    
     # >> plot histogram of number of data points thrown out
-    num_masked = []
-    num_nan = []
-    for lc in flux:
-        num_inds = np.nonzero( ~np.isnan(lc) )
-        num_masked.append( len( np.intersect1d(num_inds, mask) ) )
-        num_nan.append( len(num_inds) )
+    num_nan = np.sum( np.isnan(flux), axis=1 )
+
+    def count_masked(x):
+        '''Counts number of masked data points for one light curve.'''
+        return np.count_nonzero( ~np.isin(mask, np.nonzero(x)) )
+    num_masked = np.apply_along_axis(count_masked, axis=1, arr=np.isnan(flux))
+    
     plt.figure()
     plt.hist(num_masked, bins=50)
     plt.ylabel('number of light curves')
@@ -693,7 +721,7 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
     # >> debugging plots
     if DEBUG:
         fig, ax = plt.subplots()
-        ax.plot(time, flux[debug_ind], '.k', markersize=2)
+        ax.plot(time, flux[debug_ind], '.k')
         ax.set_title('removed orbit gap')
         fig.tight_layout()
         fig.savefig(output_dir + prefix + 'nanmask_debug.png',
@@ -709,8 +737,8 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
                     ind = sorted_inds[i]
                 else:
                     ind = sorted_inds[-i-1]
-                ax[i].plot(time, flux[ind], '.k', markersize=2)
-                pf.ticid_label(ax[i], ticid[ind], title=True)
+                ax[i].plot(time, flux[ind], '.k')
+                pf.ticid_label(ax[i], ticid[ind], target_info[ind], title=True)
                 num_nans = np.count_nonzero(np.isnan(flux[ind]))
                 ax[i].text(0.98, 0.98, 'Num NaNs: '+str(num_nans)+\
                            '\nNum masked: '+str(num_masked[ind]),
@@ -718,9 +746,11 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
                            horizontalalignment='right',
                            verticalalignment='top', fontsize='xx-small')
             if k == 0:
+                fig.tight_layout()
                 fig.savefig(output_dir + prefix + 'nanmask_top.png',
                             bbox_inches='tight')
             else:
+                fig.tight_layout()
                 fig.savefig(output_dir + prefix + 'nanmask_low.png',
                             bbox_inches='tight')
        
@@ -960,3 +990,14 @@ def feature_gen_from_lc_fits(folderpath, sector, feature_version):
     fits.append(folderpath + "Sector"+str(sector) + "_features_v" + str(feature_version) +"_all.fits", ticids_all)
     
     return feats_all, ticids_all
+
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+    
+    # orbit_gap_start = num_inds[ np.argmax(np.diff(time[num_inds])) ]
+    # orbit_gap_end = num_inds[ orbit_gap_start+1 ]   
+    # orbit_gap_len = orbit_gap_end - orbit_gap_start
+    # interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
+    #                           np.isnan(i[run_starts]) * \
+    #                           (((run_starts > orbit_gap_start) * \
+    #                             (run_starts < orbit_gap_end)) == False))
+
