@@ -1420,6 +1420,7 @@ def plot_lof(time, intensity, targets, features, n, path,
             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
       
     # >> make histogram of LOF values
+<<<<<<< HEAD
     print('Make LOF histogram')
     if histogram:
         plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
@@ -1428,6 +1429,11 @@ def plot_lof(time, intensity, targets, features, n, path,
         plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
                        targets, path+'lof-'+prefix+'histogram.png',
                        insets=False)
+=======
+    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram-insets.png', insets=True)
+    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram.png', insets=False)
+    
+>>>>>>> a12cac99769399d435932ca9411afb970d46dccb
     
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
@@ -1777,6 +1783,7 @@ def ticid_label(ax, ticid, target_info, title=False):
         ax.text(0.98, 0.98, "there was a connection error",
                       transform=ax.transAxes, horizontalalignment='right',
                       verticalalignment='top', fontsize='xx-small')
+        
 def get_features(ticid):
     '''Query catalog data https://arxiv.org/pdf/1905.10694.pdf'''
     from astroquery.mast import Catalogs

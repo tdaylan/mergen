@@ -80,7 +80,7 @@ from astroquery.exceptions import RemoteServiceError
 
 import pdb
 
-# import b    atman # >> I don't have this library yet [etc 063020]
+# import batman # >> I don't have this library yet [etc 063020]
 import numba
 
 
@@ -311,7 +311,7 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
             confirmation = lc_from_target_list_fits(yourpath, target_list,
                                                     fname_time_intensities_raw,
                                                     fname_targets, fname_notes,
-                                                    sector, path=path)
+                                                     path=path)
         print(confirmation)
         #print("failed to get", len(failed_to_get), "targets")
         targets = np.loadtxt(fname_targets, skiprows=1)
@@ -381,7 +381,7 @@ def lc_by_camera_ccd(sectorfile, camera, ccd):
 
 
 def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
-                             fname_targets, fname_notes, sector, path='./'):
+                             fname_targets, fname_notes, path='./'):
     """ runs getting the files and data for all targets on the list
     then appends the time & intensity arrays and the TIC number into text files
     that can later be accessed
@@ -394,7 +394,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
         
         if n == 0: #for the first target only do you need to get the time index
             target = targetList[n][0] #get that target number
-            time1, i1, tic = get_lc_file_and_data(yourpath, target, sector) #grab that data
+            time1, i1, tic = get_lc_file_and_data(yourpath, target) #grab that data
             
             if type(i1) == np.ndarray: #if the data IS data
                 # i_interp = interpolate_lc(i1, time1)
@@ -411,7 +411,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
                     file_object.write(str(int(target)))
         else: #only saving the light curve into the fits file because it's all you need
             target = targetList[n][0] #get that target number
-            time1, i1, tic = get_lc_file_and_data(yourpath, target, sector)
+            time1, i1, tic = get_lc_file_and_data(yourpath, target)
             if type(i1) == np.ndarray:
                 # i_interp = interpolate_lc(i1, time1)
                 # i_interpolated.append(i_interp)
@@ -440,6 +440,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     hdu.writeto(fname_time_intensities_raw)
     fits.append(fname_time_intensities_raw, intensity_interp)
     fits.append(fname_time_intensities_raw, ticids)
+<<<<<<< HEAD
     
     # >> actually i'm going to save the raw intensities just in case
     fits.append(fname_time_intensities_raw, intensity)
@@ -449,6 +450,9 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     #     # fits.append(fname_time_intensities_raw, intensity)
     #     fits.append(fname_time_intensities_raw, i_interp)
     #     fits.append(fname_time_intensities_raw, ticids)
+=======
+
+>>>>>>> a12cac99769399d435932ca9411afb970d46dccb
     confirmation = "lc_from_target_list has finished running"
     return confirmation
 
@@ -464,7 +468,6 @@ def get_lc_file_and_data(yourpath, target, sector):
         obs_table = Observations.query_criteria(obs_collection='TESS',
                                         dataproduct_type='timeseries',
                                         target_name=str(int(target)),
-                                        sequence_number=sector,
                                         objectname=targ)
         data_products_by_obs = Observations.get_product_list(obs_table[0:4])
             
@@ -857,6 +860,29 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
         return flux, time, flux_err
     else:
         return flux, time
+    
+    
+def brightness_tic_list(path, criteria, n, filelabel, highest=True):
+    """ creates a fits file list of the top ten thousand TICs that fit the criteria
+    if you're looking for magnitudes, you'll need to set highest = False because
+    inverse system (rip)"""
+    catalog_data = Catalogs.query_criteria(catalog="Tic", Tmag=criteria, objType="STAR")
+    #print(catalog_data["ID", "GAIAmag", 'Tmag', 'd'])
+
+    T_mags = np.asarray(catalog_data["Tmag"], dtype= float)
+    TICIDS = np.asarray(catalog_data["ID"], dtype = int)
+    
+    tmag_index = np.argsort(T_mags)
+    
+    sorted_tmags = T_mags[tmag_index]
+    sorted_ticids = TICIDS[tmag_index]
+    
+    hdr = fits.Header() # >> make the header
+    hdu = fits.PrimaryHDU(sorted_ticids[0:n], header=hdr)
+    hdu.writeto(path + filelabel + ".fits")
+    fits.append(path + filelabel + ".fits",sorted_tmags[0:n])
+    
+    return sorted_ticids, sorted_tmags
 
 #producing the feature vector list -----------------------------
 
