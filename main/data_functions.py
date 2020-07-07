@@ -89,20 +89,20 @@ def test_data():
     print("Data functions loaded in.")
     
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
-                             ccds=[1,2,3,4], shuffle=False, DEBUG=False,
+                             ccds=[1,2,3,4], DEBUG=False,
                              output_dir='./', debug_ind=10):
-    '''Pulls light curves from fits files, applies nan mask
+    '''Pulls light curves from fits files, and applies nan mask.
     
     Parameters:
         * data_dir : folder containing fits files for each group
-        * sector : sector, given as int
+        * sector : sector, given as int, or as a list
         * cams : list of cameras
         * ccds : list of CCDs
-        * shuffle : if True, shuffles array (useful for machine learning)
         * DEBUG : makes nan_mask debugging plots. If True, the following are
                   required:
             * output_dir
             * debug_ind
+        * nan_mask : if True
             
     
     Returns:
@@ -145,14 +145,6 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
 
     # >> concatenate flux array         
     flux = np.concatenate(flux, axis=0)
-    
-    # >> shuffle array
-    if shuffle:
-        inds = np.arange(len(flux))
-        np.random.shuffle(inds)
-        flux = flux[inds]
-        ticid = ticid[inds]
-        target_info = target_info[inds].astype('int')
         
     # >> apply nan mask
     print('Applying nan mask')
@@ -440,7 +432,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     hdu.writeto(fname_time_intensities_raw)
     fits.append(fname_time_intensities_raw, intensity_interp)
     fits.append(fname_time_intensities_raw, ticids)
-<<<<<<< HEAD
+# <<<<<<< HEAD
     
     # >> actually i'm going to save the raw intensities just in case
     fits.append(fname_time_intensities_raw, intensity)
@@ -450,9 +442,9 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     #     # fits.append(fname_time_intensities_raw, intensity)
     #     fits.append(fname_time_intensities_raw, i_interp)
     #     fits.append(fname_time_intensities_raw, ticids)
-=======
+# =======
 
->>>>>>> a12cac99769399d435932ca9411afb970d46dccb
+# >>>>>>> a12cac99769399d435932ca9411afb970d46dccb
     confirmation = "lc_from_target_list has finished running"
     return confirmation
 

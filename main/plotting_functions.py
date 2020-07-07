@@ -1420,7 +1420,7 @@ def plot_lof(time, intensity, targets, features, n, path,
             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
       
     # >> make histogram of LOF values
-<<<<<<< HEAD
+# <<<<<<< HEAD
     print('Make LOF histogram')
     if histogram:
         plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
@@ -1429,11 +1429,11 @@ def plot_lof(time, intensity, targets, features, n, path,
         plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
                        targets, path+'lof-'+prefix+'histogram.png',
                        insets=False)
-=======
+# =======
     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram-insets.png', insets=True)
     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram.png', insets=False)
     
->>>>>>> a12cac99769399d435932ca9411afb970d46dccb
+# >>>>>>> a12cac99769399d435932ca9411afb970d46dccb
     
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
