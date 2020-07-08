@@ -9,6 +9,8 @@ from astropy.io import fits
 import sys
 sys.path.insert(0, lib_dir)
 import model as ml
+import plotting_functions as pl
+import data_functions as df
 
 sectors = [20]
 cams = [1, 2, 3, 4]
@@ -18,8 +20,8 @@ preprocessing = False
 supervised = False
 hyperparameter_optimization = False
 
-output_dir = 'plots/plots053120/' # >> make dir if doesn't exist
-dat_dir = './Sector20Cam1CCD1/'
+output_dir = '../../plots/sector20_MLP_standardization/' # >> make dir if doesn't exist
+dat_dir = '../../'
 # prefix = 'Sector20Cam1CCD1_2'
 prefix = 'Sector20Cam1CCD1'
 
@@ -155,15 +157,21 @@ else:
         target_info = np.append(target_info,
                                 np.repeat([fname_info[i]], len(flux), axis=0),
                                 axis=0)    
-    flux = np.concatenate(flux, axis=0)
+    flux = np.concatenate(flux_list, axis=0)
     # x = time_list[0][:new_length]
     time = time_list[0]
 
-    pdb.set_trace()
     x_train, x_test, y_train, y_test, flux_train, flux_test, ticid_train, ticid_test, time = \
         ml.split_data_features(flux, features, time, ticid, False, p,
                                supervised=False,
-                               resize_arr=False, truncate=False)    
+                               resize_arr=False, truncate=False) 
+    target_info_train = target_info[:np.shape(x_train)[0]]
+    target_info_test = target_info[-1 * np.shape(x_test)[0]:]   
+    
+    # !! stanadrdize
+    x_train = df.standardize(x_train, ax=-1)
+    x_test = df.standardize(x_test, ax=-1)
+    
     
     if supervised:
         history, model = ml.mlp(x_train, y_train, x_test, y_test, p, 
@@ -194,11 +202,21 @@ else:
     hdu = fits.PrimaryHDU(x_predict, header=hdr)
     hdu.writeto(output_dir + 'x_predict.fits')
     
+    # >> save bottleneck_test, bottleneck_train
+    bottleneck = ml.get_bottleneck(model, x_test)    
+    hdr = fits.Header()
+    hdu = fits.PrimaryHDU(bottleneck, header=hdr)
+    hdu.writeto(output_dir + 'bottleneck_test.fits')       
+    
+    bottleneck_train = ml.get_bottleneck(model, x_train)
+    hdr = fits.Header()
+    hdu = fits.PrimaryHDU(bottleneck_train, header=hdr)
+    hdu.writeto(output_dir + 'bottleneck_train.fits')    
+    
     ml.model_summary_txt(output_dir, model)
     ml.param_summary(history, x_test, x_predict, p, output_dir, 0, '',
                      supervised=supervised, y_test=y_test)
     
-    pdb.set_trace()
     if supervised:
         ml.epoch_plots(history, p, output_dir+'epoch-', supervised=True)
         y_train_classes = np.argmax(y_train, axis = 1)
@@ -210,14 +228,114 @@ else:
         
     else:
         x = np.arange(np.shape(x_test)[1])
-        ml.diagnostic_plots(history, model, p, output_dir, '', x, x_train,
-                            x_test, x_predict, ticid_train=ticid_train,
-                            ticid_test=ticid_test, addend=0.,
-                            flux_test=flux_test, flux_train=flux_train,
-                            time=time, feature_vector=True,
-                            plot_latent_test=True, plot_latent_train=True,
-                            plot_intermed_act=True, plot_lof_test=True,
-                            plot_lof_train=True, plot_kernel=True)
+        # ml.diagnostic_plots(history, model, p, output_dir, '', x, x_train,
+        #                     x_test, x_predict, ticid_train=ticid_train,
+        #                     ticid_test=ticid_test, addend=0.,
+        #                     flux_test=flux_test, flux_train=flux_train,
+        #                     time=time, feature_vector=True,
+        #                     plot_latent_test=True, plot_latent_train=True,
+        #                     plot_intermed_act=True, plot_lof_test=True,
+        #                     plot_lof_train=True, plot_kernel=True)
+        
+        pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
+                            x_test, x_predict, feature_vector=True,
+                            flux_train=flux_train, flux_test=flux_test,
+                            time=time,
+                            mock_data=False, n_tot=40,
+                            ticid_train=ticid_train, ticid_test=ticid_test,
+                            target_info_test=target_info_test,
+                            target_info_train=target_info_train,
+                            plot_epoch = True,
+                            plot_in_out = False,
+                            plot_in_bottle_out=False,
+                            plot_latent_test = True,
+                            plot_latent_train = True,
+                            plot_kernel=False,
+                            plot_intermed_act=False,
+                            plot_clustering=False,
+                            make_movie = False,
+                            plot_lof_test=True,
+                            plot_lof_train=True,
+                            plot_lof_all=True,
+                            plot_reconstruction_error_test=False,
+                            plot_reconstruction_error_all=False,
+                            load_bottleneck=False)   
+        pl.latent_space_plot(x_test, {'latent_dim': 16},
+                             output_dir+'latent_space-original_features.png')
+        
+    from sklearn.cluster import DBSCAN
+    with fits.open(output_dir + 'bottleneck_test.fits') as hdul:
+        bottleneck = hdul[0].data
+    # !! already standardized
+    # bottleneck = ml.standardize(bottleneck, ax=0)
+    eps = list(np.arange(0.1,5.0,0.1))
+    min_samples = [10]# [2, 5,10,15]
+    metric = ['euclidean'] # ['euclidean', 'minkowski']
+    algorithm = ['auto', 'ball_tree', 'kd_tree', 'brute']
+    leaf_size = [30, 40, 50]
+    p = [1,2,3,4]
+    classes = []
+    num_classes = []
+    counts = []
+    num_noisy= []
+    parameter_sets=[]
+    for i in range(len(eps)):
+        for j in range(len(min_samples)):
+            for k in range(len(metric)):
+                for l in range(len(algorithm)):
+                    for m in range(len(leaf_size)):
+                        for n in range(len(p)):
+                            db = DBSCAN(eps=eps[i],
+                                        min_samples=min_samples[j],
+                                        metric=metric[k],
+                                        algorithm=algorithm[l],
+                                        leaf_size=leaf_size[m],
+                                        p=p[n]).fit(bottleneck)
+                            print(db.labels_)
+                            print(np.unique(db.labels_, return_counts=True))
+                            classes_1, counts_1 = \
+                                np.unique(db.labels_, return_counts=True)
+                            classes.append(classes_1)
+                            num_classes.append(len(classes_1))
+                            counts.append(counts_1)
+                            num_noisy.append(counts[0])
+                            parameter_sets.append([eps[i], min_samples[j],
+                                                   metric[k],
+                                                   algorithm[l],
+                                                   leaf_size[m],
+                                                   p[n]])
+                            with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
+                                f.write('{} {} {} {} {} {}\n'.format(eps[i],
+                                                                   min_samples[j],
+                                                                   metric[k],
+                                                                   algorithm[l],
+                                                                   leaf_size[m],
+                                                                   p[n]))
+                                f.write(str(np.unique(db.labels_, return_counts=True)))
+                                f.write('\n\n')
+                                
+    mom_dump = '../../Table_of_momentum_dumps.csv'
+    # >> get best parameter set (want to maximize)
+    for i in np.unique(num_classes):
+        # print('num classes: ' + str(max(num_classes)))
+        print('num classes: ' + str(i))
+        inds = np.nonzero(np.array(num_classes)==i)
+        best = np.argmin(np.array(num_noisy)[inds])
+        best = inds[0][best]
+        print('best_parameter_set: ' + str(parameter_sets[best]))
+        print(str(counts[best]))
+        p=parameter_sets[best]
+        classes = pl.features_plotting_2D(bottleneck, bottleneck,
+                                          output_dir, 'dbscan',
+                                          time, flux_test, ticid_test,
+                                          target_info=target_info_test,
+                                          feature_engineering=False,
+                                          eps=p[0], min_samples=p[1],
+                                          metric=p[2], algorithm=p[3],
+                                          leaf_size=p[4], p=p[5],
+                                          folder_suffix='_'+str(i)+\
+                                              'classes',
+                                          momentum_dump_csv=mom_dump)
         # activations = ml.get_activations(model, x_test)
         # bottleneck = ml.get_bottleneck(model, activations, p)
         # ml.plot_lof(time, flux_test, ticid_test, bottleneck, 20, output_dir)

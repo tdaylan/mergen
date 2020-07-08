@@ -16,13 +16,13 @@
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 dat_dir = '../../' # >> directory with input data (ending with /)
-output_dir = '../../plots/sector19_20/' # >> directory to save diagnostic plots
+output_dir = '../../plots/sector20/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
                      # >> and plotting_functions.py
 # >> input data
-sectors = [19, 20]
+sectors = [20]
 cams = [1, 2, 3, 4]
 ccds =  [1, 2, 3, 4]
 train_test_ratio = 0.1 # >> fraction of training set size to testing set size
@@ -40,7 +40,7 @@ DBSCAN_parameter_search=True # >> runs grid search for DBSCAN
 #    * median_normalization : divides by median
 #    * minmax_normalization : sets range of values from 0. to 1.
 #    * none : no normalization
-norm_type = 'standardization'
+norm_type = 'median_normalization'
 
 input_rms=True # >> concatenate RMS to learned features
 input_features=False # >> this option cannot be used yet
@@ -93,19 +93,19 @@ if hyperparameter_optimization: # !! change epochs
                       'glorot_uniform']}
 else:
     p = {'kernel_size': 3,
-          'latent_dim': 25,
+          'latent_dim': 17,
           'strides': 1,
-          'epochs': 20,
-          'dropout': 0.2,
+          'epochs': 7,
+          'dropout': 0.3,
           'num_filters': 32,
-          'num_conv_layers': 6,
+          'num_conv_layers': 2,
           'batch_size': 128,
           'activation': 'elu',
-          'optimizer': 'adam',
+          'optimizer': 'adadelta',
           'last_activation': 'linear',
           'losses': 'mean_squared_error',
-          'lr': 0.01,
-          'initializer': 'random_normal'}
+          'lr': 0.001,
+          'initializer': 'glorot_normal'}
 
 # -- create output directory --------------------------------------------------
     
@@ -159,6 +159,9 @@ if len(targets) > 0:
         flux = np.delete(flux, target_ind, axis=0)
         ticid = np.insert(ticid, -1, ticid[target_ind])
         ticid = np.delete(ticid, target_ind)
+        target_info = np.insert(target_info, -1, target_info[target_ind],
+                                axis=0)
+        target_info = np.delete(target_info, target_ind, axis=0)        
     
 # -- nan mask -----------------------------------------------------------------
 # >> apply nan mask
@@ -197,6 +200,8 @@ x_train, x_test, y_train, y_test, x = \
 
 ticid_train = ticid[:np.shape(x_train)[0]]
 ticid_test = ticid[-1 * np.shape(x_test)[0]:]
+target_info_train = target_info[:np.shape(x_train)[0]]
+target_info_test = target_info[-1 * np.shape(x_test)[0]:]
 
 if input_rms:
     rms_train = rms[:np.shape(x_train)[0]]
@@ -267,12 +272,13 @@ if diag_plots:
         
         pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
                             x_test, x_predict, mock_data=False,
-                            target_info=target_info,
+                            target_info_test=target_info_test,
+                            target_info_train=target_info_train,
                             ticid_train=ticid_train, ticid_test=ticid_test,
                             rms_test=rms_test, rms_train=rms_train,
-                            input_features=input_features,
+                            input_features=input_features, n_tot=40,
                             input_rms=input_rms, percentage=False,
-                            plot_epoch = True,
+                            plot_epoch = False,
                             plot_in_out = True,
                             plot_in_bottle_out=False,
                             plot_latent_test = True,
@@ -290,6 +296,8 @@ if diag_plots:
     else: 
         pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
                             x_test, x_predict, mock_data=False,
+                            target_info_test=target_info_test,
+                            target_info_train=target_info_train,
                             ticid_train=ticid_train,
                             ticid_test=ticid_test, percentage=False,
                             input_features=input_features,
@@ -300,7 +308,7 @@ if diag_plots:
                             plot_in_bottle_out=False,
                             plot_latent_test = True,
                             plot_latent_train = True,
-                            plot_kernel=False,
+                            plot_kernel=True,
                             plot_intermed_act=False,
                             plot_clustering=False,
                             make_movie = False,
@@ -310,7 +318,6 @@ if diag_plots:
                             plot_reconstruction_error_test=False,
                             plot_reconstruction_error_all=False)                            
 
-
 # >> Feature plots
 if classification:
     
@@ -318,11 +325,11 @@ if classification:
         from sklearn.cluster import DBSCAN
         with fits.open(output_dir + 'bottleneck_test.fits') as hdul:
             bottleneck = hdul[0].data
-        # !!
+        # !! already standardized
         # bottleneck = ml.standardize(bottleneck, ax=0)
         eps = list(np.arange(0.1,5.0,0.1))
-        min_samples = [2, 5,10,15]
-        metric = ['euclidean', 'minkowski']
+        min_samples = [10]# [2, 5,10,15]
+        metric = ['euclidean'] # ['euclidean', 'minkowski']
         algorithm = ['auto', 'ball_tree', 'kd_tree', 'brute']
         leaf_size = [30, 40, 50]
         p = [1,2,3,4]
@@ -366,7 +373,8 @@ if classification:
                                     f.write(str(np.unique(db.labels_, return_counts=True)))
                                     f.write('\n\n')
         # >> get best parameter set (want to maximize)
-        for i in range(2, max(num_classes)+1):
+        # for i in range(2, max(num_classes)+1):
+        for i in np.unique(num_classes):
             # print('num classes: ' + str(max(num_classes)))
             print('num classes: ' + str(i))
             inds = np.nonzero(np.array(num_classes)==i)
@@ -378,6 +386,7 @@ if classification:
             classes = pl.features_plotting_2D(bottleneck, bottleneck,
                                               output_dir, 'dbscan',
                                               x, x_test, ticid_test,
+                                              target_info=target_info_test,
                                               feature_engineering=False,
                                               eps=p[0], min_samples=p[1],
                                               metric=p[2], algorithm=p[3],
@@ -389,6 +398,7 @@ if classification:
     else:
         classes = pl.features_plotting_2D(bottleneck, bottleneck, output_dir,
                                           'dbscan', x, x_test, ticid_test,
+                                          target_info=target_info_test,
                                           feature_engineering=False, eps=2.9,
                                           min_samples=2, metric='minkowski',
                                           algorithm='auto', leaf_size=30, p=4,
