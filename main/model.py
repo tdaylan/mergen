@@ -28,6 +28,17 @@ import numpy as np
 import plotting_functions as pl
 import data_functions as df
 
+# def autoencoder_preprocessing(dat_dir, sectors):
+#     '''Preprocesses output from df.load_data_from_metafiles
+#     Shuffles array.'''
+#     # >> shuffle array
+#     inds = np.arange(len(flux))
+#     np.random.shuffle(inds)
+#     flux = flux[inds]
+#     ticid = ticid[inds]
+#     target_info = target_info[inds].astype('int')
+#     pass
+
 def run_model(x_train, y_train, x_test, y_test, p, supervised=False,
               mock_data=False):
     '''Runs autoencoder or CNN.'''
@@ -195,10 +206,10 @@ def simple_autoencoder(x_train, y_train, x_test, y_test, params, resize = False,
         input_img = Input(shape = (input_dim,))
         x = input_img
     for i in range(len(params['hidden_units'])):
-        if batch_norm: x = BatchNormalization()(x)
         x = Dense(params['hidden_units'][i], activation=params['activation'],
                   kernel_initializer=params['initializer'])(x)
-    if batch_norm: x = BatchNormalization()(x)
+        if batch_norm: x = BatchNormalization()(x)
+        
     x = Dense(params['latent_dim'], activation=params['activation'],
               kernel_initializer=params['initializer'])(x)
     for i in np.arange(len(params['hidden_units'])-1, -1, -1):

@@ -20,7 +20,7 @@ preprocessing = False
 supervised = False
 hyperparameter_optimization = False
 
-output_dir = '../../plots/sector20_MLP_standardization/' # >> make dir if doesn't exist
+output_dir = '../../plots/DAE-batchnorm/' # >> make dir if doesn't exist
 dat_dir = '../../'
 # prefix = 'Sector20Cam1CCD1_2'
 prefix = 'Sector20Cam1CCD1'
@@ -43,8 +43,8 @@ if hyperparameter_optimization:
                     hidden.append(list(np.arange(j, k-1, -step)))
                     
             
-    p = {'hidden_units': hidden, 'latent_dim': [4,6,8,10],
-          'activation': ['elu'], 'last_activation': ['linear', 'elu'],
+    p = {'hidden_units': hidden, 'latent_dim': [4,6,8,10,12],
+          'activation': ['relu','elu'], 'last_activation': ['linear'],
           'optimizer': ['adam', 'adadelta'],
           'lr':list(np.arange(0.001, 0.1, 0.01)),
           'epochs': [200], 'losses': ['mean_squared_error'],
@@ -53,10 +53,14 @@ if hyperparameter_optimization:
                                                'glorot_normal',
                                                'glorot_uniform', 'zeros']}
 else:
-    p = {'hidden_units': [14,12], 'latent_dim': 8,
-          'activation': 'elu', 'last_activation': 'elu', 'optimizer': 'adam',
-          'lr':0.001, 'epochs': 500, 'losses': 'mean_squared_error',
-          'batch_size': 128, 'initializer': 'random_normal'}
+    # p = {'hidden_units': [14,12], 'latent_dim': 8,
+    #       'activation': 'elu', 'last_activation': 'elu', 'optimizer': 'adam',
+    #       'lr':0.001, 'epochs': 500, 'losses': 'mean_squared_error',
+    #       'batch_size': 128, 'initializer': 'random_normal'}
+    p = {'hidden_units': [16,15,14], 'latent_dim': 6,
+          'activation': 'elu', 'last_activation': 'linear', 'optimizer': 'adam',
+          'lr':0.04, 'epochs': 500, 'losses': 'mean_squared_error',
+          'batch_size': 128, 'initializer': 'glorot_uniform'}    
 
 if preprocessing:
     if supervised:
@@ -164,7 +168,8 @@ else:
     x_train, x_test, y_train, y_test, flux_train, flux_test, ticid_train, ticid_test, time = \
         ml.split_data_features(flux, features, time, ticid, False, p,
                                supervised=False,
-                               resize_arr=False, truncate=False) 
+                               resize_arr=False, truncate=False,
+                               train_test_ratio=0.9) 
     target_info_train = target_info[:np.shape(x_train)[0]]
     target_info_test = target_info[-1 * np.shape(x_test)[0]:]   
     
@@ -195,7 +200,7 @@ else:
         
         history, model = ml.simple_autoencoder(x_train, x_train, x_test,
                                                x_test, p, resize=False,
-                                               batch_norm=False)
+                                               batch_norm=True)
     x_predict = model.predict(x_test)
     # >> save to fits file
     hdr = fits.Header()
@@ -264,6 +269,7 @@ else:
                              output_dir+'latent_space-original_features.png')
         
     from sklearn.cluster import DBSCAN
+    from sklearn.metrics import silhouette_score
     with fits.open(output_dir + 'bottleneck_test.fits') as hdul:
         bottleneck = hdul[0].data
     # !! already standardized
@@ -279,6 +285,7 @@ else:
     counts = []
     num_noisy= []
     parameter_sets=[]
+    silhouette_scores=[]
     for i in range(len(eps)):
         for j in range(len(min_samples)):
             for k in range(len(metric)):
@@ -304,15 +311,26 @@ else:
                                                    algorithm[l],
                                                    leaf_size[m],
                                                    p[n]])
+                            
+                            # >> compute silhouette
+                            silhouette = silhouette_score(bottleneck, db.labels_)
+                            silhouette_scores.append(silhouette)
                             with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
-                                f.write('{} {} {} {} {} {}\n'.format(eps[i],
+                                # f.write('{} {} {} {} {} {}\n'.format(eps[i],
+                                #                                    min_samples[j],
+                                #                                    metric[k],
+                                #                                    algorithm[l],
+                                #                                    leaf_size[m],
+                                #                                    p[n]))
+                                f.write('{} {} {} {} {} {} {}\n'.format(eps[i],
                                                                    min_samples[j],
                                                                    metric[k],
                                                                    algorithm[l],
                                                                    leaf_size[m],
-                                                                   p[n]))
-                                f.write(str(np.unique(db.labels_, return_counts=True)))
-                                f.write('\n\n')
+                                                                   p[n],
+                                                                   silhouette))                                
+                                # f.write(str(np.unique(db.labels_, return_counts=True)))
+                                # f.write('\n\n')
                                 
     mom_dump = '../../Table_of_momentum_dumps.csv'
     # >> get best parameter set (want to maximize)
@@ -320,7 +338,9 @@ else:
         # print('num classes: ' + str(max(num_classes)))
         print('num classes: ' + str(i))
         inds = np.nonzero(np.array(num_classes)==i)
-        best = np.argmin(np.array(num_noisy)[inds])
+        # !!
+        # best = np.argmin(np.array(num_noisy)[inds])
+        best = np.argmin(np.array(silhouette_scores)[inds])
         best = inds[0][best]
         print('best_parameter_set: ' + str(parameter_sets[best]))
         print(str(counts[best]))

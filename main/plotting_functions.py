@@ -171,7 +171,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     # >> [etc 060620]
     colors = ["red","blue", "green", "purple" ,"yellow", "magenta", 'black']
     colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
-            'skyblue', 'sienna', 'palegreen']
+            'skyblue', 'sienna', 'palegreen', 'black']
     #creates labels based on if engineered features or not
     if feature_engineering:
         graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
@@ -939,13 +939,22 @@ def diagnostic_plots(history, model, p, output_dir,
         # hdr = fits.Header()
         # hdu=fits.PrimaryHDU(bottleneck_all, header=hdr)
         # hdu.writeto(output_dir+'bottleneck.fits')
-        plot_lof(x, np.concatenate([x_test, x_train], axis=0),
-                 np.concatenate([ticid_test, ticid_train], axis=0),
-                 bottleneck_all, 20, output_dir, prefix='all-'+prefix,
-                 n_neighbors=20, n_tot=n_tot,
-                 mock_data=mock_data, feature_vector=feature_vector,
-                 target_info=np.concatenate([target_info_test,
-                                             target_info_train], axis=0))
+        if feature_vector:
+            plot_lof(time, np.concatenate([flux_test, flux_train], axis=0),
+                     np.concatenate([ticid_test, ticid_train]), bottleneck_all,
+                     20, output_dir, prefix='all-'+prefix, n_neighbors=n,
+                     mock_data=mock_data, feature_vector=feature_vector,
+                     n_tot=n_tot,
+                     target_info=np.concatenate([target_info_test,
+                                                 target_info_train], axis=0))   
+        else:
+            plot_lof(x, np.concatenate([x_test, x_train], axis=0),
+                     np.concatenate([ticid_test, ticid_train], axis=0),
+                     bottleneck_all, 20, output_dir, prefix='all-'+prefix,
+                     n_neighbors=20, n_tot=n_tot,
+                     mock_data=mock_data, feature_vector=feature_vector,
+                     target_info=np.concatenate([target_info_test,
+                                                 target_info_train], axis=0))
     
     # -- plot reconstruction error (unsupervised) -----------------------------
     # >> plot light curves with highest, smallest and random reconstruction
@@ -1382,7 +1391,7 @@ def plot_lof(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
              n_neighbors=20, target_info=False,
              prefix='', mock_data=False, addend=1., feature_vector=False,
-             n_tot=100, histogram=True):
+             n_tot=100):
     """ Plots the 20 most and least interesting light curves based on LOF.
     Parameters:
         * time : array with shape 
@@ -1420,21 +1429,13 @@ def plot_lof(time, intensity, targets, features, n, path,
             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
       
     # >> make histogram of LOF values
-# <<<<<<< HEAD
     print('Make LOF histogram')
-    if histogram:
-        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                       targets, path+'lof-'+prefix+'histogram-insets.png',
-                       insets=True)
-        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                       targets, path+'lof-'+prefix+'histogram.png',
-                       insets=False)
-# =======
-    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram-insets.png', insets=True)
-    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram.png', insets=False)
-    
-# >>>>>>> a12cac99769399d435932ca9411afb970d46dccb
-    
+    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+                   targets, path+'lof-'+prefix+'histogram-insets.png',
+                   insets=True)
+    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+                   targets, path+'lof-'+prefix+'histogram.png', insets=False)
+        
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
     print('Loading momentum dump times')
@@ -1475,10 +1476,7 @@ def plot_lof(time, intensity, targets, features, n, path,
                                 title=True)
     
             # >> label axes
-            if feature_vector:
-                ax[n-1].set_xlabel('\u03C8')
-            else:
-                ax[n-1].set_xlabel('time [BJD - 2457000]')
+            ax[n-1].set_xlabel('time [BJD - 2457000]')
                 
             # >> save figures
             if i == 0:
@@ -1519,10 +1517,7 @@ def plot_lof(time, intensity, targets, features, n, path,
         format_axes(ax[k], ylabel=True)
         if not mock_data:
             ticid_label(ax[k], targets[ind], target_info[ind], title=True)
-    if feature_vector:
-        ax[n-1].set_xlabel('\u03C8')
-    else:
-        ax[n-1].set_xlabel('time [BJD - 2457000]')     
+    ax[n-1].set_xlabel('time [BJD - 2457000]')     
     fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
     
     # >> save figure
