@@ -268,7 +268,7 @@ def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     
     for n in range(len(retry_targets)):
         target = retry_targets[n][0] #get that target number
-        time1, i1 = get_lc_file_and_data(yourpath, target, sector)
+        time1, i1 = get_lc_file_and_data(yourpath, target)
         if type(i1) == np.ndarray: #IF THE DATA IS FORMATTED LKE DATA
             fits.append(fname_time_intensities_raw, i1, header=hdr)
             with open(fname_targets, 'a') as file_object:
@@ -369,7 +369,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     confirmation = "lc_from_target_list has finished running"
     return confirmation
 
-def get_lc_file_and_data(yourpath, target, sector):
+def get_lc_file_and_data(yourpath, target):
     """ goes in, grabs the data for the target, gets the time index, intensity,and TIC
     if connection error w/ MAST, skips it
     modified [lcg 06262020] - now pulls TICID as well, in case accidentally gets the wrong lc"""
@@ -395,7 +395,7 @@ def get_lc_file_and_data(yourpath, target, sector):
                 print(name)
                 if name.endswith(("lc.fits")):
                     filepaths.append(root + "/" + name)
-        #print(len(filepaths))
+        print(len(filepaths))
         
         if len(filepaths) == 0: #if no lc.fits were downloaded, move on
             print(targ, "no light curve available")
