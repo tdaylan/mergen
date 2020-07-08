@@ -132,7 +132,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     target_info = np.empty((0, 3)) # >> [sector, camera, ccd]
     for i in range(len(fnames)):
         print('Loading ' + fnames[i] + '...')
-        with fits.open(data_dir + fnames[i]) as hdul:
+        with fits.open(data_dir + fnames[i], mmap=False) as hdul:
             if i == 0:
                 x = hdul[0].data
             flux = hdul[1].data
@@ -145,7 +145,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                                 axis=0)
 
     # >> concatenate flux array         
-    flux = np.concatenate(flux, axis=0)
+    flux = np.concatenate(flux_list, axis=0)
         
     # >> apply nan mask
     print('Applying nan mask')
@@ -595,7 +595,8 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
 
 #normalizing each light curve
 def normalize(flux, axis=1):
-    '''Dividing by median.'''
+    '''Dividing by median.
+    Current method blows stuff out of proportion if the median is too close to 0?'''
     medians = np.median(flux, axis = axis, keepdims=True)
     flux = flux / medians - 1.
     return flux

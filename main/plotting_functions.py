@@ -254,7 +254,7 @@ def astroquery_pull_data(target):
         radius = np.round(catalog_data[0]["rad"], 2)
         mass = np.round(catalog_data[0]["mass"], 2)
         distance = np.round(catalog_data[0]["d"], 1)
-        title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+        title = "\n T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
         title = "connection error, no data"
@@ -272,10 +272,10 @@ def features_insets(time, intensity, feature_vectors, targets, path):
     feature_vectors is the complete list of feature vectors
     targets is the complete list of targets
     folder is the folder into which you wish to save the folder of plots. it 
-    should be formatted as a string, with no trailing /
+    should be formatted as a string, with a trailing /
     modified [lcg 06292020]
     """   
-    path = path + "/2DFeatures-insets"
+    path = path + "2DFeatures-insets"
     try:
         os.makedirs(path)
     except OSError:
@@ -357,7 +357,7 @@ def inset_plotting(datax, datay, label1, label2, insetx, insety, inset_indexes, 
         #this sets the actual axes limits    
         axis_name.set_xlim(insetx[0], insetx[-1])
         axis_name.set_ylim(insety[inset_indexes[n]].min(), insety[inset_indexes[n]].max())
-        axis_name.set_title(astroquery_pull_data(targets[inset_indexes[n]]), fontsize=6)
+        axis_name.set_title("TIC " + str(targets[inset_indexes[n]]) + astroquery_pull_data(targets[inset_indexes[n]]), fontsize=8)
         axis_name.set_xticklabels([])
         axis_name.set_yticklabels([])
         
@@ -375,20 +375,30 @@ def get_extrema(feature_vectors, feat1, feat2):
     """ Identifies the extrema in each direction for the pair of features given. 
     Eliminates any duplicate extrema (ie, the xmax that is also the ymax)
     Returns array of unique indexes of the extrema
-    modified [lcg 06292020]"""
+    modified [lcg 07082020]"""
     indexes = []
     index_feat1 = np.argsort(feature_vectors[:,feat1])
     index_feat2 = np.argsort(feature_vectors[:,feat2])
     
-    indexes.append(index_feat1[-1]) #largest
-    indexes.append(index_feat1[-2]) #second largest
-    indexes.append(index_feat1[-3]) #third largest
-    indexes.append(index_feat1[0]) #smallest
-    indexes.append(index_feat1[1]) #second smallest
-    indexes.append(index_feat2[-1]) #largest
-    indexes.append(index_feat2[-2]) #second largest
-    indexes.append(index_feat2[0]) #smallest
-    indexes.append(index_feat2[1]) #second smallest
+    #best order for the first eight, then the third places
+    
+    #top row
+    indexes.append(index_feat1[0]) #xmin
+    indexes.append(index_feat2[-1]) #ymax
+    indexes.append(index_feat2[-2]) #second ymax
+    indexes.append(index_feat1[-2]) #second xmax
+    #bottom row
+    indexes.append(index_feat1[1]) #second xmin
+    indexes.append(index_feat2[1]) #second ymin
+    indexes.append(index_feat2[0]) #ymin
+    indexes.append(index_feat1[-1]) #xmax
+    
+    #extras
+    indexes.append(index_feat1[-3]) #third xmax
+    indexes.append(index_feat1[2]) #third xmin
+    indexes.append(index_feat2[-3]) #third ymax
+    indexes.append(index_feat2[2]) #third ymin
+    
 
     indexes_unique = np.unique(np.asarray(indexes))
     
@@ -1519,6 +1529,7 @@ def plot_lof(time, intensity, targets, features, n, path,
         format_axes(ax[k], ylabel=True)
         if not mock_data:
             ticid_label(ax[k], targets[ind], target_info[ind], title=True)
+            
     if feature_vector:
         ax[n-1].set_xlabel('\u03C8')
     else:
