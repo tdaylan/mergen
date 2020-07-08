@@ -4,12 +4,13 @@ Created on Thu Jun  4 21:54:56 2020
 
 Data access, data processing, feature vector creation functions.
 
-@author: Lindsey Gordon @lcgordon and Emma Chickles (@??)
+@author: Lindsey Gordon (@lcgordon) and Emma Chickles (@emmachickles)
 
 Updated: June 26 2020
 
 Data access
 * test_data()
+* load_data_from_metafiles()
 * load_group_from_fits()
 * load_group_from_txt()
 * data_access_by_group_fits()
