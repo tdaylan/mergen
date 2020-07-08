@@ -19,6 +19,8 @@ Data access
 * follow_up_on_missed_targets_fits()
 * lc_from_target_list_fits()    : Pulls all light curves from a list of TICs
 * get_lc_file_and_data()        : Pulls a light curve's fits file by TIC
+* tic_list_by_magnitudes        : Gets list of TICs for upper/lower mag. bounds
+                        
 
 Data processing
 * normalize()       : median normalization
@@ -29,6 +31,7 @@ Data processing
 Engineered features
 * create_save_featvec()     : creates and saves a fits file containing all features
 * featvec()                 : creates a single feature vector for a LC
+* feature_gen_from_lc_fits()    : creates features for all of a sector
 
 Depreciated Functions
 * load_group_from_txt()
@@ -171,7 +174,6 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     
     
 def load_group_from_fits(path, sector, camera, ccd): 
-    
     """ pull the light curves and target list from fits metafiles
     path is the folder in which all the metafiles are saved. ends in a backslash 
     sector camera ccd are integers you want the info from
@@ -261,7 +263,7 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
         ccd number you want (as int/float)
         this ONLY returns the target list and folderpath for the group
         
-        Saves a .fits file with primaryHDU=f[0]=time,
+        Saves a .fits file with primaryHDU=f[0]=time array,
         f[1]=raw intensity array, f[2] = interpolated intensity array (not normalized!)
         , f[3]=TICIDs
         """
@@ -303,7 +305,7 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
     #check to be sure all have the same size, if not, report back an error
         
     except OSError: #if there is an error creating the folder
-        print("There was an OS Error trying to create the folder. Checking to see if data is already saved there")
+        print("There was an OS Error trying to create the folder. Check to see if data is already saved there")
         targets = "empty"
         
     return targets, path
@@ -345,22 +347,13 @@ def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     
     return targets, path
 
-
-
-
-
-######
     
-
-
-
-
 def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities,
                              fname_targets, fname_notes, path='./'):
     """ runs getting the files and data for all targets on the list
     then appends the time & intensity arrays and the TIC number into text files
     that can later be accessed
-    modified [lcg 062620]
+    modified [lcg 07082020]
     """
     intensity = []
     i_interpolated = []
@@ -568,10 +561,39 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
     confirmation="lc_from_bulk_download has finished running"
     return confirmation
 
+def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
+    """ Creates a fits file of the first n TICs that fall between the given
+    magnitude ranges. 
+    parameters: 
+        * path to where you want things saved
+        * lower magnitude limit
+        * upper magnitude limit
+        * n - number of TICs you want
+        * file label (what to call the fits file)
+    modified [lcg 07082020]
+    """
+    catalog_data = Catalogs.query_criteria(catalog="Tic", Tmag=[uppermag, lowermag], objType="STAR")
+
+    T_mags = np.asarray(catalog_data["Tmag"], dtype= float)
+    TICIDS = np.asarray(catalog_data["ID"], dtype = int)
+    
+    tmag_index = np.argsort(T_mags)
+    
+    sorted_tmags = T_mags[tmag_index]
+    sorted_ticids = TICIDS[tmag_index]
+    
+    hdr = fits.Header() # >> make the header
+    hdu = fits.PrimaryHDU(sorted_ticids[0:n], header=hdr)
+    hdu.writeto(path + filelabel + ".fits")
+    fits.append(path + filelabel + ".fits",sorted_tmags[0:n])
+    
+    return sorted_ticids, sorted_tmags
+
+
 #normalizing each light curve
 def normalize(flux, axis=1):
     '''Dividing by median.
-    Current method blows stuff out of proportion if the median is too close to 0?'''
+    !!Current method blows points out of proportion if the median is too close to 0?'''
     medians = np.median(flux, axis = axis, keepdims=True)
     flux = flux / medians - 1.
     return flux
@@ -831,29 +853,8 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
         return flux, time
     
     
-def brightness_tic_list(path, criteria, n, filelabel, highest=True):
-    """ creates a fits file list of the top ten thousand TICs that fit the criteria
-    if you're looking for magnitudes, you'll need to set highest = False because
-    inverse system (rip)"""
-    catalog_data = Catalogs.query_criteria(catalog="Tic", Tmag=criteria, objType="STAR")
-    #print(catalog_data["ID", "GAIAmag", 'Tmag', 'd'])
 
-    T_mags = np.asarray(catalog_data["Tmag"], dtype= float)
-    TICIDS = np.asarray(catalog_data["ID"], dtype = int)
-    
-    tmag_index = np.argsort(T_mags)
-    
-    sorted_tmags = T_mags[tmag_index]
-    sorted_ticids = TICIDS[tmag_index]
-    
-    hdr = fits.Header() # >> make the header
-    hdu = fits.PrimaryHDU(sorted_ticids[0:n], header=hdr)
-    hdu.writeto(path + filelabel + ".fits")
-    fits.append(path + filelabel + ".fits",sorted_tmags[0:n])
-    
-    return sorted_ticids, sorted_tmags
-
-#producing the feature vector list -----------------------------
+#Feature Vector Production -----------------------------
 
 def create_save_featvec(yourpath, times, intensities, sector, camera, ccd, version):
     """Produces the feature vectors for each light curve and saves them all
@@ -870,7 +871,7 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd, versi
     #path = yourpath + folder_name
     fname_features = yourpath + "/"+ folder_name + "_features_v"+str(version)+".fits"
     feature_list = []
-    print("creating feature vectors about to begin")
+    print("Begining Feature Vector Creation Now")
     for n in range(len(intensities)):
         feature_vector = featvec(times, intensities[n], v=version)
         feature_list.append(feature_vector)
@@ -887,7 +888,8 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd, versi
 
 def featvec(x_axis, sampledata, v=0): 
     """calculates the feature vector of the single light curve
-    currently returns 16: 
+        version 0: features 0-15
+        version 1: features 0-19
         0 - Average
         1 - Variance
         2 - Skewness
@@ -919,8 +921,7 @@ def featvec(x_axis, sampledata, v=0):
         18 - depth
         19 - power
         
-        version 0: features 0-15
-        version 1: features 0-19
+        
         modified [lcg 07042020]"""
     
     
@@ -1004,13 +1005,17 @@ def featvec(x_axis, sampledata, v=0):
     
     return(featvec) 
 
-def feature_gen_from_lc_fits(folderpath, sector, feature_version):
-    """ Create feature vectors and save them into fits files per group
-    then grab them ALL for the sector and save into one big fits file
-    Folderpath is path into place where the lc fits files are saved. 
-        must end in a backslash
-    sector is the sector being worked on
-    feature_version is the feature vector version being generated
+def feature_gen_from_lc_fits(folderpath, sector, feature_version=0):
+    """Given a path to a folder containing ALL the light curve metafiles 
+    for a sector, produces the feature vector metafile for each group and then
+    one main feature vector metafile containing ALL the features in [0] and the
+    TICIDS in [1]. 
+    Parameters: 
+        * folderpath to where the light curve metafiles are saved
+            *must end in a backslash
+        * sector number
+        * what version of features you want generated (default is 0)
+
     modified [lcg 07042020]"""
     
     import datetime
@@ -1068,15 +1073,6 @@ def feature_gen_from_lc_fits(folderpath, sector, feature_version):
     
     return feats_all, ticids_all
 
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-    
-    # orbit_gap_start = num_inds[ np.argmax(np.diff(time[num_inds])) ]
-    # orbit_gap_end = num_inds[ orbit_gap_start+1 ]   
-    # orbit_gap_len = orbit_gap_end - orbit_gap_start
-    # interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
-    #                           np.isnan(i[run_starts]) * \
-    #                           (((run_starts > orbit_gap_start) * \
-    #                             (run_starts < orbit_gap_end)) == False))
 
 # DEPRECIATED SECTION -----------------------------------------------------
 def load_group_from_txt(sector, camera, ccd, path):
