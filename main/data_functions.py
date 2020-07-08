@@ -6,21 +6,19 @@ Data access, data processing, feature vector creation functions.
 
 @author: Lindsey Gordon (@lcgordon) and Emma Chickles (@emmachickles)
 
-Updated: June 26 2020
+Updated: July 8 2020
 
 Data access
-* test_data()
-* load_data_from_metafiles()
-* load_group_from_fits()
-* load_group_from_txt()
+* test_data()           : confirms module loaded in 
+* lc_by_camera_ccd()    : divides sector TIC list into groups by ccd/camera
+* load_data_from_metafiles()    : loads LC from ALL metafiles for sector
+* load_group_from_fits()        : loads LC for one group's fits files
 * data_access_sector_by_bulk()
 * data_access_by_group_fits()
 * bulk_download_helper()
 * follow_up_on_missed_targets_fits()
-* interp_norm_sigmaclip_features()
-* lc_by_camera_ccd()
-* lc_from_target_list_fits()
-* get_lc_file_and_data()
+* lc_from_target_list_fits()    : Pulls all light curves from a list of TICs
+* get_lc_file_and_data()        : Pulls a light curve's fits file by TIC
 
 Data processing
 * normalize()       : median normalization
@@ -29,8 +27,11 @@ Data processing
 * nan_mask()        : apply NaN mask to flux array
 
 Engineered features
-* create_save_featvec
-* featvec
+* create_save_featvec()     : creates and saves a fits file containing all features
+* featvec()                 : creates a single feature vector for a LC
+
+Depreciated Functions
+* load_group_from_txt()
 
 
 """
@@ -90,6 +91,17 @@ import numba
 def test_data():
     """make sure the module loads in"""
     print("Data functions loaded in.")
+    
+def lc_by_camera_ccd(sectorfile, camera, ccd):
+    """gets all the targets for a given sector, camera, ccd
+    from the master list for that sector"""
+    target_list = np.loadtxt(sectorfile)     #load in the target file
+    indexes = [] #empty array to save indexes into
+    for n in range(len(target_list)): #for each item in the list of targets
+        if target_list[n][1] == camera and target_list[n][2] == ccd: #be sure it matches
+            indexes.append(n) #if it does, append to index list
+    matching_targets = target_list[indexes] #just grab those indexes
+    return matching_targets #return list of only targets on that specific ccd
     
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                              ccds=[1,2,3,4], DEBUG=False,
@@ -176,30 +188,7 @@ def load_group_from_fits(path, sector, camera, ccd):
     
     return time, intensities, targets
     
-def load_group_from_txt(sector, camera, ccd, path):
-    """loads in a given group's data provided you have it saved in TEXT metafiles already
-    path needs to be a string, ending with a forward slash
-    camera, ccd, secotr all should be integers
-    """
-    folder = "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd)
-    time_path = path + folder + "/" + folder + "_times_processed.txt"
-    intensities_path = path + folder + "/" + folder + "_intensities_processed.txt"
-    features_path = path + folder + "/" + folder + "_features.txt"
-    targets_path = path + folder + "/" + folder + "_targets.txt"
-    notes_path = path + folder + "/" + folder + "_group_notes.txt"
-    
-    t = np.loadtxt(time_path)
-    intensities = np.loadtxt(intensities_path)
-    try: 
-        targets = np.loadtxt(targets_path)
-    except ValueError:
-        targets = np.loadtxt(targets_path, skiprows=1)
-        
-    targets.astype(int)
-    features = np.loadtxt(features_path, skiprows=1)
-    notes = np.loadtxt(notes_path, skiprows=1)
-    
-    return t, intensities, targets, features, notes 
+
 
 
 def data_access_sector_by_bulk(yourpath, sectorfile, sector,
@@ -279,8 +268,7 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
     # produce the folder to save everything into and set up file names
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
     path = yourpath + folder_name
-    # fname_time_intensities_raw = path + "/" + folder_name + "_raw_lightcurves.fits"
-    fname_time_intensities_raw = path + "/" + folder_name + "_lightcurves.fits"
+    fname_time_intensities = path + "/" + folder_name + "_lightcurves.fits"
     fname_targets = path + "/" + folder_name + "_targets.txt"
     fname_notes = path + "/" + folder_name + "_group_notes.txt"
     
@@ -324,7 +312,7 @@ def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     """ function to follow up on rejected TIC ids"""
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
     path = yourpath + folder_name
-    fname_time_intensities_raw = path + "/" + folder_name + "_raw_lightcurves.fits"
+    fname_time_intensities = path + "/" + folder_name + "_lightcurves.fits"
     fname_targets = path + "/" + folder_name + "_targets.txt"
     fname_notes = path + "/" + folder_name + "_group_notes.txt"
     fname_notes_followed_up = path + "/" + folder_name + "_targets_still_no_data.txt"
@@ -341,7 +329,7 @@ def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
         target = retry_targets[n][0] #get that target number
         time1, i1 = get_lc_file_and_data(yourpath, target)
         if type(i1) == np.ndarray: #IF THE DATA IS FORMATTED LKE DATA
-            fits.append(fname_time_intensities_raw, i1, header=hdr)
+            fits.append(fname_time_intensities, i1, header=hdr)
             with open(fname_targets, 'a') as file_object:
                 file_object.write("\n")
                 file_object.write(str(int(target)))
@@ -364,19 +352,10 @@ def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
 ######
     
 
-def lc_by_camera_ccd(sectorfile, camera, ccd):
-    """gets all the targets for a given sector, camera, ccd
-    from the master list for that sector"""
-    target_list = np.loadtxt(sectorfile)     #load in the target file
-    indexes = [] #empty array to save indexes into
-    for n in range(len(target_list)): #for each item in the list of targets
-        if target_list[n][1] == camera and target_list[n][2] == ccd: #be sure it matches
-            indexes.append(n) #if it does, append to index list
-    matching_targets = target_list[indexes] #just grab those indexes
-    return matching_targets #return list of only targets on that specific ccd
 
 
-def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
+
+def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities,
                              fname_targets, fname_notes, path='./'):
     """ runs getting the files and data for all targets on the list
     then appends the time & intensity arrays and the TIC number into text files
@@ -393,12 +372,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
             time1, i1, tic = get_lc_file_and_data(yourpath, target) #grab that data
             
             if type(i1) == np.ndarray: #if the data IS data
-                # i_interp = interpolate_lc(i1, time1)
-                # i_interpolated.append(i_interp)
                 intensity.append(i1)
-                # hdr = fits.Header() #make-a the header
-                # hdu = fits.PrimaryHDU(time1, header=hdr)
-                # hdu.writeto(fname_time_intensities_raw) #make the fits file
                 ticids.append(tic)
             else: #if the data is NOT a data
                 print("First target failed, no time index was saved")
@@ -409,8 +383,6 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
             target = targetList[n][0] #get that target number
             time1, i1, tic = get_lc_file_and_data(yourpath, target)
             if type(i1) == np.ndarray:
-                # i_interp = interpolate_lc(i1, time1)
-                # i_interpolated.append(i_interp)
                 intensity.append(i1)    
                 ticids.append(tic)
             else: #IF THE DATA IS NOT DATA
@@ -433,22 +405,12 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     # i_interp = np.array(i_interp)
     hdr = fits.Header() # >> make the header
     hdu = fits.PrimaryHDU(time, header=hdr)
-    hdu.writeto(fname_time_intensities_raw)
-    fits.append(fname_time_intensities_raw, intensity_interp)
-    fits.append(fname_time_intensities_raw, ticids)
-# <<<<<<< HEAD
-    
+    hdu.writeto(fname_time_intensities)
+    fits.append(fname_time_intensities, intensity_interp)
+    fits.append(fname_time_intensities, ticids)
     # >> actually i'm going to save the raw intensities just in case
-    fits.append(fname_time_intensities_raw, intensity)
+    fits.append(fname_time_intensities, intensity)
     
-    # with open(fname_time_intensities_raw, 'rb+') as f:
-    #     # >> don't want to save 2x data we need to, so only save interpolated
-    #     # fits.append(fname_time_intensities_raw, intensity)
-    #     fits.append(fname_time_intensities_raw, i_interp)
-    #     fits.append(fname_time_intensities_raw, ticids)
-# =======
-
-# >>>>>>> a12cac99769399d435932ca9411afb970d46dccb
     confirmation = "lc_from_target_list has finished running"
     return confirmation
 
@@ -484,7 +446,7 @@ def get_lc_file_and_data(yourpath, target):
         filepaths = []
         for root, dirs, files in os.walk(fitspath):
             for name in files:
-                print(name)
+                #print(name)
                 if name.endswith(("lc.fits")):
                     filepaths.append(root + "/" + name)
         #print(len(filepaths))
@@ -1116,3 +1078,29 @@ def feature_gen_from_lc_fits(folderpath, sector, feature_version):
     #                           (((run_starts > orbit_gap_start) * \
     #                             (run_starts < orbit_gap_end)) == False))
 
+# DEPRECIATED SECTION -----------------------------------------------------
+def load_group_from_txt(sector, camera, ccd, path):
+    """loads in a given group's data provided you have it saved in TEXT metafiles already
+    path needs to be a string, ending with a forward slash
+    camera, ccd, secotr all should be integers
+    moved to depreciated 7/8/2020 by lcg
+    """
+    folder = "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd)
+    time_path = path + folder + "/" + folder + "_times_processed.txt"
+    intensities_path = path + folder + "/" + folder + "_intensities_processed.txt"
+    features_path = path + folder + "/" + folder + "_features.txt"
+    targets_path = path + folder + "/" + folder + "_targets.txt"
+    notes_path = path + folder + "/" + folder + "_group_notes.txt"
+    
+    t = np.loadtxt(time_path)
+    intensities = np.loadtxt(intensities_path)
+    try: 
+        targets = np.loadtxt(targets_path)
+    except ValueError:
+        targets = np.loadtxt(targets_path, skiprows=1)
+        
+    targets.astype(int)
+    features = np.loadtxt(features_path, skiprows=1)
+    notes = np.loadtxt(notes_path, skiprows=1)
+    
+    return t, intensities, targets, features, notes 
