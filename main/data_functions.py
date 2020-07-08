@@ -455,7 +455,10 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
 def get_lc_file_and_data(yourpath, target):
     """ goes in, grabs the data for the target, gets the time index, intensity,and TIC
     if connection error w/ MAST, skips it
-    modified [lcg 06262020] - now pulls TICID as well, in case accidentally gets the wrong lc"""
+    parameters: 
+        * yourpath, where you want the files saved to. must end in /
+        * targets, target list of all TICs 
+    modified [lcg 07082020] - fixed handling no results, fixed deleting download folder"""
     fitspath = yourpath + 'mastDownload/TESS/' # >> download directory
     targ = "TIC " + str(int(target))
     print(targ)
@@ -465,12 +468,18 @@ def get_lc_file_and_data(yourpath, target):
                                         dataproduct_type='timeseries',
                                         target_name=str(int(target)),
                                         objectname=targ)
-        data_products_by_obs = Observations.get_product_list(obs_table[0:4])
+        data_products_by_obs = Observations.get_product_list(obs_table[0:8])
             
         filter_products = Observations.filter_products(data_products_by_obs,
                                                        description = 'Light curves')
-        manifest = Observations.download_products(filter_products, extension='fits')
-                
+        if len(filter_products) != 0:
+            manifest = Observations.download_products(filter_products, download_dir= yourpath, extension='fits')
+        else: 
+            print("Query yielded no matching data produts for ", targ)
+            time1 = 0
+            i1 = 0
+            ticid = 0
+            
         #get all the paths to lc.fits files
         filepaths = []
         for root, dirs, files in os.walk(fitspath):
@@ -478,15 +487,16 @@ def get_lc_file_and_data(yourpath, target):
                 print(name)
                 if name.endswith(("lc.fits")):
                     filepaths.append(root + "/" + name)
-        print(len(filepaths))
+        #print(len(filepaths))
+        #print(filepaths)
         
         if len(filepaths) == 0: #if no lc.fits were downloaded, move on
-            print(targ, "no light curve available")
+            print("No lc.fits files available for TIC ", targ)
             time1 = 0
             i1 = 0
             ticid = 0
         else: #if there are lc.fits files, open them and get the goods
-                #get the goods and then close it #!!!! GET THE TIC FROM THE F I L E 
+                #get the goods and then close it
             f = fits.open(filepaths[0], memmap=False)
             time1 = f[1].data['TIME']
             i1 = f[1].data['PDCSAP_FLUX']
@@ -494,13 +504,13 @@ def get_lc_file_and_data(yourpath, target):
             f.close()
                   
         #then delete all downloads in the folder, no matter what type
-        if os.path.isdir("mastDownload") == True:
-            shutil.rmtree("mastDownload")
-            print("folder deleted")
+        if os.path.isdir(yourpath + "mastDownload") == True:
+            shutil.rmtree(yourpath + "mastDownload")
+            print("Download folder deleted.")
             
         #corrects for connnection errors
     except (ConnectionError, OSError, TimeoutError, RemoteServiceError):
-        print(targ + "could not be accessed due to an error")
+        print(targ, " could not be accessed due to an error.")
         i1 = 0
         time1 = 0
         ticid = 0
