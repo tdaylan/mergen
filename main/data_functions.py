@@ -13,7 +13,9 @@ Data access
 * load_data_from_metafiles()
 * load_group_from_fits()
 * load_group_from_txt()
+* data_access_sector_by_bulk()
 * data_access_by_group_fits()
+* bulk_download_helper()
 * follow_up_on_missed_targets_fits()
 * interp_norm_sigmaclip_features()
 * lc_by_camera_ccd()
@@ -91,7 +93,7 @@ def test_data():
     
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                              ccds=[1,2,3,4], DEBUG=False,
-                             output_dir='./', debug_ind=10):
+                             output_dir='./', debug_ind=10, nan_mask=True):
     '''Pulls light curves from fits files, and applies nan mask.
     
     Parameters:
@@ -103,7 +105,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                   required:
             * output_dir
             * debug_ind
-        * nan_mask : if True
+        * nan_mask : if True, applies NaN mask
             
     
     Returns:
@@ -148,9 +150,10 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     flux = np.concatenate(flux_list, axis=0)
         
     # >> apply nan mask
-    print('Applying nan mask')
-    flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid, debug_ind=debug_ind,
-                       target_info=target_info, output_dir=output_dir)
+    if nan_mask:
+        print('Applying nan mask')
+        flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid, debug_ind=debug_ind,
+                           target_info=target_info, output_dir=output_dir)
     
     return flux, x, ticid, target_info
     

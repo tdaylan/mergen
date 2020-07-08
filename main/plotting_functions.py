@@ -171,7 +171,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     # >> [etc 060620]
     colors = ["red","blue", "green", "purple" ,"yellow", "magenta", 'black']
     colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
-            'skyblue', 'sienna', 'palegreen']
+            'skyblue', 'sienna', 'palegreen', 'black']
     #creates labels based on if engineered features or not
     if feature_engineering:
         graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
@@ -254,7 +254,7 @@ def astroquery_pull_data(target):
         radius = np.round(catalog_data[0]["rad"], 2)
         mass = np.round(catalog_data[0]["mass"], 2)
         distance = np.round(catalog_data[0]["d"], 1)
-        title = "\n T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+        title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
         title = "connection error, no data"
@@ -272,10 +272,10 @@ def features_insets(time, intensity, feature_vectors, targets, path):
     feature_vectors is the complete list of feature vectors
     targets is the complete list of targets
     folder is the folder into which you wish to save the folder of plots. it 
-    should be formatted as a string, with a trailing /
+    should be formatted as a string, with no trailing /
     modified [lcg 06292020]
     """   
-    path = path + "2DFeatures-insets"
+    path = path + "/2DFeatures-insets"
     try:
         os.makedirs(path)
     except OSError:
@@ -357,7 +357,7 @@ def inset_plotting(datax, datay, label1, label2, insetx, insety, inset_indexes, 
         #this sets the actual axes limits    
         axis_name.set_xlim(insetx[0], insetx[-1])
         axis_name.set_ylim(insety[inset_indexes[n]].min(), insety[inset_indexes[n]].max())
-        axis_name.set_title("TIC " + str(targets[inset_indexes[n]]) + astroquery_pull_data(targets[inset_indexes[n]]), fontsize=8)
+        axis_name.set_title(astroquery_pull_data(targets[inset_indexes[n]]), fontsize=6)
         axis_name.set_xticklabels([])
         axis_name.set_yticklabels([])
         
@@ -375,30 +375,20 @@ def get_extrema(feature_vectors, feat1, feat2):
     """ Identifies the extrema in each direction for the pair of features given. 
     Eliminates any duplicate extrema (ie, the xmax that is also the ymax)
     Returns array of unique indexes of the extrema
-    modified [lcg 07082020]"""
+    modified [lcg 06292020]"""
     indexes = []
     index_feat1 = np.argsort(feature_vectors[:,feat1])
     index_feat2 = np.argsort(feature_vectors[:,feat2])
     
-    #best order for the first eight, then the third places
-    
-    #top row
-    indexes.append(index_feat1[0]) #xmin
-    indexes.append(index_feat2[-1]) #ymax
-    indexes.append(index_feat2[-2]) #second ymax
-    indexes.append(index_feat1[-2]) #second xmax
-    #bottom row
-    indexes.append(index_feat1[1]) #second xmin
-    indexes.append(index_feat2[1]) #second ymin
-    indexes.append(index_feat2[0]) #ymin
-    indexes.append(index_feat1[-1]) #xmax
-    
-    #extras
-    indexes.append(index_feat1[-3]) #third xmax
-    indexes.append(index_feat1[2]) #third xmin
-    indexes.append(index_feat2[-3]) #third ymax
-    indexes.append(index_feat2[2]) #third ymin
-    
+    indexes.append(index_feat1[-1]) #largest
+    indexes.append(index_feat1[-2]) #second largest
+    indexes.append(index_feat1[-3]) #third largest
+    indexes.append(index_feat1[0]) #smallest
+    indexes.append(index_feat1[1]) #second smallest
+    indexes.append(index_feat2[-1]) #largest
+    indexes.append(index_feat2[-2]) #second largest
+    indexes.append(index_feat2[0]) #smallest
+    indexes.append(index_feat2[1]) #second smallest
 
     indexes_unique = np.unique(np.asarray(indexes))
     
@@ -949,13 +939,22 @@ def diagnostic_plots(history, model, p, output_dir,
         # hdr = fits.Header()
         # hdu=fits.PrimaryHDU(bottleneck_all, header=hdr)
         # hdu.writeto(output_dir+'bottleneck.fits')
-        plot_lof(x, np.concatenate([x_test, x_train], axis=0),
-                 np.concatenate([ticid_test, ticid_train], axis=0),
-                 bottleneck_all, 20, output_dir, prefix='all-'+prefix,
-                 n_neighbors=20, n_tot=n_tot,
-                 mock_data=mock_data, feature_vector=feature_vector,
-                 target_info=np.concatenate([target_info_test,
-                                             target_info_train], axis=0))
+        if feature_vector:
+            plot_lof(time, np.concatenate([flux_test, flux_train], axis=0),
+                     np.concatenate([ticid_test, ticid_train]), bottleneck_all,
+                     20, output_dir, prefix='all-'+prefix, n_neighbors=n,
+                     mock_data=mock_data, feature_vector=feature_vector,
+                     n_tot=n_tot,
+                     target_info=np.concatenate([target_info_test,
+                                                 target_info_train], axis=0))   
+        else:
+            plot_lof(x, np.concatenate([x_test, x_train], axis=0),
+                     np.concatenate([ticid_test, ticid_train], axis=0),
+                     bottleneck_all, 20, output_dir, prefix='all-'+prefix,
+                     n_neighbors=20, n_tot=n_tot,
+                     mock_data=mock_data, feature_vector=feature_vector,
+                     target_info=np.concatenate([target_info_test,
+                                                 target_info_train], axis=0))
     
     # -- plot reconstruction error (unsupervised) -----------------------------
     # >> plot light curves with highest, smallest and random reconstruction
@@ -1392,7 +1391,7 @@ def plot_lof(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
              n_neighbors=20, target_info=False,
              prefix='', mock_data=False, addend=1., feature_vector=False,
-             n_tot=100, histogram=True):
+             n_tot=100):
     """ Plots the 20 most and least interesting light curves based on LOF.
     Parameters:
         * time : array with shape 
@@ -1430,21 +1429,13 @@ def plot_lof(time, intensity, targets, features, n, path,
             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
       
     # >> make histogram of LOF values
-# <<<<<<< HEAD
     print('Make LOF histogram')
-    if histogram:
-        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                       targets, path+'lof-'+prefix+'histogram-insets.png',
-                       insets=True)
-        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                       targets, path+'lof-'+prefix+'histogram.png',
-                       insets=False)
-# =======
-    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram-insets.png', insets=True)
-    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity, targets, path+'lof-'+prefix+'histogram.png', insets=False)
-    
-# >>>>>>> a12cac99769399d435932ca9411afb970d46dccb
-    
+    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+                   targets, path+'lof-'+prefix+'histogram-insets.png',
+                   insets=True)
+    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+                   targets, path+'lof-'+prefix+'histogram.png', insets=False)
+        
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
     print('Loading momentum dump times')
@@ -1485,10 +1476,7 @@ def plot_lof(time, intensity, targets, features, n, path,
                                 title=True)
     
             # >> label axes
-            if feature_vector:
-                ax[n-1].set_xlabel('\u03C8')
-            else:
-                ax[n-1].set_xlabel('time [BJD - 2457000]')
+            ax[n-1].set_xlabel('time [BJD - 2457000]')
                 
             # >> save figures
             if i == 0:
@@ -1529,11 +1517,7 @@ def plot_lof(time, intensity, targets, features, n, path,
         format_axes(ax[k], ylabel=True)
         if not mock_data:
             ticid_label(ax[k], targets[ind], target_info[ind], title=True)
-            
-    if feature_vector:
-        ax[n-1].set_xlabel('\u03C8')
-    else:
-        ax[n-1].set_xlabel('time [BJD - 2457000]')     
+    ax[n-1].set_xlabel('time [BJD - 2457000]')     
     fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
     
     # >> save figure
