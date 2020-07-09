@@ -375,7 +375,7 @@ def get_extrema(feature_vectors, feat1, feat2):
     """ Identifies the extrema in each direction for the pair of features given. 
     Eliminates any duplicate extrema (ie, the xmax that is also the ymax)
     Returns array of unique indexes of the extrema
-    modified [lcg 06292020]"""
+    modified [lcg 07082020]"""
     indexes = []
     index_feat1 = np.argsort(feature_vectors[:,feat1])
     index_feat2 = np.argsort(feature_vectors[:,feat2])
@@ -394,9 +394,6 @@ def get_extrema(feature_vectors, feat1, feat2):
     indexes.append(index_feat2[-3]) #third ymax
     indexes.append(index_feat1[2]) #third xmin
     indexes.append(index_feat2[2]) #third ymin
-
-    
-    
 
     indexes_unique = np.unique(np.asarray(indexes))
     
