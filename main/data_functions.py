@@ -1,13 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Jun  4 21:54:56 2020
-
 Data access, data processing, feature vector creation functions.
-
 @author: Lindsey Gordon (@lcgordon) and Emma Chickles (@emmachickles)
-
 Updated: July 8 2020
-
 Data access
 * test_data()           : confirms module loaded in 
 * lc_by_camera_ccd()    : divides sector TIC list into groups by ccd/camera
@@ -21,22 +17,17 @@ Data access
 * get_lc_file_and_data()        : Pulls a light curve's fits file by TIC
 * tic_list_by_magnitudes        : Gets list of TICs for upper/lower mag. bounds
                         
-
 Data processing
 * normalize()       : median normalization
 * interpolate_all() : sigma clip and interpolate flux array
 * interpolate_lc()  : sigma clip and interpolate one light curve
 * nan_mask()        : apply NaN mask to flux array
-
 Engineered features
 * create_save_featvec()     : creates and saves a fits file containing all features
 * featvec()                 : creates a single feature vector for a LC
 * feature_gen_from_lc_fits()    : creates features for all of a sector
-
 Depreciated Functions
 * load_group_from_txt()
-
-
 """
 
 import numpy as np
@@ -288,27 +279,23 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
         # >> get the light curve for each target on the list, and save into a
         # >> fits file
         if bulk_download:
-            confirmation = lc_from_bulk_download(bulk_download_dir,
+            time, intensity, ticids = lc_from_bulk_download(bulk_download_dir,
                                                  target_list,
                                                  fname_time_intensities_raw,
                                                  fname_targets,
                                                  fname_notes, path)
         else: # >> download each light curve
-            confirmation = lc_from_target_list_fits(yourpath, target_list,
+            time, intensity, ticids = lc_from_target_list(yourpath, target_list,
                                                     fname_time_intensities_raw,
                                                     fname_targets, fname_notes,
                                                      path=path)
-        print(confirmation)
-        #print("failed to get", len(failed_to_get), "targets")
-        targets = np.loadtxt(fname_targets, skiprows=1)
-        # print("found data for ", len(targets), " targets")
-    #check to be sure all have the same size, if not, report back an error
+       
         
     except OSError: #if there is an error creating the folder
         print("There was an OS Error trying to create the folder. Check to see if data is already saved there")
         targets = "empty"
         
-    return targets, path
+    return time, intensity, ticids, path
 
 def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     """ function to follow up on rejected TIC ids"""
@@ -348,12 +335,12 @@ def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     return targets, path
 
     
-def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities,
+def lc_from_target_list(yourpath, targetList, fname_time_intensities_raw,
                              fname_targets, fname_notes, path='./'):
     """ runs getting the files and data for all targets on the list
     then appends the time & intensity arrays and the TIC number into text files
     that can later be accessed
-    modified [lcg 07082020]
+    modified [lcg 07092020]
     """
     intensity = []
     i_interpolated = []
@@ -398,14 +385,13 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities,
     # i_interp = np.array(i_interp)
     hdr = fits.Header() # >> make the header
     hdu = fits.PrimaryHDU(time, header=hdr)
-    hdu.writeto(fname_time_intensities)
-    fits.append(fname_time_intensities, intensity_interp)
-    fits.append(fname_time_intensities, ticids)
-    # >> actually i'm going to save the raw intensities just in case
-    fits.append(fname_time_intensities, intensity)
-    
-    confirmation = "lc_from_target_list has finished running"
-    return confirmation
+    hdu.writeto(fname_time_intensities_raw)
+    fits.append(fname_time_intensities_raw, intensity_interp)
+    fits.append(fname_time_intensities_raw, ticids)
+
+    print("lc_from_target_list has finished running")
+    return time, intensity_interp, ticids
+
 
 def get_lc_file_and_data(yourpath, target):
     """ goes in, grabs the data for the target, gets the time index, intensity,and TIC
@@ -558,8 +544,8 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
     # >> actually i'm going to save the raw intensities just in case
     fits.append(fname_out, intensity)
     
-    confirmation="lc_from_bulk_download has finished running"
-    return confirmation
+    print("lc_from_bulk_download has finished running")
+    return time, intensity_interp, ticid_list
 
 def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
     """ Creates a fits file of the first n TICs that fall between the given
@@ -1015,7 +1001,6 @@ def feature_gen_from_lc_fits(folderpath, sector, feature_version=0):
             *must end in a backslash
         * sector number
         * what version of features you want generated (default is 0)
-
     modified [lcg 07042020]"""
     
     import datetime
