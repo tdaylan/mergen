@@ -13,7 +13,7 @@ Data access
 * data_access_by_group_fits()
 * bulk_download_helper()
 * follow_up_on_missed_targets_fits()
-* lc_from_target_list_fits()    : Pulls all light curves from a list of TICs
+* lc_from_target_list()    : Pulls all light curves from a list of TICs
 * get_lc_file_and_data()        : Pulls a light curve's fits file by TIC
 * tic_list_by_magnitudes        : Gets list of TICs for upper/lower mag. bounds
                         
@@ -22,6 +22,7 @@ Data processing
 * interpolate_all() : sigma clip and interpolate flux array
 * interpolate_lc()  : sigma clip and interpolate one light curve
 * nan_mask()        : apply NaN mask to flux array
+
 Engineered features
 * create_save_featvec()     : creates and saves a fits file containing all features
 * featvec()                 : creates a single feature vector for a LC
@@ -99,7 +100,7 @@ def lc_by_camera_ccd(sectorfile, camera, ccd):
     
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                              ccds=[1,2,3,4], DEBUG=False,
-                             output_dir='./', debug_ind=10, nan_mask=True):
+                             output_dir='./', debug_ind=10, nan_mask_check=True):
     '''Pulls light curves from fits files, and applies nan mask.
     
     Parameters:
@@ -156,9 +157,9 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     flux = np.concatenate(flux_list, axis=0)
         
     # >> apply nan mask
-    if nan_mask:
+    if nan_mask_check:
         print('Applying nan mask')
-        flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid, debug_ind=debug_ind,
+        flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid, debug_ind=debug_ind, 
                            target_info=target_info, output_dir=output_dir)
     
     return flux, x, ticid, target_info
