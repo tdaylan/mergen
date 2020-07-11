@@ -344,7 +344,6 @@ def lc_from_target_list(yourpath, targetList, fname_time_intensities_raw,
     modified [lcg 07092020]
     """
     intensity = []
-    i_interpolated = []
     ticids = []
     for n in range(len(targetList)): #for each item on the list
         
@@ -839,23 +838,138 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
     else:
         return flux, time
     
+# Target-Wise Metafile Production ----------------------------------
+def data_access_by_TIClist(yourpath, target_list, startindex, increment, filelabel):
+    """given a list of TICIDs, accesses SPOC light curve for those targets,
+    saves the time axis and the intensity into a fits file, and a list of all
+    the ticids contained within the file in order. 
+    parameters:
+        * yourpath = where you want it to be saved
+        * target_list = list of TICIDS as integers
+        * start index = what index you want to start your search at. can be 
+        useful if this stops running for whatever reason and you need to pick up
+        again where you left of
+        * increment = how many TICIDs maximum per file. 100-500 is pretty good, 
+        1000+ is risky simply because of astroquery's crashes
+        * filelabel = what you want the output subfolder + files to be called
+    returns: path to where everything is saved. 
+    requires: lc_from_target_list_diffsectors()
+    modified [lcg 07112020]
+        """
+    # produce the folder to save everything into and set up file names
+    path = yourpath + filelabel
+    fname_notes = path + "/" + filelabel + "_group_notes.txt"
     
+    try:
+        os.makedirs(path)
+        print ("Successfully created the directory %s" % path) 
+        with open(fname_notes, 'a') as file_object:
+            file_object.write("This file contains group notes, including any TICs that could not be accessed.\n")
+
+        n = startindex
+
+        m = n + increment
+        
+        while m < len(target_list):
+            targets_search = target_list[n:m]
+        
+            fname_time_intensities = path + "/" + filelabel + "_lightcurves"+str(n) + "-" + str(m)+".fits"
+            ticids = lc_from_target_list_diffsectors(yourpath, targets_search,
+                                                    fname_time_intensities,
+                                                    fname_notes)
+            print("finished", m)
+        
+            n = n + increment
+            m = m + increment
+        
+        
+    except OSError: #if there is an error creating the folder
+        print("There was an OS Error trying to create the folder. Check to see if data is already saved there")
+
+    return path
+
+
+
+def lc_from_target_list_diffsectors(yourpath, target_list, fname_time_intensities,
+                              fname_notes):
+    """ runs getting the files and data for all targets on the list
+    then appends the time & intensity arrays and the TIC number into text files
+    that can later be accessed
+    parameters: 
+        * yourpath = folder into which things will get saved
+        * target_list = list of ticids, as integers
+        * fname_time_intensities = direct path to the file to save into
+        * fname_notes = direct path to file to save TICIDS of targets that 
+            return no data into
+    returns: list of ticids as an array
+    requires: get_lc_file_and_data(), interpolate_lc()
+    modified [lcg 07112020]
+    """
+
+    ticids = []
+    for n in range(len(target_list)): #for each item on the list
+        
+        if n == 0: #for the first target only do you need to get the time index
+            target = target_list[0] #get that target number
+            time1, i1, tic = get_lc_file_and_data(yourpath, target) #grab that data
+            
+            if type(i1) == np.ndarray: #if the data IS data
+                i_interp = interpolate_lc(i1, time1, flux_err=False, interp_tol=20./(24*60),
+                                   num_sigma=10, DEBUG_INTERP=False,
+                                   output_dir=yourpath, prefix='')
+                TI = [time1, i1]
+                TI_array = np.asarray(TI)
+                hdr = fits.Header() # >> make the header
+                hdu = fits.PrimaryHDU(TI_array, header=hdr)
+                hdu.writeto(fname_time_intensities)
+                ticids.append(tic)
+                
+            else: #if the data is NOT a data
+                print("First target failed, no time index was saved")
+                with open(fname_notes, 'a') as file_object:
+                    file_object.write("\n")
+                    file_object.write(str(int(target)))
+        else: 
+            target = target_list[n] #get that target number
+            time1, i1, tic = get_lc_file_and_data(yourpath, target) #grab that data
+            
+            if type(i1) == np.ndarray: #if the data IS data
+                i_interp = interpolate_lc(i1, time1, flux_err=False, interp_tol=20./(24*60),
+                                   num_sigma=10, DEBUG_INTERP=False,
+                                   output_dir=yourpath, prefix='')
+                TI = [time1, i1]
+                TI_array = np.asarray(TI)
+                fits.append(fname_time_intensities, TI_array)
+                ticids.append(tic)
+                
+            else: #if the data is NOT a data
+                print("Target failed to return a light curve")
+                with open(fname_notes, 'a') as file_object:
+                    file_object.write("\n")
+                    file_object.write(str(int(target)))
+        print(n, " completed")
+    fits.append(fname_time_intensities, np.asarray(ticids))
+        
+    print("lc_from_target_list has finished running")
+    return np.asarray(ticids)
 
 #Feature Vector Production -----------------------------
 
 def create_save_featvec(yourpath, times, intensities, sector, camera, ccd, version):
     """Produces the feature vectors for each light curve and saves them all
-    into a single fits file
-    Takes: 
-        your path (folder you want the file saved into)
-        time axis
-        all intensity arrays
-        sector, camera, ccd values
-        version of feature vectors - default should be 0
-    returns list of feature vectors
-    modified: [lcg 07042020]"""
+    into a single fits file. requires all light curves on the same time axis
+    parameters:
+        * yourpath = folder you want the file saved into
+        * times = a single time axis for all 
+        * intensities = array of all light curves
+        * sector, camera, ccd = integers 
+        * version = what version of feature vector to calculate for all. 
+            default is 0
+    returns: list of feature vectors + fits file containing all feature vectors
+    requires: featvec()
+    modified: [lcg 07112020]"""
+    
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
-    #path = yourpath + folder_name
     fname_features = yourpath + "/"+ folder_name + "_features_v"+str(version)+".fits"
     feature_list = []
     print("Begining Feature Vector Creation Now")
@@ -867,14 +981,17 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd, versi
     
     feature_list = np.asarray(feature_list)
     hdr = fits.Header()
-    
+    hdr["SECTOR"] = sector
+    hdr["CAMERA"] = camera
+    hdr["CCD"] = ccd
+    hdr["VERSION"] = version
     hdu = fits.PrimaryHDU(feature_list, header=hdr)
     hdu.writeto(fname_features)
     
     return feature_list
 
 def featvec(x_axis, sampledata, v=0): 
-    """calculates the feature vector of the single light curve
+    """calculates the feature vector of a single light curve
         version 0: features 0-15
         version 1: features 0-19
         0 - Average
