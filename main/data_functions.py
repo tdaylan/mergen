@@ -955,7 +955,7 @@ def lc_from_target_list_diffsectors(yourpath, target_list, fname_time_intensitie
 
 #Feature Vector Production -----------------------------
 
-def create_save_featvec(yourpath, times, intensities, sector, camera, ccd, version):
+def create_save_featvec(yourpath, times, intensities, filelabel, version=0, save=True):
     """Produces the feature vectors for each light curve and saves them all
     into a single fits file. requires all light curves on the same time axis
     parameters:
@@ -969,8 +969,8 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd, versi
     requires: featvec()
     modified: [lcg 07112020]"""
     
-    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
-    fname_features = yourpath + "/"+ folder_name + "_features_v"+str(version)+".fits"
+
+    fname_features = yourpath + "/"+ filelabel + "_features_v"+str(version)+".fits"
     feature_list = []
     print("Begining Feature Vector Creation Now")
     for n in range(len(intensities)):
@@ -980,13 +980,14 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd, versi
         if n % 50 == 0: print(str(n) + " completed")
     
     feature_list = np.asarray(feature_list)
-    hdr = fits.Header()
-    hdr["SECTOR"] = sector
-    hdr["CAMERA"] = camera
-    hdr["CCD"] = ccd
-    hdr["VERSION"] = version
-    hdu = fits.PrimaryHDU(feature_list, header=hdr)
-    hdu.writeto(fname_features)
+    
+    if save == True:
+        hdr = fits.Header()
+        hdr["VERSION"] = version
+        hdu = fits.PrimaryHDU(feature_list, header=hdr)
+        hdu.writeto(fname_features)
+    else: 
+        print("Not saving feature vectors to fits")
     
     return feature_list
 
@@ -1109,7 +1110,7 @@ def featvec(x_axis, sampledata, v=0):
     
     return(featvec) 
 
-def feature_gen_from_lc_fits(folderpath, sector, feature_version=0):
+def feature_gen_from_lc_fits(path, sector, feature_version=0):
     """Given a path to a folder containing ALL the light curve metafiles 
     for a sector, produces the feature vector metafile for each group and then
     one main feature vector metafile containing ALL the features in [0] and the
@@ -1119,7 +1120,7 @@ def feature_gen_from_lc_fits(folderpath, sector, feature_version=0):
             *must end in a backslash
         * sector number
         * what version of features you want generated (default is 0)
-    modified [lcg 07042020]"""
+    modified [lcg 07112020]"""
     
     import datetime
     from datetime import datetime
@@ -1135,6 +1136,8 @@ def feature_gen_from_lc_fits(folderpath, sector, feature_version=0):
         camera = int(n)
         for m in range(1,5):
             ccd = int(m)
+            file_label = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+            folderpath = path + "/" + file_label + "/"
 
             t, i1, targets = load_group_from_fits(folderpath, sector, camera, ccd)
             ticids_all = np.concatenate((ticids_all, targets))
@@ -1148,16 +1151,19 @@ def feature_gen_from_lc_fits(folderpath, sector, feature_version=0):
             dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
             print("Starting feature vectors for camera ", camera, "ccd ", ccd, "at ", dt_string)
             
-            create_save_featvec(folderpath, t2, i3, sector, camera, ccd)
+            create_save_featvec(folderpath, t2, i3, file_label, version=0, save=True)
     
     ticids_all = ticids_all[1:]
     feats_all = np.zeros((2,16))
 
+    #make main listing
     for n in range(1,5):
         camera = int(n)
         for m in range(1,5):
             ccd = int(m)
-            f = fits.open(folderpath + "Sector" + str(sector) + "Cam" + str(n) + "CCD" + str(m) + "_features.fits", mmap=False)
+            file_label = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+            folderpath = path + "/" + file_label + "/"
+            f = fits.open(folderpath + file_label + "_features.fits", mmap=False)
             feats = f[0].data
             feats_all = np.concatenate((feats_all, feats))
             f.close()
