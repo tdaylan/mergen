@@ -1,27 +1,22 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Jun  4 21:54:56 2020
-
 Data access, data processing, feature vector creation functions.
-
 @author: Lindsey Gordon (@lcgordon) and Emma Chickles (@emmachickles)
-
-Updated: June 26 2020
-
+Updated: July 8 2020
 Data access
-* test_data()
-* load_data_from_metafiles()
-* load_group_from_fits()
-* load_group_from_txt()
+* test_data()           : confirms module loaded in 
+* lc_by_camera_ccd()    : divides sector TIC list into groups by ccd/camera
+* load_data_from_metafiles()    : loads LC from ALL metafiles for sector
+* load_group_from_fits()        : loads LC for one group's fits files
 * data_access_sector_by_bulk()
 * data_access_by_group_fits()
 * bulk_download_helper()
 * follow_up_on_missed_targets_fits()
-* interp_norm_sigmaclip_features()
-* lc_by_camera_ccd()
-* lc_from_target_list_fits()
-* get_lc_file_and_data()
-
+* lc_from_target_list()    : Pulls all light curves from a list of TICs
+* get_lc_file_and_data()        : Pulls a light curve's fits file by TIC
+* tic_list_by_magnitudes        : Gets list of TICs for upper/lower mag. bounds
+                        
 Data processing
 * normalize()       : median normalization
 * interpolate_all() : sigma clip and interpolate flux array
@@ -29,10 +24,11 @@ Data processing
 * nan_mask()        : apply NaN mask to flux array
 
 Engineered features
-* create_save_featvec
-* featvec
-
-
+* create_save_featvec()     : creates and saves a fits file containing all features
+* featvec()                 : creates a single feature vector for a LC
+* feature_gen_from_lc_fits()    : creates features for all of a sector
+Depreciated Functions
+* load_group_from_txt()
 """
 
 import numpy as np
@@ -91,9 +87,20 @@ def test_data():
     """make sure the module loads in"""
     print("Data functions loaded in.")
     
+def lc_by_camera_ccd(sectorfile, camera, ccd):
+    """gets all the targets for a given sector, camera, ccd
+    from the master list for that sector"""
+    target_list = np.loadtxt(sectorfile)     #load in the target file
+    indexes = [] #empty array to save indexes into
+    for n in range(len(target_list)): #for each item in the list of targets
+        if target_list[n][1] == camera and target_list[n][2] == ccd: #be sure it matches
+            indexes.append(n) #if it does, append to index list
+    matching_targets = target_list[indexes] #just grab those indexes
+    return matching_targets #return list of only targets on that specific ccd
+    
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                              ccds=[1,2,3,4], DEBUG=False,
-                             output_dir='./', debug_ind=10, nan_mask=True):
+                             output_dir='./', debug_ind=10, nan_mask_check=True):
     '''Pulls light curves from fits files, and applies nan mask.
     
     Parameters:
@@ -134,7 +141,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     target_info = np.empty((0, 3)) # >> [sector, camera, ccd]
     for i in range(len(fnames)):
         print('Loading ' + fnames[i] + '...')
-        with fits.open(data_dir + fnames[i]) as hdul:
+        with fits.open(data_dir + fnames[i], mmap=False) as hdul:
             if i == 0:
                 x = hdul[0].data
             flux = hdul[1].data
@@ -150,16 +157,15 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     flux = np.concatenate(flux_list, axis=0)
         
     # >> apply nan mask
-    if nan_mask:
+    if nan_mask_check:
         print('Applying nan mask')
-        flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid, debug_ind=debug_ind,
+        flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid, debug_ind=debug_ind, 
                            target_info=target_info, output_dir=output_dir)
     
     return flux, x, ticid, target_info
     
     
 def load_group_from_fits(path, sector, camera, ccd): 
-    
     """ pull the light curves and target list from fits metafiles
     path is the folder in which all the metafiles are saved. ends in a backslash 
     sector camera ccd are integers you want the info from
@@ -176,30 +182,7 @@ def load_group_from_fits(path, sector, camera, ccd):
     
     return time, intensities, targets
     
-def load_group_from_txt(sector, camera, ccd, path):
-    """loads in a given group's data provided you have it saved in TEXT metafiles already
-    path needs to be a string, ending with a forward slash
-    camera, ccd, secotr all should be integers
-    """
-    folder = "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd)
-    time_path = path + folder + "/" + folder + "_times_processed.txt"
-    intensities_path = path + folder + "/" + folder + "_intensities_processed.txt"
-    features_path = path + folder + "/" + folder + "_features.txt"
-    targets_path = path + folder + "/" + folder + "_targets.txt"
-    notes_path = path + folder + "/" + folder + "_group_notes.txt"
-    
-    t = np.loadtxt(time_path)
-    intensities = np.loadtxt(intensities_path)
-    try: 
-        targets = np.loadtxt(targets_path)
-    except ValueError:
-        targets = np.loadtxt(targets_path, skiprows=1)
-        
-    targets.astype(int)
-    features = np.loadtxt(features_path, skiprows=1)
-    notes = np.loadtxt(notes_path, skiprows=1)
-    
-    return t, intensities, targets, features, notes 
+
 
 
 def data_access_sector_by_bulk(yourpath, sectorfile, sector,
@@ -272,15 +255,14 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
         ccd number you want (as int/float)
         this ONLY returns the target list and folderpath for the group
         
-        Saves a .fits file with primaryHDU=f[0]=time,
+        Saves a .fits file with primaryHDU=f[0]=time array,
         f[1]=raw intensity array, f[2] = interpolated intensity array (not normalized!)
         , f[3]=TICIDs
         """
     # produce the folder to save everything into and set up file names
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
     path = yourpath + folder_name
-    # fname_time_intensities_raw = path + "/" + folder_name + "_raw_lightcurves.fits"
-    fname_time_intensities_raw = path + "/" + folder_name + "_lightcurves.fits"
+    fname_time_intensities = path + "/" + folder_name + "_lightcurves.fits"
     fname_targets = path + "/" + folder_name + "_targets.txt"
     fname_notes = path + "/" + folder_name + "_group_notes.txt"
     
@@ -298,33 +280,29 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
         # >> get the light curve for each target on the list, and save into a
         # >> fits file
         if bulk_download:
-            confirmation = lc_from_bulk_download(bulk_download_dir,
+            time, intensity, ticids = lc_from_bulk_download(bulk_download_dir,
                                                  target_list,
                                                  fname_time_intensities_raw,
                                                  fname_targets,
                                                  fname_notes, path)
         else: # >> download each light curve
-            confirmation = lc_from_target_list_fits(yourpath, target_list,
+            time, intensity, ticids = lc_from_target_list(yourpath, target_list,
                                                     fname_time_intensities_raw,
                                                     fname_targets, fname_notes,
                                                      path=path)
-        print(confirmation)
-        #print("failed to get", len(failed_to_get), "targets")
-        targets = np.loadtxt(fname_targets, skiprows=1)
-        # print("found data for ", len(targets), " targets")
-    #check to be sure all have the same size, if not, report back an error
+       
         
     except OSError: #if there is an error creating the folder
-        print("There was an OS Error trying to create the folder. Checking to see if data is already saved there")
+        print("There was an OS Error trying to create the folder. Check to see if data is already saved there")
         targets = "empty"
         
-    return targets, path
+    return time, intensity, ticids, path
 
 def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     """ function to follow up on rejected TIC ids"""
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
     path = yourpath + folder_name
-    fname_time_intensities_raw = path + "/" + folder_name + "_raw_lightcurves.fits"
+    fname_time_intensities = path + "/" + folder_name + "_lightcurves.fits"
     fname_targets = path + "/" + folder_name + "_targets.txt"
     fname_notes = path + "/" + folder_name + "_group_notes.txt"
     fname_notes_followed_up = path + "/" + folder_name + "_targets_still_no_data.txt"
@@ -341,7 +319,7 @@ def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
         target = retry_targets[n][0] #get that target number
         time1, i1 = get_lc_file_and_data(yourpath, target)
         if type(i1) == np.ndarray: #IF THE DATA IS FORMATTED LKE DATA
-            fits.append(fname_time_intensities_raw, i1, header=hdr)
+            fits.append(fname_time_intensities, i1, header=hdr)
             with open(fname_targets, 'a') as file_object:
                 file_object.write("\n")
                 file_object.write(str(int(target)))
@@ -357,34 +335,15 @@ def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     
     return targets, path
 
-
-
-
-
-######
     
-
-def lc_by_camera_ccd(sectorfile, camera, ccd):
-    """gets all the targets for a given sector, camera, ccd
-    from the master list for that sector"""
-    target_list = np.loadtxt(sectorfile)     #load in the target file
-    indexes = [] #empty array to save indexes into
-    for n in range(len(target_list)): #for each item in the list of targets
-        if target_list[n][1] == camera and target_list[n][2] == ccd: #be sure it matches
-            indexes.append(n) #if it does, append to index list
-    matching_targets = target_list[indexes] #just grab those indexes
-    return matching_targets #return list of only targets on that specific ccd
-
-
-def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
+def lc_from_target_list(yourpath, targetList, fname_time_intensities_raw,
                              fname_targets, fname_notes, path='./'):
     """ runs getting the files and data for all targets on the list
     then appends the time & intensity arrays and the TIC number into text files
     that can later be accessed
-    modified [lcg 062620]
+    modified [lcg 07092020]
     """
     intensity = []
-    i_interpolated = []
     ticids = []
     for n in range(len(targetList)): #for each item on the list
         
@@ -393,12 +352,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
             time1, i1, tic = get_lc_file_and_data(yourpath, target) #grab that data
             
             if type(i1) == np.ndarray: #if the data IS data
-                # i_interp = interpolate_lc(i1, time1)
-                # i_interpolated.append(i_interp)
                 intensity.append(i1)
-                # hdr = fits.Header() #make-a the header
-                # hdu = fits.PrimaryHDU(time1, header=hdr)
-                # hdu.writeto(fname_time_intensities_raw) #make the fits file
                 ticids.append(tic)
             else: #if the data is NOT a data
                 print("First target failed, no time index was saved")
@@ -409,8 +363,6 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
             target = targetList[n][0] #get that target number
             time1, i1, tic = get_lc_file_and_data(yourpath, target)
             if type(i1) == np.ndarray:
-                # i_interp = interpolate_lc(i1, time1)
-                # i_interpolated.append(i_interp)
                 intensity.append(i1)    
                 ticids.append(tic)
             else: #IF THE DATA IS NOT DATA
@@ -436,6 +388,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     hdu.writeto(fname_time_intensities_raw)
     fits.append(fname_time_intensities_raw, intensity_interp)
     fits.append(fname_time_intensities_raw, ticids)
+# <<<<<<< HEAD
     
     # >> actually i'm going to save the raw intensities just in case
     fits.append(fname_time_intensities_raw, intensity)
@@ -448,11 +401,20 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     
     confirmation = "lc_from_target_list has finished running"
     return confirmation
+# =======
+
+#     print("lc_from_target_list has finished running")
+#     return time, intensity_interp, ticids
+
+# >>>>>>> 59f49e11e5e99ff841a8a27eb0194c2fae127855
 
 def get_lc_file_and_data(yourpath, target):
     """ goes in, grabs the data for the target, gets the time index, intensity,and TIC
     if connection error w/ MAST, skips it
-    modified [lcg 06262020] - now pulls TICID as well, in case accidentally gets the wrong lc"""
+    parameters: 
+        * yourpath, where you want the files saved to. must end in /
+        * targets, target list of all TICs 
+    modified [lcg 07082020] - fixed handling no results, fixed deleting download folder"""
     fitspath = yourpath + 'mastDownload/TESS/' # >> download directory
     targ = "TIC " + str(int(target))
     print(targ)
@@ -462,28 +424,35 @@ def get_lc_file_and_data(yourpath, target):
                                         dataproduct_type='timeseries',
                                         target_name=str(int(target)),
                                         objectname=targ)
-        data_products_by_obs = Observations.get_product_list(obs_table[0:4])
+        data_products_by_obs = Observations.get_product_list(obs_table[0:8])
             
         filter_products = Observations.filter_products(data_products_by_obs,
                                                        description = 'Light curves')
-        manifest = Observations.download_products(filter_products, extension='fits')
-                
+        if len(filter_products) != 0:
+            manifest = Observations.download_products(filter_products, download_dir= yourpath, extension='fits')
+        else: 
+            print("Query yielded no matching data produts for ", targ)
+            time1 = 0
+            i1 = 0
+            ticid = 0
+            
         #get all the paths to lc.fits files
         filepaths = []
         for root, dirs, files in os.walk(fitspath):
             for name in files:
-                print(name)
+                #print(name)
                 if name.endswith(("lc.fits")):
                     filepaths.append(root + "/" + name)
-        print(len(filepaths))
+        #print(len(filepaths))
+        #print(filepaths)
         
         if len(filepaths) == 0: #if no lc.fits were downloaded, move on
-            print(targ, "no light curve available")
+            print("No lc.fits files available for TIC ", targ)
             time1 = 0
             i1 = 0
             ticid = 0
         else: #if there are lc.fits files, open them and get the goods
-                #get the goods and then close it #!!!! GET THE TIC FROM THE F I L E 
+                #get the goods and then close it
             f = fits.open(filepaths[0], memmap=False)
             time1 = f[1].data['TIME']
             i1 = f[1].data['PDCSAP_FLUX']
@@ -491,13 +460,13 @@ def get_lc_file_and_data(yourpath, target):
             f.close()
                   
         #then delete all downloads in the folder, no matter what type
-        if os.path.isdir("mastDownload") == True:
-            shutil.rmtree("mastDownload")
-            print("folder deleted")
+        if os.path.isdir(yourpath + "mastDownload") == True:
+            shutil.rmtree(yourpath + "mastDownload")
+            print("Download folder deleted.")
             
         #corrects for connnection errors
     except (ConnectionError, OSError, TimeoutError, RemoteServiceError):
-        print(targ + "could not be accessed due to an error")
+        print(targ, " could not be accessed due to an error.")
         i1 = 0
         time1 = 0
         ticid = 0
@@ -590,12 +559,42 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
     # >> actually i'm going to save the raw intensities just in case
     fits.append(fname_out, intensity)
     
-    confirmation="lc_from_bulk_download has finished running"
-    return confirmation
+    print("lc_from_bulk_download has finished running")
+    return time, intensity_interp, ticid_list
+
+def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
+    """ Creates a fits file of the first n TICs that fall between the given
+    magnitude ranges. 
+    parameters: 
+        * path to where you want things saved
+        * lower magnitude limit
+        * upper magnitude limit
+        * n - number of TICs you want
+        * file label (what to call the fits file)
+    modified [lcg 07082020]
+    """
+    catalog_data = Catalogs.query_criteria(catalog="Tic", Tmag=[uppermag, lowermag], objType="STAR")
+
+    T_mags = np.asarray(catalog_data["Tmag"], dtype= float)
+    TICIDS = np.asarray(catalog_data["ID"], dtype = int)
+    
+    tmag_index = np.argsort(T_mags)
+    
+    sorted_tmags = T_mags[tmag_index]
+    sorted_ticids = TICIDS[tmag_index]
+    
+    hdr = fits.Header() # >> make the header
+    hdu = fits.PrimaryHDU(sorted_ticids[0:n], header=hdr)
+    hdu.writeto(path + filelabel + ".fits")
+    fits.append(path + filelabel + ".fits",sorted_tmags[0:n])
+    
+    return sorted_ticids, sorted_tmags
+
 
 #normalizing each light curve
 def normalize(flux, axis=1):
-    '''Dividing by median.'''
+    '''Dividing by median.
+    !!Current method blows points out of proportion if the median is too close to 0?'''
     medians = np.median(flux, axis = axis, keepdims=True)
     flux = flux / medians - 1.
     return flux
@@ -854,47 +853,141 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
     else:
         return flux, time
     
+# Target-Wise Metafile Production ----------------------------------
+def data_access_by_TIClist(yourpath, target_list, startindex, increment, filelabel):
+    """given a list of TICIDs, accesses SPOC light curve for those targets,
+    saves the time axis and the intensity into a fits file, and a list of all
+    the ticids contained within the file in order. 
+    parameters:
+        * yourpath = where you want it to be saved
+        * target_list = list of TICIDS as integers
+        * start index = what index you want to start your search at. can be 
+        useful if this stops running for whatever reason and you need to pick up
+        again where you left of
+        * increment = how many TICIDs maximum per file. 100-500 is pretty good, 
+        1000+ is risky simply because of astroquery's crashes
+        * filelabel = what you want the output subfolder + files to be called
+    returns: path to where everything is saved. 
+    requires: lc_from_target_list_diffsectors()
+    modified [lcg 07112020]
+        """
+    # produce the folder to save everything into and set up file names
+    path = yourpath + filelabel
+    fname_notes = path + "/" + filelabel + "_group_notes.txt"
     
-def brightness_tic_list(path, criteria, n, filelabel, highest=True):
-    """ creates a fits file list of the top ten thousand TICs that fit the criteria
-    if you're looking for magnitudes, you'll need to set highest = False because
-    inverse system (rip)"""
-    catalog_data = Catalogs.query_criteria(catalog="Tic", Tmag=criteria, objType="STAR")
-    #print(catalog_data["ID", "GAIAmag", 'Tmag', 'd'])
+    try:
+        os.makedirs(path)
+        print ("Successfully created the directory %s" % path) 
+        with open(fname_notes, 'a') as file_object:
+            file_object.write("This file contains group notes, including any TICs that could not be accessed.\n")
 
-    T_mags = np.asarray(catalog_data["Tmag"], dtype= float)
-    TICIDS = np.asarray(catalog_data["ID"], dtype = int)
-    
-    tmag_index = np.argsort(T_mags)
-    
-    sorted_tmags = T_mags[tmag_index]
-    sorted_ticids = TICIDS[tmag_index]
-    
-    hdr = fits.Header() # >> make the header
-    hdu = fits.PrimaryHDU(sorted_ticids[0:n], header=hdr)
-    hdu.writeto(path + filelabel + ".fits")
-    fits.append(path + filelabel + ".fits",sorted_tmags[0:n])
-    
-    return sorted_ticids, sorted_tmags
+        n = startindex
 
-#producing the feature vector list -----------------------------
+        m = n + increment
+        
+        while m < len(target_list):
+            targets_search = target_list[n:m]
+        
+            fname_time_intensities = path + "/" + filelabel + "_lightcurves"+str(n) + "-" + str(m)+".fits"
+            ticids = lc_from_target_list_diffsectors(yourpath, targets_search,
+                                                    fname_time_intensities,
+                                                    fname_notes)
+            print("finished", m)
+        
+            n = n + increment
+            m = m + increment
+        
+        
+    except OSError: #if there is an error creating the folder
+        print("There was an OS Error trying to create the folder. Check to see if data is already saved there")
 
-def create_save_featvec(yourpath, times, intensities, sector, camera, ccd, version):
+    return path
+
+
+
+def lc_from_target_list_diffsectors(yourpath, target_list, fname_time_intensities,
+                              fname_notes):
+    """ runs getting the files and data for all targets on the list
+    then appends the time & intensity arrays and the TIC number into text files
+    that can later be accessed
+    parameters: 
+        * yourpath = folder into which things will get saved
+        * target_list = list of ticids, as integers
+        * fname_time_intensities = direct path to the file to save into
+        * fname_notes = direct path to file to save TICIDS of targets that 
+            return no data into
+    returns: list of ticids as an array
+    requires: get_lc_file_and_data(), interpolate_lc()
+    modified [lcg 07112020]
+    """
+
+    ticids = []
+    for n in range(len(target_list)): #for each item on the list
+        
+        if n == 0: #for the first target only do you need to get the time index
+            target = target_list[0] #get that target number
+            time1, i1, tic = get_lc_file_and_data(yourpath, target) #grab that data
+            
+            if type(i1) == np.ndarray: #if the data IS data
+                i_interp = interpolate_lc(i1, time1, flux_err=False, interp_tol=20./(24*60),
+                                   num_sigma=10, DEBUG_INTERP=False,
+                                   output_dir=yourpath, prefix='')
+                TI = [time1, i1]
+                TI_array = np.asarray(TI)
+                hdr = fits.Header() # >> make the header
+                hdu = fits.PrimaryHDU(TI_array, header=hdr)
+                hdu.writeto(fname_time_intensities)
+                ticids.append(tic)
+                
+            else: #if the data is NOT a data
+                print("First target failed, no time index was saved")
+                with open(fname_notes, 'a') as file_object:
+                    file_object.write("\n")
+                    file_object.write(str(int(target)))
+        else: 
+            target = target_list[n] #get that target number
+            time1, i1, tic = get_lc_file_and_data(yourpath, target) #grab that data
+            
+            if type(i1) == np.ndarray: #if the data IS data
+                i_interp = interpolate_lc(i1, time1, flux_err=False, interp_tol=20./(24*60),
+                                   num_sigma=10, DEBUG_INTERP=False,
+                                   output_dir=yourpath, prefix='')
+                TI = [time1, i1]
+                TI_array = np.asarray(TI)
+                fits.append(fname_time_intensities, TI_array)
+                ticids.append(tic)
+                
+            else: #if the data is NOT a data
+                print("Target failed to return a light curve")
+                with open(fname_notes, 'a') as file_object:
+                    file_object.write("\n")
+                    file_object.write(str(int(target)))
+        print(n, " completed")
+    fits.append(fname_time_intensities, np.asarray(ticids))
+        
+    print("lc_from_target_list has finished running")
+    return np.asarray(ticids)
+
+#Feature Vector Production -----------------------------
+
+def create_save_featvec(yourpath, times, intensities, filelabel, version=0, save=True):
     """Produces the feature vectors for each light curve and saves them all
-    into a single fits file
-    Takes: 
-        your path (folder you want the file saved into)
-        time axis
-        all intensity arrays
-        sector, camera, ccd values
-        version of feature vectors - default should be 0
-    returns list of feature vectors
-    modified: [lcg 07042020]"""
-    folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
-    #path = yourpath + folder_name
-    fname_features = yourpath + "/"+ folder_name + "_features_v"+str(version)+".fits"
+    into a single fits file. requires all light curves on the same time axis
+    parameters:
+        * yourpath = folder you want the file saved into
+        * times = a single time axis for all 
+        * intensities = array of all light curves
+        * sector, camera, ccd = integers 
+        * version = what version of feature vector to calculate for all. 
+            default is 0
+    returns: list of feature vectors + fits file containing all feature vectors
+    requires: featvec()
+    modified: [lcg 07112020]"""
+    
+
+    fname_features = yourpath + "/"+ filelabel + "_features_v"+str(version)+".fits"
     feature_list = []
-    print("creating feature vectors about to begin")
+    print("Begining Feature Vector Creation Now")
     for n in range(len(intensities)):
         feature_vector = featvec(times, intensities[n], v=version)
         feature_list.append(feature_vector)
@@ -902,16 +995,21 @@ def create_save_featvec(yourpath, times, intensities, sector, camera, ccd, versi
         if n % 50 == 0: print(str(n) + " completed")
     
     feature_list = np.asarray(feature_list)
-    hdr = fits.Header()
     
-    hdu = fits.PrimaryHDU(feature_list, header=hdr)
-    hdu.writeto(fname_features)
+    if save == True:
+        hdr = fits.Header()
+        hdr["VERSION"] = version
+        hdu = fits.PrimaryHDU(feature_list, header=hdr)
+        hdu.writeto(fname_features)
+    else: 
+        print("Not saving feature vectors to fits")
     
     return feature_list
 
 def featvec(x_axis, sampledata, v=0): 
-    """calculates the feature vector of the single light curve
-    currently returns 16: 
+    """calculates the feature vector of a single light curve
+        version 0: features 0-15
+        version 1: features 0-19
         0 - Average
         1 - Variance
         2 - Skewness
@@ -943,8 +1041,7 @@ def featvec(x_axis, sampledata, v=0):
         18 - depth
         19 - power
         
-        version 0: features 0-15
-        version 1: features 0-19
+        
         modified [lcg 07042020]"""
     
     
@@ -1028,14 +1125,17 @@ def featvec(x_axis, sampledata, v=0):
     
     return(featvec) 
 
-def feature_gen_from_lc_fits(folderpath, sector, feature_version):
-    """ Create feature vectors and save them into fits files per group
-    then grab them ALL for the sector and save into one big fits file
-    Folderpath is path into place where the lc fits files are saved. 
-        must end in a backslash
-    sector is the sector being worked on
-    feature_version is the feature vector version being generated
-    modified [lcg 07042020]"""
+def feature_gen_from_lc_fits(path, sector, feature_version=0):
+    """Given a path to a folder containing ALL the light curve metafiles 
+    for a sector, produces the feature vector metafile for each group and then
+    one main feature vector metafile containing ALL the features in [0] and the
+    TICIDS in [1]. 
+    Parameters: 
+        * folderpath to where the light curve metafiles are saved
+            *must end in a backslash
+        * sector number
+        * what version of features you want generated (default is 0)
+    modified [lcg 07112020]"""
     
     import datetime
     from datetime import datetime
@@ -1051,6 +1151,8 @@ def feature_gen_from_lc_fits(folderpath, sector, feature_version):
         camera = int(n)
         for m in range(1,5):
             ccd = int(m)
+            file_label = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+            folderpath = path + "/" + file_label + "/"
 
             t, i1, targets = load_group_from_fits(folderpath, sector, camera, ccd)
             ticids_all = np.concatenate((ticids_all, targets))
@@ -1064,16 +1166,19 @@ def feature_gen_from_lc_fits(folderpath, sector, feature_version):
             dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
             print("Starting feature vectors for camera ", camera, "ccd ", ccd, "at ", dt_string)
             
-            create_save_featvec(folderpath, t2, i3, sector, camera, ccd)
+            create_save_featvec(folderpath, t2, i3, file_label, version=0, save=True)
     
     ticids_all = ticids_all[1:]
     feats_all = np.zeros((2,16))
 
+    #make main listing
     for n in range(1,5):
         camera = int(n)
         for m in range(1,5):
             ccd = int(m)
-            f = fits.open(folderpath + "Sector" + str(sector) + "Cam" + str(n) + "CCD" + str(m) + "_features.fits", mmap=False)
+            file_label = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
+            folderpath = path + "/" + file_label + "/"
+            f = fits.open(folderpath + file_label + "_features.fits", mmap=False)
             feats = f[0].data
             feats_all = np.concatenate((feats_all, feats))
             f.close()
@@ -1092,13 +1197,30 @@ def feature_gen_from_lc_fits(folderpath, sector, feature_version):
     
     return feats_all, ticids_all
 
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-    
-    # orbit_gap_start = num_inds[ np.argmax(np.diff(time[num_inds])) ]
-    # orbit_gap_end = num_inds[ orbit_gap_start+1 ]   
-    # orbit_gap_len = orbit_gap_end - orbit_gap_start
-    # interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
-    #                           np.isnan(i[run_starts]) * \
-    #                           (((run_starts > orbit_gap_start) * \
-    #                             (run_starts < orbit_gap_end)) == False))
 
+# DEPRECIATED SECTION -----------------------------------------------------
+def load_group_from_txt(sector, camera, ccd, path):
+    """loads in a given group's data provided you have it saved in TEXT metafiles already
+    path needs to be a string, ending with a forward slash
+    camera, ccd, secotr all should be integers
+    moved to depreciated 7/8/2020 by lcg
+    """
+    folder = "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd)
+    time_path = path + folder + "/" + folder + "_times_processed.txt"
+    intensities_path = path + folder + "/" + folder + "_intensities_processed.txt"
+    features_path = path + folder + "/" + folder + "_features.txt"
+    targets_path = path + folder + "/" + folder + "_targets.txt"
+    notes_path = path + folder + "/" + folder + "_group_notes.txt"
+    
+    t = np.loadtxt(time_path)
+    intensities = np.loadtxt(intensities_path)
+    try: 
+        targets = np.loadtxt(targets_path)
+    except ValueError:
+        targets = np.loadtxt(targets_path, skiprows=1)
+        
+    targets.astype(int)
+    features = np.loadtxt(features_path, skiprows=1)
+    notes = np.loadtxt(notes_path, skiprows=1)
+    
+    return t, intensities, targets, features, notes 
