@@ -11,7 +11,7 @@ Last updated: June 4 2020
 Helper functions
 * plot_lc()
 * ticid_label()
-* astroquery_pull_data !! combine with get_features() and ticid_label()
+* astroquery_pull_data !! combine with get_tess_features() and ticid_label()
 * format_axes()
 
 Feature visualization
@@ -88,6 +88,8 @@ from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
 from astroquery.mast import Tesscut
 
+import data_functions as df
+
 
 def test_plotting():
     print("Plotting functions loaded in")
@@ -108,6 +110,8 @@ def plot_lc(time, intensity, target, sector):
         for n in range(len(dumppoints)):
             plt.axvline(dumppoints[n], linewidth=0.5)
 
+
+    
 
 def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                          time, intensity, targets, folder_suffix='',
@@ -544,7 +548,7 @@ def histo_features(features, bins, t, intensities, targets, path, insets=False):
             plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=True)
 
 def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
-                   insets=True):
+                   insets=True, log=True):
     """ plot a histogram with one light curve from each bin plotted on top
     data is the histogram data
     bins is bins
@@ -556,7 +560,7 @@ def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
     modified [lcg 07012020]
     """
     fig, ax1 = plt.subplots()
-    n_in, bins, patches = ax1.hist(data, bins)
+    n_in, bins, patches = ax1.hist(data, bins, log=log)
     
     y_range = np.abs(n_in.max() - n_in.min())
     x_range = np.abs(data.max() - data.min())
@@ -573,6 +577,11 @@ def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
                 inset_x = bins[n] - (0.5*inset_width)
                 inset_y = n_in[n]
                 inset_height = 0.125 * y_range * 0.5
+                # if log: # >> use axes-relative coords
+                #     inset_width = 0.33*0.5
+                #     inset_height = 0.125*0.5
+                #     inset_x = 
+                    
                 axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
                 
                 lc_to_plot = insetx
@@ -670,57 +679,7 @@ def features_2D_colorshape(feature_vectors, path, clusteralg, hand_classes):
                 plt.ylabel(graph_label2)
                 plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.pdf")
                 plt.show()
-                
-
-def dbscan_param_search(bottleneck, min_samples=[15],
-                        metric=['euclidean', 'minkowski'],
-                        algorithm=['auto', 'ball_tree', 'kd_tree', 'brute'],
-                        leaf_size=[30, 40, 50], p=[1,2,3,4],
-                        eps=[0.1, 0.5, 1., 2., 3., 4., 5.], output_dir='./',
-                        prefix=''):
-    '''Performs simple grid search. UNFINISHED'''
-
-    classes = []
-    num_classes = []
-    counts = []
-    num_noisy= []
-    parameter_sets=[]
-    
-    # >> loop through parameter sets
-    for i in range(len(eps)):
-        for j in range(len(min_samples)):
-            for k in range(len(metric)):
-                for l in range(len(algorithm)):
-                    for m in range(len(leaf_size)):
-                        for n in range(len(p)):
-                            db = DBSCAN(eps=eps[i],
-                                        min_samples=min_samples[j],
-                                        metric=metric[k],
-                                        algorithm=algorithm[l],
-                                        leaf_size=leaf_size[m],
-                                        p=p[n]).fit(bottleneck)
-                            print(db.labels_)
-                            print(np.unique(db.labels_, return_counts=True))
-                            classes_1, counts_1 = \
-                                np.unique(db.labels_, return_counts=True)
-                            classes.append(classes_1)
-                            num_classes.append(len(classes_1))
-                            counts.append(counts_1)
-                            num_noisy.append(counts[0])
-                            parameter_sets.append([eps[i], min_samples[j],
-                                                   metric[k],
-                                                   algorithm[l],
-                                                   leaf_size[m],
-                                                   p[n]])
-                            with open(output_dir + prefix + 'dbscan_param_search.txt', 'a') as f:
-                                f.write('{} {} {} {} {} {}\n'.format(eps[i],
-                                                                   min_samples[j],
-                                                                   metric[k],
-                                                                   algorithm[l],
-                                                                   leaf_size[m],
-                                                                   p[n]))
-                                f.write(str(np.unique(db.labels_, return_counts=True)))
-                                f.write('\n\n')    
+                 
 
 def diagnostic_plots(history, model, p, output_dir, 
                      x, x_train, x_test, x_predict, 
@@ -841,7 +800,7 @@ def diagnostic_plots(history, model, p, output_dir,
     if input_features:
         features = []
         for ticid in ticid_test:
-            res = get_features(ticid)
+            res = df.get_tess_features(ticid)
             features.append([res[1:6]])
         features = np.array(features)
     else: features=False
@@ -1437,9 +1396,10 @@ def plot_lof(time, intensity, targets, features, n, path,
     print('Make LOF histogram')
     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
                    targets, path+'lof-'+prefix+'histogram-insets.png',
-                   insets=True)
+                   insets=True, log=True)
     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                   targets, path+'lof-'+prefix+'histogram.png', insets=False)
+                   targets, path+'lof-'+prefix+'histogram.png', insets=False,
+                   log=True)
         
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
@@ -1644,6 +1604,103 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
                         bbox_inches='tight')
         plt.close(fig)
     
+def quick_plot_classification(time, intensity, targets, target_info, labels,
+                              path='./', prefix='', addend=1.,
+                              simbad_database_txt='./simbad_database.txt',
+                              title='', ncols=10, nrows=5):
+    '''Unfinished. Aim is to give an overview of the classifications, by
+    plotting the first 5 light curves of each class. Any light curves
+    classified by Simbad will be plotted first in their respective classes.'''
+    classes, counts = np.unique(labels, return_counts=True)
+    # colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
+    #         'skyblue', 'sienna', 'palegreen', 'darksalmon', 'sandybrown',
+    #         'lightsalmon', 'lightslategray', 'fuchsia', 'deeppink', 'crimson']*10
+    colors = get_colors()
+    
+    simbad_info = df.get_simbad_classifications(targets, simbad_database_txt)
+    ticid_simbad = np.array(simbad_info)[:,0].astype('int')
+    
+    num_figs = int(np.ceil(len(classes) / ncols))
+    
+    for i in range(num_figs): #
+        fig, ax = plt.subplots(nrows, ncols, sharex=True,
+                               figsize=(8*ncols*0.75, 3*nrows))
+        fig.suptitle(title)
+        
+        if i == num_figs - 1 and len(classes) % ncols != 0:
+            num_classes = len(classes) % ncols
+        else:
+            num_classes = ncols
+        for j in range(num_classes): # >> loop through columns
+            class_num = classes[ncols*i + j]
+            
+            # >> find all light curves with this  class
+            class_inds = np.nonzero(labels == class_num)[0]
+            
+            # >> find light curves with this class and classified in Simbad
+            # inds = np.isin(ticid_simbad, targets[class_inds])
+            inds = np.isin(targets[class_inds], ticid_simbad)
+            simbad_inds = class_inds[np.nonzero(inds)]
+            not_simbad_inds = class_inds[np.nonzero(~inds)]
+            
+            if class_num == -1:
+                color = 'black'
+            elif class_num < len(colors) - 1:
+                color = colors[class_num]
+            else:
+                color='black'
+                
+            k=-1
+            # >> first plot any Simbad classified light curves
+            for k in range(min(nrows, len(simbad_inds))): 
+                ind = simbad_inds[k] # >> to index targets
+                simbad_ind = np.nonzero(ticid_simbad == targets[ind])[0][0]
+                ax[k, j].plot(time, intensity[ind]+addend, '.k')
+                simbad_label(ax[k,j], targets[ind], simbad_info[simbad_ind])
+                ticid_label(ax[k, j], targets[ind], target_info[ind],
+                            title=True, color=color)
+                format_axes(ax[k, j], ylabel=True)
+            
+            # >> now plot non-classified light curves
+            for l in range(k+1, min(nrows, len(not_simbad_inds))):
+                ind = not_simbad_inds[l]
+                ax[l,j].plot(time, intensity[ind]+addend, '.k')
+                ticid_label(ax[l,j], targets[ind], target_info[ind],
+                            title=True, color=color)
+                format_axes(ax[l,j], ylabel=False)
+                
+            # ax[0, j].set_title('Class ' + str(class_num), color=color)            
+            ax[0, j].set_title('Class '+str(class_num)+'\n'+ax[0,j].get_title(),
+                               color=color, fontsize='xx-small')
+            ax[-1, j].set_xlabel('Time [BJD - 2457000]')   
+                        
+            if j == 0:
+                for m in range(nrows):
+                    ax[m, 0].set_ylabel('Relative flux')
+                    
+        # fig.tight_layout()
+        fig.savefig(path + prefix + '-' + str(i) + '.png')
+        plt.close(fig)
+                
+def get_colors():
+    from matplotlib import colors as mcolors
+    import random
+    colors = dict(mcolors.BASE_COLORS, **mcolors.CSS4_COLORS)
+    
+    # Sort colors by hue, saturation, value and name.
+    by_hsv = sorted((tuple(mcolors.rgb_to_hsv(mcolors.to_rgba(color)[:3])), name)
+                    for name, color in colors.items())
+    sorted_names = [name for hsv, name in by_hsv]
+    
+    # >> get rid of white and light grays
+    for i in range(16):
+        sorted_names.pop(0)
+        
+    # >> now shuffle
+    random.Random(4).shuffle(sorted_names)
+    
+    return sorted_names
+    
 def plot_classification(time, intensity, targets, labels, path,
                         momentum_dump_csv = './Table_of_momentum_dumps.csv',
                         n=20, target_info=False,
@@ -1655,7 +1712,7 @@ def plot_classification(time, intensity, targets, labels, path,
     classes, counts = np.unique(labels, return_counts=True)
     # !!
     colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
-            'skyblue', 'sienna', 'palegreen']
+            'skyblue', 'sienna', 'palegreen']*10
     
     # >> get momentum dump times
     with open(momentum_dump_csv, 'r') as f:
@@ -1670,7 +1727,7 @@ def plot_classification(time, intensity, targets, labels, path,
         class_inds = np.nonzero(labels == classes[i])[0]
         if classes[i] == -1:
             color = 'black'
-        elif classes[i] < len(colors):
+        elif classes[i] < len(colors) - 1:
             color = colors[i]
         else:
             color='black'
@@ -1707,7 +1764,7 @@ def plot_classification(time, intensity, targets, labels, path,
                     bbox_inches='tight')
         plt.close(fig)
         
-def plot_pca(bottleneck, classes, n_components=2, output_dir='./'):
+def plot_pca(bottleneck, classes, n_components=2, output_dir='./', prefix=''):
     from sklearn.decomposition import PCA
     import pandas as pd
     pca = PCA(n_components=n_components)
@@ -1719,35 +1776,43 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./'):
     ax.set_ylabel('Principal Component 1')
     ax.set_xlabel('Principal Component 2')
     ax.set_title('2 component PCA')
-    
+    # colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
+    #     'skyblue', 'sienna', 'palegreen']*10
+    colors = get_colors() 
     # >> loop through classes
     class_labels = np.unique(classes)
     for i in range(len(class_labels)):
         inds = np.nonzero(classes == class_labels[i])
-        if class_labels[i] == 0:
-            color='r'
-        elif class_labels[i] == 1:
-            color = 'b'
-        elif class_labels[i] == 2:
-            color='g'
-        elif class_labels[i] == 3:
-            color='m'
+        # if class_labels[i] == 0:
+        #     color='r'
+        # elif class_labels[i] == 1:
+        #     color = 'b'
+        # elif class_labels[i] == 2:
+        #     color='g'
+        # elif class_labels[i] == 3:
+        #     color='m'
+        # else:
+        #     color='k'
+        if class_labels[i] == -1:
+            color = 'black'
+        elif class_labels[i] < len(colors)-1:
+            color = colors[class_labels[i]]
         else:
-            color='k'
+            color='black'
         
         ax.plot(principalComponents[inds][:,0], principalComponents[inds][:,1],
-                '.'+color)
-    fig.savefig(output_dir + 'PCA_plot.png')
+                '.', color=color)
+    fig.savefig(output_dir + prefix + 'PCA_plot.png')
 
 # == helper functions =========================================================
 
-def ticid_label(ax, ticid, target_info, title=False):
+def ticid_label(ax, ticid, target_info, title=False, color='black'):
     '''Query catalog data and add text to axis.
     Parameters:
         * target_info : [sector, camera, ccd]'''
     try:
         # >> query catalog data
-        target, Teff, rad, mass, GAIAmag, d, objType = get_features(ticid)
+        target, Teff, rad, mass, GAIAmag, d, objType = df.get_tess_features(ticid)
 
         # >> change sigfigs for effective temperature
         if np.isnan(Teff):
@@ -1772,7 +1837,7 @@ def ticid_label(ax, ticid, target_info, title=False):
             ax.set_title(info1.format(sector, cam, ccd, Teff, '%.2g'%rad,
                                       '%.2g'%mass, '%.3g'%GAIAmag, '%.3g'%d,
                                       objType),
-                         fontsize='xx-small')
+                         fontsize='xx-small', color=color)
         else:
             ax.text(0.98, 0.98, info.format(Teff, '%.2g'%rad, '%.2g'%mass, 
                                             '%.3g'%GAIAmag, '%.3g'%d, objType),
@@ -1783,26 +1848,16 @@ def ticid_label(ax, ticid, target_info, title=False):
         ax.text(0.98, 0.98, "there was a connection error",
                       transform=ax.transAxes, horizontalalignment='right',
                       verticalalignment='top', fontsize='xx-small')
-        
-def get_features(ticid):
-    '''Query catalog data https://arxiv.org/pdf/1905.10694.pdf'''
-    from astroquery.mast import Catalogs
-
-    target = 'TIC '+str(int(ticid))
-    catalog_data = Catalogs.query_object(target, radius=0.02, catalog='TIC')
-    Teff = catalog_data[0]["Teff"]
-
-    rad = catalog_data[0]["rad"]
-    mass = catalog_data[0]["mass"]
-    GAIAmag = catalog_data[0]["GAIAmag"]
-    d = catalog_data[0]["d"]
-    # Bmag = catalog_data[0]["Bmag"]
-    # Vmag = catalog_data[0]["Vmag"]
-    objType = catalog_data[0]["objType"]
-    # Tmag = catalog_data[0]["Tmag"]
-    # lum = catalog_data[0]["lum"]
-
-    return target, Teff, rad, mass, GAIAmag, d, objType
+            
+def simbad_label(ax, ticid, simbad_info):
+    '''simbad_info = [ticid, main_id, otype, bibcode]'''
+    # ind = np.nonzero(np.array(simbad_info)[:,0].astype('int') == ticid)
+    # if np.shape(ind)[1] != 0:
+    #     ticid, main_id, otype, bibcode = simbad_info[ind[0][0]]
+    ticid, main_id, otype, bibcode = simbad_info
+    ax.text(0.98, 0.98, 'otype: '+otype+'\nmain_id: '+main_id+'\n'+bibcode,
+            transform=ax.transAxes, fontsize='xx-small',
+            horizontalalignment='right', verticalalignment='top')
     
 def format_axes(ax, xlabel=False, ylabel=False):
     '''Helper function to plot TESS light curves. Aspect ratio is 3/8.
@@ -1824,14 +1879,19 @@ def format_axes(ax, xlabel=False, ylabel=False):
     if ylabel:
         ax.set_ylabel('Relative flux')
     
-def latent_space_plot(activation, p, out, n_bins = 50, log = True):
+def latent_space_plot(activation, p, out, n_bins = 50, log = True,
+                      units='phi'):
     '''Creates corner plot of latent space.
         Parameters:
         * bottleneck : bottleneck layer, shape=(num light curves, num features)
         * params : dictionary of hyperparameters
         * out : output directory (ending with '/')
         * n_bins : number of bins in histogram (int)
-        * log : if True, plots log histogram'''
+        * log : if True, plots log histogram
+        * units : either 'phi' (learned features), or 'psi'
+          (engineered features)
+    '''
+        
     from matplotlib.colors import LogNorm
     
     latentDim = p['latent_dim']
@@ -1839,11 +1899,16 @@ def latent_space_plot(activation, p, out, n_bins = 50, log = True):
     fig, axes = plt.subplots(nrows = latentDim, ncols = latentDim,
                              figsize = (10, 10))
 
+    if units == 'phi':
+        ax_label = '\u03C61'
+    elif units == 'psi':
+        ax_label = '\u03C8'
+
     # >> deal with 1 latent dimension case
     if latentDim == 1:
         axes.hist(np.reshape(activation, np.shape(activation)[0]), n_bins,
                   log=log)
-        axes.set_ylabel('\u03C61')
+        axes.set_xlabel(ax_label)
         axes.set_ylabel('frequency')
     else:
         # >> row 1 column 1 is first latent dimension (phi1)
@@ -1859,8 +1924,8 @@ def latent_space_plot(activation, p, out, n_bins = 50, log = True):
                 axes[latentDim-1-i, latentDim-1-j].axis('off')
 
             # >> x and y labels
-            axes[i,0].set_ylabel('\u03C6' + str(i))
-            axes[latentDim-1,i].set_xlabel('\u03C6' + str(i))
+            axes[i,0].set_ylabel(ax_label + str(i))
+            axes[latentDim-1,i].set_xlabel(ax_label + str(i))
 
         # >> removing axis
         for ax in axes.flatten():

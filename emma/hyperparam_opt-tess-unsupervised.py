@@ -16,7 +16,7 @@
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 dat_dir = '../../' # >> directory with input data (ending with /)
-output_dir = '../../plots/sector20/' # >> directory to save diagnostic plots
+output_dir = '../../plots/CAE/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -40,9 +40,10 @@ DBSCAN_parameter_search=True # >> runs grid search for DBSCAN
 #    * median_normalization : divides by median
 #    * minmax_normalization : sets range of values from 0. to 1.
 #    * none : no normalization
-norm_type = 'median_normalization'
+norm_type = 'standardization'
 
 input_rms=True # >> concatenate RMS to learned features
+use_tess_features = True
 input_features=False # >> this option cannot be used yet
 
 # >> move targets out of training set and into testing set (integer)
@@ -92,20 +93,34 @@ if hyperparameter_optimization: # !! change epochs
       'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
                       'glorot_uniform']}
 else:
+    # p = {'kernel_size': 3,
+    #       'latent_dim': 17,
+    #       'strides': 1,
+    #       'epochs': 7,
+    #       'dropout': 0.3,
+    #       'num_filters': 32,
+    #       'num_conv_layers': 2,
+    #       'batch_size': 128,
+    #       'activation': 'elu',
+    #       'optimizer': 'adadelta',
+    #       'last_activation': 'linear',
+    #       'losses': 'mean_squared_error',
+    #       'lr': 0.001,
+    #       'initializer': 'glorot_normal'}
     p = {'kernel_size': 3,
-          'latent_dim': 17,
+          'latent_dim': 25,
           'strides': 1,
-          'epochs': 7,
+          'epochs': 15,
           'dropout': 0.3,
           'num_filters': 32,
-          'num_conv_layers': 2,
+          'num_conv_layers': 6,
           'batch_size': 128,
           'activation': 'elu',
           'optimizer': 'adadelta',
           'last_activation': 'linear',
           'losses': 'mean_squared_error',
           'lr': 0.001,
-          'initializer': 'glorot_normal'}
+          'initializer': 'glorot_normal'}    
 
 # -- create output directory --------------------------------------------------
     
@@ -114,100 +129,16 @@ if os.path.isdir(output_dir) == False: # >> check if dir already exists
     
 # -- load data ----------------------------------------------------------------
     
-lengths = []
-time_list = []
-flux_list = []
-ticid = np.empty((0, 1))
-target_info = np.empty((0, 3))
-for i in range(len(fnames)):
-    print('Loading ' + fnames[i] + '...')
-    with fits.open(dat_dir + fnames[i]) as hdul:
-        x = hdul[0].data
-        flux = hdul[1].data
-        ticid_list = hdul[2].data
-
-    lengths.append(len(x))
-    time_list.append(x)
-    flux_list.append(flux)
-    ticid = np.append(ticid, ticid_list)
-    target_info = np.append(target_info,
-                            np.repeat([fname_info[i]], len(flux), axis=0),
-                            axis=0)
-
-# !! truncate if using multiple sectors
-new_length = np.min([np.shape(i)[1] for i in flux_list])
-flux = []
-for i in range(len(fnames)):
-    flux.append(flux_list[i][:,:new_length])
-
-flux = np.concatenate(flux, axis=0)
-x = time_list[0][:new_length]
-
-# >> shuffle flux array
-inds = np.arange(len(flux))
-np.random.shuffle(inds)
-flux = flux[inds]
-ticid = ticid[inds]
-target_info = target_info[inds].astype('int')
-
-# >> moves target object to the testing set (and will be plotted in the
-# >> input-output-residual plot)
-if len(targets) > 0:
-    for t in targets:
-        target_ind = np.nonzero( ticid == t )[0][0]
-        flux = np.insert(flux, -1, flux[target_ind], axis=0)
-        flux = np.delete(flux, target_ind, axis=0)
-        ticid = np.insert(ticid, -1, ticid[target_ind])
-        ticid = np.delete(ticid, target_ind)
-        target_info = np.insert(target_info, -1, target_info[target_ind],
-                                axis=0)
-        target_info = np.delete(target_info, target_ind, axis=0)        
+flux, x, ticid, target_info = \
+    df.load_data_from_metafiles(dat_dir, sector, DEBUG=True,
+                                output_dir=output_dir, nan_mask_check=True)
     
-# -- nan mask -----------------------------------------------------------------
-# >> apply nan mask
-print('Applying NaN mask...')
-flux, x = df.nan_mask(flux, x, output_dir=output_dir, ticid=ticid, 
-                      DEBUG=True, debug_ind=10, target_info=target_info)
-
-# -- partition data -----------------------------------------------------------
-# >> calculate rms and standardize
-if input_rms:
-    print('Calculating RMS..')
-    rms = df.rms(flux)
-    
-    if norm_type == 'standardization':
-        print('Standardizing fluxes...')
-        flux = df.standardize(flux)
-    
-    elif norm_type == 'median_normalization':
-        print('Normalizing fluxes (dividing by median)...')
-        flux = df.normalize(flux)
-        
-    elif norm_type == 'minmax_normalization':
-        print('Normalizing fluxes (changing minimum and range)...')
-        mins = np.min(flux, axis = 1, keepdims=True)
-        flux = flux - mins
-        maxs = np.max(flux, axis=1, keepdims=True)
-        flux = flux / maxs
-        
-    else:
-        print('Light curves are not normalized!')
-
-print('Partitioning data...')
-x_train, x_test, y_train, y_test, x = \
-    ml.split_data(flux, x, p, train_test_ratio=train_test_ratio,
-                  supervised=False)    
-
-ticid_train = ticid[:np.shape(x_train)[0]]
-ticid_test = ticid[-1 * np.shape(x_test)[0]:]
-target_info_train = target_info[:np.shape(x_train)[0]]
-target_info_test = target_info[-1 * np.shape(x_test)[0]:]
-
-if input_rms:
-    rms_train = rms[:np.shape(x_train)[0]]
-    rms_test = rms[-1 * np.shape(x_test)[0]:]
-else:
-    rms_train, rms_test = False, False
+x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
+    target_info_test, rms_train, rms_test, time = \
+    ml.autoencoder_preprocessing(flux, ticid, x, target_info, p,
+                                 targets=targets, norm_type=norm_type,
+                                 input_rms=input_rms,
+                                 train_test_ratio=train_test_ratio)
 
 title='TESS-unsupervised'
 
@@ -319,96 +250,115 @@ if diag_plots:
                             plot_reconstruction_error_all=False)                            
 
 # >> Feature plots
+
 if classification:
+    features, flux_feat, ticid_feat = \
+        ml.bottleneck_preprocessing(sectors[0],
+                                    np.concatenate([x_train, x_test], axis=0),
+                                    np.concatenate([ticid_train, ticid_test]),
+                                    output_dir=output_dir,
+                                    use_learned_features=True,
+                                    use_tess_features=True,
+                                    use_engineered_features=False)
+
+    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores =\
+    df.dbscan_param_search(bottleneck, time, flux_feat, ticid_feat,
+                           target_info_train, DEBUG=True, 
+                           output_dir=output_dir, data_dir='../../',
+                           simbad_database_txt='../../simbad_database.txt',
+                           algorithm=['auto'], leaf_size=[30])         
+        
+    # if DBSCAN_parameter_search:
+    #     from sklearn.cluster import DBSCAN
+    #     with fits.open(output_dir + 'bottleneck_test.fits') as hdul:
+    #         bottleneck = hdul[0].data
+    #     # !! already standardized
+    #     # bottleneck = ml.standardize(bottleneck, ax=0)
+    #     eps = list(np.arange(0.1,5.0,0.1))
+    #     min_samples = [10]# [2, 5,10,15]
+    #     metric = ['euclidean'] # ['euclidean', 'minkowski']
+    #     # algorithm = ['auto', 'ball_tree', 'kd_tree', 'brute']
+    #     algorithm=['auto']
+    #     # leaf_size = [30, 40, 50]
+    #     leaf_size=[30]
+    #     # p = [1,2,3,4]
+    #     p=[None]
+    #     classes = []
+    #     num_classes = []
+    #     counts = []
+    #     num_noisy= []
+    #     parameter_sets=[]
+    #     for i in range(len(eps)):
+    #         for j in range(len(min_samples)):
+    #             for k in range(len(metric)):
+    #                 for l in range(len(algorithm)):
+    #                     for m in range(len(leaf_size)):
+    #                         for n in range(len(p)):
+    #                             db = DBSCAN(eps=eps[i],
+    #                                         min_samples=min_samples[j],
+    #                                         metric=metric[k],
+    #                                         algorithm=algorithm[l],
+    #                                         leaf_size=leaf_size[m],
+    #                                         p=p[n]).fit(bottleneck)
+    #                             print(db.labels_)
+    #                             print(np.unique(db.labels_, return_counts=True))
+    #                             classes_1, counts_1 = \
+    #                                 np.unique(db.labels_, return_counts=True)
+    #                             classes.append(classes_1)
+    #                             num_classes.append(len(classes_1))
+    #                             counts.append(counts_1)
+    #                             num_noisy.append(counts[0])
+    #                             parameter_sets.append([eps[i], min_samples[j],
+    #                                                    metric[k],
+    #                                                    algorithm[l],
+    #                                                    leaf_size[m],
+    #                                                    p[n]])
+    #                             with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
+    #                                 f.write('{} {} {} {} {} {}\n'.format(eps[i],
+    #                                                                    min_samples[j],
+    #                                                                    metric[k],
+    #                                                                    algorithm[l],
+    #                                                                    leaf_size[m],
+    #                                                                    p[n]))
+    #                                 f.write(str(np.unique(db.labels_, return_counts=True)))
+    #                                 f.write('\n\n')
+    #     # >> get best parameter set (want to maximize)
+    #     # for i in range(2, max(num_classes)+1):
+    #     for i in np.unique(num_classes):
+    #         # print('num classes: ' + str(max(num_classes)))
+    #         print('num classes: ' + str(i))
+    #         inds = np.nonzero(np.array(num_classes)==i)
+    #         best = np.argmin(np.array(num_noisy)[inds])
+    #         best = inds[0][best]
+    #         print('best_parameter_set: ' + str(parameter_sets[best]))
+    #         print(str(counts[best]))
+    #         p=parameter_sets[best]
+    #         classes = pl.features_plotting_2D(bottleneck, bottleneck,
+    #                                           output_dir, 'dbscan',
+    #                                           x, x_test, ticid_test,
+    #                                           target_info=target_info_test,
+    #                                           feature_engineering=False,
+    #                                           eps=p[0], min_samples=p[1],
+    #                                           metric=p[2], algorithm=p[3],
+    #                                           leaf_size=p[4], p=p[5],
+    #                                           folder_suffix='_'+str(i)+\
+    #                                               'classes',
+    #                                           momentum_dump_csv=mom_dump)
     
-    if DBSCAN_parameter_search:
-        from sklearn.cluster import DBSCAN
-        with fits.open(output_dir + 'bottleneck_test.fits') as hdul:
-            bottleneck = hdul[0].data
-        # !! already standardized
-        # bottleneck = ml.standardize(bottleneck, ax=0)
-        eps = list(np.arange(0.1,5.0,0.1))
-        min_samples = [10]# [2, 5,10,15]
-        metric = ['euclidean'] # ['euclidean', 'minkowski']
-        algorithm = ['auto', 'ball_tree', 'kd_tree', 'brute']
-        leaf_size = [30, 40, 50]
-        p = [1,2,3,4]
-        classes = []
-        num_classes = []
-        counts = []
-        num_noisy= []
-        parameter_sets=[]
-        for i in range(len(eps)):
-            for j in range(len(min_samples)):
-                for k in range(len(metric)):
-                    for l in range(len(algorithm)):
-                        for m in range(len(leaf_size)):
-                            for n in range(len(p)):
-                                db = DBSCAN(eps=eps[i],
-                                            min_samples=min_samples[j],
-                                            metric=metric[k],
-                                            algorithm=algorithm[l],
-                                            leaf_size=leaf_size[m],
-                                            p=p[n]).fit(bottleneck)
-                                print(db.labels_)
-                                print(np.unique(db.labels_, return_counts=True))
-                                classes_1, counts_1 = \
-                                    np.unique(db.labels_, return_counts=True)
-                                classes.append(classes_1)
-                                num_classes.append(len(classes_1))
-                                counts.append(counts_1)
-                                num_noisy.append(counts[0])
-                                parameter_sets.append([eps[i], min_samples[j],
-                                                       metric[k],
-                                                       algorithm[l],
-                                                       leaf_size[m],
-                                                       p[n]])
-                                with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
-                                    f.write('{} {} {} {} {} {}\n'.format(eps[i],
-                                                                       min_samples[j],
-                                                                       metric[k],
-                                                                       algorithm[l],
-                                                                       leaf_size[m],
-                                                                       p[n]))
-                                    f.write(str(np.unique(db.labels_, return_counts=True)))
-                                    f.write('\n\n')
-        # >> get best parameter set (want to maximize)
-        # for i in range(2, max(num_classes)+1):
-        for i in np.unique(num_classes):
-            # print('num classes: ' + str(max(num_classes)))
-            print('num classes: ' + str(i))
-            inds = np.nonzero(np.array(num_classes)==i)
-            best = np.argmin(np.array(num_noisy)[inds])
-            best = inds[0][best]
-            print('best_parameter_set: ' + str(parameter_sets[best]))
-            print(str(counts[best]))
-            p=parameter_sets[best]
-            classes = pl.features_plotting_2D(bottleneck, bottleneck,
-                                              output_dir, 'dbscan',
-                                              x, x_test, ticid_test,
-                                              target_info=target_info_test,
-                                              feature_engineering=False,
-                                              eps=p[0], min_samples=p[1],
-                                              metric=p[2], algorithm=p[3],
-                                              leaf_size=p[4], p=p[5],
-                                              folder_suffix='_'+str(i)+\
-                                                  'classes',
-                                              momentum_dump_csv=mom_dump)
+    # else:
+    #     classes = pl.features_plotting_2D(bottleneck, bottleneck, output_dir,
+    #                                       'dbscan', x, x_test, ticid_test,
+    #                                       target_info=target_info_test,
+    #                                       feature_engineering=False, eps=2.9,
+    #                                       min_samples=2, metric='minkowski',
+    #                                       algorithm='auto', leaf_size=30, p=4,
+    #                                       momentum_dump_csv=mom_dump)        
+    # pl.features_plotting_2D(bottleneck, bottleneck, output_dir, 'kmeans',
+    #                         x, x_test, ticid_test,
+    #                         feature_engineering=False,
+    #                         momentum_dump_csv=mom_dump)
     
-    else:
-        classes = pl.features_plotting_2D(bottleneck, bottleneck, output_dir,
-                                          'dbscan', x, x_test, ticid_test,
-                                          target_info=target_info_test,
-                                          feature_engineering=False, eps=2.9,
-                                          min_samples=2, metric='minkowski',
-                                          algorithm='auto', leaf_size=30, p=4,
-                                          momentum_dump_csv=mom_dump)        
-    pl.features_plotting_2D(bottleneck, bottleneck, output_dir, 'kmeans',
-                            x, x_test, ticid_test,
-                            feature_engineering=False,
-                            momentum_dump_csv=mom_dump)
-    
-    pl.plot_pca(bottleneck, classes, output_dir=output_dir)
+    # pl.plot_pca(bottleneck, classes, output_dir=output_dir)
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     # targets = []
@@ -595,3 +545,99 @@ if classification:
             # (array([-1,  0,  1,  2]), array([23, 85,  6,  2]))    
         # x_predict = np.reshape(x_predict, (np.shape(x_predict)[0],
         #                                    np.shape(x_predict)[1], 1))
+# ticid_train = ticid[:np.shape(x_train)[0]]
+# ticid_test = ticid[-1 * np.shape(x_test)[0]:]
+# target_info_train = target_info[:np.shape(x_train)[0]]
+# target_info_test = target_info[-1 * np.shape(x_test)[0]:]    
+    
+# lengths = []
+# time_list = []
+# flux_list = []
+# ticid = np.empty((0, 1))
+# target_info = np.empty((0, 3))
+# for i in range(len(fnames)):
+#     print('Loading ' + fnames[i] + '...')
+#     with fits.open(dat_dir + fnames[i]) as hdul:
+#         x = hdul[0].data
+#         flux = hdul[1].data
+#         ticid_list = hdul[2].data
+
+#     lengths.append(len(x))
+#     time_list.append(x)
+#     flux_list.append(flux)
+#     ticid = np.append(ticid, ticid_list)
+#     target_info = np.append(target_info,
+#                             np.repeat([fname_info[i]], len(flux), axis=0),
+#                             axis=0)
+
+# # !! truncate if using multiple sectors
+# new_length = np.min([np.shape(i)[1] for i in flux_list])
+# flux = []
+# for i in range(len(fnames)):
+#     flux.append(flux_list[i][:,:new_length])
+
+# flux = np.concatenate(flux, axis=0)
+# x = time_list[0][:new_length]
+
+# # >> shuffle flux array
+# inds = np.arange(len(flux))
+# np.random.shuffle(inds)
+# flux = flux[inds]
+# ticid = ticid[inds]
+# target_info = target_info[inds].astype('int')
+
+# # >> moves target object to the testing set (and will be plotted in the
+# # >> input-output-residual plot)
+# if len(targets) > 0:
+#     for t in targets:
+#         target_ind = np.nonzero( ticid == t )[0][0]
+#         flux = np.insert(flux, -1, flux[target_ind], axis=0)
+#         flux = np.delete(flux, target_ind, axis=0)
+#         ticid = np.insert(ticid, -1, ticid[target_ind])
+#         ticid = np.delete(ticid, target_ind)
+#         target_info = np.insert(target_info, -1, target_info[target_ind],
+#                                 axis=0)
+#         target_info = np.delete(target_info, target_ind, axis=0)        
+    
+# -- nan mask -----------------------------------------------------------------
+# >> apply nan mask
+# print('Applying NaN mask...')
+# flux, x = df.nan_mask(flux, x, output_dir=output_dir, ticid=ticid, 
+#                       DEBUG=True, debug_ind=10, target_info=target_info)
+
+# -- partition data -----------------------------------------------------------
+# >> calculate rms and standardize
+# if input_rms:
+#     print('Calculating RMS..')
+#     rms = df.rms(flux)
+    
+#     if norm_type == 'standardization':
+#         print('Standardizing fluxes...')
+#         flux = df.standardize(flux)
+
+#     elif norm_type == 'median_normalization':
+#         print('Normalizing fluxes (dividing by median)...')
+#         flux = df.normalize(flux)
+        
+#     elif norm_type == 'minmax_normalization':
+#         print('Normalizing fluxes (changing minimum and range)...')
+#         mins = np.min(flux, axis = 1, keepdims=True)
+#         flux = flux - mins
+#         maxs = np.max(flux, axis=1, keepdims=True)
+#         flux = flux / maxs
+        
+#     else:
+#         print('Light curves are not normalized!')
+
+# print('Partitioning data...')
+# x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
+#     target_info_test, x = \
+#     ml.split_data(flux, ticid, target_info, x, p,
+#                   train_test_ratio=train_test_ratio,
+#                   supervised=False)
+
+# if input_rms:
+#     rms_train = rms[:np.shape(x_train)[0]]
+#     rms_test = rms[-1 * np.shape(x_test)[0]:]
+# else:
+#     rms_train, rms_test = False, False    
