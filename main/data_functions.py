@@ -436,7 +436,6 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     hdu.writeto(fname_time_intensities_raw)
     fits.append(fname_time_intensities_raw, intensity_interp)
     fits.append(fname_time_intensities_raw, ticids)
-# <<<<<<< HEAD
     
     # >> actually i'm going to save the raw intensities just in case
     fits.append(fname_time_intensities_raw, intensity)
@@ -446,9 +445,7 @@ def lc_from_target_list_fits(yourpath, targetList, fname_time_intensities_raw,
     #     # fits.append(fname_time_intensities_raw, intensity)
     #     fits.append(fname_time_intensities_raw, i_interp)
     #     fits.append(fname_time_intensities_raw, ticids)
-# =======
-
-# >>>>>>> a12cac99769399d435932ca9411afb970d46dccb
+    
     confirmation = "lc_from_target_list has finished running"
     return confirmation
 
