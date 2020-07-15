@@ -107,6 +107,73 @@ def plot_lc(time, intensity, target, sector):
         dumppoints = bjdcolumn[1290:]
         for n in range(len(dumppoints)):
             plt.axvline(dumppoints[n], linewidth=0.5)
+       
+def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppath, sigma):
+    """loads in a sector and plots lof +insets """
+    
+
+    flux, x, ticid, target_info = load_data_from_metafiles(pathtofolder, sector, cams=[1,2,3,4],
+                                 ccds=[1,2,3,4], DEBUG=False,
+                                 output_dir=pathtofolder, debug_ind=10, nan_mask_check=True)
+    featuresallpath = pathtofolder + "Sector" + str(sector) + "_features_v0_all.fits"
+    f = fits.open(featuresallpath, mmap=False)
+    
+    features = f[0].data
+    #targetsfits = f[1].data
+    f.close()
+
+    flux = normalize(flux, axis=1)
+    
+    features, ticids, flux = isolate_plot_feature_outliers(pathtofolder, sector, features, x, flux, ticid, sigma)
+    
+    plot_lof(x, flux, ticid, features, sector, pathtofolder,
+                 momentum_dump_csv = momentumdumppath,
+                 n_neighbors=20, target_info=target_info,
+                 prefix='', mock_data=False, addend=1., feature_vector=True,
+                 n_tot=numberofplots)
+
+    features_insets(x, flux, features, ticids, pathtofolder)
+    
+    return features, x, flux        
+        
+def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, sigma):
+    """ isolate features that are significantly out there and crazy
+    plot those outliers, and remove them from the features going into the 
+    main lof/plotting/
+    parameters: 
+        *path to save shit into
+        * features (all)
+        * time axis (1)
+        * flux (all)
+        * ticids (all)
+        
+    returns: features_cropped, ticids_cropped, flux_cropped """
+        
+    outlier_indexes = []
+    for i in range(len(features[0])):
+        column = features[:,i]
+        column_std = np.std(column)
+        column_cutoff = column_std * sigma
+        for n in range(len(column)):
+            #find and note the position of any outliers
+            if column[n] > column_cutoff: 
+                outlier_indexes.append(int(n))
+                
+    outlier_indexes = np.unique(np.asarray(outlier_indexes))
+    
+    for i in range(len(outlier_indexes)):
+        plt.scatter(x, flux[outlier_indexes[i]], s=0.5)
+        target = ticids[outlier_indexes[i]]
+        plt.title("TIC " + str(int(target)) + astroquery_pull_data(target))
+        plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
+        plt.show()
+        
+        
+    features_cropped = np.delete(features, outlier_indexes, axis=0)
+    ticids_cropped = np.delete(ticids, outlier_indexes)
+    flux_cropped = np.delete(flux, outlier_indexes, axis=0)
+        
+    return features_cropped, ticids_cropped, flux_cropped 
 
 
 def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
