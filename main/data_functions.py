@@ -105,7 +105,8 @@ def lc_by_camera_ccd(sectorfile, camera, ccd):
     return matching_targets #return list of only targets on that specific ccd
     
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
-                             ccds=[1,2,3,4], DEBUG=False,
+                             ccds=[1,2,3,4], data_type='SPOC',
+                             cadence='2-minute', DEBUG=False,
                              output_dir='./', debug_ind=10,
                              nan_mask_check=True):
     '''Pulls light curves from fits files, and applies nan mask.
@@ -115,20 +116,21 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
         * sector : sector, given as int, or as a list
         * cams : list of cameras
         * ccds : list of CCDs
+        * data_type : 'SPOC', 'FFI'
+        * cadence : '2-minute', '20-second'
         * DEBUG : makes nan_mask debugging plots. If True, the following are
                   required:
             * output_dir
             * debug_ind
         * nan_mask_check : if True, applies NaN mask
-            
     
     Returns:
         * flux : array of light curve PDCSAP_FLUX,
                  shape=(num light curves, num data points)
         * x : time array, shape=(num data points)
         * ticid : list of TICIDs, shape=(num light curves)
-        * target_info : [sector, cam, ccd] for each light curve,
-                        shape=(num light curves, 3)
+        * target_info : [sector, cam, ccd, data_type, cadence] for each light
+                        curve, shape=(num light curves, 5)
     '''
     
     # >> get file names for each group
@@ -139,13 +141,13 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
             s = 'Sector{sector}Cam{cam}CCD{ccd}/' + \
                 'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
-            fname_info.append([sector, cam, ccd])
+            fname_info.append([sector, cam, ccd, data_type, cadence])
                 
     # >> pull data from each fits file
     print('Pulling data')
     flux_list = []
     ticid = np.empty((0, 1))
-    target_info = np.empty((0, 3)) # >> [sector, camera, ccd]
+    target_info = [] # >> [sector, cam, ccd, data_type, cadence]
     for i in range(len(fnames)):
         print('Loading ' + fnames[i] + '...')
         with fits.open(data_dir + fnames[i], mmap=False) as hdul:
@@ -156,9 +158,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     
         flux_list.append(flux)
         ticid = np.append(ticid, ticid_list)
-        target_info = np.append(target_info,
-                                np.repeat([fname_info[i]], len(flux), axis=0),
-                                axis=0)
+        target_info.extend([fname_info[i]] * len(flux))
 
     # >> concatenate flux array         
     flux = np.concatenate(flux_list, axis=0)
@@ -1430,9 +1430,15 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                                              simbad_database_txt=simbad_database_txt,
                                                              title=title)
                                 
+                                print('Plot PCA...')
                                 pf.plot_pca(bottleneck, db.labels_,
                                             output_dir=output_dir,
                                             prefix=prefix)
+                                
+                                print('Plot t-SNE...')
+                                pf.plot_tsne(bottleneck, db.labels_,
+                                             output_dir=output_dir,
+                                             prefix=prefix)
     return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores
 
 # DEPRECIATED SECTION -----------------------------------------------------
