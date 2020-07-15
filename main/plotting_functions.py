@@ -157,10 +157,11 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     for i in range(len(features[0])):
         column = features[:,i]
         column_std = np.std(column)
-        column_cutoff = column_std * sigma
+        column_top = np.mean(column) + column_std * sigma
+        column_bottom = np.mean(column) - (column_std * sigma)
         for n in range(len(column)):
             #find and note the position of any outliers
-            if column[n] > column_cutoff: 
+            if column[n] < column_bottom or column[n] > column_top: 
                 outlier_indexes.append(int(n))
                 
     outlier_indexes = np.unique(np.asarray(outlier_indexes))
@@ -168,7 +169,7 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     for i in range(len(outlier_indexes)):
         plt.scatter(time, flux[outlier_indexes[i]], s=0.5)
         target = ticids[outlier_indexes[i]]
-        plt.title("TIC " + str(int(target)) + astroquery_pull_data(target))
+        plt.title("TIC " + str(int(target)) + astroquery_pull_data(target) + "\n" + str(features[outlier_indexes[i]]))
         plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
         plt.show()
         
@@ -1463,10 +1464,10 @@ def plot_lof(time, intensity, targets, features, n, path,
     print('Make LOF histogram')
     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
                    targets, path+'lof-'+prefix+'histogram-insets.png',
-                   insets=True, log=True)
+                   insets=True, log=False)
     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
                    targets, path+'lof-'+prefix+'histogram.png', insets=False,
-                   log=True)
+                   log=False)
         
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
