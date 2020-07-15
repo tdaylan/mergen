@@ -6,7 +6,7 @@ Plotting functions only.
 
 @author: Lindsey Gordon @lcgordon and Emma Chickles @emmachickles
 
-Last updated: June 4 2020
+Last updated: June 15 2020
 
 Helper functions
 * plot_lc()
@@ -25,6 +25,8 @@ Feature visualization
 * features_2D_colorshape()
 * plot_lof()
 * plot_pca()
+* isolate_plot_feature_outliers
+* lof_and_insets_on_sector
 
 Autoencoder visualizations
 * diagnostic_plots()
@@ -114,7 +116,7 @@ def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppa
     """loads in a sector and plots lof +insets """
     
 
-    flux, x, ticid, target_info = load_data_from_metafiles(pathtofolder, sector, cams=[1,2,3,4],
+    flux, x, ticid, target_info = df.load_data_from_metafiles(pathtofolder, sector, cams=[1,2,3,4],
                                  ccds=[1,2,3,4], DEBUG=False,
                                  output_dir=pathtofolder, debug_ind=10, nan_mask_check=True)
     featuresallpath = pathtofolder + "Sector" + str(sector) + "_features_v0_all.fits"
@@ -124,9 +126,9 @@ def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppa
     #targetsfits = f[1].data
     f.close()
 
-    flux = normalize(flux, axis=1)
+    flux = df.normalize(flux, axis=1)
     
-    features, ticids, flux = isolate_plot_feature_outliers(pathtofolder, sector, features, x, flux, ticid, sigma)
+    features, ticid, flux, outlier_indexes = isolate_plot_feature_outliers(pathtofolder, sector, features, x, flux, ticid, sigma)
     
     plot_lof(x, flux, ticid, features, sector, pathtofolder,
                  momentum_dump_csv = momentumdumppath,
@@ -134,9 +136,9 @@ def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppa
                  prefix='', mock_data=False, addend=1., feature_vector=True,
                  n_tot=numberofplots)
 
-    features_insets(x, flux, features, ticids, pathtofolder)
+    features_insets(x, flux, features, ticid, pathtofolder)
     
-    return features, x, flux        
+    return features, x, flux, ticid, outlier_indexes    
         
 def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, sigma):
     """ isolate features that are significantly out there and crazy
@@ -164,7 +166,7 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     outlier_indexes = np.unique(np.asarray(outlier_indexes))
     
     for i in range(len(outlier_indexes)):
-        plt.scatter(x, flux[outlier_indexes[i]], s=0.5)
+        plt.scatter(time, flux[outlier_indexes[i]], s=0.5)
         target = ticids[outlier_indexes[i]]
         plt.title("TIC " + str(int(target)) + astroquery_pull_data(target))
         plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
@@ -175,7 +177,7 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     ticids_cropped = np.delete(ticids, outlier_indexes)
     flux_cropped = np.delete(flux, outlier_indexes, axis=0)
         
-    return features_cropped, ticids_cropped, flux_cropped 
+    return features_cropped, ticids_cropped, flux_cropped, outlier_indexes
 
 
     
@@ -193,7 +195,6 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
         path needs to end in a backslash
     clustering must equal 'dbscan', 'kmeans', or 'empty'
     """
-    #import pdb # >> [etc 060620]
     #detrmine which of the clustering algoirthms you're using: 
     folder_label = "blank"
     if clustering == 'dbscan':
@@ -205,7 +206,6 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
         folder_label = "dbscan-colored" + folder_suffix
-        # pdb.set_trace()
 
     elif clustering == 'kmeans': 
         Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
@@ -328,7 +328,7 @@ def astroquery_pull_data(target):
         title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
-        title = "connection error, no data"
+        title = "Connection error, no data"
     return title
 
 
@@ -2007,88 +2007,3 @@ def latent_space_plot(activation, p, out, n_bins = 50, log = True,
     # return fig, axes
      
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-    
-
-# if plot_clustering:
-#     bottleneck_ind = np.nonzero(['dense' in x.name for x in \
-#                                  model.layers])[0][0]
-#     bottleneck = activations[bottleneck_ind - 1]        
-#     latent_space_clustering(bottleneck, x_test, x, ticid_test,
-#                             out=output_dir+prefix+\
-#                                 'clustering-x_test-', addend=addend)
-
-# def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
-#     """plotting (n 2) features against each other
-#     feature_vectors is the list of ALL feature_vectors
-#     cluster_columns is the vectors that you want to use to do the clustering based on
-#         this can be the same as feature_vectors
-#     date must be a string in the format of the folder you are saving into ie "4-13"
-#     clustering must equal 'dbscan', 'kmeans', or 'empty'
-#     """
-#     clustering = "empty"
-#     folder_label = "blank"
-#     if clustering == 'dbscan':
-#         db = DBSCAN(eps=2.2, min_samples=18).fit(cluster_columns) #eps is NOT epochs
-#         classes_dbscan = db.labels_
-#         numclasses = str(len(set(classes_dbscan)))
-#         folder_label = "dbscan-colored"
-#     elif clustering == 'kmeans': 
-#         Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
-#         x = Kmean.fit(cluster_columns)
-#         classes_kmeans = x.labels_
-#         folder_label = "kmeans-colored"
-#     else: 
-#         print("no clustering chosen")
-#         folder_label = "2DFeatures-NoCluster"
-#     #makes folder and saves to it    
-#     folder_path = path + "/" + folder_label
-#     try:
-#         os.makedirs(folder_path)
-#     except OSError:
-#         print ("Creation of the directory %s failed" % folder_path)
-#         print("New folder created will have -new at the end. Please rename.")
-#         os.makedirs(folder_path + "-new")
-#     else:
-#         print ("Successfully created the directory %s" % folder_path) 
- 
-#     graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-#                     "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-#                     "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-#                     "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
-#     fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-#                     "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-#                     "P0", "P1", "P2", "Period0to0_1"]
-#     color = ["red", "blue", "green", "purple", "black"]
-#     for n in range(16):
-#         feat1 = feature_vectors[:,n]
-#         graph_label1 = graph_labels[n]
-#         fname_label1 = fname_labels[n]
-#         for m in range(16):
-#             if m == n:
-#                 continue
-#             graph_label2 = graph_labels[m]
-#             fname_label2 = fname_labels[m]                
-#             feat2 = feature_vectors[:,m]
-            
-#             if clustering == 'dbscan':
-#                 for p in range(len(feature_vectors)):
-#                     plt.scatter(feat1[p], feat2[p], c = color[classes_dbscan[p]], s = 5)
-#                 plt.xlabel(graph_label1)
-#                 plt.ylabel(graph_label2)
-#                 plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.pdf"))
-#                 plt.show()
-#             elif clustering == 'kmeans':
-#                 for p in range(len(feature_vectors)):
-#                     plt.scatter(feat1[p], feat2[p], c = color[classes_kmeans[p]])
-#                 plt.xlabel(graph_label1)
-#                 plt.ylabel(graph_label2)
-#                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.pdf")
-#                 plt.show()
-#             elif clustering == 'none':
-#                 plt.scatter(feat1, feat2, s = 2, color = 'black')
-#                 #plt.autoscale(enable=True, axis='both', tight=True)
-#                 plt.xlabel(graph_label1)
-#                 plt.ylabel(graph_label2)
-#                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".pdf")
-#                 plt.show()
-                
