@@ -27,6 +27,12 @@ Engineered features
 * create_save_featvec()     : creates and saves a fits file containing all features
 * featvec()                 : creates a single feature vector for a LC
 * feature_gen_from_lc_fits()    : creates features for all of a sector
+* get_tess_features : queries Teff, rad, mass, GAIAmag, d 
+                      !! query objType from Simbad
+* get_tess_feature_txt : queries TESS features (Teff, rad, etc.) for a sector
+* build_simbad_database : queries bibcode and object type for TESS objects
+* dbscan_param_search : performs grid search for DBSCAN
+
 Depreciated Functions
 * load_group_from_txt()
 """
@@ -100,7 +106,8 @@ def lc_by_camera_ccd(sectorfile, camera, ccd):
     
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                              ccds=[1,2,3,4], DEBUG=False,
-                             output_dir='./', debug_ind=10, nan_mask_check=True):
+                             output_dir='./', debug_ind=10,
+                             nan_mask_check=True):
     '''Pulls light curves from fits files, and applies nan mask.
     
     Parameters:
@@ -112,7 +119,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                   required:
             * output_dir
             * debug_ind
-        * nan_mask : if True, applies NaN mask
+        * nan_mask_check : if True, applies NaN mask
             
     
     Returns:
@@ -159,9 +166,10 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     # >> apply nan mask
     if nan_mask_check:
         print('Applying nan mask')
-        flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid, debug_ind=debug_ind, 
-                           target_info=target_info, output_dir=output_dir)
-    
+        flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid,
+                           debug_ind=debug_ind, target_info=target_info,
+                           output_dir=output_dir)
+
     return flux, x, ticid, target_info
     
     
@@ -388,10 +396,18 @@ def lc_from_target_list(yourpath, targetList, fname_time_intensities_raw,
     hdu.writeto(fname_time_intensities_raw)
     fits.append(fname_time_intensities_raw, intensity_interp)
     fits.append(fname_time_intensities_raw, ticids)
-
-    print("lc_from_target_list has finished running")
-    return time, intensity_interp, ticids
-
+    
+    # >> actually i'm going to save the raw intensities just in case
+    fits.append(fname_time_intensities_raw, intensity)
+    
+    # with open(fname_time_intensities_raw, 'rb+') as f:
+    #     # >> don't want to save 2x data we need to, so only save interpolated
+    #     # fits.append(fname_time_intensities_raw, intensity)
+    #     fits.append(fname_time_intensities_raw, i_interp)
+    #     fits.append(fname_time_intensities_raw, ticids)
+    
+    confirmation = "lc_from_target_list has finished running"
+    return confirmation
 
 def get_lc_file_and_data(yourpath, target):
     """ goes in, grabs the data for the target, gets the time index, intensity,and TIC
@@ -603,7 +619,7 @@ def standardize(x, ax=1):
 
 #interpolate and sigma clip
 def interpolate_all(flux, time, flux_err=False, interp_tol=20./(24*60),
-                    num_sigma=10, DEBUG_INTERP=False, output_dir='./',
+                    num_sigma=10, k=3, DEBUG_INTERP=False, output_dir='./',
                     prefix='', apply_nan_mask=False, DEBUG_MASK=False,
                     ticid=False):
     '''Interpolates each light curves in flux array.'''
@@ -612,7 +628,7 @@ def interpolate_all(flux, time, flux_err=False, interp_tol=20./(24*60),
     for i in flux:
         i_interp = interpolate_lc(i, time, flux_err=flux_err,
                                   interp_tol=interp_tol,
-                                  num_sigma=num_sigma,
+                                  num_sigma=num_sigma, k=k,
                                   DEBUG_INTERP=DEBUG_INTERP,
                                   output_dir=output_dir, prefix=prefix)
         flux_interp.append(i_interp)
@@ -625,11 +641,12 @@ def interpolate_all(flux, time, flux_err=False, interp_tol=20./(24*60),
     return flux_interp, time
 
 def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
-                   num_sigma=10, DEBUG_INTERP=False,
+                   num_sigma=10, k=3, DEBUG_INTERP=False,
                    output_dir='./', prefix=''):
     '''Interpolation for one light curve. Linearly interpolates nan gaps less
     than 20 minutes long. Spline interpolates nan gaps more than 20 minutes
-    long (and shorter than orbit gap)'''
+    long (and shorter than orbit gap)
+    '''
     from astropy.stats import SigmaClip
     from scipy import interpolate
     
@@ -703,7 +720,8 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     # -- spline interpolate large nan gaps -----------------------------------
     # >> fit spline to non-nan points
     num_inds = np.nonzero( (~np.isnan(i)) * (~np.isnan(time)) )[0]
-    ius = interpolate.InterpolatedUnivariateSpline(time[num_inds], i[num_inds])
+    ius = interpolate.InterpolatedUnivariateSpline(time[num_inds], i[num_inds],
+                                                   k=k)
     
     # >> new time array (take out orbit gap)
     # t_spl = np.copy(time)
@@ -1181,6 +1199,240 @@ def feature_gen_from_lc_fits(path, sector, feature_version=0):
     
     return feats_all, ticids_all
 
+def get_tess_features(ticid):
+    '''Query catalog data https://arxiv.org/pdf/1905.10694.pdf'''
+    from astroquery.mast import Catalogs
+
+    target = 'TIC '+str(int(ticid))
+    catalog_data = Catalogs.query_object(target, radius=0.02, catalog='TIC')
+    Teff = catalog_data[0]["Teff"]
+
+    rad = catalog_data[0]["rad"]
+    mass = catalog_data[0]["mass"]
+    GAIAmag = catalog_data[0]["GAIAmag"]
+    d = catalog_data[0]["d"]
+    # Bmag = catalog_data[0]["Bmag"]
+    # Vmag = catalog_data[0]["Vmag"]
+    objType = catalog_data[0]["objType"]
+    # Tmag = catalog_data[0]["Tmag"]
+    # lum = catalog_data[0]["lum"]
+
+    return target, Teff, rad, mass, GAIAmag, d, objType
+
+def get_tess_feature_txt(ticid_list, out='./tess_features_sectorX.txt'):
+    '''Queries 'TESS features' (i.e. Teff, rad, mass, GAIAmag, d) for each
+    TICID and saves to text file.
+    
+    Can get ticid_list with:
+    with open('all_targets_S019_v1.txt', 'r') as f:
+        lines = f.readlines()
+    ticid_list = []
+    for line in lines[6:]:
+        ticid_list.append(int(line.split()[0]))
+    '''
+    
+    # !! 
+    # TESS_features = []        
+    for i in range(len(ticid_list)):
+        print(i)
+        try:
+            features = get_tess_features(ticid_list[i])
+            # TESS_features.append(features)
+            with open(out, 'a') as f:
+                f.write(' '.join(map(str, features)) + '\n')
+        except:
+            with open('./failed_get_tess_features.txt', 'a') as f:
+                f.write(str(ticid_list[i])+'\n')
+
+
+    
+def build_simbad_database(out='./simbad_database.txt'):
+    '''http://vizier.u-strasbg.fr/cgi-bin/OType?$1'''
+    
+    # -- querying object type -------------------------------------------------
+    customSimbad = Simbad()
+    # customSimbad.get_votable_fields()
+    customSimbad.add_votable_fields('otype')
+    
+    # -- querying TICID for each object ---------------------------------------
+    # >> first get all the TESS objects in the Simbad database
+    res = customSimbad.query_catalog('tic')
+    objects = list(res['MAIN_ID'])
+
+    # >> now loop through all of the objects
+    for i in range(len(objects)):
+        # >> decode bytes object to convert to string
+        obj = objects[i].decode('utf-8')
+        bibcode = res['COO_BIBCODE'][i].decode('utf-8')
+        otype = res['OTYPE'][i].decode('utf-8')
+        
+        print(obj + ' ' + otype)
+        
+        # >> now query TICID
+        obs_table = Observations.query_criteria(obs_collection='TESS',
+                                                dataproduct_type='timeseries',
+                                                objectname=obj)
+        
+        ticids = obs_table['target_name']
+        for ticid in ticids:
+            with open(out, 'a') as f:
+                f.write(ticid + ',' + obj + ',' + otype + ',' + bibcode + '\n')
+                
+def get_simbad_classifications(ticid_list,
+                               simbad_database_txt='./simbad_database.txt'):
+    '''Query Simbad classification and bibcode from .txt file (output from
+    build_simbad_database).
+    Returns a list where simbad_info[i] = [ticid, main_id, obj type, bibcode]
+    '''
+    ticid_simbad = []
+    main_id_list = []
+    otype_list = []
+    bibcode_list = []
+    with open(simbad_database_txt, 'r') as f:
+        lines = f.readlines()
+        for line in lines:
+            ticid, main_id, otype, bibcode = line[:-2].split(',')
+            ticid_simbad.append(int(ticid)) 
+            main_id_list.append(main_id)
+            otype_list.append(otype)
+            bibcode_list.append(bibcode)
+    intersection, comm1, comm2 = np.intersect1d(ticid_list, ticid_simbad,
+                                                return_indices=True)
+    simbad_info = []
+    for i in comm2:
+        simbad_info.append([ticid_simbad[i], main_id_list[i], otype_list[i],
+                            bibcode_list[i]])
+    return simbad_info
+                           
+def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
+                            eps=list(np.arange(0.1,1.5,0.1)),
+                            min_samples=[10],
+                            metric=['euclidean', 'minkowski'],
+                            algorithm = ['auto', 'ball_tree', 'kd_tree',
+                                         'brute'],
+                            leaf_size = [30, 40, 50],
+                            p = [1,2,3,4],
+                            output_dir='./', DEBUG=False,
+                            simbad_database_txt='./simbad_database.txt'):
+    '''Performs a grid serach across parameter space for DBSCAN. Calculates
+    
+    Parameters:
+        * bottleneck : array with shape=(num light curves, num features)
+        * eps, min_samples, metric, algorithm, leaf_size, p : all DBSCAN
+          parameters
+        * success metric : !!
+        * output_dir : output directory, ending with '/'
+        * DEBUG : if DEBUG, plots first 5 light curves in each class
+    '''
+    from sklearn.cluster import DBSCAN
+    from sklearn.metrics import silhouette_score, calinski_harabasz_score
+    from sklearn.metrics import davies_bouldin_score      
+    classes = []
+    num_classes = []
+    counts = []
+    num_noisy= []
+    parameter_sets=[]
+    silhouette_scores=[]
+    ch_scores = []
+    db_scores = []
+    for i in range(len(eps)):
+        for j in range(len(min_samples)):
+            for k in range(len(metric)):
+                for l in range(len(algorithm)):
+                    for m in range(len(leaf_size)):
+                        for n in range(len(p)):
+                            db = DBSCAN(eps=eps[i],
+                                        min_samples=min_samples[j],
+                                        metric=metric[k],
+                                        algorithm=algorithm[l],
+                                        leaf_size=leaf_size[m],
+                                        p=p[n]).fit(bottleneck)
+                            print(db.labels_)
+                            print(np.unique(db.labels_, return_counts=True))
+                            classes_1, counts_1 = \
+                                np.unique(db.labels_, return_counts=True)
+                            if len(classes_1) > 1:
+                                classes.append(classes_1)
+                                num_classes.append(len(classes_1))
+                                counts.append(counts_1)
+                                num_noisy.append(counts[0])
+                                parameter_sets.append([eps[i], min_samples[j],
+                                                       metric[k],
+                                                       algorithm[l],
+                                                       leaf_size[m],
+                                                       p[n]])
+                                
+                                # >> compute silhouette
+                                silhouette = silhouette_score(bottleneck,
+                                                              db.labels_)
+                                silhouette_scores.append(silhouette)
+                                
+                                # >> compute calinski harabasz score
+                                score = calinski_harabasz_score(bottleneck,
+                                                                db.labels_)
+                                ch_scores.append(score)
+                                
+                                # >> compute davies-bouldin score
+                                dav_boul_score = davies_bouldin_score(bottleneck,
+                                                             db.labels_)
+                                db_scores.append(dav_boul_score)
+                                
+                                with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
+                                    # f.write('{} {} {} {} {} {}\n'.format(eps[i],
+                                    #                                    min_samples[j],
+                                    #                                    metric[k],
+                                    #                                    algorithm[l],
+                                    #                                    leaf_size[m],
+                                    #                                    p[n])
+                                    f.write('{} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
+                                                                       min_samples[j],
+                                                                       metric[k],
+                                                                       algorithm[l],
+                                                                       leaf_size[m],
+                                                                       p[n],
+                                                                       len(classes_1),
+                                                                       silhouette,
+                                                                       score,
+                                                                       dav_boul_score))
+                            else:
+                                with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
+                                    # f.write('{} {} {} {} {} {}\n'.format(eps[i],
+                                    #                                    min_samples[j],
+                                    #                                    metric[k],
+                                    #                                    algorithm[l],
+                                    #                                    leaf_size[m],
+                                    #                                    p[n])
+                                    f.write('{} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
+                                                                       min_samples[j],
+                                                                       metric[k],
+                                                                       algorithm[l],
+                                                                       leaf_size[m],
+                                                                       p[n],
+                                                                       len(classes_1),
+                                                                       np.nan,np.nan,np.nan))                                
+                                
+                            if DEBUG and len(classes_1) > 1:
+                                param_num = str(len(parameter_sets)-1)
+                                title='Parameter Set '+param_num+': '+'{} {} {} {} {} {}'.format(eps[i],
+                                                                                            min_samples[j],
+                                                                                            metric[k],
+                                                                                            algorithm[l],
+                                                                                            leaf_size[m],
+                                                                                            p[n])
+                                prefix='dbscan-p'+param_num
+                                pf.quick_plot_classification(time, flux,
+                                                             ticid,
+                                                             target_info,
+                                                             db.labels_,
+                                                             path=output_dir,
+                                                             prefix=prefix,
+                                                             simbad_database_txt=simbad_database_txt,
+                                                             title=title)
+                                
+                                pf.plot_pca(bottleneck, db.labels_,
+                                            output_dir=output_dir,
+                                            prefix=prefix)
+    return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores
 
 # DEPRECIATED SECTION -----------------------------------------------------
 def load_group_from_txt(sector, camera, ccd, path):
@@ -1208,3 +1460,29 @@ def load_group_from_txt(sector, camera, ccd, path):
     notes = np.loadtxt(notes_path, skiprows=1)
     
     return t, intensities, targets, features, notes 
+
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+    # TESS_features = np.array(TESS_features)
+    # hdr = fits.Header()
+    # hdu = fits.PrimaryHDU(TESS_features[:,1:-1].astype('float'))
+    # hdu.writeto(output_dir + 'tess_features.fits')
+    # fits.append(output_dir + 'tess_features.fits', ticid_list)
+    # fits.append(output_dir + 'tess_features.fits', TESS_features[:,-1])
+            
+# def get_abstracts(ticid_list):
+#     import time
+#     tables = []
+#     for i in range(len(ticid_list)):
+#         print(str(i) + '/' + str(len(ticid_list)) + '\n')
+#         res = Simbad.query_object('TIC ' + str(int(ticid_list[i])))
+#         if res == None:
+#             pass
+#         else:
+#             tables.append(res)
+#             print(ticid_list[i])
+#             print(res)
+#         time.sleep(6) # >> to avoid ConnectionError
+
+
+
+

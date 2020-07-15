@@ -2,16 +2,25 @@
 
 import talos
 import numpy as np
-import modellibrary as ml
+import pdb
+import pandas as pd
+import sys
+sys.path.insert(0, '../main/')
+import plotting_functions as pl
+import model as ml
 
-output_dir = 'plots/plots052020/'
-report_path = 'plots/plots052020/051920103220.csv'
+output_dir = '../../plots/DAE-withTESSfeatures/'
+report_path = './feature autoencoder/071320073215.csv'
 
 # >> load experiment log
+# res = pd.read_csv(report_path, header=0, usecols=list(range(20)))
+
 analyze_object = talos.Analyze(report_path)
-df, best_param_ind, p = ml.hyperparam_opt_diagnosis(analyze_object, output_dir,
+df, best_param_ind, p = pl.hyperparam_opt_diagnosis(analyze_object, output_dir,
                                                   supervised=False)
     
+pdb.set_trace()
+
 # >> x_train, x_test (mock_data)
 training_size, test_size, input_dim = 1039, 116, 8896
 noise_level = 0.5

@@ -5,6 +5,10 @@
 # / Emma Chickles
 # 
 # TODO: finish these function summaries
+# Preprocessing
+# * bottleneck_preprocessing
+# * 
+#
 # Model
 # * run_model
 # * model_summary_txt
@@ -27,17 +31,200 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotting_functions as pl
 import data_functions as df
+from astropy.io import fits
 
-# def autoencoder_preprocessing(dat_dir, sectors):
-#     '''Preprocesses output from df.load_data_from_metafiles
-#     Shuffles array.'''
-#     # >> shuffle array
-#     inds = np.arange(len(flux))
-#     np.random.shuffle(inds)
-#     flux = flux[inds]
-#     ticid = ticid[inds]
-#     target_info = target_info[inds].astype('int')
-#     pass
+def autoencoder_preprocessing(flux, ticid, time, target_info, p, 
+                              targets=[219107776],
+                              DAE=False, features=False,
+                              norm_type='standardization', input_rms=True,
+                              train_test_ratio=0.9):
+    '''Preprocesses output from df.load_data_from_metafiles
+    Shuffles array.
+    Parameters:
+        * flux : array of light curves, shape=(num light curves, num points)
+        * ticid : list of TICIDs, shape=(num light curves)
+        * target_info : [sector, cam, ccd] for each light curve,
+                        shape=(num light curves, 3)
+        * targets : list of TICIDs to move from the training set to testing set                        
+        * DAE : preprocessing for deep autoencoder. if True, the following is
+          required:
+          * features : feature vector, shape=(num light curves, num features)
+          If DAE is False, then performs preprocessing for convolutional
+          autoencoder, and uses the folllowing parameters:
+          * norm_type : either standardization, median_normalization,
+                        minmax_normalization, none
+          * input_rms : calculate RMS before normalizing
+        
+    '''
+    # >> shuffle array
+    print('Shuffling data...')
+    inds = np.arange(len(flux))
+    np.random.shuffle(inds)
+    flux = flux[inds]
+    ticid = ticid[inds]
+    target_info = target_info[inds].astype('int')
+    if DAE:
+        features = features[inds]
+        
+    # >> move specified targest to testing set
+    if len(targets) > 0:
+        for t in targets:
+            target_ind = np.nonzero( ticid == t )
+            if np.shape(target_ind)[1] == 0:
+                print('!! TIC '+str(t)+' is not in data set')
+            else:
+                print('Moving '+str(t)+' to test set...')
+                target_ind = target_ind[0][0]
+            flux = np.insert(flux, -1, flux[target_ind], axis=0)
+            flux = np.delete(flux, target_ind, axis=0)
+            ticid = np.insert(ticid, -1, ticid[target_ind])
+            ticid = np.delete(ticid, target_ind)
+            target_info = np.insert(target_info, -1, target_info[target_ind],
+                                    axis=0)
+            target_info = np.delete(target_info, target_ind, axis=0) 
+            if DAE:
+                features = np.insert(features, -1, features[target_ind],
+                                     axis=0)
+                features = np.delete(features, target_ind, axis=0)
+                
+    # >> partition data and normalize
+    if DAE:
+        print('Partitioning data...')
+        x_train, x_test, y_train, y_test, flux_train, flux_test,\
+        ticid_train, ticid_test, target_info_train, target_info_test, time = \
+            split_data_features(flux, features, time, ticid, target_info,
+                                False, p, train_test_ratio=train_test_ratio)
+        print('Standardizing feature vector...')
+        x_train = df.standardize(x_train, ax=0)
+        x_test = df.standardize(x_test, ax=0)
+        
+        return x_train, x_test, y_train, y_test, flux_train, flux_test, \
+            ticid_train, ticid_test, target_info_train, target_info_test, time
+    else:  
+        if input_rms:
+            print('Calculating RMS..')
+            rms = df.rms(flux)
+        else: rms_train, rms_test = False, False
+            
+        if norm_type == 'standardization':
+            print('Standardizing fluxes...')
+            flux = df.standardize(flux)
+    
+        elif norm_type == 'median_normalization':
+            print('Normalizing fluxes (dividing by median)...')
+            flux = df.normalize(flux)
+            
+        elif norm_type == 'minmax_normalization':
+            print('Normalizing fluxes (changing minimum and range)...')
+            mins = np.min(flux, axis = 1, keepdims=True)
+            flux = flux - mins
+            maxs = np.max(flux, axis=1, keepdims=True)
+            flux = flux / maxs
+            
+        else:
+            print('Light curves are not normalized!')
+            
+        print('Partitioning data...')
+        x_train, x_test, y_train, y_test, ticid_train, ticid_test,\
+        target_info_train, target_info_test, x = \
+            split_data(flux, ticid, target_info, time, p,
+                       train_test_ratio=train_test_ratio,
+                       supervised=False) 
+            
+        if input_rms:
+            rms_train = rms[:np.shape(x_train)[0]]
+            rms_test = rms[-1 * np.shape(x_test)[0]:]
+            
+        return x_train, x_test, y_train, y_test, ticid_train, ticid_test, \
+            target_info_train, target_info_test, rms_train, rms_test, time
+
+def bottleneck_preprocessing(sector, flux, ticid, output_dir='./SectorX/',
+                             data_dir='./',
+                             use_learned_features=False,
+                             use_engineered_features=True,
+                             use_tess_features=True):
+    '''Concatenates features (assumes features are already calculated and
+    saved).
+    
+    Parameters:
+        * sector : sector number, given as int
+        * flux : array of light curves, shape=(num light curves, num data points)
+        * ticid : list of TICIDs (given as int) for sector
+        * output_dir : output directory, containing CAE and DAE dirs
+        * data_dir : directory containing _lightcurves.fits and _features*.fits
+        * learned_features, engineered_features, tess_features : feature
+          vectors with shape=(num light curves, num features). Will
+          concatenate feature vectors if more than one is True.
+              * learned_features : bottleneck of the convolutional autoencoder
+              * engineered_features : custom features (e.g. kurtosis, skew)
+              * tess_features : Teff, mass, rad, GAIAmag, d
+              
+    Returns feature vector for every light curve in TICID.
+    '''
+    if use_engineered_features:
+        with fits.open(data_dir + 'Sector'+str(sector)+'_v0_features/Sector'+\
+                       str(sector)+'_features_v0_all.fits') as hdul:
+            engineered_feature_vector = hdul[0].data
+            engineered_feature_ticid = hdul[1].data
+        # >> re-arrange so that engineered_feature_ticid[i] = ticid[i]
+        tmp = []
+        for i in range(len(engineered_feature_vector)):
+            ind = np.nonzero(engineered_feature_ticid == ticid[i])
+            tmp.append(engineered_feature_vector[ind])
+        engineered_feature_vector = \
+            np.array(tmp).reshape((np.shape(engineered_feature_vector)[0], 16))
+        if not use_learned_features and not use_tess_features:
+            features = engineered_feature_vector
+            
+    if use_learned_features:
+        with fits.open(output_dir + 'bottleneck_train.fits') as hdul:
+            bottleneck_train = hdul[0].data        
+        with fits.open(output_dir + 'bottleneck_test.fits') as hdul:
+            bottleneck_test = hdul[0].data
+        learned_feature_vector = np.concatenate([bottleneck_train,
+                                                 bottleneck_test], axis=0)
+        if not use_engineered_features and not use_tess_features:
+            features = use_learned_features
+        
+    if use_tess_features:
+        # >> tess_features[0] = [ticid, Teff, mass, rad, GAIAmag, d, objType]
+        tess_features = np.loadtxt(data_dir + 'tess_features_sector20.txt',
+                                   delimiter=' ', usecols=[1,2,3,4,5,6])
+        # >> take out any light curves with nans
+        inds = np.nonzero(np.prod(~np.isnan(tess_features), axis=1))
+        tess_features = tess_features[inds]
+        intersection, comm1, comm2 = np.intersect1d(tess_features[:,0], ticid,
+                                                    return_indices=True)
+        ticid = ticid[comm2]
+        flux = flux[comm2]
+        ticid = intersection
+        
+        if use_engineered_features:
+            engineered_feature_vector = engineered_feature_vector[comm1]
+        if use_learned_features:
+            learned_feature_vector = learned_feature_vector[comm1]
+            
+        # >> re-arrange TESS features
+        tmp = []
+        for i in range(len(ticid)):
+            ind = np.nonzero(tess_features[:,0] == ticid[i])[0][0]
+            tmp.append(tess_features[ind][1:])
+        tess_features = np.array(tmp)            
+            
+        if use_engineered_features and use_learned_features:
+            features = np.concatenate([engineered_feature_vector,
+                                       learned_feature_vector,
+                                       tess_features], axis=1)
+        elif use_engineered_features:
+            features = np.concatenate([engineered_feature_vector,
+                                       tess_features], axis=1)  
+        elif use_learned_features:
+            features = np.concatenate([learned_feature_vector,
+                                       tess_features], axis=1)
+        else:
+            features = tess_features
+            
+    return features, flux, ticid
 
 def run_model(x_train, y_train, x_test, y_test, p, supervised=False,
               mock_data=False):
@@ -177,7 +364,7 @@ def mlp(x_train, y_train, x_test, y_test, params, resize=True):
     else:
         input_img = Input(shape = (input_dim,))
         x = input_img
-    for i in range(len(params['hidden_units'])):
+    for i in range(len(hidden_units)):
         x = Dense(params['hidden_units'][i],activation=params['activation'])(x)
     x = Dense(num_classes, activation='softmax')(x)
         
@@ -192,29 +379,41 @@ def mlp(x_train, y_train, x_test, y_test, params, resize=True):
     return history, model
 
 def simple_autoencoder(x_train, y_train, x_test, y_test, params, resize = False,
-                       batch_norm=False):
+                       batch_norm=True):
     '''a simple autoencoder based on a fully-connected layer'''
     from keras.models import Model
     from keras.layers import Input, Dense, Flatten, Reshape, BatchNormalization
 
     num_classes = np.shape(y_train)[1]
     input_dim = np.shape(x_train)[1]
+    
+    # params['hidden_units'] = list(range(params['max_dim'],
+    #                                     params['latent_dim'],
+    #                                     -params['step']))
+    hidden_units = list(range(params['max_dim'],
+                              params['latent_dim'],
+                              -params['step']))    
+    # params['hidden_units'] = list(range(16, params['latent_dim'],
+    #                                     -params['step']))
+    if hidden_units[-1] != params['latent_dim']:
+        hidden_units.append(params['latent_dim'])
+    
     if resize:
         input_img = Input(shape = (input_dim,1))
         x = Flatten()(input_img)
     else:
         input_img = Input(shape = (input_dim,))
         x = input_img
-    for i in range(len(params['hidden_units'])):
-        x = Dense(params['hidden_units'][i], activation=params['activation'],
+    for i in range(len(hidden_units)):
+        x = Dense(hidden_units[i], activation=params['activation'],
                   kernel_initializer=params['initializer'])(x)
         if batch_norm: x = BatchNormalization()(x)
         
     x = Dense(params['latent_dim'], activation=params['activation'],
               kernel_initializer=params['initializer'])(x)
-    for i in np.arange(len(params['hidden_units'])-1, -1, -1):
+    for i in np.arange(len(hidden_units)-1, -1, -1):
         if batch_norm: x = BatchNormalization()(x)        
-        x = Dense(params['hidden_units'][i], activation=params['activation'],
+        x = Dense(hidden_units[i], activation=params['activation'],
                   kernel_initializer=params['initializer'])(x)
 
     if batch_norm: x = BatchNormalization()(x)    
@@ -415,10 +614,10 @@ def create_mlp(input_dim):
     
 # :: preprocessing data :::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def split_data_features(flux, features, time, ticid, classes, p,
+def split_data_features(flux, features, time, ticid, target_info, classes, p,
                         train_test_ratio = 0.9,
                         cutoff=16336, supervised=False, interpolate=False,
-                        resize_arr=True, truncate=True):
+                        resize_arr=False, truncate=False):
 
     # >> truncate (must be a multiple of 2**num_conv_layers)
     if truncate:
@@ -455,6 +654,8 @@ def split_data_features(flux, features, time, ticid, classes, p,
         flux_test = np.copy(flux[test_inds])
         ticid_train = np.copy(ticid[train_inds])
         ticid_test = np.copy(ticid[test_inds])
+        target_info_train = np.copy(target_info[train_inds])
+        target_info_test = np.copy(target_info[test_inds])
     else:
         split_ind = int(train_test_ratio*np.shape(flux)[0])
         x_train = np.copy(features[:split_ind])
@@ -463,6 +664,8 @@ def split_data_features(flux, features, time, ticid, classes, p,
         flux_test = np.copy(flux[split_ind:])
         ticid_train = np.copy(ticid[:split_ind])
         ticid_test = np.copy(ticid[split_ind:])
+        target_info_train = np.copy(target_info[:split_ind])
+        target_info_test = np.copy(target_info[split_ind:])
         y_test, y_train = [False, False]
         
         
@@ -472,9 +675,10 @@ def split_data_features(flux, features, time, ticid, classes, p,
         x_test =  np.resize(x_test, (np.shape(x_test)[0],
                                        np.shape(x_test)[1], 1))
     return x_train, x_test, y_train, y_test, flux_train, flux_test,\
-        ticid_train, ticid_test, time
+        ticid_train, ticid_test, target_info_train, target_info_test, time
 
-def split_data(flux, time, p, train_test_ratio = 0.9, cutoff=16336,
+def split_data(flux, ticid, target_info, time, p, train_test_ratio = 0.9,
+               cutoff=16336,
                supervised=False, classes=False, interpolate=False,
                resize_arr=True, truncate=True):
     '''need to update, might not work'''
@@ -510,10 +714,18 @@ def split_data(flux, time, p, train_test_ratio = 0.9, cutoff=16336,
         y_test - np.array(y_test)
         x_train = np.copy(flux[train_inds])
         x_test = np.copy(flux[test_inds])
+        ticid_train = np.copy(ticid[train_inds])
+        ticid_test = np.copy(ticid[test_inds])
+        target_info_train = np.copy(target_info[train_inds])
+        target_info_test = np.copy(target_info[test_inds])        
     else:
         split_ind = int(train_test_ratio*np.shape(flux)[0])
         x_train = np.copy(flux[:split_ind])
         x_test = np.copy(flux[split_ind:])
+        ticid_train = np.copy(ticid[:split_ind])
+        ticid_test = np.copy(ticid[split_ind:])
+        target_info_train = np.copy(target_info[:split_ind])
+        target_info_test = np.copy(target_info[split_ind:])        
         y_test, y_train = [False, False]
         
     # if interpolate:
@@ -526,7 +738,8 @@ def split_data(flux, time, p, train_test_ratio = 0.9, cutoff=16336,
                                        np.shape(x_train)[1], 1))
         x_test =  np.resize(x_test, (np.shape(x_test)[0],
                                        np.shape(x_test)[1], 1))
-    return x_train, x_test, y_train, y_test, time
+    return x_train, x_test, y_train, y_test, ticid_train, ticid_test, \
+        target_info_train, target_info_test, time
     
 
 def get_activations(model, x_test, input_rms = False, rms_test = False):
