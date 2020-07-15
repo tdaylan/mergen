@@ -857,7 +857,7 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
         return flux, time
     
 # Target-Wise Metafile Production ----------------------------------
-def data_access_by_TIClist(yourpath, target_list, startindex, increment, filelabel):
+def targetwise_data_access_by(yourpath, target_list, startindex, increment, filelabel):
     """given a list of TICIDs, accesses SPOC light curve for those targets,
     saves the time axis and the intensity into a fits file, and a list of all
     the ticids contained within the file in order. 
@@ -871,7 +871,7 @@ def data_access_by_TIClist(yourpath, target_list, startindex, increment, filelab
         1000+ is risky simply because of astroquery's crashes
         * filelabel = what you want the output subfolder + files to be called
     returns: path to where everything is saved. 
-    requires: lc_from_target_list_diffsectors()
+    requires: targetwise_lc()
     modified [lcg 07112020]
         """
     # produce the folder to save everything into and set up file names
@@ -908,8 +908,7 @@ def data_access_by_TIClist(yourpath, target_list, startindex, increment, filelab
 
 
 
-def lc_from_target_list_diffsectors(yourpath, target_list, fname_time_intensities,
-                              fname_notes):
+def targetwise_lc(yourpath, target_list, fname_time_intensities,fname_notes):
     """ runs getting the files and data for all targets on the list
     then appends the time & intensity arrays and the TIC number into text files
     that can later be accessed
@@ -1126,7 +1125,7 @@ def featvec(x_axis, sampledata, v=0):
         featvec.append(results.depth)
         featvec.append(results.power)
     
-    return(featvec) 
+    return featvec 
 
 def feature_gen_from_lc_fits(path, sector, feature_version=0):
     """Given a path to a folder containing ALL the light curve metafiles 

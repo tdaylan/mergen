@@ -6,7 +6,7 @@ Plotting functions only.
 
 @author: Lindsey Gordon @lcgordon and Emma Chickles @emmachickles
 
-Last updated: June 4 2020
+Last updated: June 15 2020
 
 Helper functions
 * plot_lc()
@@ -25,6 +25,8 @@ Feature visualization
 * features_2D_colorshape()
 * plot_lof()
 * plot_pca()
+* isolate_plot_feature_outliers
+* lof_and_insets_on_sector
 
 Autoencoder visualizations
 * diagnostic_plots()
@@ -109,6 +111,74 @@ def plot_lc(time, intensity, target, sector):
         dumppoints = bjdcolumn[1290:]
         for n in range(len(dumppoints)):
             plt.axvline(dumppoints[n], linewidth=0.5)
+       
+def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppath, sigma):
+    """loads in a sector and plots lof +insets """
+    
+
+    flux, x, ticid, target_info = df.load_data_from_metafiles(pathtofolder, sector, cams=[1,2,3,4],
+                                 ccds=[1,2,3,4], DEBUG=False,
+                                 output_dir=pathtofolder, debug_ind=10, nan_mask_check=True)
+    featuresallpath = pathtofolder + "Sector" + str(sector) + "_features_v0_all.fits"
+    f = fits.open(featuresallpath, mmap=False)
+    
+    features = f[0].data
+    #targetsfits = f[1].data
+    f.close()
+
+    flux = df.normalize(flux, axis=1)
+    
+    features, ticid, flux, outlier_indexes = isolate_plot_feature_outliers(pathtofolder, sector, features, x, flux, ticid, sigma)
+    
+    plot_lof(x, flux, ticid, features, sector, pathtofolder,
+                 momentum_dump_csv = momentumdumppath,
+                 n_neighbors=20, target_info=target_info,
+                 prefix='', mock_data=False, addend=1., feature_vector=True,
+                 n_tot=numberofplots)
+
+    features_insets(x, flux, features, ticid, pathtofolder)
+    
+    return features, x, flux, ticid, outlier_indexes    
+        
+def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, sigma):
+    """ isolate features that are significantly out there and crazy
+    plot those outliers, and remove them from the features going into the 
+    main lof/plotting/
+    parameters: 
+        *path to save shit into
+        * features (all)
+        * time axis (1)
+        * flux (all)
+        * ticids (all)
+        
+    returns: features_cropped, ticids_cropped, flux_cropped """
+        
+    outlier_indexes = []
+    for i in range(len(features[0])):
+        column = features[:,i]
+        column_std = np.std(column)
+        column_top = np.mean(column) + column_std * sigma
+        column_bottom = np.mean(column) - (column_std * sigma)
+        for n in range(len(column)):
+            #find and note the position of any outliers
+            if column[n] < column_bottom or column[n] > column_top: 
+                outlier_indexes.append(int(n))
+                
+    outlier_indexes = np.unique(np.asarray(outlier_indexes))
+    
+    for i in range(len(outlier_indexes)):
+        plt.scatter(time, flux[outlier_indexes[i]], s=0.5)
+        target = ticids[outlier_indexes[i]]
+        plt.title("TIC " + str(int(target)) + astroquery_pull_data(target) + "\n" + str(features[outlier_indexes[i]]))
+        plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
+        plt.show()
+        
+        
+    features_cropped = np.delete(features, outlier_indexes, axis=0)
+    ticids_cropped = np.delete(ticids, outlier_indexes)
+    flux_cropped = np.delete(flux, outlier_indexes, axis=0)
+        
+    return features_cropped, ticids_cropped, flux_cropped, outlier_indexes
 
 
     
@@ -126,7 +196,6 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
         path needs to end in a backslash
     clustering must equal 'dbscan', 'kmeans', or 'empty'
     """
-    #import pdb # >> [etc 060620]
     #detrmine which of the clustering algoirthms you're using: 
     folder_label = "blank"
     if clustering == 'dbscan':
@@ -138,7 +207,6 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
         folder_label = "dbscan-colored" + folder_suffix
-        # pdb.set_trace()
 
     elif clustering == 'kmeans': 
         Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
@@ -261,7 +329,7 @@ def astroquery_pull_data(target):
         title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
-        title = "connection error, no data"
+        title = "Connection error, no data"
     return title
 
 
@@ -1396,10 +1464,10 @@ def plot_lof(time, intensity, targets, features, n, path,
     print('Make LOF histogram')
     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
                    targets, path+'lof-'+prefix+'histogram-insets.png',
-                   insets=True, log=True)
+                   insets=True, log=False)
     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
                    targets, path+'lof-'+prefix+'histogram.png', insets=False,
-                   log=True)
+                   log=False)
         
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
@@ -2062,3 +2130,7 @@ def plot_tsne(bottleneck, labels, n_components=2, output_dir='./', prefix=''):
 #                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".pdf")
 #                 plt.show()
                 
+
+     
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
