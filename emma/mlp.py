@@ -20,9 +20,9 @@ ccds = [1, 2, 3, 4]
 
 preprocessing = False
 supervised = False
-hyperparameter_optimization = True
+hyperparameter_optimization = False
 use_tess_features = True # >> train using TESS features
-run_model = True
+run_model = False
 classification = True
 # toi_train = True # >> train only on TOIs
 # toi_validation = True # >> validate classifications with TOIs
@@ -98,10 +98,10 @@ else:
     #       'optimizer': 'adam',
     #       'lr':0.011, 'epochs': 50, 'losses': 'mean_squared_error',
     #       'batch_size': 128, 'initializer': 'glorot_normal'}       
-    p = {'max_dim': 47, 'step': 3, 'latent_dim': 17,
+    p = {'max_dim': 50, 'step': 5, 'latent_dim': 17,
           'activation': 'elu', 'last_activation': 'linear',
           'optimizer': 'adadelta',
-          'lr':0.071, 'epochs': 50, 'losses': 'mean_squared_error',
+          'lr':0.081, 'epochs': 50, 'losses': 'mean_squared_error',
           'batch_size': 128, 'initializer': 'random_uniform'}      
 
 if preprocessing:
@@ -265,7 +265,7 @@ else:
         parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores =\
             df.dbscan_param_search(bottleneck, time, flux_train, ticid_train,
                                     target_info_train, DEBUG=True,
-                                    leaf_size=[30], p=[1,2,3,4], algorithm='auto',
+                                    leaf_size=[30], p=[1,2,3,4], algorithm=['auto'],
                                     output_dir=output_dir,
                                     simbad_database_txt='../../simbad_database.txt')
         parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores =\
