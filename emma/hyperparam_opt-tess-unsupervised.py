@@ -1,6 +1,6 @@
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 #
-# 2020-07-02 - hyperparam_opt-tess-unsupervised.py
+# 2020-07-14 - hyperparam_opt-tess-unsupervised.py
 # Runs a convolutional autoencoder on TESS data. Run with:
 # 1. First download data folders from Dropbox (named Sector*Cam*CCD*/) for all
 #    groups you want to run on. Move data folders to dat_dir
@@ -25,10 +25,11 @@ lib_dir = '../main/' # >> directory containing model.py, data_functions.py
 sectors = [20]
 cams = [1, 2, 3, 4]
 ccds =  [1, 2, 3, 4]
-train_test_ratio = 0.1 # >> fraction of training set size to testing set size
+# train_test_ratio = 0.1 # >> fraction of training set size to testing set size
+train_test_ratio = 0.85
 
 # >> what this script will run:
-hyperparameter_optimization = False # >> run hyperparameter search
+hyperparameter_optimization = True # >> run hyperparameter search
 run_model = True # >> train autoencoder on a parameter set p
 diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
@@ -40,7 +41,7 @@ DBSCAN_parameter_search=True # >> runs grid search for DBSCAN
 #    * median_normalization : divides by median
 #    * minmax_normalization : sets range of values from 0. to 1.
 #    * none : no normalization
-norm_type = 'standardization'
+norm_type = 'median_normalization'
 
 input_rms=True # >> concatenate RMS to learned features
 use_tess_features = True
@@ -80,7 +81,7 @@ if hyperparameter_optimization: # !! change epochs
     p = {'kernel_size': [3,5,7],
       'latent_dim': list(np.arange(5, 30, 5)),
       'strides': [1],
-      'epochs': [30],
+      'epochs': [8],
       'dropout': list(np.arange(0.1, 0.5, 0.1)),
       'num_filters': [8, 16, 32, 64],
       'num_conv_layers': [2,4,6,8,10],
@@ -94,33 +95,47 @@ if hyperparameter_optimization: # !! change epochs
                       'glorot_uniform']}
 else:
     # p = {'kernel_size': 3,
-    #       'latent_dim': 17,
+    #       'latent_dim': 25,
     #       'strides': 1,
-    #       'epochs': 7,
+    #       'epochs': 15,
     #       'dropout': 0.3,
     #       'num_filters': 32,
-    #       'num_conv_layers': 2,
+    #       'num_conv_layers': 6,
     #       'batch_size': 128,
     #       'activation': 'elu',
     #       'optimizer': 'adadelta',
     #       'last_activation': 'linear',
     #       'losses': 'mean_squared_error',
     #       'lr': 0.001,
-    #       'initializer': 'glorot_normal'}
+    #       'initializer': 'glorot_normal'}    
+    # p = {'kernel_size': 3,
+    #       'latent_dim': 10,
+    #       'strides': 1,
+    #       'epochs': 25,
+    #       'dropout': 0.5,
+    #       'num_filters': 32,
+    #       'num_conv_layers': 2,
+    #       'batch_size': 128,
+    #       'activation': 'elu',
+    #       'optimizer': 'adam',
+    #       'last_activation': 'linear',
+    #       'losses': 'mean_squared_error',
+    #       'lr': 0.001,
+    #       'initializer': 'random_normal'}    
     p = {'kernel_size': 3,
-          'latent_dim': 25,
+          'latent_dim': 17,
           'strides': 1,
           'epochs': 15,
           'dropout': 0.3,
           'num_filters': 32,
-          'num_conv_layers': 6,
+          'num_conv_layers': 2,
           'batch_size': 128,
           'activation': 'elu',
           'optimizer': 'adadelta',
           'last_activation': 'linear',
           'losses': 'mean_squared_error',
           'lr': 0.001,
-          'initializer': 'glorot_normal'}    
+          'initializer': 'glorot_normal'}        
 
 # -- create output directory --------------------------------------------------
     
@@ -134,7 +149,7 @@ flux, x, ticid, target_info = \
                                 output_dir=output_dir, nan_mask_check=True)
     
 x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
-    target_info_test, rms_train, rms_test, time = \
+    target_info_test, rms_train, rms_test, x = \
     ml.autoencoder_preprocessing(flux, ticid, x, target_info, p,
                                  targets=targets, norm_type=norm_type,
                                  input_rms=input_rms,
@@ -145,14 +160,24 @@ title='TESS-unsupervised'
 # == talos experiment =========================================================
 if hyperparameter_optimization:
     print('Starting hyperparameter optimization...')
-    t = talos.Scan(x=np.concatenate([x_train, x_test]),
-                    y=np.concatenate([x_train, x_test]),
+    # t = talos.Scan(x=np.concatenate([x_train, x_test]),
+    #                 y=np.concatenate([x_train, x_test]),
+    #                 params=p,
+    #                 model=ml.conv_autoencoder,
+    #                 experiment_name=title, 
+    #                 reduction_metric = 'val_loss',
+    #                 minimize_loss=True,
+    #                 reduction_method='correlation',
+    #                 fraction_limit=0.0001) 
+    t = talos.Scan(x=x_test,
+                   y=x_test,
                     params=p,
                     model=ml.conv_autoencoder,
                     experiment_name=title, 
                     reduction_metric = 'val_loss',
                     minimize_loss=True,
-                    reduction_method='correlation')
+                    reduction_method='correlation',
+                    fraction_limit=0.0001)     
     # fraction_limit = 0.001
     analyze_object = talos.Analyze(t)
     df, best_param_ind,p = pl.hyperparam_opt_diagnosis(analyze_object,
@@ -252,22 +277,37 @@ if diag_plots:
 # >> Feature plots
 
 if classification:
-    features, flux_feat, ticid_feat = \
+    features, flux_feat, ticid_feat, info_feat = \
         ml.bottleneck_preprocessing(sectors[0],
                                     np.concatenate([x_train, x_test], axis=0),
                                     np.concatenate([ticid_train, ticid_test]),
+                                    np.concatenate([target_info_train,
+                                                    target_info_test]),
+                                    data_dir=dat_dir,
                                     output_dir=output_dir,
                                     use_learned_features=True,
-                                    use_tess_features=True,
+                                    use_tess_features=use_tess_features,
                                     use_engineered_features=False)
-
-    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores =\
-    df.dbscan_param_search(bottleneck, time, flux_feat, ticid_feat,
-                           target_info_train, DEBUG=True, 
-                           output_dir=output_dir, data_dir='../../',
-                           simbad_database_txt='../../simbad_database.txt',
-                           algorithm=['auto'], leaf_size=[30])         
         
+    pl.latent_space_plot(features, {'latent_dim': np.shape(features)[1]},
+                         output_dir + 'latent_space-tessfeats.png')
+
+    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores = \
+    df.dbscan_param_search(features, x, flux_feat, ticid_feat,
+                           info_feat, DEBUG=True, 
+                           output_dir=output_dir, 
+                           simbad_database_txt='../../simbad_database.txt')      
+    
+    # parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores = \
+    # df.dbscan_param_search(bottleneck, x, x_test, ticid_test,
+    #                        target_info_test, DEBUG=True, 
+    #                        output_dir=output_dir, 
+    #                        simbad_database_txt='../../simbad_database.txt',
+    #                        leaf_size=[30], algorithm=['auto']) 
+    
+        
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+    
     # if DBSCAN_parameter_search:
     #     from sklearn.cluster import DBSCAN
     #     with fits.open(output_dir + 'bottleneck_test.fits') as hdul:

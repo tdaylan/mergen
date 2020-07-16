@@ -1756,6 +1756,7 @@ def quick_plot_classification(time, intensity, targets, target_info, labels,
         plt.close(fig)
                 
 def get_colors():
+    '''Returns list of 125 colors for plotting against white background1.'''
     from matplotlib import colors as mcolors
     import random
     colors = dict(mcolors.BASE_COLORS, **mcolors.CSS4_COLORS)
@@ -1765,9 +1766,18 @@ def get_colors():
                     for name, color in colors.items())
     sorted_names = [name for hsv, name in by_hsv]
     
-    # >> get rid of white and light grays
-    for i in range(16):
-        sorted_names.pop(0)
+    # >> get rid of light colors
+    bad_colors = ['lightgray', 'lightgrey', 'gainsboro', 'whitesmoke', 'white',
+                  'snow', 'mistyrose', 'seashell', 'peachpuff', 'linen',
+                  'bisque', 'antiquewhite', 'blanchedalmond', 'papayawhip',
+                  'moccasin', 'oldlace', 'floralwhite', 'cornsilk',
+                  'lemonchiffon', 'ivory', 'beige', 'lightyellow',
+                  'lightgoldenrodyellow', 'honeydew', 'mintcream',
+                  'azure', 'lightcyan', 'aliceblue', 'ghostwhite', 'lavender',
+                  'lavenderblush']
+    for i in range(len(bad_colors)):
+        ind = sorted_names.index(bad_colors[i])
+        sorted_names.pop(ind)
         
     # >> now shuffle
     random.Random(4).shuffle(sorted_names)
@@ -1882,10 +1892,11 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./', prefix=''):
 def ticid_label(ax, ticid, target_info, title=False, color='black'):
     '''Query catalog data and add text to axis.
     Parameters:
-        * target_info : [sector, camera, ccd]'''
+        * target_info : [sector, camera, ccd, data_type, cadence]'''
     try:
         # >> query catalog data
-        target, Teff, rad, mass, GAIAmag, d, objType = df.get_tess_features(ticid)
+        target, Teff, rad, mass, GAIAmag, d, objType = \
+            df.get_tess_features(ticid)
 
         # >> change sigfigs for effective temperature
         if np.isnan(Teff):
@@ -1893,7 +1904,9 @@ def ticid_label(ax, ticid, target_info, title=False, color='black'):
         else: Teff = '%.4d'%Teff
         
         # >> query sector, camera, ccd
-        sector, cam, ccd = target_info.astype('int')
+        sector, cam, ccd = target_info[:3]
+        data_type = target_info[3]
+        cadence = target_info[4]
         # obj_name = 'TIC ' + str(int(ticid))
         # obj_table = Tesscut.get_sectors(obj_name)
         # ind = np.nonzero(obj_table['sector']==sector)
@@ -1901,15 +1914,15 @@ def ticid_label(ax, ticid, target_info, title=False, color='black'):
         # ccd = obj_table['ccd'][ind][0]
     
         info = target+'\nTeff {}\nrad {}\nmass {}\nG {}\nd {}\nO {}'
-        info1 = target+', Sector {}, Cam {}. CCD {},\n' +\
+        info1 = target+', Sector {}, Cam {}, CCD {}, {}, Cadence {},\n' +\
             'Teff {}, rad {}, mass {}, G {}, d {}, O {}'
         
         
         # >> make text
         if title:
-            ax.set_title(info1.format(sector, cam, ccd, Teff, '%.2g'%rad,
-                                      '%.2g'%mass, '%.3g'%GAIAmag, '%.3g'%d,
-                                      objType),
+            ax.set_title(info1.format(sector, cam, ccd, data_type, cadence,
+                                      Teff, '%.2g'%rad, '%.2g'%mass,
+                                      '%.3g'%GAIAmag, '%.3g'%d, objType),
                          fontsize='xx-small', color=color)
         else:
             ax.text(0.98, 0.98, info.format(Teff, '%.2g'%rad, '%.2g'%mass, 
@@ -1957,8 +1970,8 @@ def latent_space_plot(activation, p, out, n_bins = 50, log = True,
     '''Creates corner plot of latent space.
         Parameters:
         * bottleneck : bottleneck layer, shape=(num light curves, num features)
-        * params : dictionary of hyperparameters
-        * out : output directory (ending with '/')
+        * params : dictionary, with 'latent_dim' key
+        * out : output filename
         * n_bins : number of bins in histogram (int)
         * log : if True, plots log histogram
         * units : either 'phi' (learned features), or 'psi'
@@ -2011,5 +2024,118 @@ def latent_space_plot(activation, p, out, n_bins = 50, log = True,
     plt.savefig(out)
     plt.close(fig)
     # return fig, axes
+    
+def plot_tsne(bottleneck, labels, n_components=2, output_dir='./', prefix=''):
+    from sklearn.manifold import TSNE
+    X = TSNE(n_components=n_components).fit_transform(bottleneck)
+    unique_classes = np.unique(labels)
+    colors = get_colors()
+    
+    plt.figure()
+    for i in range(len(unique_classes)):
+        # >> find all light curves with this  class
+        class_inds = np.nonzero(labels == unique_classes[i])
+        
+        if unique_classes[i] == -1:
+            color = 'black'
+        elif unique_classes[i] < len(colors) - 1:
+            color = colors[unique_classes[i]]
+        else:
+            color='black'
+        
+        plt.plot(X[class_inds][:,0], X[class_inds][:,1], '.', color=colors[i])
+        
+    plt.savefig(output_dir + prefix + 't-sne.png')
+    plt.close()
+    
+    
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+    
+
+# if plot_clustering:
+#     bottleneck_ind = np.nonzero(['dense' in x.name for x in \
+#                                  model.layers])[0][0]
+#     bottleneck = activations[bottleneck_ind - 1]        
+#     latent_space_clustering(bottleneck, x_test, x, ticid_test,
+#                             out=output_dir+prefix+\
+#                                 'clustering-x_test-', addend=addend)
+
+# def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
+#     """plotting (n 2) features against each other
+#     feature_vectors is the list of ALL feature_vectors
+#     cluster_columns is the vectors that you want to use to do the clustering based on
+#         this can be the same as feature_vectors
+#     date must be a string in the format of the folder you are saving into ie "4-13"
+#     clustering must equal 'dbscan', 'kmeans', or 'empty'
+#     """
+#     clustering = "empty"
+#     folder_label = "blank"
+#     if clustering == 'dbscan':
+#         db = DBSCAN(eps=2.2, min_samples=18).fit(cluster_columns) #eps is NOT epochs
+#         classes_dbscan = db.labels_
+#         numclasses = str(len(set(classes_dbscan)))
+#         folder_label = "dbscan-colored"
+#     elif clustering == 'kmeans': 
+#         Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
+#         x = Kmean.fit(cluster_columns)
+#         classes_kmeans = x.labels_
+#         folder_label = "kmeans-colored"
+#     else: 
+#         print("no clustering chosen")
+#         folder_label = "2DFeatures-NoCluster"
+#     #makes folder and saves to it    
+#     folder_path = path + "/" + folder_label
+#     try:
+#         os.makedirs(folder_path)
+#     except OSError:
+#         print ("Creation of the directory %s failed" % folder_path)
+#         print("New folder created will have -new at the end. Please rename.")
+#         os.makedirs(folder_path + "-new")
+#     else:
+#         print ("Successfully created the directory %s" % folder_path) 
+ 
+#     graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+#                     "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+#                     "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+#                     "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+#     fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+#                     "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+#                     "P0", "P1", "P2", "Period0to0_1"]
+#     color = ["red", "blue", "green", "purple", "black"]
+#     for n in range(16):
+#         feat1 = feature_vectors[:,n]
+#         graph_label1 = graph_labels[n]
+#         fname_label1 = fname_labels[n]
+#         for m in range(16):
+#             if m == n:
+#                 continue
+#             graph_label2 = graph_labels[m]
+#             fname_label2 = fname_labels[m]                
+#             feat2 = feature_vectors[:,m]
+            
+#             if clustering == 'dbscan':
+#                 for p in range(len(feature_vectors)):
+#                     plt.scatter(feat1[p], feat2[p], c = color[classes_dbscan[p]], s = 5)
+#                 plt.xlabel(graph_label1)
+#                 plt.ylabel(graph_label2)
+#                 plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.pdf"))
+#                 plt.show()
+#             elif clustering == 'kmeans':
+#                 for p in range(len(feature_vectors)):
+#                     plt.scatter(feat1[p], feat2[p], c = color[classes_kmeans[p]])
+#                 plt.xlabel(graph_label1)
+#                 plt.ylabel(graph_label2)
+#                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.pdf")
+#                 plt.show()
+#             elif clustering == 'none':
+#                 plt.scatter(feat1, feat2, s = 2, color = 'black')
+#                 #plt.autoscale(enable=True, axis='both', tight=True)
+#                 plt.xlabel(graph_label1)
+#                 plt.ylabel(graph_label2)
+#                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".pdf")
+#                 plt.show()
+                
+
      
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+

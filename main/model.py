@@ -43,8 +43,8 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
     Parameters:
         * flux : array of light curves, shape=(num light curves, num points)
         * ticid : list of TICIDs, shape=(num light curves)
-        * target_info : [sector, cam, ccd] for each light curve,
-                        shape=(num light curves, 3)
+        * target_info : [sector, cam, ccd, data_type, cadence] for each light
+                        curve, shape=(num light curves, 5)
         * targets : list of TICIDs to move from the training set to testing set                        
         * DAE : preprocessing for deep autoencoder. if True, the following is
           required:
@@ -62,7 +62,7 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
     np.random.shuffle(inds)
     flux = flux[inds]
     ticid = ticid[inds]
-    target_info = target_info[inds].astype('int')
+    target_info = np.array(target_info)[inds]
     if DAE:
         features = features[inds]
         
@@ -126,7 +126,7 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
             
         print('Partitioning data...')
         x_train, x_test, y_train, y_test, ticid_train, ticid_test,\
-        target_info_train, target_info_test, x = \
+        target_info_train, target_info_test, time = \
             split_data(flux, ticid, target_info, time, p,
                        train_test_ratio=train_test_ratio,
                        supervised=False) 
@@ -138,7 +138,8 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
         return x_train, x_test, y_train, y_test, ticid_train, ticid_test, \
             target_info_train, target_info_test, rms_train, rms_test, time
 
-def bottleneck_preprocessing(sector, flux, ticid, output_dir='./SectorX/',
+def bottleneck_preprocessing(sector, flux, ticid, target_info,
+                             output_dir='./SectorX/',
                              data_dir='./',
                              use_learned_features=False,
                              use_engineered_features=True,
@@ -150,6 +151,8 @@ def bottleneck_preprocessing(sector, flux, ticid, output_dir='./SectorX/',
         * sector : sector number, given as int
         * flux : array of light curves, shape=(num light curves, num data points)
         * ticid : list of TICIDs (given as int) for sector
+        * target_info : list of [sector, cam, ccd, data_type cadence] for each
+                        light curve
         * output_dir : output directory, containing CAE and DAE dirs
         * data_dir : directory containing _lightcurves.fits and _features*.fits
         * learned_features, engineered_features, tess_features : feature
@@ -184,7 +187,7 @@ def bottleneck_preprocessing(sector, flux, ticid, output_dir='./SectorX/',
         learned_feature_vector = np.concatenate([bottleneck_train,
                                                  bottleneck_test], axis=0)
         if not use_engineered_features and not use_tess_features:
-            features = use_learned_features
+            features = learned_feature_vector
         
     if use_tess_features:
         # >> tess_features[0] = [ticid, Teff, mass, rad, GAIAmag, d, objType]
@@ -195,7 +198,7 @@ def bottleneck_preprocessing(sector, flux, ticid, output_dir='./SectorX/',
         tess_features = tess_features[inds]
         intersection, comm1, comm2 = np.intersect1d(tess_features[:,0], ticid,
                                                     return_indices=True)
-        ticid = ticid[comm2]
+        target_info = target_info[comm2]
         flux = flux[comm2]
         ticid = intersection
         
@@ -224,7 +227,7 @@ def bottleneck_preprocessing(sector, flux, ticid, output_dir='./SectorX/',
         else:
             features = tess_features
             
-    return features, flux, ticid
+    return features, flux, ticid, target_info
 
 def run_model(x_train, y_train, x_test, y_test, p, supervised=False,
               mock_data=False):
