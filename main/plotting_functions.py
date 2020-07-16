@@ -152,7 +152,7 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
         * ticids (all)
         
     returns: features_cropped, ticids_cropped, flux_cropped """
-        
+    rcParams['figure.figsize'] = 8,3
     outlier_indexes = []
     for i in range(len(features[0])):
         column = features[:,i]
@@ -169,7 +169,12 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     for i in range(len(outlier_indexes)):
         plt.scatter(time, flux[outlier_indexes[i]], s=0.5)
         target = ticids[outlier_indexes[i]]
-        plt.title("TIC " + str(int(target)) + astroquery_pull_data(target) + "\n" + str(features[outlier_indexes[i]]))
+        
+        features_title = np.zeros((1, len(features[0])))
+        for n in range(len(features[0])):
+            features_title[0][n] = '%s' % float('%.2g' % features[i][n])
+        
+        plt.title("TIC " + str(int(target)) + " " + astroquery_pull_data(target) + "\n" + str(features_title))
         plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
         plt.show()
         
