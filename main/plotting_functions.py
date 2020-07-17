@@ -147,12 +147,15 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     parameters: 
         *path to save shit into
         * features (all)
-        * time axis (1)
-        * flux (all)
+        * time axis (1) (ALREADY PROCESSED)
+        * flux (all) (must ALREADY BE PROCESSED)
         * ticids (all)
         
-    returns: features_cropped, ticids_cropped, flux_cropped """
+    returns: features_cropped, ticids_cropped, flux_cropped 
+    modified [lcg 07172020]"""
     rcParams['figure.figsize'] = 8,3
+    features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
+                  "E", r'$\epsilon$', "Z", "E", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$']
     outlier_indexes = []
     for i in range(len(features[0])):
         column = features[:,i]
@@ -162,19 +165,22 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
         for n in range(len(column)):
             #find and note the position of any outliers
             if column[n] < column_bottom or column[n] > column_top: 
-                outlier_indexes.append(int(n))
+                outlier_indexes.append((int(n), int(i)))
                 
-    outlier_indexes = np.unique(np.asarray(outlier_indexes))
+    print(np.asarray(outlier_indexes))
+        
+    outlier_indexes = np.asarray(outlier_indexes)
     
     for i in range(len(outlier_indexes)):
-        plt.scatter(time, flux[outlier_indexes[i]], s=0.5)
-        target = ticids[outlier_indexes[i]]
+        plt.scatter(time, flux[outlier_indexes[i][0]], s=0.5)
+        target = ticids[outlier_indexes[i][0]]
         
-        features_title = np.zeros((1, len(features[0])))
-        for n in range(len(features[0])):
-            features_title[0][n] = '%s' % float('%.2g' % features[i][n])
+        feature_value = '%s' % float('%.2g' % features[i][outlier_indexes[i][1]])
+        feature_title = features_greek[outlier_indexes[i][1]] + "=" + feature_value
         
-        plt.title("TIC " + str(int(target)) + " " + astroquery_pull_data(target) + "\n" + str(features_title))
+        plt.title("TIC " + str(int(target)) + " " + astroquery_pull_data(target, breaks=False) + 
+                  "\n" + feature_title + "  Sigma cap: " + str(sigma), fontsize=8)
+        plt.tight_layout()
         plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
         plt.show()
         
@@ -185,8 +191,6 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
         
     return features_cropped, ticids_cropped, flux_cropped, outlier_indexes
 
-
-    
 
 def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                          time, intensity, targets, folder_suffix='',
@@ -311,7 +315,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     if clustering == 'kmeans':
         return x.labels
                           
-def astroquery_pull_data(target):
+def astroquery_pull_data(target, breaks=True):
     """Give a TIC ID - ID /only/, any format is fine, it'll get converted to str
     Searches the TIC catalog and pulls: 
         T_eff
@@ -331,7 +335,10 @@ def astroquery_pull_data(target):
         radius = np.round(catalog_data[0]["rad"], 2)
         mass = np.round(catalog_data[0]["mass"], 2)
         distance = np.round(catalog_data[0]["d"], 1)
-        title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+        if breaks:
+            title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+        else: 
+             title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
         title = "Connection error, no data"

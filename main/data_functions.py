@@ -1012,30 +1012,30 @@ def featvec(x_axis, sampledata, v=0):
     """calculates the feature vector of a single light curve
         version 0: features 0-15
         version 1: features 0-19
-        0 - Average
-        1 - Variance
-        2 - Skewness
-        3 - Kurtosis
+        0 - Average -  lower alpha
+        1 - Variance - upper case beta
+        2 - Skewness - upper case gamma
+        3 - Kurtosis - upper case delta
         
-        4 - ln variance
-        5 - ln skewness
-        6 - ln kurtosis
+        4 - ln variance - lowercase beta
+        5 - ln skewness - lowercase gamma
+        6 - ln kurtosis - lowercase delta
         
         (over 0.1 to 10 days)
-        7 - maximum power
-        8 - ln maximum power
-        9 - period of maximum power
+        7 - maximum power - upper episolon
+        8 - ln maximum power - lower epsilon
+        9 - period of maximum power - upper zeta
         
-        10 - slope
-        11 - ln slope
+        10 - slope - upper eta
+        11 - ln slope - lower eta
         
         (integration of periodogram over time frame)
-        12 - P0 - 0.1-1 days
-        13 - P1 - 1-3 days
-        14 - P2 - 3-10 days
+        12 - P0 - 0.1-1 days - upper theta
+        13 - P1 - 1-3 days - upper iota
+        14 - P2 - 3-10 days - upper kappa
         
         (over 0-0.1 days, for moving objects)
-        15 - Period of max power
+        15 - Period of max power - upper lambda
         
         (from transitleastsquares, OPTIONAL based on tls argument)
         16 - period
@@ -1043,8 +1043,10 @@ def featvec(x_axis, sampledata, v=0):
         18 - depth
         19 - power
         
-        
-        modified [lcg 07042020]"""
+        for title purposes: 
+        features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
+                  "E", r'$\epsilon$', "Z", "E", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$']
+        modified [lcg 07172020]"""
     
     
     #empty feature vector
