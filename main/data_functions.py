@@ -19,6 +19,7 @@ Data access
                         
 Data processing
 * normalize()       : median normalization
+* mean_norm() 	    : mean normalization (for TLS)
 * interpolate_all() : sigma clip and interpolate flux array
 * interpolate_lc()  : sigma clip and interpolate one light curve
 * nan_mask()        : apply NaN mask to flux array
@@ -600,6 +601,13 @@ def normalize(flux, axis=1):
     flux = flux / medians - 1.
     return flux
 
+def mean_norm(flux, axis=1): 
+    """ normalizes by dividing by mean - necessary for TLS running 
+    modified lcg 07192020"""
+    means = np.mean(flux, axis = axis, keepdims=True)
+    flux = flux / means
+    return flux
+
 def rms(x, axis=1):
     rms = np.sqrt(np.nanmean(x**2, axis = axis))
     return rms
@@ -978,10 +986,11 @@ def create_save_featvec(yourpath, times, intensities, filelabel, version=0, save
     parameters:
         * yourpath = folder you want the file saved into
         * times = a single time axis for all 
-        * intensities = array of all light curves
+        * intensities = array of all light curves (NOT normalized)
         * sector, camera, ccd = integers 
         * version = what version of feature vector to calculate for all. 
             default is 0
+        * save = whether or not to save into a fits file
     returns: list of feature vectors + fits file containing all feature vectors
     requires: featvec()
     modified: [lcg 07112020]"""
@@ -1008,7 +1017,7 @@ def create_save_featvec(yourpath, times, intensities, filelabel, version=0, save
     
     return feature_list
 
-def featvec(x_axis, sampledata, v=0): 
+def featvec(x_axis, intensity, v=0): 
     """calculates the feature vector of a single light curve
         version 0: features 0-15
         version 1: features 0-19
@@ -1038,16 +1047,18 @@ def featvec(x_axis, sampledata, v=0):
         15 - Period of max power - upper lambda
         
         (from transitleastsquares, OPTIONAL based on tls argument)
-        16 - period
-        17 - best duration
-        18 - depth
-        19 - power
+        16 - best fit period
+        17 - best fit duration
+        18 - best fit depth
+        19 - power of best fit period
         
         for title purposes: 
         features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
                   "E", r'$\epsilon$', "Z", "E", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$']
         modified [lcg 07172020]"""
     
+    #median normalize for the v0 features
+    sampledata = normalize(intensity, axis=0)
     
     #empty feature vector
     featvec = [] 
@@ -1119,13 +1130,15 @@ def featvec(x_axis, sampledata, v=0):
     
     #tls 
     if v != 0: 
+        #mean normalize the intensity so goes to 1
+        sampledata = mean_norm(intensity, axis=0)
         from transitleastsquares import transitleastsquares
         model = transitleastsquares(x_axis, sampledata)
         results = model.power()
         featvec.append(results.period)
         featvec.append(results.duration)
         featvec.append(results.depth)
-        featvec.append(results.power)
+        featvec.append((results.power.max()))
     
     return featvec 
 
