@@ -86,8 +86,9 @@ from astroquery.exceptions import RemoteServiceError
 
 import pdb
 
-# import batman # >> I don't have this library yet [etc 063020]
 import numba
+import batman
+from transitleastsquares import transitleastsquares
 
 
 def test_data():
@@ -998,12 +999,20 @@ def create_save_featvec(yourpath, times, intensities, filelabel, version=0, save
 
     fname_features = yourpath + "/"+ filelabel + "_features_v"+str(version)+".fits"
     feature_list = []
+    if version == 0:
+	#median normalize for the v0 features
+        intensities = normalize(intensities)
+    elif version == 1: 
+        from transitleastsquares import transitleastsquares
+	#mean normalize the intensity so goes to 1
+        intensities = mean_norm(intensities)
+
     print("Begining Feature Vector Creation Now")
     for n in range(len(intensities)):
         feature_vector = featvec(times, intensities[n], v=version)
         feature_list.append(feature_vector)
         
-        if n % 50 == 0: print(str(n) + " completed")
+        if n % 25 == 0: print(str(n) + " completed")
     
     feature_list = np.asarray(feature_list)
     
@@ -1017,7 +1026,7 @@ def create_save_featvec(yourpath, times, intensities, filelabel, version=0, save
     
     return feature_list
 
-def featvec(x_axis, intensity, v=0): 
+def featvec(x_axis, sampledata, v=0): 
     """calculates the feature vector of a single light curve
         version 0: features 0-15
         version 1: features 0-19
@@ -1055,86 +1064,84 @@ def featvec(x_axis, intensity, v=0):
         for title purposes: 
         features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
                   "E", r'$\epsilon$', "Z", "E", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$']
-        modified [lcg 07172020]"""
-    
-    #median normalize for the v0 features
-    sampledata = normalize(intensity, axis=0)
-    
+
+	*** version 1 note: you may wish to go into the transitleastsquares's main.py file and
+	comment out all 'print' statements in order to save space while running this over lots of light curves
+        modified [lcg 07202020]"""
     #empty feature vector
-    featvec = [] 
-    #moments
-    featvec.append(np.mean(sampledata)) #mean (don't use moment, always gives 0)
-    featvec.append(moment(sampledata, moment = 2)) #variance
-    featvec.append(moment(sampledata, moment = 3)) #skew
-    featvec.append(moment(sampledata, moment = 4)) #kurtosis
-    featvec.append(np.log(np.abs(moment(sampledata, moment = 2)))) #ln variance
-    featvec.append(np.log(np.abs(moment(sampledata, moment = 3)))) #ln skew
-    featvec.append(np.log(np.abs(moment(sampledata, moment = 4)))) #ln kurtosis
-    
-    #periods
-    f = np.linspace(0.6, 62.8, 5000)  #period range converted to frequencies
-    periods = np.linspace(0.1, 10, 5000)#0.1 to 10 day period
-    pg = signal.lombscargle(x_axis, sampledata, f, normalize = True)
-    rel_maxes = argrelextrema(pg, np.greater)
-    
-    powers = []
-    indexes = []
-    for n in range(len(rel_maxes[0])):
-        index = rel_maxes[0][n]
-        indexes.append(index)
-        power_level_at_rel_max = pg[index]
-        powers.append(power_level_at_rel_max)
-    
-    max_power = np.max(powers)
-    index_of_max_power = np.argmax(powers)
-    index_of_f_max = rel_maxes[0][index_of_max_power]
-    f_max_power = f[index_of_f_max]
-    period_max_power = 2*np.pi / f_max_power
-    
-    featvec.append(max_power)
-    featvec.append(np.log(np.abs(max_power)))
-    featvec.append(period_max_power)
-    
-    slope = stats.linregress(x_axis, sampledata)[0]
-    featvec.append(slope)
-    featvec.append(np.log(np.abs(slope)))
-    
-    #integrates the whole 0.1-10 day range
-    integrating1 = np.trapz(pg[457:5000], periods[457:5000]) #0.1 days to 1 days
-    integrating2 = np.trapz(pg[121:457], periods[121:457])#1-3 days
-    integrating3 = np.trapz(pg[0:121], periods[0:121]) #3-10 days
-    
-    featvec.append(integrating1)
-    featvec.append(integrating2)
-    featvec.append(integrating3)
-    
-    #for 0.001 to 1 day periods
-    f2 = np.linspace(62.8, 6283.2, 20)  #period range converted to frequencies
-    p2 = np.linspace(0.001, 0.1, 20)#0.001 to 1 day periods
-    pg2 = signal.lombscargle(x_axis, sampledata, f2, normalize = True)
-    rel_maxes2 = argrelextrema(pg2, np.greater)
-    powers2 = []
-    indexes2 = []
-    for n in range(len(rel_maxes2[0])):
-        index2 = rel_maxes2[0][n]
-        indexes2.append(index2)
-        power_level_at_rel_max2 = pg2[index2]
-        powers2.append(power_level_at_rel_max2)
-    max_power2 = np.max(powers2)
-    index_of_max_power2 = np.argmax(powers2)
-    index_of_f_max2 = rel_maxes2[0][index_of_max_power2]
-    f_max_power2 = f2[index_of_f_max2]
-    period_max_power2 = 2*np.pi / f_max_power2
-    featvec.append(period_max_power2)
-    #print("done")
+    featvec = []
+    if v==0:
+        
+        #moments
+        featvec.append(np.mean(sampledata)) #mean (don't use moment, always gives 0)
+        featvec.append(moment(sampledata, moment = 2)) #variance
+        featvec.append(moment(sampledata, moment = 3)) #skew
+        featvec.append(moment(sampledata, moment = 4)) #kurtosis
+        featvec.append(np.log(np.abs(moment(sampledata, moment = 2)))) #ln variance
+        featvec.append(np.log(np.abs(moment(sampledata, moment = 3)))) #ln skew
+        featvec.append(np.log(np.abs(moment(sampledata, moment = 4)))) #ln kurtosis
+
+        #periods
+        f = np.linspace(0.6, 62.8, 5000)  #period range converted to frequencies
+        periods = np.linspace(0.1, 10, 5000)#0.1 to 10 day period
+        pg = signal.lombscargle(x_axis, sampledata, f, normalize = True)
+        rel_maxes = argrelextrema(pg, np.greater)
+
+        powers = []
+        indexes = []
+        for n in range(len(rel_maxes[0])):
+            index = rel_maxes[0][n]
+            indexes.append(index)
+            power_level_at_rel_max = pg[index]
+            powers.append(power_level_at_rel_max)
+
+        max_power = np.max(powers)
+        index_of_max_power = np.argmax(powers)
+        index_of_f_max = rel_maxes[0][index_of_max_power]
+        f_max_power = f[index_of_f_max]
+        period_max_power = 2*np.pi / f_max_power
+
+        featvec.append(max_power)
+        featvec.append(np.log(np.abs(max_power)))
+        featvec.append(period_max_power)
+
+        slope = stats.linregress(x_axis, sampledata)[0]
+        featvec.append(slope)
+        featvec.append(np.log(np.abs(slope)))
+
+        #integrates the whole 0.1-10 day range
+        integrating1 = np.trapz(pg[457:5000], periods[457:5000]) #0.1 days to 1 days
+        integrating2 = np.trapz(pg[121:457], periods[121:457])#1-3 days
+        integrating3 = np.trapz(pg[0:121], periods[0:121]) #3-10 days
+
+        featvec.append(integrating1)
+        featvec.append(integrating2)
+        featvec.append(integrating3)
+
+        #for 0.001 to 1 day periods
+        f2 = np.linspace(62.8, 6283.2, 20)  #period range converted to frequencies
+        p2 = np.linspace(0.001, 0.1, 20)#0.001 to 1 day periods
+        pg2 = signal.lombscargle(x_axis, sampledata, f2, normalize = True)
+        rel_maxes2 = argrelextrema(pg2, np.greater)
+        powers2 = []
+        indexes2 = []
+        for n in range(len(rel_maxes2[0])):
+            index2 = rel_maxes2[0][n]
+            indexes2.append(index2)
+            power_level_at_rel_max2 = pg2[index2]
+            powers2.append(power_level_at_rel_max2)
+        max_power2 = np.max(powers2)
+        index_of_max_power2 = np.argmax(powers2)
+        index_of_f_max2 = rel_maxes2[0][index_of_max_power2]
+        f_max_power2 = f2[index_of_f_max2]
+        period_max_power2 = 2*np.pi / f_max_power2
+        featvec.append(period_max_power2)
+        #print("done")
     
     #tls 
-    if v != 0: 
-        #mean normalize the intensity so goes to 1
-        sampledata = mean_norm(intensity, axis=0)
-        from transitleastsquares import transitleastsquares
+    elif v == 1: 
         model = transitleastsquares(x_axis, sampledata)
-        results = model.power()
+        results = model.power(show_progress_bar=False)
         featvec.append(results.period)
         featvec.append(results.duration)
         featvec.append(results.depth)
