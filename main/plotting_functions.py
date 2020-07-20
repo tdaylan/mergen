@@ -194,16 +194,29 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
 
 def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                          time, intensity, targets, folder_suffix='',
-                         feature_engineering=True, eps=0.5, min_samples=10,
+                         feature_engineering=True, version=0, eps=0.5, min_samples=10,
                          metric='euclidean', algorithm='auto', leaf_size=30,
                          p=2, target_info=False,
                          momentum_dump_csv='./Table_of_momentum_dumps.csv'):
     """plotting (n 2) features against each other
-    feature_vectors is the list of ALL feature_vectors
-    cluster_columns is the vectors that you want to use to do the clustering based on
-        this can be the same as feature_vectors
-        path needs to end in a backslash
-    clustering must equal 'dbscan', 'kmeans', or 'empty'
+    parameters: 
+        * feature_vectors - array of feature vectors
+        * cluster_columns - features to do clustering based on, as feature_vectors[:,5]
+        * path to where you want everythigns aved - ends in a backslash
+        * clustering - what you want to cluster as. options are 'dbscan', 'kmeans', or 
+        any other keyword which will do no clustering
+        * time axis
+        * intensities
+        *target ticids
+        * folder suffix
+        *feature_engineering - default is true
+        * version - what version of engineered features, irrelevant integer if feature_engienering is false
+        * eps, min_samples, metric, algorithm, leaf_size, p - dbscan parameters, comes with defaults
+        * target_info - default is false
+        *momentum dumps - not sure entirely why it's needed here tbh
+        
+    returns: only returns labels for dbscan/kmeans clustering. otherwise the only
+    output is the files saved into the folder as given thru path
     """
     #detrmine which of the clustering algoirthms you're using: 
     folder_label = "blank"
@@ -233,7 +246,8 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     except OSError:
         print ("Creation of the directory %s failed" % folder_path)
         print("New folder created will have -new at the end. Please rename.")
-        os.makedirs(folder_path + "-new")
+        folder_path = folder_path + "-new"
+        os.makedirs(folder_path)
     else:
         print ("Successfully created the directory %s" % folder_path) 
  
@@ -255,14 +269,20 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
             'skyblue', 'sienna', 'palegreen', 'black']
     #creates labels based on if engineered features or not
     if feature_engineering:
-        graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-                        "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-                        "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-                        "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
-        fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                        "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                        "P0", "P1", "P2", "Period0to0_1"]
-        num_features = 16
+        if version==0:
+            graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                            "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                            "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+            fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                            "P0", "P1", "P2", "Period0to0_1"]
+        elif version == 1: 
+            
+            graph_labels = ["TLS Best fit Period", "TLS Best fit duration", "TLS best fit depth",
+                            "TLS Best fit Power"]
+            fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+        num_features = len(feature_vectors[0])
     else:
         # >> shape(feature_vectors) = [num_samples, num_features]
         num_features = np.shape(feature_vectors)[1]
@@ -347,7 +367,7 @@ def astroquery_pull_data(target, breaks=True):
 
 #inset plotting -------------------------------------------------------------------------------------------
 
-def features_insets(time, intensity, feature_vectors, targets, path):
+def features_insets(time, intensity, feature_vectors, targets, path, version = 0):
     """ Plots 2 features against each other with the extrema points' associated
     light curves plotted as insets along the top and bottom of the plot. 
     
@@ -356,10 +376,10 @@ def features_insets(time, intensity, feature_vectors, targets, path):
     feature_vectors is the complete list of feature vectors
     targets is the complete list of targets
     folder is the folder into which you wish to save the folder of plots. it 
-    should be formatted as a string, with no trailing /
-    modified [lcg 06292020]
+    should be formatted as a string, ending with a /
+    modified [lcg 07202020]
     """   
-    path = path + "/2DFeatures-insets"
+    path = path + "2DFeatures-insets"
     try:
         os.makedirs(path)
     except OSError:
@@ -369,18 +389,25 @@ def features_insets(time, intensity, feature_vectors, targets, path):
         os.makedirs(path)
     else:
         print ("Successfully created the directory %s" % path) 
- 
-    graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-                    "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-                    "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-                    "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
-    fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                    "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                    "P0", "P1", "P2", "Period0to0_1"]
-    for n in range(16):
+        
+    if version==0:
+        graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                            "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                            "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+        fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                            "P0", "P1", "P2", "Period0to0_1"]
+    elif version == 1: 
+            
+        graph_labels = ["TLS Best fit Period", "TLS Best fit duration", "TLS best fit depth",
+                            "TLS Best fit Power"]
+        fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+
+    for n in range(len(feature_vectors[0])):
         graph_label1 = graph_labels[n]
         fname_label1 = fname_labels[n]
-        for m in range(16):
+        for m in range(len(feature_vectors[0])):
             if m == n:
                 continue
             graph_label2 = graph_labels[m]
