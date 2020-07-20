@@ -468,7 +468,7 @@ def inset_plotting(datax, datay, label1, label2, insetx, insety, inset_indexes, 
         #this sets the actual axes limits    
         axis_name.set_xlim(insetx[0], insetx[-1])
         axis_name.set_ylim(insety[inset_indexes[n]].min(), insety[inset_indexes[n]].max())
-        axis_name.set_title(astroquery_pull_data(targets[inset_indexes[n]]), fontsize=6)
+        axis_name.set_title("TIC " + str(int(targets[inset_indexes[n]])) + " \n" + astroquery_pull_data(targets[inset_indexes[n]]), fontsize=6)
         axis_name.set_xticklabels([])
         axis_name.set_yticklabels([])
         
@@ -634,20 +634,24 @@ def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_i
     plt.savefig(filename)
     plt.close()
 
-def histo_features(features, bins, t, intensities, targets, path, insets=False):
+def histo_features(features, bins, t, intensities, targets, path, insets=False, version=0):
     """ Plot histograms of each feature, both with and without inset light curves
     features (array of ALL), bins, time axis, intensities, path to put folder in
-    modified [lcg 07012020]"""
-    folderpath = path + "/feature_histograms/"
+    modified [lcg 07202020]"""
+    folderpath = path + "/feature_histograms_binning_" + str(bins) + "/"
     try:
         os.makedirs(folderpath)
     except OSError:
         print ("Directory %s already exists" % folderpath)
-        
-    fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                        "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                        "P0", "P1", "P2", "Period0to0_1"]
-    for n in range(16):
+    
+    if version==0:
+        fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                            "P0", "P1", "P2", "Period0to0_1"]
+    elif version == 1: 
+        fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+
+    for n in range(len(features[0])):
         filename = folderpath + fname_labels[n] + "histogram.png"
         plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=False)
         if insets == True:
