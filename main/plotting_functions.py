@@ -807,6 +807,7 @@ def diagnostic_plots(history, model, p, output_dir,
                      input_bottle_inds = [0,1,2,-6,-7],
                      addend = 1., feature_vector=False, percentage=False,
                      input_features = False, load_bottleneck=False, n_tot=100,
+                     DAE=False,
                      plot_epoch = True,
                      plot_in_out = True,
                      plot_in_bottle_out=False,
@@ -814,7 +815,6 @@ def diagnostic_plots(history, model, p, output_dir,
                      plot_latent_train = False,
                      plot_kernel=False,
                      plot_intermed_act=False,
-                     plot_clustering=False,
                      make_movie = False,
                      plot_lof_test=True,
                      plot_lof_train=True,
@@ -927,7 +927,8 @@ def diagnostic_plots(history, model, p, output_dir,
                                            input_features=input_features,
                                            features=features,
                                            input_rms=input_rms,
-                                           rms=rms_test)
+                                           rms=rms_test,
+                                           DAE=DAE)
             # activations = ml.get_activations(model, x_test)
             # bottleneck = ml.get_bottleneck(model, activations, p,
             #                             input_features=input_features,
@@ -950,7 +951,7 @@ def diagnostic_plots(history, model, p, output_dir,
     # >> make corner plot of latent space
     if plot_latent_test:
         print('Plotting latent space for testing set')
-        latent_space_plot(bottleneck, p, output_dir+prefix+'latent_space.png')
+        latent_space_plot(bottleneck, output_dir+prefix+'latent_space.png')
     
     # >> plot the 20 light curves with the highest LOF
     if plot_lof_test:
@@ -978,7 +979,8 @@ def diagnostic_plots(history, model, p, output_dir,
                                                  input_features=input_features,
                                                  features=features,
                                                  input_rms=input_rms,
-                                                 rms=rms_train)
+                                                 rms=rms_train,
+                                                 DAE=DAE)
             # activations_train = get_activations(model, x_train)        
             # bottleneck_train = get_bottleneck(model, activations_train, p,
             #                                   input_features=input_features,
@@ -990,7 +992,7 @@ def diagnostic_plots(history, model, p, output_dir,
         
     if plot_latent_train:
         print('Plotting latent space for training set')
-        latent_space_plot(bottleneck_train, p, output_dir+prefix+\
+        latent_space_plot(bottleneck_train, output_dir+prefix+\
                           'latent_space-x_train.png')        
         
     if plot_lof_train:
@@ -1104,7 +1106,8 @@ def epoch_plots(history, p, out_dir, supervised):
 # == visualizations for unsupervised pipeline =================================
 
 def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
-                      inds = [0, -14, -10, 1, 2], addend = 0., sharey=False,
+                      inds = [-1,0,1,2,3,4,5,6,7,-2,-3,-4,-5,-6,-7],
+                      addend = 1., sharey=False,
                       mock_data=False, feature_vector=False,
                       percentage=False, target_info=False):
     '''Plots input light curve, output light curve and the residual.
@@ -1693,7 +1696,7 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
             # >> plot light curve
             ax[k].plot(time, intensity[ind]+addend, '.k')
             if not feature_vector:
-                ax[k].plot(time, x_predict[ind]+addend, '-')
+                ax[k].plot(time, x_predict[ind]+addend, '.')
             ax[k].text(0.98, 0.02, 'mse: ' +str(err[ind]),
                        transform=ax[k].transAxes, horizontalalignment='right',
                        verticalalignment='bottom', fontsize='xx-small')
@@ -2004,12 +2007,11 @@ def format_axes(ax, xlabel=False, ylabel=False):
     if ylabel:
         ax.set_ylabel('Relative flux')
     
-def latent_space_plot(activation, p, out, n_bins = 50, log = True,
+def latent_space_plot(activation, out, n_bins = 50, log = True,
                       units='phi'):
     '''Creates corner plot of latent space.
         Parameters:
         * bottleneck : bottleneck layer, shape=(num light curves, num features)
-        * params : dictionary, with 'latent_dim' key
         * out : output filename
         * n_bins : number of bins in histogram (int)
         * log : if True, plots log histogram
@@ -2019,13 +2021,13 @@ def latent_space_plot(activation, p, out, n_bins = 50, log = True,
         
     from matplotlib.colors import LogNorm
     
-    latentDim = p['latent_dim']
+    latentDim = np.shape(activation)[1]
 
     fig, axes = plt.subplots(nrows = latentDim, ncols = latentDim,
                              figsize = (10, 10))
 
     if units == 'phi':
-        ax_label = '\u03C61'
+        ax_label = '\u03C6'
     elif units == 'psi':
         ax_label = '\u03C8'
 
@@ -2033,7 +2035,7 @@ def latent_space_plot(activation, p, out, n_bins = 50, log = True,
     if latentDim == 1:
         axes.hist(np.reshape(activation, np.shape(activation)[0]), n_bins,
                   log=log)
-        axes.set_xlabel(ax_label)
+        axes.set_xlabel(ax_label + '1')
         axes.set_ylabel('frequency')
     else:
         # >> row 1 column 1 is first latent dimension (phi1)
@@ -2082,7 +2084,7 @@ def plot_tsne(bottleneck, labels, n_components=2, output_dir='./', prefix=''):
         else:
             color='black'
         
-        plt.plot(X[class_inds][:,0], X[class_inds][:,1], '.', color=colors[i])
+        plt.plot(X[class_inds][:,0], X[class_inds][:,1], '.', color=color)
         
     plt.savefig(output_dir + prefix + 't-sne.png')
     plt.close()

@@ -9,8 +9,8 @@ sys.path.insert(0, '../main/')
 import plotting_functions as pl
 import model as ml
 
-output_dir = '../../plots/DAE-withTESSfeatures/'
-report_path = './feature autoencoder/071320073215.csv'
+output_dir = '../../plots/CAE-2/'
+report_path = './TESS-unsupervised/071920082927.csv'
 
 # >> load experiment log
 # res = pd.read_csv(report_path, header=0, usecols=list(range(20)))
