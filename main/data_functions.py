@@ -1031,7 +1031,7 @@ def featvec(x_axis, sampledata, v=0):
         version 0: features 0-15
         version 1: features 0-19
         0 - Average -  lower alpha
-        1 - Variance - upper case beta
+        1 - Variance - upper case beta (B)
         2 - Skewness - upper case gamma
         3 - Kurtosis - upper case delta
         
@@ -1040,11 +1040,11 @@ def featvec(x_axis, sampledata, v=0):
         6 - ln kurtosis - lowercase delta
         
         (over 0.1 to 10 days)
-        7 - maximum power - upper episolon
+        7 - maximum power - upper episolon (E)
         8 - ln maximum power - lower epsilon
-        9 - period of maximum power - upper zeta
+        9 - period of maximum power - upper zeta (Z)
         
-        10 - slope - upper eta
+        10 - slope - upper eta (H)
         11 - ln slope - lower eta
         
         (integration of periodogram over time frame)
@@ -1056,14 +1056,15 @@ def featvec(x_axis, sampledata, v=0):
         15 - Period of max power - upper lambda
         
         (from transitleastsquares, OPTIONAL based on tls argument)
-        16 - best fit period
-        17 - best fit duration
-        18 - best fit depth
-        19 - power of best fit period
+        16 - best fit period - upper mu (M) - days
+        17 - best fit duration - lower mu - days
+        18 - best fit depth - upper nu (N) - ppt, measured from bottom
+        19 - power of best fit period - lower nu 
         
         for title purposes: 
         features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
-                  "E", r'$\epsilon$', "Z", "E", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$']
+                  "E", r'$\epsilon$', "Z", "H", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$', "M", r'$\mu$'
+                  ,"N", r'$\nu$']
 
 	*** version 1 note: you may wish to go into the transitleastsquares's main.py file and
 	comment out all 'print' statements in order to save space while running this over lots of light curves

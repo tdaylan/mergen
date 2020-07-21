@@ -155,7 +155,8 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     modified [lcg 07172020]"""
     rcParams['figure.figsize'] = 8,3
     features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
-                  "E", r'$\epsilon$', "Z", "E", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$']
+                  "E", r'$\epsilon$', "Z", "H", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$', "M", r'$\mu$'
+                  ,"N", r'$\nu$']
     outlier_indexes = []
     for i in range(len(features[0])):
         column = features[:,i]
@@ -279,7 +280,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                             "P0", "P1", "P2", "Period0to0_1"]
         elif version == 1: 
             
-            graph_labels = ["TLS Best fit Period", "TLS Best fit duration", "TLS best fit depth",
+            graph_labels = ["TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
                             "TLS Best fit Power"]
             fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
         num_features = len(feature_vectors[0])
@@ -328,7 +329,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
-                # plt.show()
+                plt.show()
                 
     if clustering == 'dbscan':
         return db.labels_
@@ -400,7 +401,7 @@ def features_insets(time, intensity, feature_vectors, targets, path, version = 0
                             "P0", "P1", "P2", "Period0to0_1"]
     elif version == 1: 
             
-        graph_labels = ["TLS Best fit Period", "TLS Best fit duration", "TLS best fit depth",
+        graph_labels = ["TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
                             "TLS Best fit Power"]
         fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
 
