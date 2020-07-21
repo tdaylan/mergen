@@ -15,8 +15,9 @@
 # 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-dat_dir = '../../' # >> directory with input data (ending with /)
-output_dir = '../../plots/CAE/' # >> directory to save diagnostic plots
+# dat_dir = '../../' # >> directory with input data (ending with /)
+dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
+output_dir = '../../plots/CAE-3/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -26,7 +27,8 @@ sectors = [20]
 cams = [1, 2, 3, 4]
 ccds =  [1, 2, 3, 4]
 # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
-train_test_ratio = 0.85
+train_test_ratio = 0.92
+# train_test_ratio
 
 # >> what this script will run:
 hyperparameter_optimization = True # >> run hyperparameter search
@@ -34,18 +36,18 @@ run_model = True # >> train autoencoder on a parameter set p
 diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 classification=True # >> runs DBSCAN on learned features
-DBSCAN_parameter_search=True # >> runs grid search for DBSCAN
 
 # >> normalization options:
 #    * standardization : sets mean to 0. and standard deviation to 1.
 #    * median_normalization : divides by median
 #    * minmax_normalization : sets range of values from 0. to 1.
 #    * none : no normalization
-norm_type = 'median_normalization'
+norm_type = 'standardization'
 
 input_rms=True # >> concatenate RMS to learned features
 use_tess_features = True
 input_features=False # >> this option cannot be used yet
+split_at_orbit_gap=False
 
 # >> move targets out of training set and into testing set (integer)
 targets = [219107776] # >> EX DRA # !!
@@ -78,64 +80,54 @@ for sector in sectors:
 
 # >> hyperparameters
 if hyperparameter_optimization: # !! change epochs
-    p = {'kernel_size': [3,5,7],
-      'latent_dim': list(np.arange(5, 30, 5)),
+    # p = {'kernel_size': [3,5],
+    #   'latent_dim': list(np.arange(5, 30, 5)),
+    #   'strides': [1],
+    #   'epochs': [15],
+    #   'dropout': list(np.arange(0.1, 0.5, 0.1)),
+    #   'num_filters': [8, 16, 32, 64],
+    #   'num_conv_layers': [2,4,6,8,10],
+    #   'batch_size': [128],
+    #   'activation': ['elu'],
+    #   'optimizer': ['adam', 'adadelta'],
+    #   'last_activation': ['linear'],
+    #   'losses': ['mean_squared_error'],
+    #   'lr': [0.001, 0.005, 0.01, 0.05, 0.1],
+    #   'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
+    #                   'glorot_uniform']}
+    p = {'kernel_size': [3],
+      'latent_dim': list(np.arange(20, 50, 5)),
       'strides': [1],
-      'epochs': [8],
-      'dropout': list(np.arange(0.1, 0.5, 0.1)),
+      'epochs': [10],
+      'dropout': list(np.arange(0.1, 0.6, 0.1)),
       'num_filters': [8, 16, 32, 64],
-      'num_conv_layers': [2,4,6,8,10],
+      'num_conv_layers': [4,6,8,10,12,14,16],
       'batch_size': [128],
       'activation': ['elu'],
       'optimizer': ['adam', 'adadelta'],
       'last_activation': ['linear'],
-      'losses': ['mean_squared_error'],
+      'losses': ['mean_squared_error', 'binary_crossentropy',
+                 'kullback_leibler_divergence'],
       'lr': [0.001, 0.005, 0.01, 0.05, 0.1],
       'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
-                      'glorot_uniform']}
+                      'glorot_uniform'],
+      'num_consecutive': [2]}    
 else:
-    # p = {'kernel_size': 3,
-    #       'latent_dim': 25,
-    #       'strides': 1,
-    #       'epochs': 15,
-    #       'dropout': 0.3,
-    #       'num_filters': 32,
-    #       'num_conv_layers': 6,
-    #       'batch_size': 128,
-    #       'activation': 'elu',
-    #       'optimizer': 'adadelta',
-    #       'last_activation': 'linear',
-    #       'losses': 'mean_squared_error',
-    #       'lr': 0.001,
-    #       'initializer': 'glorot_normal'}    
-    # p = {'kernel_size': 3,
-    #       'latent_dim': 10,
-    #       'strides': 1,
-    #       'epochs': 25,
-    #       'dropout': 0.5,
-    #       'num_filters': 32,
-    #       'num_conv_layers': 2,
-    #       'batch_size': 128,
-    #       'activation': 'elu',
-    #       'optimizer': 'adam',
-    #       'last_activation': 'linear',
-    #       'losses': 'mean_squared_error',
-    #       'lr': 0.001,
-    #       'initializer': 'random_normal'}    
-    p = {'kernel_size': 3,
-          'latent_dim': 17,
+    p = {'kernel_size': 5,
+          'latent_dim': 30,
           'strides': 1,
-          'epochs': 15,
-          'dropout': 0.3,
-          'num_filters': 32,
-          'num_conv_layers': 2,
+          'epochs': 5,
+          'dropout': 0.2,
+          'num_filters': 16,
+          'num_conv_layers': 4,
           'batch_size': 128,
           'activation': 'elu',
-          'optimizer': 'adadelta',
+          'optimizer': 'adam',
           'last_activation': 'linear',
           'losses': 'mean_squared_error',
-          'lr': 0.001,
-          'initializer': 'glorot_normal'}        
+          'lr': 0.005,
+          'initializer': 'random_normal',
+          'num_consecutive': 2}        
 
 # -- create output directory --------------------------------------------------
     
@@ -147,13 +139,14 @@ if os.path.isdir(output_dir) == False: # >> check if dir already exists
 flux, x, ticid, target_info = \
     df.load_data_from_metafiles(dat_dir, sector, DEBUG=True,
                                 output_dir=output_dir, nan_mask_check=True)
-    
+
 x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
     target_info_test, rms_train, rms_test, x = \
     ml.autoencoder_preprocessing(flux, ticid, x, target_info, p,
                                  targets=targets, norm_type=norm_type,
                                  input_rms=input_rms,
-                                 train_test_ratio=train_test_ratio)
+                                 train_test_ratio=train_test_ratio,
+                                 split=split_at_orbit_gap)
 
 title='TESS-unsupervised'
 
@@ -177,54 +170,63 @@ if hyperparameter_optimization:
                     reduction_metric = 'val_loss',
                     minimize_loss=True,
                     reduction_method='correlation',
-                    fraction_limit=0.0001)     
+                    fraction_limit=0.01, reduction_interval=4)     
     # fraction_limit = 0.001
     analyze_object = talos.Analyze(t)
-    df, best_param_ind,p = pl.hyperparam_opt_diagnosis(analyze_object,
+    data_frame, best_param_ind,p = pl.hyperparam_opt_diagnosis(analyze_object,
                                                        output_dir,
                                                        supervised=False)
 
 # == run model ================================================================
 if run_model:
     print('Training autoencoder...') 
-    history, model = ml.conv_autoencoder(x_train, x_train, x_test, x_test, p)
-    x_predict = model.predict(x_test)
+    history, model = ml.conv_autoencoder(x_train, x_train, x_test, x_test, p,
+                                         val=False, split=split_at_orbit_gap)
     
-    ml.param_summary(history, x_test, x_predict, p, output_dir, 0, title)
-    ml.model_summary_txt(output_dir, model)
-    
-    # >> only plot epoch
-    pl.epoch_plots(history, p, output_dir+'epoch-', supervised=False)
-    
-    # >> save x_predict as .fits file
-    # tmp = np.reshape(x_predict, (np.shape(x_predict)[0],
-    #                              np.shape(x_predict)[1]))
-    hdr = fits.Header()
-    hdu = fits.PrimaryHDU(x_predict, header=hdr)
-    hdu.writeto(output_dir + 'x_predict.fits')
+    bottleneck_train = ml.get_bottleneck(model, x_train, input_rms=input_rms,
+                                         rms=rms_train)
     
     # >> save bottleneck_test, bottleneck_train
     bottleneck = ml.get_bottleneck(model, x_test, input_rms=input_rms,
                                    rms=rms_test)    
     hdr = fits.Header()
     hdu = fits.PrimaryHDU(bottleneck, header=hdr)
-    hdu.writeto(output_dir + 'bottleneck_test.fits')       
+    hdu.writeto(output_dir + 'bottleneck_test.fits')      
     
-    bottleneck_train = ml.get_bottleneck(model, x_train, input_rms=input_rms,
-                                         rms=rms_train)
     hdr = fits.Header()
     hdu = fits.PrimaryHDU(bottleneck_train, header=hdr)
-    hdu.writeto(output_dir + 'bottleneck_train.fits')
+    hdu.writeto(output_dir + 'bottleneck_train.fits')    
+    
+    x_predict = model.predict(x_test)
+    
+    if split_at_orbit_gap:
+        x_train = np.concatenate(x_train, axis=1)
+        x_test = np.concatenate(x_test, axis=1)
+        x_predict = np.concatenate(x_predict, axis=1)
+    
+    ml.param_summary(history, x_test, x_predict, p, output_dir, 0,
+                     title)
+    ml.model_summary_txt(output_dir, model)
+    
+    # >> only plot epoch
+    pl.epoch_plots(history, p, output_dir+'epoch-', supervised=False)
+    
+    # >> save x_predict
+    hdr = fits.Header()
+    hdu = fits.PrimaryHDU(x_predict, header=hdr)
+    hdu.writeto(output_dir + 'x_predict.fits')
 
 # == Plots ====================================================================
 if diag_plots:
     print('Creating plots...')
-    if run_model == False:
+    if run_model == False or split_at_orbit_gap:
 
         model, history = [], []    
             
         with fits.open(output_dir + 'x_predict.fits') as hdul:
             x_predict = hdul[0].data
+        
+        # !! re-arrange x_predict
         
         pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
                             x_test, x_predict, mock_data=False,
@@ -241,13 +243,12 @@ if diag_plots:
                             plot_latent_train = True,
                             plot_kernel=False,
                             plot_intermed_act=False,
-                            plot_clustering=False,
                             make_movie = False,
                             plot_lof_test=True,
                             plot_lof_train=True,
                             plot_lof_all=True,
-                            plot_reconstruction_error_test=False,
-                            plot_reconstruction_error_all=False,
+                            plot_reconstruction_error_test=True,
+                            plot_reconstruction_error_all=True,
                             load_bottleneck=True)
     else: 
         pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
@@ -266,13 +267,12 @@ if diag_plots:
                             plot_latent_train = True,
                             plot_kernel=True,
                             plot_intermed_act=False,
-                            plot_clustering=False,
                             make_movie = False,
                             plot_lof_test=True,
                             plot_lof_train=True,
                             plot_lof_all=True,
-                            plot_reconstruction_error_test=False,
-                            plot_reconstruction_error_all=False)                            
+                            plot_reconstruction_error_test=True,
+                            plot_reconstruction_error_all=True)                            
 
 # >> Feature plots
 
@@ -289,14 +289,15 @@ if classification:
                                     use_tess_features=use_tess_features,
                                     use_engineered_features=False)
         
-    pl.latent_space_plot(features, {'latent_dim': np.shape(features)[1]},
-                         output_dir + 'latent_space-tessfeats.png')
+    pl.latent_space_plot(features, output_dir + 'latent_space-tessfeats.png')
 
     parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores = \
     df.dbscan_param_search(features, x, flux_feat, ticid_feat,
                            info_feat, DEBUG=True, 
                            output_dir=output_dir, 
-                           simbad_database_txt='../../simbad_database.txt')      
+                           simbad_database_txt='../../simbad_database.txt',
+                           leaf_size=[30], algorithm=['auto'],
+                           metric=['euclidean'], p=[None])      
     
     # parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores = \
     # df.dbscan_param_search(bottleneck, x, x_test, ticid_test,

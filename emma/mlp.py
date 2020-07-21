@@ -22,18 +22,20 @@ preprocessing = False
 supervised = False
 hyperparameter_optimization = False
 use_tess_features = True # >> train using TESS features
-run_model = False
+run_model = True
 classification = True
 # toi_train = True # >> train only on TOIs
 # toi_validation = True # >> validate classifications with TOIs
 
-output_dir = '../../plots/DAE-withTESSfeatures/' # >> make dir if doesn't exist
-dat_dir = '../../'
+output_dir = '../../plots/DAE/' # >> make dir if doesn't exist
+data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
+# data_dir = '../../'
 # prefix = 'Sector20Cam1CCD1_2'
 prefix = 'Sector20Cam1CCD1'
 
 num_classes = 4
 targets = [219107776]
+# targets = []
 
 # tois = pd.read_csv('../../tois.csv', skiprows=[0,1,2,3])
 
@@ -101,16 +103,16 @@ else:
     p = {'max_dim': 50, 'step': 5, 'latent_dim': 17,
           'activation': 'elu', 'last_activation': 'linear',
           'optimizer': 'adadelta',
-          'lr':0.081, 'epochs': 50, 'losses': 'mean_squared_error',
+          'lr':0.081, 'epochs': 300, 'losses': 'mean_squared_error',
           'batch_size': 128, 'initializer': 'random_uniform'}      
 
 if preprocessing:
     if supervised:
         # !!
-        features = np.loadtxt(dat_dir+'sector_20_cam1_ccd1_features.txt')
-        intensity = np.loadtxt(dat_dir+'sector20_cam1_ccd1_processed_intensities.txt')
-        time = np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0]
-        ticid = np.loadtxt(dat_dir+'sector20_cam1_ccd1_targets.txt').astype('int')
+        features = np.loadtxt(data_dir+'sector_20_cam1_ccd1_features.txt')
+        intensity = np.loadtxt(data_dir+'sector20_cam1_ccd1_processed_intensities.txt')
+        time = np.loadtxt(data_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0]
+        ticid = np.loadtxt(data_dir+'sector20_cam1_ccd1_targets.txt').astype('int')
             
         # >> get rid of buggy lc (couldn't download fits files I think)
         features = np.delete(features, [553, 904, 916], axis=0)
@@ -135,10 +137,10 @@ if preprocessing:
             
     else:
         
-        features = np.loadtxt(dat_dir+'sector_20_cam1_ccd1_features.txt')
-        intensity = np.loadtxt(dat_dir+'sector20_cam1_ccd1_processed_intensities.txt')
-        time = np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0]
-        ticid = np.loadtxt(dat_dir+'sector20_cam1_ccd1_targets.txt').astype('int')
+        features = np.loadtxt(data_dir+'sector_20_cam1_ccd1_features.txt')
+        intensity = np.loadtxt(data_dir+'sector20_cam1_ccd1_processed_intensities.txt')
+        time = np.loadtxt(data_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0]
+        ticid = np.loadtxt(data_dir+'sector20_cam1_ccd1_targets.txt').astype('int')
 
         x_train, x_test, y_train, y_test, flux_train, flux_test, ticid_train, ticid_test, time = \
             ml.split_data_features(intensity, features, time, ticid, False, p,
@@ -160,14 +162,15 @@ if preprocessing:
 else:
   
     flux, time, ticid, target_info = \
-    df.load_data_from_metafiles(dat_dir, sectors[0], nan_mask_check=False)
+    df.load_data_from_metafiles(data_dir, sectors[0], nan_mask_check=False)
     
-    features, flux, ticid = ml.bottleneck_preprocessing(sectors[0], flux, ticid,
-                                           output_dir=output_dir,
-                                           data_dir='../../',
-                                           use_engineered_features=True,
-                                           use_tess_features=use_tess_features,
-                                           use_learned_features=False)
+    features, flux, ticid, target_info = \
+        ml.bottleneck_preprocessing(sectors[0], flux, ticid, target_info,
+                                    output_dir=output_dir,
+                                    data_dir=data_dir,
+                                    use_engineered_features=True,
+                                    use_tess_features=use_tess_features,
+                                    use_learned_features=False)
     
     
     x_train, x_test, y_train, y_test, flux_train, flux_test, \
@@ -206,12 +209,12 @@ else:
         hdu.writeto(output_dir + 'x_predict.fits')
         
         # >> save bottleneck_test, bottleneck_train
-        bottleneck = ml.get_bottleneck(model, x_test)    
+        bottleneck = ml.get_bottleneck(model, x_test, DAE=True)    
         hdr = fits.Header()
         hdu = fits.PrimaryHDU(bottleneck, header=hdr)
         hdu.writeto(output_dir + 'bottleneck_test.fits')       
         
-        bottleneck_train = ml.get_bottleneck(model, x_train)
+        bottleneck_train = ml.get_bottleneck(model, x_train, DAE=True)
         hdr = fits.Header()
         hdu = fits.PrimaryHDU(bottleneck_train, header=hdr)
         hdu.writeto(output_dir + 'bottleneck_train.fits')    
@@ -240,6 +243,7 @@ else:
                                 ticid_train=ticid_train, ticid_test=ticid_test,
                                 target_info_test=target_info_test,
                                 target_info_train=target_info_train,
+                                DAE=True,
                                 plot_epoch = True,
                                 plot_in_out = True,
                                 plot_in_bottle_out=False,
@@ -247,7 +251,6 @@ else:
                                 plot_latent_train = True,
                                 plot_kernel=False,
                                 plot_intermed_act=False,
-                                plot_clustering=False,
                                 make_movie = False,
                                 plot_lof_test=True,
                                 plot_lof_train=True,
@@ -255,7 +258,7 @@ else:
                                 plot_reconstruction_error_test=False,
                                 plot_reconstruction_error_all=False,
                                 load_bottleneck=False)   
-            pl.latent_space_plot(x_test, {'latent_dim': np.shape(features)[1]},
+            pl.latent_space_plot(x_test, 
                                  output_dir+'latent_space-original_features.png',
                                  units='psi')
     
@@ -355,17 +358,17 @@ else:
         # time = []
         # ticid = []
         
-        # features.append(np.loadtxt(dat_dir+'sector_20_cam1_ccd1_features.txt'))
-        # features.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_features.txt'))
-        # intensity.append(np.loadtxt(dat_dir+'sector20_cam1_ccd1_processed_intensities.txt'))
-        # intensity.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_ints_processed.txt'))
+        # features.append(np.loadtxt(data_dir+'sector_20_cam1_ccd1_features.txt'))
+        # features.append(np.loadtxt(data_dir+'Sector20Cam1CCD2_features.txt'))
+        # intensity.append(np.loadtxt(data_dir+'sector20_cam1_ccd1_processed_intensities.txt'))
+        # intensity.append(np.loadtxt(data_dir+'Sector20Cam1CCD2_ints_processed.txt'))
         
-        # time = np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0]
-        # # time.append(np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0])
-        # # time.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_interp_times.txt')[:,0])
+        # time = np.loadtxt(data_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0]
+        # # time.append(np.loadtxt(data_dir+'sector20_cam1_ccd1_interp_times.txt')[:,0])
+        # # time.append(np.loadtxt(data_dir+'Sector20Cam1CCD2_interp_times.txt')[:,0])
         
-        # ticid.append(np.loadtxt(dat_dir+'sector20_cam1_ccd1_targets.txt').astype('int'))
-        # ticid.append(np.loadtxt(dat_dir+'Sector20Cam1CCD2_targets.txt').astype('int'))
+        # ticid.append(np.loadtxt(data_dir+'sector20_cam1_ccd1_targets.txt').astype('int'))
+        # ticid.append(np.loadtxt(data_dir+'Sector20Cam1CCD2_targets.txt').astype('int'))
         
         # features = np.concatenate(features)
         # intensity = np.concatenate(intensity)
@@ -386,14 +389,14 @@ else:
     # ticid_test = np.loadtxt(prefix+'ticid_test.txt')
     # flux_train = np.loadtxt(prefix+'flux_train.csv')
     # flux_test = np.loadtxt(prefix+'flux_test.csv')
-    # time = np.loadtxt(dat_dir+'sector20_cam1_ccd1_interp_times.txt')[0]  
+    # time = np.loadtxt(data_dir+'sector20_cam1_ccd1_interp_times.txt')[0]  
     # # >> get TESS features (Tmag, rad, mass, GAIAmag, d, objType)
     # TESS_features = []
     # for i in range(len(ticid)):
     #     print(i)
     #     TESS_features.append(pl.get_features(ticid[i]))
     # # >> get features
-    # with fits.open(dat_dir + 'Sector20_v0_features/' +\
+    # with fits.open(data_dir + 'Sector20_v0_features/' +\
     #                'Sector20_features_v0_all.fits') as hdul:
     #     features = hdul[0].data
     #     ticid_features = hdul[1].data
@@ -415,7 +418,7 @@ else:
     # target_info = np.empty((0, 3))
     # for i in range(len(fnames)):
     #     print('Loading ' + fnames[i] + '...')
-    #     with fits.open(dat_dir + fnames[i]) as hdul:
+    #     with fits.open(data_dir + fnames[i]) as hdul:
     #         x = hdul[0].data
     #         flux = hdul[1].data
     #         ticid_list = hdul[2].data

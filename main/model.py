@@ -32,12 +32,14 @@ import numpy as np
 import plotting_functions as pl
 import data_functions as df
 from astropy.io import fits
+import random
 
 def autoencoder_preprocessing(flux, ticid, time, target_info, p, 
                               targets=[219107776],
                               DAE=False, features=False,
                               norm_type='standardization', input_rms=True,
-                              train_test_ratio=0.9):
+                              train_test_ratio=0.9,
+                              split=False):
     '''Preprocesses output from df.load_data_from_metafiles
     Shuffles array.
     Parameters:
@@ -59,7 +61,7 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
     # >> shuffle array
     print('Shuffling data...')
     inds = np.arange(len(flux))
-    np.random.shuffle(inds)
+    random.Random(4).shuffle(inds)
     flux = flux[inds]
     ticid = ticid[inds]
     target_info = np.array(target_info)[inds]
@@ -135,6 +137,12 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
             rms_train = rms[:np.shape(x_train)[0]]
             rms_test = rms[-1 * np.shape(x_test)[0]:]
             
+        if split:
+            orbit_gap = np.argmax(np.diff(time))
+            # >> split x_train and x_test at orbit gap
+            x_train = np.split(x_train, [orbit_gap], axis=1)
+            x_test = np.split(x_test, [orbit_gap], axis=1)            
+                
         return x_train, x_test, y_train, y_test, ticid_train, ticid_test, \
             target_info_train, target_info_test, rms_train, rms_test, time
 
@@ -165,8 +173,10 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
     Returns feature vector for every light curve in TICID.
     '''
     if use_engineered_features:
-        with fits.open(data_dir + 'Sector'+str(sector)+'_v0_features/Sector'+\
-                       str(sector)+'_features_v0_all.fits') as hdul:
+        # with fits.open(data_dir + 'Sector'+str(sector)+'_v0_features/Sector'+\
+        #                str(sector)+'_features_v0_all.fits') as hdul:
+        with fits.open(data_dir + 'Sector'+str(sector)+\
+                       '_features_v0_all.fits') as hdul:        
             engineered_feature_vector = hdul[0].data
             engineered_feature_ticid = hdul[1].data
         # >> re-arrange so that engineered_feature_ticid[i] = ticid[i]
@@ -227,6 +237,9 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
         else:
             features = tess_features
             
+    # >> standardize each feature
+    features = df.standardize(features, ax=0)
+            
     return features, flux, ticid, target_info
 
 def run_model(x_train, y_train, x_test, y_test, p, supervised=False,
@@ -286,14 +299,23 @@ def model_summary_txt(output_dir, model):
 
 # :: autoencoder ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def conv_autoencoder(x_train, y_train, x_test, y_test, params):
+def conv_autoencoder(x_train, y_train, x_test, y_test, params, 
+                     val=True, split=False, input_features=False,
+                     features=None):
     from keras.models import Model
 
     # -- encoding -------------------------------------------------------------
-    encoded = encoder(x_train, params)
+    if not split:
+        encoded = encoder(x_train, params)
+    else:
+        encoded = encoder_split(x_train, params)
 
     # -- decoding -------------------------------------------------------------
-    decoded = decoder(x_train, encoded.output, params)
+    if not split:
+        decoded = decoder(x_train, encoded.output, params)
+    else:
+        decoded = decoder_split(x_train, encoded.output, params)
+    
     model = Model(encoded.input, decoded)
     print(model.summary())
     
@@ -301,10 +323,14 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params):
     compile_model(model, params)
 
     # -- train model ----------------------------------------------------------
-    history = model.fit(x_train, x_train, epochs=params['epochs'],
-                        batch_size=params['batch_size'], shuffle=True,
-                        validation_data=(x_test, x_test))
-        
+    if val:
+        history = model.fit(x_train, x_train, epochs=params['epochs'],
+                            batch_size=params['batch_size'], shuffle=True,
+                            validation_data=(x_test, x_test))
+    else:
+        history = model.fit(x_train, x_train, epochs=params['epochs'],
+                    batch_size=params['batch_size'], shuffle=True)
+    
     return history, model
 
 def cnn(x_train, y_train, x_test, y_test, params, num_classes=4):
@@ -355,7 +381,8 @@ def cnn_mock(x_train, y_train, x_test, y_test, params, num_classes = 2):
 
 
 def mlp(x_train, y_train, x_test, y_test, params, resize=True):
-    '''a simple classifier based on a fully-connected layer'''
+    '''a simple classifier based on a fully-connected layer
+    Deprecated 071720'''
     from keras.models import Model
     from keras.layers import Input, Dense, Flatten
 
@@ -367,7 +394,7 @@ def mlp(x_train, y_train, x_test, y_test, params, resize=True):
     else:
         input_img = Input(shape = (input_dim,))
         x = input_img
-    for i in range(len(hidden_units)):
+    for i in range(len(params['hidden_units'])):
         x = Dense(params['hidden_units'][i],activation=params['activation'])(x)
     x = Dense(num_classes, activation='softmax')(x)
         
@@ -435,6 +462,14 @@ def simple_autoencoder(x_train, y_train, x_test, y_test, params, resize = False,
         
     return history, model
 
+def encoder_DAE(x_train, params):
+    from keras.models import Model
+    from keras.layers import Input, Dense, Flatten, BatchNormalization
+    
+    input_dim = np.shape(x_train)[1]
+
+# def deep_autoencoder(x_trian, y_train, x_test, y_test, params, resize)
+
 def compile_model(model, params, mlp=False):
     from keras import optimizers
     import keras.metrics
@@ -456,11 +491,28 @@ def compile_model(model, params, mlp=False):
                       metrics=['accuracy', keras.metrics.Precision(),
                       keras.metrics.Recall()])
 
-# def encoder1(x_train):
-    
 
 def encoder(x_train, params):
-    '''https://towardsdatascience.com/autoencoders-in-keras-c1f57b9a2fd7'''
+    '''x_train is an array with shape (num light curves, num data points, 1).
+    params is a dictionary with keys:
+        * kernel_size : 3, 5
+        * latent_dim : dimension of bottleneck/latent space
+        * strides : 1
+        * epochs
+        * dropout
+        * num_filters : 8, 16, 32, 64...
+        * num_conv_layers : number of convolutional layers in entire
+          autoencoder (number of conv layers in encoder is num_conv_layers/2)
+        * num_consecutive : number of consecutive convolutional layers (can
+          currently only handle 1 or 2)
+        * batch_size : 128
+        * activation : 'elu'
+        * last_activation : 'linear'        
+        * optimizer : 'adam'
+        * losses : 'mean_squared_error', 'custom'
+        * lr : learning rate (e.g. 0.01)
+        * initializer: 'random_normal', 'random_uniform', ...
+    '''
     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
     from keras.layers import Dense, AveragePooling1D, BatchNormalization
     from keras.models import Model
@@ -475,18 +527,19 @@ def encoder(x_train, params):
             x = Conv1D(params['num_filters'], int(params['kernel_size']),
                     activation=params['activation'], padding='same',
                     kernel_initializer=params['initializer'])(input_img)
-            x = BatchNormalization()(x)
-            # x = Conv1D(params['num_filters'], int(params['kernel_size']),
-            #             activation=params['activation'], padding='same')(x)
+            if params['num_consecutive'] == 2:
+                x = Conv1D(params['num_filters'], int(params['kernel_size']),
+                            activation=params['activation'], padding='same')(x)
         else:
             x = Conv1D(params['num_filters'], int(params['kernel_size']),
                         activation=params['activation'], padding='same',
                         kernel_initializer=params['initializer'])(x)
-            x = BatchNormalization()(x)
-            # x = Conv1D(params['num_filters'], int(params['kernel_size']),
-            #             activation=params['activation'], padding='same')(x)
+            if params['num_consecutive'] == 2:
+                x = Conv1D(params['num_filters'], int(params['kernel_size']),
+                            activation=params['activation'], padding='same')(x)            
+            
+        x = BatchNormalization()(x)            
         x = MaxPooling1D(2, padding='same')(x)
-
         x = Dropout(params['dropout'])(x)
     
     x = Flatten()(x)
@@ -504,10 +557,10 @@ def decoder(x_train, bottleneck, params):
     # num_iter = int(len(params['num_filters'])/2)
     num_iter = int(params['num_conv_layers']/2)
     
-    def repeat_elts(x):
-        '''helper function for lambda layer'''
-        import tensorflow as tf
-        return tf.keras.backend.repeat_elements(x,params['num_filters'],2)
+    # def repeat_elts(x):
+    #     '''helper function for lambda layer'''
+    #     import tensorflow as tf
+    #     return tf.keras.backend.repeat_elements(x,params['num_filters'],2)
         # return tf.keras.backend.repeat_elements(x,params['num_filters'][num_iter+i],2)
     
     # x = Dense(int(input_dim/(2**(num_iter))))(bottleneck)
@@ -522,6 +575,9 @@ def decoder(x_train, bottleneck, params):
         x = UpSampling1D(2)(x)
         if i == num_iter-1:
             x = BatchNormalization()(x)
+            if params['num_consecutive'] == 2:
+                x = Conv1D(params['num_filters'], int(params['kernel_size']),
+                            activation=params['activation'], padding='same')(x)            
             decoded = Conv1D(1, int(params['kernel_size']),
                               activation=params['last_activation'],
                               padding='same',
@@ -531,6 +587,9 @@ def decoder(x_train, bottleneck, params):
             #                  padding='same')(x)
         else:
             x = BatchNormalization()(x)
+            if params['num_consecutive'] == 2:
+                x = Conv1D(params['num_filters'], int(params['kernel_size']),
+                            activation=params['activation'], padding='same')(x)            
             x = Conv1D(params['num_filters'], int(params['kernel_size']),
                        activation=params['activation'], padding='same',
                        kernel_initializer=params['initializer'])(x)            
@@ -543,62 +602,82 @@ def decoder(x_train, bottleneck, params):
 
 def encoder_split(x, params):
     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
-    from keras.layers import Dense, concatenate
+    from keras.layers import Dense, concatenate, BatchNormalization
     from keras.models import Model
-    
-    num_iter = int((params['num_conv_layers'])/2)
-    
+
     input_imgs = [Input(shape=(np.shape(a)[1], 1)) for a in x]
+    num_iter = int((params['num_conv_layers'])/2)    
 
     for i in range(num_iter):
-        conv_1 = Conv1D(params['num_filters'][i], int(params['kernel_size'][i]),
-             activation=params['activation'], padding='same')
-        x = [conv_1(a) for a in input_imgs]
+        conv_1 = Conv1D(params['num_filters'], int(params['kernel_size']),
+                        activation=params['activation'], padding='same',
+                        kernel_initializer=params['initializer'])
+        if i == 0:
+            x = [conv_1(a) for a in input_imgs]
+        else:
+            x = [conv_1(a) for a in x]
+            
+        batch_norm = BatchNormalization()
+        x = [batch_norm(a) for a in x]
+            
         maxpool_1 = MaxPooling1D(2, padding='same')
         x = [maxpool_1(a) for a in x]
+        
         dropout_1 = Dropout(params['dropout'])
         x = [dropout_1(a) for a in x]
-        maxchannel_1 = MaxPooling1D([params['num_filters'][i]],
-                                    data_format='channels_first')
-        x = [maxchannel_1(a) for a in x]
 
-    flatten_1 = Flatten()
-    x = [flatten_1(a) for a in x]
-    dense_1 = Dense(params['latent_dim'], activation=params['activation'])
-    x = [dense_1(a) for a in x]
+    x = [Flatten()(a) for a in x]
+    
+    x = [Dense(params['latent_dim'], activation=params['activation'])(a) for a\
+         in x]
+    
     encoded = concatenate(x)
     encoder = Model(inputs=input_imgs, outputs=encoded)
     return encoder
 
-def decoder_split(x_train, bottleneck, params):
+def decoder_split(x, bottleneck, params):
     from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout
-    from keras.layers import Lambda, concatenate
+    from keras.layers import Lambda, concatenate, BatchNormalization
     from keras import backend as K
-    
-    input_dim = np.shape(x_train)[1]
+
     num_iter = int((params['num_conv_layers'])/2)
     
-    dense_1 = Dense(int(input_dim/(2**(num_iter))))
-    x = [dense_1(bottleneck), dense_1(bottleneck)]
-    reshape_1 = Reshape((int(input_dim/(2**(num_iter))), 1))
-    x = [reshape_1(a) for a in x]
+    input_dim_1 = np.shape(x[0])[1]
+    dense_1 = Dense(int(input_dim_1*params['num_filters']/2**num_iter),
+                    kernel_initializer=params['initializer'])
+    
+    input_dim_2 = np.shape(x[1])[1]
+    dense_2 = Dense(int(input_dim_2*params['num_filters']/2**num_iter),
+                    kernel_initializer=params['initializer'])
+    
+    x = [dense_1(bottleneck), dense_2(bottleneck)]
+    
+    reshape_1 = Reshape((int(input_dim_1/(2**(num_iter))),
+                         params['num_filters']))
+    reshape_2 = Reshape((int(input_dim_2/(2**(num_iter))),
+                         params['num_filters']))    
+    x = [reshape_1(x[0]), reshape_2(x[1])]
     for i in range(num_iter):
-        upsampling_channels = Lambda(lambda x: \
-                    K.repeat_elements(x,params['num_filters'][num_iter+i],2))
-        x = [upsampling_channels(a) for a in x]
-        dropout_1 = Dropout(params['dropout'])(x)
+        dropout_1 = Dropout(params['dropout'])
         x = [dropout_1(a) for a in x]
-        upsampling_1 = UpSampling1D(2)(x)
+        
+        upsampling_1 = UpSampling1D(2)
         x = [upsampling_1(a) for a in x]
+        
+        batch_norm = BatchNormalization()
+        x = [batch_norm(a) for a in x]
+        
         if i == num_iter-1:
-            conv_2 = Conv1D(1, params['kernel_size'][num_iter+1],
-                              activation=params['last_activation'],
-                              padding='same')
-            x = [conv_2(a) for a in x]
-            decoded = concatenate(x)
+            conv_2 = Conv1D(1, int(params['kernel_size']),
+                            activation=params['last_activation'],
+                            padding='same',
+                            kernel_initializer=params['initializer'])
+            decoded = [conv_2(a) for a in x]
+            # decoded = concatenate(x)
         else:
-            conv_1 = Conv1D(1, params['kernel_size'][num_iter+i],
-                        activation=params['activation'], padding='same')
+            conv_1 = Conv1D(params['num_filters'], int(params['kernel_size']),
+                            activation=params['activation'], padding='same',
+                            kernel_initializer=params['initializer'])
             x = [conv_1(a) for a in x]
     return decoded
 
@@ -757,13 +836,16 @@ def get_activations(model, x_test, input_rms = False, rms_test = False):
     return activations
 
 def get_bottleneck(model, x_test, input_features=False, features=False,
-                   input_rms=False, rms=False):
+                   input_rms=False, rms=False, DAE=True):
     from keras.models import Model
     # >> first find all Dense layers
     inds = np.nonzero(['dense' in x.name for x in model.layers])[0]
     
     # >> bottleneck layer is the first Dense layer
-    bottleneck_ind = inds[0]
+    if DAE:
+        bottleneck_ind = inds[int(len(inds)/2)-1]
+    else:
+        bottleneck_ind = inds[0]
     activation_model = Model(inputs=model.input,
                              outputs=model.layers[bottleneck_ind].output)
     bottleneck = activation_model.predict(x_test)    
@@ -1752,3 +1834,13 @@ def get_target_list(sector_num, output_dir='./'):
 #         return flux, time, flux_err
 #     else:
 #         return flux, time
+    
+            
+            # x = Conv1D(params['num_filters'], int(params['kernel_size']),
+            #             activation=params['activation'], padding='same')(x)
+        # maxchannel_1 = MaxPooling1D([params['num_filters'][i]],
+        #                             data_format='channels_first')
+        # x = [maxchannel_1(a) for a in x]
+
+        # upsampling_channels = Lambda(lambda x: \
+        #             K.repeat_elements(x,params['num_filters'][num_iter+i],2))
