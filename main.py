@@ -10,7 +10,7 @@ import astroquery.mast
 from astroquery.mast import Tesscut
 from astropy.coordinates import SkyCoord
 from astroquery.simbad import Simbad
-import tcat.main
+import pandora.main
 
 import time as timemodu
 
@@ -171,37 +171,61 @@ def plot_imag(gdat, cntp, strgvarb, path=None, cmap=None, indxsideyposoffs=0, in
     plt.savefig(path)
     plt.close()
     
+        
+def retr_lcurense(gdat, ensetype):
+
+    numbtarg = 10
+    numbtime = 1000
+    if ensetype == 'sect':
+        lcur = np.empty((numbtarg, numbtime))
+    if ensetype == 'targ':
+        lcur = [np.empty(numbtime)]
+    
+    return lcur
+
+
+def prep_lcur(objtlcur):
+
+    if ensetype == 'sect':
+        lcur = lcur
+    if ensetype == 'targ':
+        lcur = [np.empty(numbtime)]
+    
+    return lcur
+
 
 def init( \
+         
          listisec=None, \
-         listicam=None, \
-         listiccd=None, \
+         
          # light curve extraction type
          extrtype='spoc', \
          targtype='slen', \
          pathfile=None, \
-         datatype='obsd', \
-         rasctarg=None, \
-         decltarg=None, \
+         
+         # type of data
+         datatype='mock02mn', \
+         
+         # ensemble type
+         ensetype='sect', \
+         
+         # number of brightest 2-minute cadence sources         
+         numbsour=10000, \
+
          verbtype=1, \
-         labltarg=None, \
          numbside=None, \
          **args \
         ):
  
-    # inputs:
-    # 1) TIC IDs
-    # 2) One sector, One Cam, One CCD
-
     # preliminary setup
     # construct the global object 
     gdat = tdpy.util.gdatstrt()
-    for attr, valu in locals().iteritems():
+    for attr, valu in locals().items():
         if '__' not in attr and attr != 'gdat':
             setattr(gdat, attr, valu)
     
     # copy all provided inputs to the global object
-    for strg, valu in args.iteritems():
+    for strg, valu in args.items():
         setattr(gdat, strg, valu)
     
     # string for date and time
@@ -212,14 +236,10 @@ def init( \
     #if ((icam is not None or iccd is not None) and listtici is not None):
     #    raise Exception('')
     
+    # mock data
     if gdat.datatype == 'mock':
         gdat.trueclastype = 'catg'
     
-
-    #star = eleanor.Source(tic=38846515, sector=1, tc=True)
-
-    gdat.strgcntp = gdat.datatype
-
     # paths
     ## read PCAT path environment variable
     gdat.pathbase = os.environ['CTLC_DATA_PATH'] + '/'
@@ -243,15 +263,13 @@ def init( \
         strgmode = 'file'
     
     # reference catalog
-    gdat.numbrefr = 1
+    gdat.numbrefr = 2
 
     random_state = 42
 
     timeexpo = 1426.
     
-    np.random.seed(45)
-
-    gdat.numbfeat = 1
+    np.random.seed(42)
 
     gdat.numbtimerebn = None#30
     
@@ -275,9 +293,8 @@ def init( \
     magtminm = 12.
     magtmaxm = 19.
     
-    # get data
-    # inject signal
-    if gdat.datatype == 'mock':
+    # make mock data
+    if gdat.datatype.startswith('mock'):
         gdat.numbtime = 50
         gdat.numbfeat = 1
         gdat.numbdata = 100
@@ -311,19 +328,77 @@ def init( \
         if gdat.trueclastype == 'outl':
             gdat.trueindxdataoutl = gdat.numbobjtoutl
 
-    gdat.numbsect = len(gdat.listisec)
-    gdat.indxsect = np.arange(gdat.numbsect)
-    for o in gdat.indxsect:
+    # ensembles of targets
+    
+    gdat.listsect = np.arange(26)
+
+    gdat.listensetype = 'sect'
+    if gdat.listensetype == 'sect':
+        gdat.numbense = len(gdat.listsect)
+    
+    gdat.indxense = np.arange(gdat.numbense)
+    for l in gdat.indxense:
+        
+        # get light curve for ensemble
+        lcur = retr_lcurense(gdat)
+
+        # preprocess light curves
+        prep_lcur(gdat)
+        
+        if gdat.listensetype[l] == 'sect':
+            # calculate latent space features using an CAE
+            featcaen = retr_late(gdat)
+            listfeat = [featcaen]
+            
+        if gdat.listensetype[l] == 'sect':
+            # calculate custom features
+            featcust = retr_feat(gdat)
+            
+            # DAE
+            featdaen = perf_daen(gdat)
+            listfeat = [featcust, featdaen]
+
+        for listfeat in listfeat:
+            for typefeattici in gdat.listtypefeattici:
+            
+                # do unsupervised learning
+                lear_usup(gdat, feat, typefeattici)
+
+        gdat.pathimag = gdat.pathimagbase + 'sector-%d/cam%d/ccd%d/' % (gdat.listisec[o], gdat.listicam[o], gdat.listiccd[o])
+        cmnd = 'mkdir -p %s' % gdat.pathimag
+        os.system(cmnd)
+
+
+def lear_usup():
+    
+    # classficiation using features
+    find_clas()
+
+    # outlier detection using features
+    find_outl()
+    
+    # plot
+    ## TSNe
+    plot_tsne()
+    
+    ## LOF
+
+    ## classes
+    
+    ## light curves of validation targets
+
+
+def retr_lcurense(gdat, ensetype):
+    
+    if ensetype == 'sect':
+        gdat.numbsect = len(gdat.listisec)
+        gdat.indxsect = np.arange(gdat.numbsect)
         strgsecc = '%02d%d%d' % (gdat.listisec[o], gdat.listicam[o], gdat.listiccd[o])
         print('Sector: %d' % gdat.listisec[o])
         print('Camera: %d' % gdat.listicam[o])
         print('CCD: %d' % gdat.listiccd[o])
         print('strgsecc')
         print(strgsecc)
-        
-        gdat.pathimag = gdat.pathimagbase + 'sector-%d/cam%d/ccd%d/' % (gdat.listisec[o], gdat.listicam[o], gdat.listiccd[o])
-        cmnd = 'mkdir -p %s' % gdat.pathimag
-        os.system(cmnd)
 
         if gdat.datatype == 'obsd':
             print('Reading files...')
@@ -480,7 +555,7 @@ def init( \
                 numbtimefilt -= 1
             
             # rebin in time
-            if False and gdat.numbtimerebn is not None and gdat.numbtime > gdat.numbtimerebn:
+            if gdat.numbtimerebn is not None and gdat.numbtime > gdat.numbtimerebn:
                 print('Rebinning in time...')
                 numbtimeoldd = gdat.numbtime
                 gdat.numbtime = gdat.numbtimerebn
@@ -712,7 +787,7 @@ def init( \
                                         else:
                                             cntptemp = cntpresi
                                             boolresi = True
-                                        #tcat.util.plot_cntpwrap(gdat, cntptemp, gdat.indxtime[::4], o, strgsecc, lcur=gdat.datatran[indx, :], time=gdat.time, \
+                                        #pandora.util.plot_cntpwrap(gdat, cntptemp, gdat.indxtime[::4], o, strgsecc, lcur=gdat.datatran[indx, :], time=gdat.time, \
                                         #                                                                                    boolresi=boolresi, labltarg=labltarg)
                         else:
                             lablobjt = ''

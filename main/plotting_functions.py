@@ -147,12 +147,15 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     parameters: 
         *path to save shit into
         * features (all)
-        * time axis (1)
-        * flux (all)
+        * time axis (1) (ALREADY PROCESSED)
+        * flux (all) (must ALREADY BE PROCESSED)
         * ticids (all)
         
-    returns: features_cropped, ticids_cropped, flux_cropped """
-        
+    returns: features_cropped, ticids_cropped, flux_cropped 
+    modified [lcg 07172020]"""
+    rcParams['figure.figsize'] = 8,3
+    features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
+                  "E", r'$\epsilon$', "Z", "E", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$']
     outlier_indexes = []
     for i in range(len(features[0])):
         column = features[:,i]
@@ -162,14 +165,22 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
         for n in range(len(column)):
             #find and note the position of any outliers
             if column[n] < column_bottom or column[n] > column_top: 
-                outlier_indexes.append(int(n))
+                outlier_indexes.append((int(n), int(i)))
                 
-    outlier_indexes = np.unique(np.asarray(outlier_indexes))
+    print(np.asarray(outlier_indexes))
+        
+    outlier_indexes = np.asarray(outlier_indexes)
     
     for i in range(len(outlier_indexes)):
-        plt.scatter(time, flux[outlier_indexes[i]], s=0.5)
-        target = ticids[outlier_indexes[i]]
-        plt.title("TIC " + str(int(target)) + astroquery_pull_data(target) + "\n" + str(features[outlier_indexes[i]]))
+        plt.scatter(time, flux[outlier_indexes[i][0]], s=0.5)
+        target = ticids[outlier_indexes[i][0]]
+        
+        feature_value = '%s' % float('%.2g' % features[i][outlier_indexes[i][1]])
+        feature_title = features_greek[outlier_indexes[i][1]] + "=" + feature_value
+        
+        plt.title("TIC " + str(int(target)) + " " + astroquery_pull_data(target, breaks=False) + 
+                  "\n" + feature_title + "  Sigma cap: " + str(sigma), fontsize=8)
+        plt.tight_layout()
         plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
         plt.show()
         
@@ -181,20 +192,31 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     return features_cropped, ticids_cropped, flux_cropped, outlier_indexes
 
 
-    
-
 def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                          time, intensity, targets, folder_suffix='',
-                         feature_engineering=True, eps=0.5, min_samples=10,
+                         feature_engineering=True, version=0, eps=0.5, min_samples=10,
                          metric='euclidean', algorithm='auto', leaf_size=30,
                          p=2, target_info=False,
                          momentum_dump_csv='./Table_of_momentum_dumps.csv'):
     """plotting (n 2) features against each other
-    feature_vectors is the list of ALL feature_vectors
-    cluster_columns is the vectors that you want to use to do the clustering based on
-        this can be the same as feature_vectors
-        path needs to end in a backslash
-    clustering must equal 'dbscan', 'kmeans', or 'empty'
+    parameters: 
+        * feature_vectors - array of feature vectors
+        * cluster_columns - features to do clustering based on, as feature_vectors[:,5]
+        * path to where you want everythigns aved - ends in a backslash
+        * clustering - what you want to cluster as. options are 'dbscan', 'kmeans', or 
+        any other keyword which will do no clustering
+        * time axis
+        * intensities
+        *target ticids
+        * folder suffix
+        *feature_engineering - default is true
+        * version - what version of engineered features, irrelevant integer if feature_engienering is false
+        * eps, min_samples, metric, algorithm, leaf_size, p - dbscan parameters, comes with defaults
+        * target_info - default is false
+        *momentum dumps - not sure entirely why it's needed here tbh
+        
+    returns: only returns labels for dbscan/kmeans clustering. otherwise the only
+    output is the files saved into the folder as given thru path
     """
     #detrmine which of the clustering algoirthms you're using: 
     folder_label = "blank"
@@ -224,7 +246,8 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     except OSError:
         print ("Creation of the directory %s failed" % folder_path)
         print("New folder created will have -new at the end. Please rename.")
-        os.makedirs(folder_path + "-new")
+        folder_path = folder_path + "-new"
+        os.makedirs(folder_path)
     else:
         print ("Successfully created the directory %s" % folder_path) 
  
@@ -246,14 +269,20 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
             'skyblue', 'sienna', 'palegreen', 'black']
     #creates labels based on if engineered features or not
     if feature_engineering:
-        graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-                        "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-                        "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-                        "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
-        fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                        "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                        "P0", "P1", "P2", "Period0to0_1"]
-        num_features = 16
+        if version==0:
+            graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                            "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                            "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+            fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                            "P0", "P1", "P2", "Period0to0_1"]
+        elif version == 1: 
+            
+            graph_labels = ["TLS Best fit Period", "TLS Best fit duration", "TLS best fit depth",
+                            "TLS Best fit Power"]
+            fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+        num_features = len(feature_vectors[0])
     else:
         # >> shape(feature_vectors) = [num_samples, num_features]
         num_features = np.shape(feature_vectors)[1]
@@ -306,7 +335,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     if clustering == 'kmeans':
         return x.labels
                           
-def astroquery_pull_data(target):
+def astroquery_pull_data(target, breaks=True):
     """Give a TIC ID - ID /only/, any format is fine, it'll get converted to str
     Searches the TIC catalog and pulls: 
         T_eff
@@ -326,7 +355,10 @@ def astroquery_pull_data(target):
         radius = np.round(catalog_data[0]["rad"], 2)
         mass = np.round(catalog_data[0]["mass"], 2)
         distance = np.round(catalog_data[0]["d"], 1)
-        title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+        if breaks:
+            title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+        else: 
+             title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
         title = "Connection error, no data"
@@ -335,7 +367,7 @@ def astroquery_pull_data(target):
 
 #inset plotting -------------------------------------------------------------------------------------------
 
-def features_insets(time, intensity, feature_vectors, targets, path):
+def features_insets(time, intensity, feature_vectors, targets, path, version = 0):
     """ Plots 2 features against each other with the extrema points' associated
     light curves plotted as insets along the top and bottom of the plot. 
     
@@ -344,10 +376,10 @@ def features_insets(time, intensity, feature_vectors, targets, path):
     feature_vectors is the complete list of feature vectors
     targets is the complete list of targets
     folder is the folder into which you wish to save the folder of plots. it 
-    should be formatted as a string, with no trailing /
-    modified [lcg 06292020]
+    should be formatted as a string, ending with a /
+    modified [lcg 07202020]
     """   
-    path = path + "/2DFeatures-insets"
+    path = path + "2DFeatures-insets"
     try:
         os.makedirs(path)
     except OSError:
@@ -357,18 +389,25 @@ def features_insets(time, intensity, feature_vectors, targets, path):
         os.makedirs(path)
     else:
         print ("Successfully created the directory %s" % path) 
- 
-    graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-                    "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-                    "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-                    "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
-    fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                    "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                    "P0", "P1", "P2", "Period0to0_1"]
-    for n in range(16):
+        
+    if version==0:
+        graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                            "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                            "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+        fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                            "P0", "P1", "P2", "Period0to0_1"]
+    elif version == 1: 
+            
+        graph_labels = ["TLS Best fit Period", "TLS Best fit duration", "TLS best fit depth",
+                            "TLS Best fit Power"]
+        fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+
+    for n in range(len(feature_vectors[0])):
         graph_label1 = graph_labels[n]
         fname_label1 = fname_labels[n]
-        for m in range(16):
+        for m in range(len(feature_vectors[0])):
             if m == n:
                 continue
             graph_label2 = graph_labels[m]
@@ -429,7 +468,7 @@ def inset_plotting(datax, datay, label1, label2, insetx, insety, inset_indexes, 
         #this sets the actual axes limits    
         axis_name.set_xlim(insetx[0], insetx[-1])
         axis_name.set_ylim(insety[inset_indexes[n]].min(), insety[inset_indexes[n]].max())
-        axis_name.set_title(astroquery_pull_data(targets[inset_indexes[n]]), fontsize=6)
+        axis_name.set_title("TIC " + str(int(targets[inset_indexes[n]])) + " \n" + astroquery_pull_data(targets[inset_indexes[n]]), fontsize=6)
         axis_name.set_xticklabels([])
         axis_name.set_yticklabels([])
         
@@ -595,20 +634,24 @@ def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_i
     plt.savefig(filename)
     plt.close()
 
-def histo_features(features, bins, t, intensities, targets, path, insets=False):
+def histo_features(features, bins, t, intensities, targets, path, insets=False, version=0):
     """ Plot histograms of each feature, both with and without inset light curves
     features (array of ALL), bins, time axis, intensities, path to put folder in
-    modified [lcg 07012020]"""
-    folderpath = path + "/feature_histograms/"
+    modified [lcg 07202020]"""
+    folderpath = path + "/feature_histograms_binning_" + str(bins) + "/"
     try:
         os.makedirs(folderpath)
     except OSError:
         print ("Directory %s already exists" % folderpath)
-        
-    fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                        "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                        "P0", "P1", "P2", "Period0to0_1"]
-    for n in range(16):
+    
+    if version==0:
+        fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                            "P0", "P1", "P2", "Period0to0_1"]
+    elif version == 1: 
+        fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+
+    for n in range(len(features[0])):
         filename = folderpath + fname_labels[n] + "histogram.png"
         plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=False)
         if insets == True:
