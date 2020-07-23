@@ -140,10 +140,11 @@ def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppa
     
     return features, x, flux, ticid, outlier_indexes    
         
-def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, sigma):
+def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, sigma, version=0):
     """ isolate features that are significantly out there and crazy
     plot those outliers, and remove them from the features going into the 
     main lof/plotting/
+    also removes any TLS features which returned only nans
     parameters: 
         *path to save shit into
         * features (all)
@@ -151,12 +152,15 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
         * flux (all) (must ALREADY BE PROCESSED)
         * ticids (all)
         
-    returns: features_cropped, ticids_cropped, flux_cropped 
-    modified [lcg 07172020]"""
+    returns: features_cropped, ticids_cropped, flux_cropped, outlier_indexes 
+    modified [lcg 07222020]"""
     rcParams['figure.figsize'] = 8,3
-    features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
+    if version==0:
+        features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
                   "E", r'$\epsilon$', "Z", "H", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$', "M", r'$\mu$'
                   ,"N", r'$\nu$']
+    elif version==1: 
+        features_greek = ["M", r'$\mu$',"N", r'$\nu$']
     outlier_indexes = []
     for i in range(len(features[0])):
         column = features[:,i]
@@ -165,7 +169,7 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
         column_bottom = np.mean(column) - (column_std * sigma)
         for n in range(len(column)):
             #find and note the position of any outliers
-            if column[n] < column_bottom or column[n] > column_top: 
+            if column[n] < column_bottom or column[n] > column_top or np.isnan(column[n]) ==True: 
                 outlier_indexes.append((int(n), int(i)))
                 
     print(np.asarray(outlier_indexes))
@@ -173,14 +177,21 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     outlier_indexes = np.asarray(outlier_indexes)
     
     for i in range(len(outlier_indexes)):
-        plt.scatter(time, flux[outlier_indexes[i][0]], s=0.5)
-        target = ticids[outlier_indexes[i][0]]
+        target_index = outlier_indexes[i][0] #is the index of the target on the lists
+        feature_index = outlier_indexes[i][1] #is the index of the feature that it triggered on
+        plt.scatter(time, flux[target_index], s=0.5)
+        target = ticids[target_index]
+        #print(features[target_index])
         
-        feature_value = '%s' % float('%.2g' % features[i][outlier_indexes[i][1]])
-        feature_title = features_greek[outlier_indexes[i][1]] + "=" + feature_value
+        if np.isnan(features[target_index][feature_index]) == True:
+            feature_title = features_greek[feature_index] + "=nan"
+        else: 
+            feature_value = '%s' % float('%.2g' % features[target_index][feature_index])
+            feature_title = features_greek[feature_index] + "=" + feature_value
+        print(feature_title)
         
         plt.title("TIC " + str(int(target)) + " " + astroquery_pull_data(target, breaks=False) + 
-                  "\n" + feature_title + "  Sigma cap: " + str(sigma), fontsize=8)
+                  "\n" + feature_title + "  STDEV limit: " + str(sigma), fontsize=8)
         plt.tight_layout()
         plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
         plt.show()
@@ -359,6 +370,7 @@ def astroquery_pull_data(target, breaks=True):
     try: 
         catalog_data = Catalogs.query_object("TIC " + str(int(target)), radius=0.02, catalog="TIC")
         #https://arxiv.org/pdf/1905.10694.pdf
+        Tmag = np.round(catalog_data[0]["Tmag"], 2)
         T_eff = np.round(catalog_data[0]["Teff"], 0)
         obj_type = catalog_data[0]["objType"]
         gaia_mag = np.round(catalog_data[0]["GAIAmag"], 2)
@@ -366,9 +378,9 @@ def astroquery_pull_data(target, breaks=True):
         mass = np.round(catalog_data[0]["mass"], 2)
         distance = np.round(catalog_data[0]["d"], 1)
         if breaks:
-            title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+            title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + ", Tmag: " + str(Tmag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
         else: 
-             title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+             title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + ", Tmag: " + str(Tmag) + "Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
         title = "Connection error, no data"
