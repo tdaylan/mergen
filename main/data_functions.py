@@ -1150,7 +1150,7 @@ def featvec(x_axis, sampledata, v=0):
         results = model.power(show_progress_bar=False)
         featvec.append(results.period)
         featvec.append(results.duration)
-        featvec.append(results.depth)
+        featvec.append((1 -results.depth))
         featvec.append((results.power.max()))
     
     return featvec 
@@ -1346,6 +1346,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     
     Parameters:
         * bottleneck : array with shape=(num light curves, num features)
+            ** is this just the array of features? ^
         * eps, min_samples, metric, algorithm, leaf_size, p : all DBSCAN
           parameters
         * success metric : !!

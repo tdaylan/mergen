@@ -208,7 +208,7 @@ def features_plotting_2D(feature_vectors, path, clustering,
                          time, intensity, targets, folder_suffix='',
                          feature_engineering=True, version=0, eps=0.5, min_samples=10,
                          metric='euclidean', algorithm='auto', leaf_size=30,
-                         p=2, target_info=False,
+                         p=2, target_info=False, kmeans_clusters=4,
                          momentum_dump_csv='./Table_of_momentum_dumps.csv'):
     """plotting (n 2) features against each other
     parameters: 
@@ -238,16 +238,16 @@ def features_plotting_2D(feature_vectors, path, clustering,
                     p=p).fit(feature_vectors) #eps is NOT epochs
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
-        folder_label = "dbscan-colored/"
+        folder_label = "dbscan-colored"
 
     elif clustering == 'kmeans': 
-        Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
+        Kmean = KMeans(n_clusters=kmeans_clusters, max_iter=700, n_init = 20)
         x = Kmean.fit(feature_vectors)
         classes_kmeans = x.labels_
-        folder_label = "kmeans-colored/"
+        folder_label = "kmeans-colored"
     else: 
         print("no clustering chosen")
-        folder_label = "2DFeatures/"
+        folder_label = "2DFeatures"
         
     #makes folder and saves to it    
     folder_path = path + folder_label
@@ -329,7 +329,7 @@ def features_plotting_2D(feature_vectors, path, clustering,
                     plt.scatter(feat1[n], feat2[n], c=colors[classes_dbscan[n]], s=2)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig((folder_path + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
+                plt.savefig((folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
                 plt.show()
                 plt.close()
                  
@@ -340,21 +340,21 @@ def features_plotting_2D(feature_vectors, path, clustering,
                     plt.scatter(feat1[n], feat2[n], c=colors[classes_kmeans[n]], s=2)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(folder_path + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
+                plt.savefig(folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
                 plt.show()
                 plt.close()
             elif clustering == 'none':
                 plt.scatter(feat1, feat2, s = 2, color = 'black')
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(folder_path + fname_label1 + "-vs-" + fname_label2 + ".png")
+                plt.savefig(folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + ".png")
                 plt.show()
                 plt.close()
                 
     if clustering == 'dbscan':
-        return db.labels_
+        return classes_dbscan
     if clustering == 'kmeans':
-        return x.labels
+        return classes_kmeans
                           
 def astroquery_pull_data(target, breaks=True):
     """Give a TIC ID - ID /only/, any format is fine, it'll get converted to str
