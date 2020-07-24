@@ -141,10 +141,11 @@ def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppa
     
     return features, x, flux, ticid, outlier_indexes    
         
-def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, sigma):
+def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, sigma, version=0):
     """ isolate features that are significantly out there and crazy
     plot those outliers, and remove them from the features going into the 
     main lof/plotting/
+    also removes any TLS features which returned only nans
     parameters: 
         *path to save shit into
         * features (all)
@@ -152,11 +153,15 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
         * flux (all) (must ALREADY BE PROCESSED)
         * ticids (all)
         
-    returns: features_cropped, ticids_cropped, flux_cropped 
-    modified [lcg 07172020]"""
+    returns: features_cropped, ticids_cropped, flux_cropped, outlier_indexes 
+    modified [lcg 07222020]"""
     rcParams['figure.figsize'] = 8,3
-    features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
-                  "E", r'$\epsilon$', "Z", "E", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$']
+    if version==0:
+        features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
+                  "E", r'$\epsilon$', "Z", "H", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$', "M", r'$\mu$'
+                  ,"N", r'$\nu$']
+    elif version==1: 
+        features_greek = ["M", r'$\mu$',"N", r'$\nu$']
     outlier_indexes = []
     for i in range(len(features[0])):
         column = features[:,i]
@@ -165,7 +170,7 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
         column_bottom = np.mean(column) - (column_std * sigma)
         for n in range(len(column)):
             #find and note the position of any outliers
-            if column[n] < column_bottom or column[n] > column_top: 
+            if column[n] < column_bottom or column[n] > column_top or np.isnan(column[n]) ==True: 
                 outlier_indexes.append((int(n), int(i)))
                 
     print(np.asarray(outlier_indexes))
@@ -173,14 +178,21 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     outlier_indexes = np.asarray(outlier_indexes)
     
     for i in range(len(outlier_indexes)):
-        plt.scatter(time, flux[outlier_indexes[i][0]], s=0.5)
-        target = ticids[outlier_indexes[i][0]]
+        target_index = outlier_indexes[i][0] #is the index of the target on the lists
+        feature_index = outlier_indexes[i][1] #is the index of the feature that it triggered on
+        plt.scatter(time, flux[target_index], s=0.5)
+        target = ticids[target_index]
+        #print(features[target_index])
         
-        feature_value = '%s' % float('%.2g' % features[i][outlier_indexes[i][1]])
-        feature_title = features_greek[outlier_indexes[i][1]] + "=" + feature_value
+        if np.isnan(features[target_index][feature_index]) == True:
+            feature_title = features_greek[feature_index] + "=nan"
+        else: 
+            feature_value = '%s' % float('%.2g' % features[target_index][feature_index])
+            feature_title = features_greek[feature_index] + "=" + feature_value
+        print(feature_title)
         
         plt.title("TIC " + str(int(target)) + " " + astroquery_pull_data(target, breaks=False) + 
-                  "\n" + feature_title + "  Sigma cap: " + str(sigma), fontsize=8)
+                  "\n" + feature_title + "  STDEV limit: " + str(sigma), fontsize=8)
         plt.tight_layout()
         plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
         plt.show()
@@ -193,16 +205,15 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     return features_cropped, ticids_cropped, flux_cropped, outlier_indexes
 
 
-def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
+def features_plotting_2D(feature_vectors, path, clustering,
                          time, intensity, targets, folder_suffix='',
                          feature_engineering=True, version=0, eps=0.5, min_samples=10,
                          metric='euclidean', algorithm='auto', leaf_size=30,
-                         p=2, target_info=False,
+                         p=2, target_info=False, kmeans_clusters=4,
                          momentum_dump_csv='./Table_of_momentum_dumps.csv'):
     """plotting (n 2) features against each other
     parameters: 
         * feature_vectors - array of feature vectors
-        * cluster_columns - features to do clustering based on, as feature_vectors[:,5]
         * path to where you want everythigns aved - ends in a backslash
         * clustering - what you want to cluster as. options are 'dbscan', 'kmeans', or 
         any other keyword which will do no clustering
@@ -223,17 +234,16 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     folder_label = "blank"
     if clustering == 'dbscan':
         # !! TODO parameter optimization (eps, min_samples)
-        # cluster_columns = ml.standardize(cluster_columns, ax=0)
         db = DBSCAN(eps=eps, min_samples=min_samples, metric=metric,
                     algorithm=algorithm, leaf_size=leaf_size,
-                    p=p).fit(cluster_columns) #eps is NOT epochs
+                    p=p).fit(feature_vectors) #eps is NOT epochs
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
-        folder_label = "dbscan-colored" + folder_suffix
+        folder_label = "dbscan-colored"
 
     elif clustering == 'kmeans': 
-        Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
-        x = Kmean.fit(cluster_columns)
+        Kmean = KMeans(n_clusters=kmeans_clusters, max_iter=700, n_init = 20)
+        x = Kmean.fit(feature_vectors)
         classes_kmeans = x.labels_
         folder_label = "kmeans-colored"
     else: 
@@ -247,7 +257,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
     except OSError:
         print ("Creation of the directory %s failed" % folder_path)
         print("New folder created will have -new at the end. Please rename.")
-        folder_path = folder_path + "-new"
+        folder_path = folder_path + "-new/"
         os.makedirs(folder_path)
     else:
         print ("Successfully created the directory %s" % folder_path) 
@@ -257,7 +267,7 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                             path+folder_label+'/', prefix='dbscan',
                             momentum_dump_csv=momentum_dump_csv,
                             target_info=target_info)
-        plot_pca(cluster_columns, db.labels_,
+        plot_pca(feature_vectors, db.labels_,
                     output_dir=path+folder_label+'/')
     elif clustering == 'kmeans':
         plot_classification(time, intensity, targets, x.labels_,
@@ -280,9 +290,19 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                             "P0", "P1", "P2", "Period0to0_1"]
         elif version == 1: 
             
-            graph_labels = ["TLS Best fit Period", "TLS Best fit duration", "TLS best fit depth",
+            graph_labels = ["TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
                             "TLS Best fit Power"]
             fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+        elif version == 2:
+            graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                            "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                            "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)", "TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
+                            "TLS Best fit Power"]
+            fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                            "P0", "P1", "P2", "Period0to0_1", "TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+            
         num_features = len(feature_vectors[0])
     else:
         # >> shape(feature_vectors) = [num_samples, num_features]
@@ -302,8 +322,6 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
             graph_label2 = graph_labels[m]
             fname_label2 = fname_labels[m]                
             feat2 = feature_vectors[:,m]
-            
-    #actually plotting the damn things
  
             if clustering == 'dbscan':
                 plt.figure() # >> [etc 060520]
@@ -312,8 +330,9 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                     plt.scatter(feat1[n], feat2[n], c=colors[classes_dbscan[n]], s=2)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
-
+                plt.savefig((folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
+                plt.show()
+                plt.close()
                  
             elif clustering == 'kmeans':
                 plt.figure() # >> [etc 060520]
@@ -322,19 +341,21 @@ def features_plotting_2D(feature_vectors, cluster_columns, path, clustering,
                     plt.scatter(feat1[n], feat2[n], c=colors[classes_kmeans[n]], s=2)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
-                  
+                plt.savefig(folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
+                plt.show()
+                plt.close()
             elif clustering == 'none':
                 plt.scatter(feat1, feat2, s = 2, color = 'black')
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".png")
-                # plt.show()
+                plt.savefig(folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + ".png")
+                plt.show()
+                plt.close()
                 
     if clustering == 'dbscan':
-        return db.labels_
+        return classes_dbscan
     if clustering == 'kmeans':
-        return x.labels
+        return classes_kmeans
                           
 def astroquery_pull_data(target, breaks=True):
     """Give a TIC ID - ID /only/, any format is fine, it'll get converted to str
@@ -350,6 +371,7 @@ def astroquery_pull_data(target, breaks=True):
     try: 
         catalog_data = Catalogs.query_object("TIC " + str(int(target)), radius=0.02, catalog="TIC")
         #https://arxiv.org/pdf/1905.10694.pdf
+        Tmag = np.round(catalog_data[0]["Tmag"], 2)
         T_eff = np.round(catalog_data[0]["Teff"], 0)
         obj_type = catalog_data[0]["objType"]
         gaia_mag = np.round(catalog_data[0]["GAIAmag"], 2)
@@ -357,9 +379,9 @@ def astroquery_pull_data(target, breaks=True):
         mass = np.round(catalog_data[0]["mass"], 2)
         distance = np.round(catalog_data[0]["d"], 1)
         if breaks:
-            title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+            title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + ", Tmag: " + str(Tmag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
         else: 
-             title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + "Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+             title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + ", Tmag: " + str(Tmag) + "Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
         title = "Connection error, no data"
@@ -401,7 +423,7 @@ def features_insets(time, intensity, feature_vectors, targets, path, version = 0
                             "P0", "P1", "P2", "Period0to0_1"]
     elif version == 1: 
             
-        graph_labels = ["TLS Best fit Period", "TLS Best fit duration", "TLS best fit depth",
+        graph_labels = ["TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
                             "TLS Best fit Power"]
         fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
 
