@@ -154,6 +154,14 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
         
     returns: features_cropped, ticids_cropped, flux_cropped, outlier_indexes 
     modified [lcg 07222020]"""
+    path = path + "clipped-feature-outliers/"
+    try:
+        os.makedirs(path)
+    except OSError:
+        print ("Creation of the directory %s failed" % path)
+    else:
+        print ("Successfully created the directory %s" % path)
+    
     rcParams['figure.figsize'] = 8,3
     if version==0:
         features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
@@ -230,6 +238,7 @@ def features_plotting_2D(feature_vectors, path, clustering,
     output is the files saved into the folder as given thru path
     """
     #detrmine which of the clustering algoirthms you're using: 
+    rcParams['figure.figsize'] = 10,10
     folder_label = "blank"
     if clustering == 'dbscan':
         # !! TODO parameter optimization (eps, min_samples)
@@ -256,18 +265,18 @@ def features_plotting_2D(feature_vectors, path, clustering,
     except OSError:
         print ("Creation of the directory %s failed" % folder_path)
         print("New folder created will have -new at the end. Please rename.")
-        folder_path = folder_path + "-new/"
+        folder_path = folder_path + "-new"
         os.makedirs(folder_path)
     else:
         print ("Successfully created the directory %s" % folder_path) 
  
     if clustering == 'dbscan':
         plot_classification(time, intensity, targets, db.labels_,
-                            path+folder_label+'/', prefix='dbscan',
+                            folder_path+'/', prefix='dbscan',
                             momentum_dump_csv=momentum_dump_csv,
                             target_info=target_info)
         plot_pca(feature_vectors, db.labels_,
-                    output_dir=path+folder_label+'/')
+                    output_dir=folder_path+'/')
     elif clustering == 'kmeans':
         plot_classification(time, intensity, targets, x.labels_,
                             path+folder_label+'/', prefix='kmeans',
@@ -352,6 +361,7 @@ def features_plotting_2D(feature_vectors, path, clustering,
                 plt.close()
                 
     if clustering == 'dbscan':
+        np.savetxt(folderpath+"/dbscan-classes.txt", classes_dbscan)
         return classes_dbscan
     if clustering == 'kmeans':
         return classes_kmeans
