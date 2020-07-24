@@ -91,6 +91,7 @@ from astroquery.exceptions import RemoteServiceError
 from astroquery.mast import Tesscut
 
 import data_functions as df
+import random
 
 
 def test_plotting():
@@ -992,12 +993,14 @@ def diagnostic_plots(history, model, p, output_dir,
                 plot_lof(time, flux_test, ticid_test, bottleneck, 20,
                          output_dir, prefix='test-'+prefix, n_neighbors=n,
                          mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot, target_info=target_info_test)
+                         n_tot=n_tot, target_info=target_info_test,
+                         log=True)
             else:
                 plot_lof(x, x_test, ticid_test, bottleneck, 20, output_dir,
                          prefix = 'test-'+prefix, n_neighbors=n,
                          mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot, target_info=target_info_test)
+                         n_tot=n_tot, target_info=target_info_test,
+                         log=True)
     
     if plot_latent_train or plot_lof_train or plot_lof_all:
         if load_bottleneck:
@@ -1034,12 +1037,14 @@ def diagnostic_plots(history, model, p, output_dir,
                 plot_lof(time, flux_train, ticid_train, bottleneck_train, 20,
                          output_dir, prefix='train-'+prefix, n_neighbors=n,
                          mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot, target_info=target_info_train)
+                         n_tot=n_tot, target_info=target_info_train,
+                         log=True)
             else:
                 plot_lof(x, x_train, ticid_train, bottleneck_train, 20,
                          output_dir, prefix = 'train-'+prefix, n_neighbors=n,
                          mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot, target_info=target_info_train)   
+                         n_tot=n_tot, target_info=target_info_train,
+                         log=True)   
                 
     if plot_lof_all:
         print('Plotting LOF for entire dataset')
@@ -1053,14 +1058,14 @@ def diagnostic_plots(history, model, p, output_dir,
                      np.concatenate([ticid_test, ticid_train]), bottleneck_all,
                      20, output_dir, prefix='all-'+prefix, n_neighbors=n,
                      mock_data=mock_data, feature_vector=feature_vector,
-                     n_tot=n_tot,
+                     n_tot=n_tot, log=True,
                      target_info=np.concatenate([target_info_test,
                                                  target_info_train], axis=0))   
         else:
             plot_lof(x, np.concatenate([x_test, x_train], axis=0),
                      np.concatenate([ticid_test, ticid_train], axis=0),
                      bottleneck_all, 20, output_dir, prefix='all-'+prefix,
-                     n_neighbors=20, n_tot=n_tot,
+                     n_neighbors=20, n_tot=n_tot, log=True,
                      mock_data=mock_data, feature_vector=feature_vector,
                      target_info=np.concatenate([target_info_test,
                                                  target_info_train], axis=0))
@@ -1501,7 +1506,7 @@ def plot_lof(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
              n_neighbors=20, target_info=False,
              prefix='', mock_data=False, addend=1., feature_vector=False,
-             n_tot=100):
+             n_tot=100, log=False):
     """ Plots the 20 most and least interesting light curves based on LOF.
     Parameters:
         * time : array with shape 
@@ -1542,10 +1547,10 @@ def plot_lof(time, intensity, targets, features, n, path,
     print('Make LOF histogram')
     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
                    targets, path+'lof-'+prefix+'histogram-insets.png',
-                   insets=True, log=False)
+                   insets=True, log=log)
     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
                    targets, path+'lof-'+prefix+'histogram.png', insets=False,
-                   log=False)
+                   log=log)
         
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
@@ -1712,17 +1717,20 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
     ranked = np.argsort(err)
     largest_inds = ranked[::-1][:n]
     smallest_inds = ranked[:n]
+    random.Random(4).shuffle(ranked)
+    random_inds = ranked[:n]
     
     # >> save in txt file
     with open(output_dir+'reconstruction_error.txt', 'w') as f:
         for i in range(len(ticid_test)):
             f.write('{} {}\n'.format(ticid_test[i], err[i]))
     
-    for i in range(2):
+    for i in range(3):
         fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
         for k in range(n): # >> loop through each row
             if i == 0: ind = largest_inds[k]
-            else: ind = smallest_inds[k]
+            elif i == 1: ind = smallest_inds[k]
+            else: ind = random_inds[k]
             
             # >> plot light curve
             ax[k].plot(time, intensity[ind]+addend, '.k')
@@ -1744,10 +1752,14 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
             fig.suptitle('largest reconstruction error', fontsize=16, y=0.9)
             fig.savefig(output_dir + 'reconstruction_error-largest.png',
                         bbox_inches='tight')
-        else:
+        elif i == 1:
             fig.suptitle('smallest reconstruction error', fontsize=16, y=0.9)
             fig.savefig(output_dir + 'reconstruction_error-smallest.png',
                         bbox_inches='tight')
+        else:
+            fig.suptitle('random reconstruction error', fontsize=16, y=0.9)
+            fig.savefig(output_dir + 'reconstruction_error-random.png',
+                        bbox_inches='tight')            
         plt.close(fig)
     
 def quick_plot_classification(time, intensity, targets, target_info, labels,
@@ -1965,11 +1977,14 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./', prefix=''):
 def ticid_label(ax, ticid, target_info, title=False, color='black'):
     '''Query catalog data and add text to axis.
     Parameters:
-        * target_info : [sector, camera, ccd, data_type, cadence]'''
+        * target_info : [sector, camera, ccd, data_type, cadence]
+    TODO: use Simbad classifications and other cross-checking database
+    classifications'''
     try:
         # >> query catalog data
-        target, Teff, rad, mass, GAIAmag, d, objType = \
+        target, Teff, rad, mass, GAIAmag, d, objType, Tmag = \
             df.get_tess_features(ticid)
+        # features = np.array(df.get_tess_features(ticid))[1:]
 
         # >> change sigfigs for effective temperature
         if np.isnan(Teff):
@@ -1986,20 +2001,22 @@ def ticid_label(ax, ticid, target_info, title=False, color='black'):
         # cam = obj_table['camera'][ind][0]
         # ccd = obj_table['ccd'][ind][0]
     
-        info = target+'\nTeff {}\nrad {}\nmass {}\nG {}\nd {}\nO {}'
+        info = target+'\nTeff {}\nrad {}\nmass {}\nG {}\nd {}\nO {}\nTmag {}'
         info1 = target+', Sector {}, Cam {}, CCD {}, {}, Cadence {},\n' +\
-            'Teff {}, rad {}, mass {}, G {}, d {}, O {}'
+            'Teff {}, rad {}, mass {}, G {}, d {}, O {}, Tmag {}'
         
         
         # >> make text
         if title:
             ax.set_title(info1.format(sector, cam, ccd, data_type, cadence,
                                       Teff, '%.2g'%rad, '%.2g'%mass,
-                                      '%.3g'%GAIAmag, '%.3g'%d, objType),
+                                      '%.3g'%GAIAmag, '%.3g'%d, objType,
+                                      '%.3g'%Tmag),
                          fontsize='xx-small', color=color)
         else:
             ax.text(0.98, 0.98, info.format(Teff, '%.2g'%rad, '%.2g'%mass, 
-                                            '%.3g'%GAIAmag, '%.3g'%d, objType),
+                                            '%.3g'%GAIAmag, '%.3g'%d, objType,
+                                            Tmag),
                       transform=ax.transAxes, horizontalalignment='right',
                       verticalalignment='top', fontsize='xx-small')
     except (ConnectionError, OSError, TimeoutError):

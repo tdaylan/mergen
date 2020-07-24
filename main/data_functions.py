@@ -87,8 +87,8 @@ from astroquery.exceptions import RemoteServiceError
 import pdb
 
 import numba
-import batman
-from transitleastsquares import transitleastsquares
+# import batman
+# from transitleastsquares import transitleastsquares
 
 
 def test_data():
@@ -749,12 +749,17 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
                                                    k=k)
     
     if DEBUG_INTERP:
-        ax[2].plot(x, ius(x), '.k')
+        x_plot = np.delete(x, range(num_inds[-1], len(x)))
+        x_plot = np.delete(x_plot, range(orbit_gap_start, orbit_gap_end))
+        x_plot = np.delete(x_plot, range(0, num_inds[0]))
+        ax[2].plot(x_plot, ius(x_plot), '.k')
         ax[2].set_title('spline')    
     
     # -- interpolate nan gaps -------------------------------------------------
     i_interp = np.copy(i)
     rms_lc = np.sqrt(np.mean(i[num_inds]**2)) # >> RMS of entire light curve
+    avg_lc = np.mean(i[num_inds])
+    std_lc = np.std(i[num_inds])
     # >> loop through each orbit gap
     for a in range(len(run_starts)):
         
@@ -765,7 +770,9 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
                 
             # >> check if RMS of interpolated region is crazy
             rms_interp = np.sqrt(np.mean(spline_interp**2))
-            if rms_interp > 5*rms_lc or rms_interp < rms_lc/5:
+            avg_interp = np.mean(spline_interp)
+            # if rms_interp > 1.25*rms_lc: # !! factor
+            if avg_interp > avg_lc+std_lc or avg_interp < avg_lc-std_lc:
                 flag=True
             else:
                 i_interp[run_starts[a] : run_starts[a] + run_lengths[a]] =\
@@ -1242,10 +1249,10 @@ def get_tess_features(ticid):
     # Bmag = catalog_data[0]["Bmag"]
     # Vmag = catalog_data[0]["Vmag"]
     objType = catalog_data[0]["objType"]
-    # Tmag = catalog_data[0]["Tmag"]
+    Tmag = catalog_data[0]["Tmag"]
     # lum = catalog_data[0]["lum"]
 
-    return target, Teff, rad, mass, GAIAmag, d, objType
+    return target, Teff, rad, mass, GAIAmag, d, objType, Tmag
 
 def get_tess_feature_txt(ticid_list, out='./tess_features_sectorX.txt'):
     '''Queries 'TESS features' (i.e. Teff, rad, mass, GAIAmag, d) for each
@@ -1352,6 +1359,8 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
         * success metric : !!
         * output_dir : output directory, ending with '/'
         * DEBUG : if DEBUG, plots first 5 light curves in each class
+        
+    TODO : only loop over p if metric = 'minkowski'
     '''
     from sklearn.cluster import DBSCAN
     from sklearn.metrics import silhouette_score, calinski_harabasz_score
