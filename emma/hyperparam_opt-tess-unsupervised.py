@@ -7,9 +7,6 @@
 # 2. Download Table_of_momentum_dumps.csv, and change path in mom_dump
 # 3. Run this script in the command line with 
 #    $ python hyperparam_opt-tess-unsupervised.py
-#
-# TODO:
-# * make load data function (nan mask, etc.), also integrate into mlp.py
 # 
 # Emma Chickles
 # 
@@ -17,7 +14,7 @@
 
 # dat_dir = '../../' # >> directory with input data (ending with /)
 dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/CAE-3/' # >> directory to save diagnostic plots
+output_dir = '../../plots/CAE-MAE/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -26,12 +23,11 @@ lib_dir = '../main/' # >> directory containing model.py, data_functions.py
 sectors = [20]
 cams = [1, 2, 3, 4]
 ccds =  [1, 2, 3, 4]
-# train_test_ratio = 0.1 # >> fraction of training set size to testing set size
-train_test_ratio = 0.92
-# train_test_ratio
+train_test_ratio = 0.1 # >> fraction of training set size to testing set size
+# train_test_ratio = 0.92
 
 # >> what this script will run:
-hyperparameter_optimization = True # >> run hyperparameter search
+hyperparameter_optimization = False # >> run hyperparameter search
 run_model = True # >> train autoencoder on a parameter set p
 diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
@@ -50,6 +46,7 @@ input_features=False # >> this option cannot be used yet
 split_at_orbit_gap=False
 
 # >> move targets out of training set and into testing set (integer)
+# !! TODO: print failure if target not in sector
 targets = [219107776] # >> EX DRA # !!
 # targets = []
 
@@ -60,6 +57,7 @@ import numpy as np
 import pdb
 import os
 from astropy.io import fits
+import tensorflow as tf
 
 import sys
 sys.path.insert(0, lib_dir)  # >> needed if scripts not in current dir
@@ -96,39 +94,42 @@ if hyperparameter_optimization: # !! change epochs
     #   'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
     #                   'glorot_uniform']}
     p = {'kernel_size': [3],
-      'latent_dim': list(np.arange(20, 50, 5)),
+      'latent_dim': list(np.arange(20, 40, 5)),
       'strides': [1],
       'epochs': [10],
       'dropout': list(np.arange(0.1, 0.6, 0.1)),
       'num_filters': [8, 16, 32, 64],
-      'num_conv_layers': [4,6,8,10,12,14,16],
+      'num_conv_layers': [4,6,8,10,12,14],
       'batch_size': [128],
       'activation': ['elu'],
-      'optimizer': ['adam', 'adadelta'],
+      'optimizer': ['adam'], # 'adadelta'
       'last_activation': ['linear'],
-      'losses': ['mean_squared_error', 'binary_crossentropy',
-                 'kullback_leibler_divergence'],
+      'losses': ['mean_squared_error', tf.keras.losses.LogCosh(),
+                 tf.keras.losses.MeanAbsoluteError(),
+                 tf.keras.losses.MeanAbsolutePercentageError(),
+                 tf.keras.losses.MeanSquaredLogarithmicError(),
+                 tf.keras.losses.Huber()],
       'lr': [0.001, 0.005, 0.01, 0.05, 0.1],
       'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
                       'glorot_uniform'],
       'num_consecutive': [2]}    
 else:
-    p = {'kernel_size': 5,
-          'latent_dim': 30,
+    p = {'kernel_size': 3,
+          'latent_dim': 35,
           'strides': 1,
-          'epochs': 5,
-          'dropout': 0.2,
+          'epochs': 20,
+          'dropout': 0.3,
           'num_filters': 16,
           'num_conv_layers': 4,
           'batch_size': 128,
           'activation': 'elu',
           'optimizer': 'adam',
           'last_activation': 'linear',
-          'losses': 'mean_squared_error',
+          'losses': tf.keras.losses.MeanAbsoluteError(),
           'lr': 0.005,
           'initializer': 'random_normal',
-          'num_consecutive': 2}        
-
+          'num_consecutive': 2}     
+    
 # -- create output directory --------------------------------------------------
     
 if os.path.isdir(output_dir) == False: # >> check if dir already exists
@@ -139,6 +140,35 @@ if os.path.isdir(output_dir) == False: # >> check if dir already exists
 flux, x, ticid, target_info = \
     df.load_data_from_metafiles(dat_dir, sector, DEBUG=True,
                                 output_dir=output_dir, nan_mask_check=True)
+
+# !! tmp
+# # >> train and test on high frequency only
+# import random
+# ticid_all = []
+# err = []
+# with open(output_dir+'reconstruction_error_all.txt', 'r') as f:
+#     lines = f.readlines()
+#     for i in range(len(lines)):
+#         line = lines[i].split()
+#         ticid_all.append(float(line[0]))
+#         err.append(float(line[1]))      
+# ticid_all=np.array(ticid_all)
+# err=np.array(err)
+# inds = np.nonzero(err > np.sort(err)[19800])
+# random.Random(4).shuffle(inds)
+# ticid_all = ticid_all[inds]
+# new_flux=[]
+# new_ticid=[]
+# new_target_info=[]
+# for i in range(len(ticid_all)):
+#     new_ind = np.nonzero(ticid == ticid_all[i])
+#     new_flux.append(flux[new_ind])
+#     new_ticid.append(ticid[new_ind])
+#     new_target_info.append(target_info[new_ind])
+# flux = np.array(new_flux).reshape(len(new_flux), np.shape(new_flux)[2])
+# ticid = np.array(new_ticid).reshape(len(new_ticid))
+# target_info = np.array(new_target_info).reshape(len(new_target_info), 5)
+# # !! tmp
 
 x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
     target_info_test, rms_train, rms_test, x = \
@@ -161,16 +191,25 @@ if hyperparameter_optimization:
     #                 reduction_metric = 'val_loss',
     #                 minimize_loss=True,
     #                 reduction_method='correlation',
-    #                 fraction_limit=0.0001) 
+    #                 fraction_limit=0.001) 
     t = talos.Scan(x=x_test,
-                   y=x_test,
+                    y=x_test,
                     params=p,
                     model=ml.conv_autoencoder,
                     experiment_name=title, 
                     reduction_metric = 'val_loss',
                     minimize_loss=True,
                     reduction_method='correlation',
-                    fraction_limit=0.01, reduction_interval=4)     
+                    fraction_limit=0.001)     
+    # t = talos.Scan(x=x_test,
+    #                y=x_test,
+    #                 params=p,
+    #                 model=ml.conv_autoencoder,
+    #                 experiment_name=title, 
+    #                 reduction_metric = 'val_loss',
+    #                 minimize_loss=True,
+    #                 reduction_method='correlation',
+    #                 fraction_limit=0.01, reduction_interval=4)     
     # fraction_limit = 0.001
     analyze_object = talos.Analyze(t)
     data_frame, best_param_ind,p = pl.hyperparam_opt_diagnosis(analyze_object,
