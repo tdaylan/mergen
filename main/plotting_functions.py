@@ -141,7 +141,7 @@ def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppa
     
     return features, x, flux, ticid, outlier_indexes    
         
-def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, sigma, version=0):
+def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, target_info, sigma, version=0):
     """ isolate features that are significantly out there and crazy
     plot those outliers, and remove them from the features going into the 
     main lof/plotting/
@@ -154,7 +154,7 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
         * ticids (all)
         
     returns: features_cropped, ticids_cropped, flux_cropped, outlier_indexes 
-    modified [lcg 07222020]"""
+    modified [lcg 07272020 - changed plotting size issue]"""
     path = path + "clipped-feature-outliers/"
     try:
         os.makedirs(path)
@@ -163,13 +163,14 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     else:
         print ("Successfully created the directory %s" % path)
     
-    rcParams['figure.figsize'] = 8,3
+    #rcParams['figure.figsize'] = 8,3
     if version==0:
         features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
                   "E", r'$\epsilon$', "Z", "H", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$', "M", r'$\mu$'
                   ,"N", r'$\nu$']
     elif version==1: 
         features_greek = ["M", r'$\mu$',"N", r'$\nu$']
+
     outlier_indexes = []
     for i in range(len(features[0])):
         column = features[:,i]
@@ -188,6 +189,7 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     for i in range(len(outlier_indexes)):
         target_index = outlier_indexes[i][0] #is the index of the target on the lists
         feature_index = outlier_indexes[i][1] #is the index of the feature that it triggered on
+        plt.figure(figsize=(8,3))
         plt.scatter(time, flux[target_index], s=0.5)
         target = ticids[target_index]
         #print(features[target_index])
@@ -209,8 +211,9 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, si
     features_cropped = np.delete(features, outlier_indexes, axis=0)
     ticids_cropped = np.delete(ticids, outlier_indexes)
     flux_cropped = np.delete(flux, outlier_indexes, axis=0)
+    targetinfo_cropped = np.delete(target_info, outlier_indexes, axis=0)
         
-    return features_cropped, ticids_cropped, flux_cropped, outlier_indexes
+    return features_cropped, ticids_cropped, flux_cropped, targetinfo_cropped, outlier_indexes
 
 
 def features_plotting_2D(feature_vectors, path, clustering,
@@ -1703,6 +1706,68 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
         p[key] = df.iloc[best_param_ind][key]
     
     return df, best_param_ind, p
+
+def plot_paramscan_metrics(output_dir, parameter_sets, silhouette_scores, db_scores, ch_scores):
+    """ For use in parameter searches for dbscan
+    inputs: 
+        * output_dir to save figure to, ends in /
+        * parameter sets (only really need the len of them but yknow)
+        * all associated scores - currently works for the 3 calculated
+        
+    returns: nothing. saves figure to folder specified
+    requires: matplotlib
+    
+    modified [lcg 07282020 - created]"""
+
+    def make_patch_spines_invisible(ax):
+        ax.set_frame_on(True)
+        ax.patch.set_visible(False)
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+    
+    
+    fig, host = plt.subplots()
+    fig.subplots_adjust(right=0.75)
+    
+    par1 = host.twinx()
+    par2 = host.twinx()
+    
+    x_axis = np.arange(0, len(parameter_sets), 1)
+    # Offset the right spine of par2.  The ticks and label have already been
+    # placed on the right by twinx above.
+    par2.spines["right"].set_position(("axes", 1.2))
+    # Having been created by twinx, par2 has its frame off, so the line of its
+    # detached spine is invisible.  First, activate the frame but make the patch
+    # and spines invisible.
+    make_patch_spines_invisible(par2)
+    # Second, show the right spine.
+    par2.spines["right"].set_visible(True)
+    
+    host.scatter(x_axis, db_scores, c='red', label="DB Scores")
+    par1.scatter(x_axis, silhouette_scores, c = 'green', label="Silhouette Scores")
+    par2.scatter(x_axis, ch_scores, c='blue', label="CH Scores")
+    
+    host.set_xlabel("Parameter Set")
+    host.set_ylabel("Davies-Boulin Score")
+    par1.set_ylabel("Silhouette Score")
+    par2.set_ylabel("Calinski-Harabasz Score")
+    
+    host.yaxis.label.set_color('red')
+    par1.yaxis.label.set_color('green')
+    par2.yaxis.label.set_color('blue')
+    
+    tkw = dict(size=4, width=1.5)
+    host.tick_params(axis='y', colors='red', **tkw)
+    par1.tick_params(axis='y', colors='green', **tkw)
+    par2.tick_params(axis='y', colors='blue', **tkw)
+    host.tick_params(axis='x', **tkw)
+    
+    host.set_title("DBSCAN Parameter Scan Metric Results")
+    
+    plt.savefig(output_dir+"paramscan-metric-results.png")
+    
+    plt.show()
+
 
 def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
                               output_dir='./', addend=1., mock_data=False,
