@@ -1591,6 +1591,8 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     print("Plot paramscan metrics...")
     pf.plot_paramscan_metrics(output_dir, parameter_sets, 
                               silhouette_scores, db_scores, ch_scores)
+    pf.plot_paramscan_classes(output_dir, parameter_sets, 
+                              num_classes, num_noisy)
     
     return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores
 
