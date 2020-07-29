@@ -1450,7 +1450,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             output_dir='./', DEBUG=False,
                             simbad_database_txt='./simbad_database.txt',
                             database_dir='./databases/', pca=True, tsne=True,
-                            confusion_matrix=False):
+                            confusion_matrix=True):
     '''Performs a grid serach across parameter space for DBSCAN. Calculates
     
     Parameters:
@@ -1587,6 +1587,11 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                     pf.plot_tsne(bottleneck, db.labels_,
                                                  output_dir=output_dir,
                                                  prefix=prefix)
+
+    print("Plot paramscan metrics...")
+    pf.plot_paramscan_metrics(output_dir, parameter_sets, 
+                              silhouette_scores, db_scores, ch_scores)
+    
     return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores
 
 # DEPRECIATED SECTION -----------------------------------------------------
