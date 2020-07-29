@@ -35,7 +35,7 @@ from astropy.io import fits
 import random
 
 def autoencoder_preprocessing(flux, ticid, time, target_info, p, 
-                              targets=[219107776],
+                              validation_targets=[219107776],
                               DAE=False, features=False,
                               norm_type='standardization', input_rms=True,
                               train_test_ratio=0.9,
@@ -47,7 +47,8 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
         * ticid : list of TICIDs, shape=(num light curves)
         * target_info : [sector, cam, ccd, data_type, cadence] for each light
                         curve, shape=(num light curves, 5)
-        * targets : list of TICIDs to move from the training set to testing set                        
+        * validation_targets : list of TICIDs to move from the training set to
+                               testing set                        
         * DAE : preprocessing for deep autoencoder. if True, the following is
           required:
           * features : feature vector, shape=(num light curves, num features)
@@ -69,8 +70,8 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
         features = features[inds]
         
     # >> move specified targest to testing set
-    if len(targets) > 0:
-        for t in targets:
+    if len(validation_targets) > 0:
+        for t in validation_targets:
             target_ind = np.nonzero( ticid == t )
             if np.shape(target_ind)[1] == 0:
                 print('!! TIC '+str(t)+' is not in data set')
@@ -151,7 +152,9 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
                              data_dir='./',
                              use_learned_features=False,
                              use_engineered_features=True,
-                             use_tess_features=True):
+                             use_tess_features=True,
+                             use_tls_features=True,
+                             cams=[1,2,3,4], ccds=[1,2,3,4]):
     '''Concatenates features (assumes features are already calculated and
     saved).
     
@@ -172,22 +175,39 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
               
     Returns feature vector for every light curve in TICID.
     '''
+    
+    features = []
+    
     if use_engineered_features:
         # with fits.open(data_dir + 'Sector'+str(sector)+'_v0_features/Sector'+\
         #                str(sector)+'_features_v0_all.fits') as hdul:
-        with fits.open(data_dir + 'Sector'+str(sector)+\
-                       '_features_v0_all.fits') as hdul:        
+        
+        # if use_tls:
+        #     for cam in cams:
+        #         for ccd in ccds:
+        #             fname = data_dir+'Sector'+str(sector)+'Cam'+str(cam)+'CCD'+\
+        #                 str(ccd)+ '/'+'Sector'+str(sector)+'Cam'+str(cam)+'CCD' + str(ccd) +\
+        #                     '_features_v1.fits'
+        #             with fits.open(fname) as hdul:        
+        #                 engineered_feature_vector = hdul[0].data
+        #                 engineered_feature_ticid = hdul[1].data              
+                        
+        #             # !! TODO concatenate all of these
+        # else:
+        fname = data_dir + 'Sector'+str(sector)+'_features_v0_all.fits'
+        with fits.open(fname) as hdul:        
             engineered_feature_vector = hdul[0].data
             engineered_feature_ticid = hdul[1].data
         # >> re-arrange so that engineered_feature_ticid[i] = ticid[i]
         tmp = []
-        for i in range(len(engineered_feature_vector)):
+        for i in range(len(ticid)):
             ind = np.nonzero(engineered_feature_ticid == ticid[i])
             tmp.append(engineered_feature_vector[ind])
         engineered_feature_vector = \
-            np.array(tmp).reshape((np.shape(engineered_feature_vector)[0], 16))
-        if not use_learned_features and not use_tess_features:
-            features = engineered_feature_vector
+            np.array(tmp).reshape((len(ticid), 16))
+        # if not use_learned_features and not use_tess_features:
+        #     features = engineered_feature_vector
+        features.append(engineered_feature_vector)
             
     if use_learned_features:
         with fits.open(output_dir + 'bottleneck_train.fits') as hdul:
@@ -196,12 +216,36 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
             bottleneck_test = hdul[0].data
         learned_feature_vector = np.concatenate([bottleneck_train,
                                                  bottleneck_test], axis=0)
-        if not use_engineered_features and not use_tess_features:
-            features = learned_feature_vector
+        # if not use_engineered_features and not use_tess_features:
+        #     features = learned_feature_vector
+        features.append(learned_feature_vector)
+        
+    if use_tls_features:
+        # >> load all data
+        engineered_features_v0 = []
+        for cam in cams:
+            for ccd in ccds:
+                fname = data_dir+'Sector'+str(sector)+'Cam'+str(cam)+'CCD'+\
+                    str(ccd)+ '/'+'Sector'+str(sector)+'Cam'+str(cam)+'CCD' + \
+                        str(ccd) + '_features_v1.fits'
+                with fits.open(fname) as hdul:        
+                    engineered_features_v0.append(hdul[0].data)
+                    
+        # >> concatenate
+        engineered_features_v0 = np.concatenate(engineered_features_v0, axis=0)
+            
+        # >> take out any light curves with nans
+        inds = np.nonzero(np.prod(~np.isnan(engineered_features_v0), axis=1))
+        engineered_features_v0 = engineered_features_v0[inds]
+        target_info = target_info[inds]
+        flux = flux[inds]
+        ticid = ticid[inds]   
+        
+        features.append(engineered_features_v0)
         
     if use_tess_features:
         # >> tess_features[0] = [ticid, Teff, mass, rad, GAIAmag, d, objType]
-        tess_features = np.loadtxt(data_dir + 'tess_features_sector20.txt',
+        tess_features = np.loadtxt(data_dir + 'tess_features_sector'+str(sector)+'.txt',
                                    delimiter=' ', usecols=[1,2,3,4,5,6])
         # >> take out any light curves with nans
         inds = np.nonzero(np.prod(~np.isnan(tess_features), axis=1))
@@ -212,10 +256,16 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
         flux = flux[comm2]
         ticid = intersection
         
+        features = []
         if use_engineered_features:
             engineered_feature_vector = engineered_feature_vector[comm1]
+            features.append(engineered_feature_vector)
         if use_learned_features:
             learned_feature_vector = learned_feature_vector[comm1]
+            features.append(learned_feature_vector)
+        if use_tls_features:
+            engineered_features_v0 = engineered_features_v0[comm1]
+            features.append(engineered_features_v0)
             
         # >> re-arrange TESS features
         tmp = []
@@ -223,20 +273,11 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
             ind = np.nonzero(tess_features[:,0] == ticid[i])[0][0]
             tmp.append(tess_features[ind][1:])
         tess_features = np.array(tmp)            
-            
-        if use_engineered_features and use_learned_features:
-            features = np.concatenate([engineered_feature_vector,
-                                       learned_feature_vector,
-                                       tess_features], axis=1)
-        elif use_engineered_features:
-            features = np.concatenate([engineered_feature_vector,
-                                       tess_features], axis=1)  
-        elif use_learned_features:
-            features = np.concatenate([learned_feature_vector,
-                                       tess_features], axis=1)
-        else:
-            features = tess_features
-            
+        features.append(tess_features)
+ 
+    # >> concatenate features           
+    features = np.concatenate(features, axis=1)
+        
     # >> standardize each feature
     features = df.standardize(features, ax=0)
             
@@ -1844,3 +1885,5 @@ def get_target_list(sector_num, output_dir='./'):
 
         # upsampling_channels = Lambda(lambda x: \
         #             K.repeat_elements(x,params['num_filters'][num_iter+i],2))
+
+

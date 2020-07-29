@@ -7,7 +7,8 @@ Updated: July 8 2020
 Data access
 * test_data()           : confirms module loaded in 
 * lc_by_camera_ccd()    : divides sector TIC list into groups by ccd/camera
-* load_data_from_metafiles()    : loads LC from ALL metafiles for sector
+* load_data_from_metafiles()    : loads LC from ALL metafiles for sector and
+                                  applies NaN mask
 * load_group_from_fits()        : loads LC for one group's fits files
 * data_access_sector_by_bulk()
 * data_access_by_group_fits()
@@ -85,6 +86,7 @@ from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
 
 import pdb
+import fnmatch as fm
 
 import numba
 # import batman
@@ -109,8 +111,9 @@ def lc_by_camera_ccd(sectorfile, camera, ccd):
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                              ccds=[1,2,3,4], data_type='SPOC',
                              cadence='2-minute', DEBUG=False,
-                             output_dir='./', debug_ind=10,
-                             nan_mask_check=True):
+                             output_dir='./', debug_ind=0,
+                             nan_mask_check=True,
+                             custom_mask=[]):
     '''Pulls light curves from fits files, and applies nan mask.
     
     Parameters:
@@ -170,7 +173,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
         print('Applying nan mask')
         flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid,
                            debug_ind=debug_ind, target_info=target_info,
-                           output_dir=output_dir)
+                           output_dir=output_dir, custom_mask=custom_mask)
 
     return flux, x, ticid, np.array(target_info)
     
@@ -196,7 +199,8 @@ def load_group_from_fits(path, sector, camera, ccd):
 
 
 def data_access_sector_by_bulk(yourpath, sectorfile, sector,
-                               bulk_download_dir):
+                               bulk_download_dir, custom_mask=[],
+                               apply_nan_mask=False):
     '''Get interpolated flux array for each group, if you already have all the
     _lc.fits files downloaded in bulk_download_dir.
     Parameters:
@@ -218,7 +222,9 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
         for ccd in [1,2,3,4]:
             data_access_by_group_fits(yourpath, sectorfile, sector, cam,
                                       ccd, bulk_download=True,
-                                      bulk_download_dir=bulk_download_dir)
+                                      bulk_download_dir=bulk_download_dir,
+                                      custom_mask=custom_mask,
+                                      apply_nan_mask=apply_nan_mask)
             
 def bulk_download_helper(yourpath, shell_script):
     '''If bulk download failed / need to start where you left off. Can also be
@@ -255,7 +261,8 @@ def bulk_download_helper(yourpath, shell_script):
             
 #data process an entire group of TICs
 def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
-                              bulk_download=False, bulk_download_dir='./'):
+                              bulk_download=False, bulk_download_dir='./',
+                              custom_mask=[], apply_nan_mask=False):
     """you will need:
         your path into the main folder you're working in - must end with /
         the file for your sector from TESS (full path)
@@ -293,13 +300,17 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
             time, intensity, ticids, flagged, ticid_flagged = \
                 lc_from_bulk_download(bulk_download_dir, target_list,
                                       fname_time_intensities, fname_targets,
-                                      fname_notes, path, fname_flagged)
+                                      fname_notes, path, fname_flagged,
+                                      custom_mask=custom_mask,
+                                      apply_nan_mask=apply_nan_mask)
         else: # >> download each light curve
             # !! TODO: add flag option to lc_from_target_list()
             time, intensity, ticids = lc_from_target_list(yourpath, target_list,
                                                     fname_time_intensities,
                                                     fname_targets, fname_notes,
-                                                     path=path)
+                                                     path=path,
+                                                     custom_mask=custom_mask,
+                                                     apply_nan_mask=apply_nan_mask)
        
         
     except OSError: #if there is an error creating the folder
@@ -347,7 +358,8 @@ def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
 
     
 def lc_from_target_list(yourpath, targetList, fname_time_intensities_raw,
-                             fname_targets, fname_notes, path='./'):
+                             fname_targets, fname_notes, path='./',
+                             custom_mask=[], apply_nan_mask=False):
     """ runs getting the files and data for all targets on the list
     then appends the time & intensity arrays and the TIC number into text files
     that can later be accessed
@@ -390,7 +402,8 @@ def lc_from_target_list(yourpath, targetList, fname_time_intensities_raw,
     # >> interpolate and nan mask
     print('Interpolating and applying nan mask')
     intensity_interp, time, ticids, flagged, ticid_flagged = \
-        interpolate_all(intensity, time1, ticids)
+        interpolate_all(intensity, time1, ticids, custom_mask=custom_mask,
+                        apply_nan_mask=apply_nan_mask)
     
     print('Saving to fits file')
     # i_interp = np.array(i_interp)
@@ -414,7 +427,8 @@ def lc_from_target_list(yourpath, targetList, fname_time_intensities_raw,
 
 def get_lc_file_and_data(yourpath, target):
     """ goes in, grabs the data for the target, gets the time index, intensity,and TIC
-    if connection error w/ MAST, skips it
+    if connection error w/ MAST, skips it.
+    Also masks any flagged data points according to the QUALITY column.
     parameters: 
         * yourpath, where you want the files saved to. must end in /
         * targets, target list of all TICs 
@@ -460,8 +474,13 @@ def get_lc_file_and_data(yourpath, target):
             f = fits.open(filepaths[0], memmap=False)
             time1 = f[1].data['TIME']
             i1 = f[1].data['PDCSAP_FLUX']
-            ticid = f[1].header["TICID"]               
+            ticid = f[1].header["TICID"]
+            quality = f[1].data['QUALITY']
             f.close()
+            
+            # >> mask out any nonzero points
+            flagged_inds = np.nonzero(quality)
+            i1[flagged_inds] = np.nan # >> will be interpolated later
                   
         #then delete all downloads in the folder, no matter what type
         if os.path.isdir(yourpath + "mastDownload") == True:
@@ -478,8 +497,11 @@ def get_lc_file_and_data(yourpath, target):
     return time1, i1, ticid
 
 def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
-                          fname_notes, path, fname_flagged):
-    '''Saves interpolated fluxes to fits file fname_out.
+                          fname_notes, path, fname_flagged,
+                          custom_mask=[], apply_nan_mask=False):
+    '''This function opens each _lc.fits file in fits_path, masks flagged data
+    points from QUALITY and saves interpolated PDCSAP_FLUX, TIME and TICID to
+    fits file fname_out.
     Parameters:
         * fits_path : directory containing all light curve fits files 
                       (ending with '/')
@@ -533,6 +555,11 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
             i = hdu_data['PDCSAP_FLUX']
             intensity.append(i)
             
+            # >> get quality mask
+            quality = hdu_data['QUALITY']
+            flagged_inds = np.nonzero(quality)
+            i[flagged_inds] = np.nan
+            
             # >> get ticid
             ticid = hdul[1].header['TICID']
             ticid_list.append(ticid)
@@ -552,7 +579,8 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
     intensity = np.array(intensity)
     ticid_list = np.array(ticid_list)
     intensity_interp, time, ticid_interp, flagged, ticid_flagged = \
-        interpolate_all(intensity, time, ticid_list)
+        interpolate_all(intensity, time, ticid_list, custom_mask=custom_mask,
+                        apply_nan_mask=apply_nan_mask)
     
     # >> save time array, intensity array and ticids to fits file
     print('Saving to fits file...')
@@ -639,7 +667,7 @@ def standardize(x, ax=1):
 #interpolate and sigma clip
 def interpolate_all(flux, time, ticid, flux_err=False, interp_tol=20./(24*60),
                     num_sigma=10, k=3, DEBUG_INTERP=False, output_dir='./',
-                    apply_nan_mask=False, DEBUG_MASK=False):
+                    apply_nan_mask=False, DEBUG_MASK=False, custom_mask=[]):
     '''Interpolates each light curves in flux array.'''
     
     flux_interp = []
@@ -663,23 +691,36 @@ def interpolate_all(flux, time, ticid, flux_err=False, interp_tol=20./(24*60),
     
     if apply_nan_mask:
         flux_interp, time = nan_mask(flux_interp, time, DEBUG=DEBUG_MASK,
-                                     output_dir=output_dir, ticid=ticid_interp)
+                                     output_dir=output_dir, ticid=ticid_interp,
+                                     custom_mask=custom_mask)
     
     return np.array(flux_interp), time, np.array(ticid_interp), \
             np.array(flagged), np.array(ticid_flagged)
 
 def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
-                   num_sigma=10, k=3, DEBUG_INTERP=False,
+                   num_sigma=10, k=3, search_range=200, med_tol=2,
+                   DEBUG_INTERP=False,
                    output_dir='./', prefix=''):
     '''Interpolation for one light curve. Linearly interpolates nan gaps less
     than 20 minutes long. Spline interpolates nan gaps more than 20 minutes
     long (and shorter than orbit gap)
+    Parameters:
+        * i : intensity array, shape=(n)
+        * time : time array, shape=(n)
+        * interp_tol : if nan gap is less than interp_tol days, then will
+                       linear interpolate
+        * num_sigma : number of sigma to clip
+        * k : power of spline
+        * search_range : number of data points around interpolate region to 
+                         calculate the local standard deviation and median
+        * med_tol : checks if median of interpolate region is between
+                    med_tol*(local median) and (local median)/med_tol
     
     example code snippet
     import data_functions as df
     from astropy.io import fits
     f = fits.open('tess2019306063752-s0018-0000000005613228-0162-s_lc.fits')
-    i_interp, flag = df.intepolate_lc(f[1].data['PDCSAP_FLUX'],
+    i_interp, flag = df.interpolate_lc(f[1].data['PDCSAP_FLUX'],
                                       f[1].data['TIME'], DEBUG_INTERP=True)
     '''
     from astropy.stats import SigmaClip
@@ -757,22 +798,34 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     
     # -- interpolate nan gaps -------------------------------------------------
     i_interp = np.copy(i)
-    rms_lc = np.sqrt(np.mean(i[num_inds]**2)) # >> RMS of entire light curve
-    avg_lc = np.mean(i[num_inds])
-    std_lc = np.std(i[num_inds])
+    # rms_lc = np.sqrt(np.mean(i[num_inds]**2)) # >> RMS of entire light curve
+    # avg_lc = np.mean(i[num_inds])
+    # std_lc = np.std(i[num_inds])
     # >> loop through each orbit gap
     for a in range(len(run_starts)):
         
         flag=False
         if run_lengths[a] * dt > interp_tol: # >> spline interpolate
+            start = run_starts[a]
+            end = run_starts[a] + run_lengths[a]
             spline_interp = \
-                ius(x[run_starts[a] : run_starts[a] + run_lengths[a]])
+                ius(x[start : end])
+               
+            # >> compare std, median of interpolate region to local std, median
+            std_local = np.mean([np.nanstd(i[start-search_range : start]),
+                                 np.nanstd(i[end : end+search_range])])
+            med_local = np.mean([np.nanmedian(i[start-search_range : start]),
+                                 np.nanmedian(i[end : end+search_range])])
+            
+            if np.std(spline_interp) > std_local or \
+                np.median(spline_interp) > med_tol*med_local or\
+                    np.median(spline_interp) < med_local/med_tol:
                 
-            # >> check if RMS of interpolated region is crazy
-            rms_interp = np.sqrt(np.mean(spline_interp**2))
-            avg_interp = np.mean(spline_interp)
-            # if rms_interp > 1.25*rms_lc: # !! factor
-            if avg_interp > avg_lc+std_lc or avg_interp < avg_lc-std_lc:
+            # # >> check if RMS of interpolated region is crazy
+            # rms_interp = np.sqrt(np.mean(spline_interp**2))
+            # avg_interp = np.mean(spline_interp)
+            # # if rms_interp > 1.25*rms_lc: # !! factor
+            # if avg_interp > avg_lc+std_lc or avg_interp < avg_lc-std_lc:
                 flag=True
             else:
                 i_interp[run_starts[a] : run_starts[a] + run_lengths[a]] =\
@@ -796,12 +849,29 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     
 def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
              ticid=False, target_info=False,
-             output_dir='./', prefix='', tol1=0.05, tol2=0.1):
+             output_dir='./', prefix='', tol1=0.05, tol2=0.1,
+             custom_mask=[]):
     '''Apply nan mask to flux and time array.
     Returns masked, homogenous flux and time array.
-    If there are only a few (less than tol1 % light curves) light curves that
-    contribute (more than tol2 % data points are NaNs) to NaN mask, then will
-    remove those light curves.'''
+    If there are only a few (less than tol1 light curves) light curves that
+    contribute (more than tol2 data points are NaNs) to NaN mask, then will
+    remove those light curves.
+    Parameters:
+        * flux : shape=(num light curves, num data points)
+        * time : shape=(num data points)
+        * flux_err : shape=(num light curves, num data points)
+        * ticid : shape=(num light curves)
+        * target_info : shape=(num light curves, 5)
+        * tol1 : given as fraction of num light curves, determines whether to
+          remove the NaN-iest light curves, or remove NaN regions from all
+          light curves
+        * tol2 : given as fraction of num data points
+        * custom_mask : list of indicies to remove from all light curves
+    '''
+    # >> apply custom NaN mask
+    if len(custom_mask) > 0: print('Applying custom NaN mask')
+    time = np.delete(time, custom_mask)
+    flux = np.delete(flux, custom_mask, 1)
 
     mask = np.nonzero(np.prod(~np.isnan(flux), axis = 0) == False)
     # >> plot histogram of number of data points thrown out
@@ -873,6 +943,7 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
     
     if type(flux_err) != bool:
         flux_err = np.delete(flux_err, mask, 1)
+        flux_err = np.delete(flux_err, custom_mask, 1)
         return flux, time, flux_err
     else:
         return flux, time
@@ -1282,7 +1353,8 @@ def get_tess_feature_txt(ticid_list, out='./tess_features_sectorX.txt'):
 
     
 def build_simbad_database(out='./simbad_database.txt'):
-    '''http://vizier.u-strasbg.fr/cgi-bin/OType?$1'''
+    '''Object type follows format in:
+    http://vizier.u-strasbg.fr/cgi-bin/OType?$1'''
     
     # -- querying object type -------------------------------------------------
     customSimbad = Simbad()
@@ -1318,6 +1390,8 @@ def get_simbad_classifications(ticid_list,
     '''Query Simbad classification and bibcode from .txt file (output from
     build_simbad_database).
     Returns a list where simbad_info[i] = [ticid, main_id, obj type, bibcode]
+    Object type follows format in:
+    http://vizier.u-strasbg.fr/cgi-bin/OType?$1
     '''
     ticid_simbad = []
     main_id_list = []
@@ -1338,17 +1412,45 @@ def get_simbad_classifications(ticid_list,
         simbad_info.append([ticid_simbad[i], main_id_list[i], otype_list[i],
                             bibcode_list[i]])
     return simbad_info
+
+def get_true_classifications(ticid_list,
+                             database_dir='./databases/'):
+    '''Query classifications and bibcode from *_database.txt file.
+    Returns a list where class_info[i] = [ticid, obj type, bibcode]
+    Object type follows format in:
+    http://vizier.u-strasbg.fr/cgi-bin/OType?$1
+    '''
+    ticid_classified = []
+    class_info = []
+    
+    # >> find all text files in directory
+    fnames = fm.filter(os.listdir(database_dir), '*.txt')
+    
+    for fname in fnames:
+        # >> read text file
+        with open(database_dir + fname, 'r') as f:
+            lines = f.readlines()
+            for line in lines:
+                ticid, otype, bibcode = line[:-2].split(',')
+                
+                # >> only get classifications for ticid_list, avoid repeats
+                if float(ticid) in ticid_list and ticid not in ticid_classified:
+                    ticid_classified.append(ticid)
+                    class_info.append([int(ticid), otype, bibcode])
+    return np.array(class_info)
                            
 def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             eps=list(np.arange(0.1,1.5,0.1)),
-                            min_samples=[10],
+                            min_samples=[5],
                             metric=['euclidean', 'minkowski'],
                             algorithm = ['auto', 'ball_tree', 'kd_tree',
                                          'brute'],
                             leaf_size = [30, 40, 50],
                             p = [1,2,3,4],
                             output_dir='./', DEBUG=False,
-                            simbad_database_txt='./simbad_database.txt'):
+                            simbad_database_txt='./simbad_database.txt',
+                            database_dir='./databases/', pca=True, tsne=True,
+                            confusion_matrix=False):
     '''Performs a grid serach across parameter space for DBSCAN. Calculates
     
     Parameters:
@@ -1465,17 +1567,26 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                                              path=output_dir,
                                                              prefix=prefix,
                                                              simbad_database_txt=simbad_database_txt,
-                                                             title=title)
+                                                             title=title,
+                                                             database_dir=database_dir)
                                 
-                                print('Plot PCA...')
-                                pf.plot_pca(bottleneck, db.labels_,
-                                            output_dir=output_dir,
-                                            prefix=prefix)
+                                if confusion_matrix:
+                                    pf.plot_confusion_matrix(ticid, db.labels_,
+                                                             database_dir=database_dir,
+                                                             output_dir=output_dir,
+                                                             prefix=prefix)
                                 
-                                print('Plot t-SNE...')
-                                pf.plot_tsne(bottleneck, db.labels_,
-                                             output_dir=output_dir,
-                                             prefix=prefix)
+                                if pca:
+                                    print('Plot PCA...')
+                                    pf.plot_pca(bottleneck, db.labels_,
+                                                output_dir=output_dir,
+                                                prefix=prefix)
+                                
+                                if tsne:
+                                    print('Plot t-SNE...')
+                                    pf.plot_tsne(bottleneck, db.labels_,
+                                                 output_dir=output_dir,
+                                                 prefix=prefix)
     return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores
 
 # DEPRECIATED SECTION -----------------------------------------------------
@@ -1650,3 +1761,17 @@ def load_group_from_txt(sector, camera, ccd, path):
     # fitted_spline = ius(x)
     # ius = interpolate.InterpolatedUnivariateSpline(time[num_inds], i[num_inds],
     #                                                k=k)
+
+
+
+        #         ticid_classified.append(int(ticid))
+        #         otype_list.append(otype)
+        #         bibcode_list.append(bibcode)
+                
+        # # >> return classifications only for 
+        # intersection, comm1, comm2 = np.intersect1d(ticid_list,
+        #                                             ticid_classified,
+        #                                             return_indices=True)
+        # for i in comm2:
+        #     simbad_info.append([ticid_simbad[i], otype_list[i],
+        #                         bibcode_list[i]])

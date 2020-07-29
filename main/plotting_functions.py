@@ -1705,8 +1705,8 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
     
     # >> get top n light curves
     ranked = np.argsort(err)
-    largest_inds = ranked[::-1][:n]
-    smallest_inds = ranked[:n]
+    largest_inds = np.copy(ranked[::-1][:n])
+    smallest_inds = np.copy(ranked[:n])
     random.Random(4).shuffle(ranked)
     random_inds = ranked[:n]
     
@@ -1755,7 +1755,8 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
 def quick_plot_classification(time, intensity, targets, target_info, labels,
                               path='./', prefix='', addend=1.,
                               simbad_database_txt='./simbad_database.txt',
-                              title='', ncols=10, nrows=5):
+                              title='', ncols=10, nrows=5,
+                              database_dir='./databases/'):
     '''Unfinished. Aim is to give an overview of the classifications, by
     plotting the first 5 light curves of each class. Any light curves
     classified by Simbad will be plotted first in their respective classes.'''
@@ -1765,8 +1766,11 @@ def quick_plot_classification(time, intensity, targets, target_info, labels,
     #         'lightsalmon', 'lightslategray', 'fuchsia', 'deeppink', 'crimson']*10
     colors = get_colors()
     
-    simbad_info = df.get_simbad_classifications(targets, simbad_database_txt)
-    ticid_simbad = np.array(simbad_info)[:,0].astype('int')
+    # class_info = df.get_simbad_classifications(targets, simbad_database_txt)
+    # ticid_classified = np.array(simbad_info)[:,0].astype('int')    
+    class_info = df.get_true_classifications(targets,
+                                             database_dir=database_dir)
+    ticid_classified = class_info[:,0].astype('int')
     
     num_figs = int(np.ceil(len(classes) / ncols))
     
@@ -1785,11 +1789,11 @@ def quick_plot_classification(time, intensity, targets, target_info, labels,
             # >> find all light curves with this  class
             class_inds = np.nonzero(labels == class_num)[0]
             
-            # >> find light curves with this class and classified in Simbad
+            # >> find light curves with this class and with true classifications
             # inds = np.isin(ticid_simbad, targets[class_inds])
-            inds = np.isin(targets[class_inds], ticid_simbad)
-            simbad_inds = class_inds[np.nonzero(inds)]
-            not_simbad_inds = class_inds[np.nonzero(~inds)]
+            inds = np.isin(targets[class_inds], ticid_classified)
+            classified_inds = class_inds[np.nonzero(inds)]
+            not_classified_inds = class_inds[np.nonzero(~inds)]
             
             if class_num == -1:
                 color = 'black'
@@ -1800,18 +1804,20 @@ def quick_plot_classification(time, intensity, targets, target_info, labels,
                 
             k=-1
             # >> first plot any Simbad classified light curves
-            for k in range(min(nrows, len(simbad_inds))): 
-                ind = simbad_inds[k] # >> to index targets
-                simbad_ind = np.nonzero(ticid_simbad == targets[ind])[0][0]
+            for k in range(min(nrows, len(classified_inds))): 
+                ind = classified_inds[k] # >> to index targets
+                classified_ind = np.nonzero(ticid_classified == targets[ind])[0][0]
                 ax[k, j].plot(time, intensity[ind]+addend, '.k')
-                simbad_label(ax[k,j], targets[ind], simbad_info[simbad_ind])
+                # simbad_label(ax[k,j], targets[ind], simbad_info[simbad_ind])
+                classification_label(ax[k,j], targets[ind],
+                                     class_info[classified_ind])
                 ticid_label(ax[k, j], targets[ind], target_info[ind],
                             title=True, color=color)
                 format_axes(ax[k, j], ylabel=True)
             
             # >> now plot non-classified light curves
-            for l in range(k+1, min(nrows, len(not_simbad_inds))):
-                ind = not_simbad_inds[l]
+            for l in range(k+1, min(nrows, len(not_classified_inds))):
+                ind = not_classified_inds[l]
                 ax[l,j].plot(time, intensity[ind]+addend, '.k')
                 ticid_label(ax[l,j], targets[ind], target_info[ind],
                             title=True, color=color)
@@ -2025,6 +2031,13 @@ def simbad_label(ax, ticid, simbad_info):
             transform=ax.transAxes, fontsize='xx-small',
             horizontalalignment='right', verticalalignment='top')
     
+def classification_label(ax, ticid, classification_info):
+    '''classification_info = [ticid, otype, bibcode]'''
+    ticid, otype, bibcode = classification_info
+    ax.text(0.98, 0.98, 'otype: '+otype+'\nbibcode: '+bibcode,
+            transform=ax.transAxes, fontsize='xx-small',
+            horizontalalignment='right', verticalalignment='top')
+    
 def format_axes(ax, xlabel=False, ylabel=False):
     '''Helper function to plot TESS light curves. Aspect ratio is 3/8.
     Parameters:
@@ -2127,6 +2140,39 @@ def plot_tsne(bottleneck, labels, n_components=2, output_dir='./', prefix=''):
     plt.savefig(output_dir + prefix + 't-sne.png')
     plt.close()
     
+    
+def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
+                          output_dir='./', prefix=''):
+    from sklearn.metrics import confusion_matrix
+    import seaborn as sn
+    
+    # >> get 'ground truth' classifications
+    class_info = df.get_true_classifications(ticid, database_dir=database_dir)
+    ticid_classified = class_info[:,0].astype('int')
+    labels = np.unique(class_info[:,1])
+    y_true = []
+    for i in range(len(ticid_classified)):
+        class_num = np.nonzero(labels == class_info[i][1])[0][0]
+        y_true.append(class_num)
+    y_true = np.array(y_true)
+    
+    # >> get assigned classes
+    inds = np.isin(ticid, ticid_classified)
+    y_pred = y_pred[inds]
+    
+    # >> make confusion matrix
+    cm = confusion_matrix(y_true, y_pred)
+    index = np.insert(labels, 0, 'Outlier')
+    # !! Currently fails if more than 24 classes are found
+    if np.shape(cm)[0] > len(index):
+        for i in range(np.shape(cm)[0] - len(index)):
+            index = np.insert(index, -1, 'unknown_class_'+str(i))
+    columns = list(range(-1, len(labels)))
+    
+    df_cm = pd.DataFrame(cm, index=index, columns=columns)
+    plt.figure()
+    sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
+    plt.savefig(output_dir+prefix+'confusion_matrix.png')
     
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     
