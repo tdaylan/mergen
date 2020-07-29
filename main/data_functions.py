@@ -1481,6 +1481,27 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                               silhouette_scores, db_scores, ch_scores)
     return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores
 
+def load_paramscan_txt(path):
+    """ load in the paramscan stuff from the text file
+    returns: parameter sets, number of classes, metric scores (in order: silhouettte, db, ch)
+    modified [lcg 07292020 - created]"""
+    params = np.genfromtxt(path, dtype=(float, int, 'S10', 'S10', int, int, int, np.float32, np.float32, np.float32), names=['eps', 'minsamp', 'metric', 'algorithm', 'leafsize', 'p', 'numclasses', 'silhouette', 'ch', 'db'])
+    
+    params = np.asarray(params)
+    nan_indexes = []
+    for n in range(len(params)):
+        if np.isnan(params[n][8]):
+            nan_indexes.append(int(n))
+        
+    nan_indexes = np.asarray(nan_indexes)
+    
+    cleaned_params = np.delete(params, nan_indexes, axis=0)   
+
+    number_classes = np.asarray(cleaned_params['numclasses'])
+    metric_scores = np.asarray(cleaned_params[['silhouette', 'db', 'ch']].tolist())
+    
+    return cleaned_params, number_classes, metric_scores
+
 # DEPRECIATED SECTION -----------------------------------------------------
 def load_group_from_txt(sector, camera, ccd, path):
     """loads in a given group's data provided you have it saved in TEXT metafiles already

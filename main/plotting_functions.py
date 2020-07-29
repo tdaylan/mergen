@@ -6,7 +6,7 @@ Plotting functions only.
 
 @author: Lindsey Gordon @lcgordon and Emma Chickles @emmachickles
 
-Last updated: June 15 2020
+Last updated: July 29 2020
 
 Helper functions
 * plot_lc()
@@ -27,6 +27,7 @@ Feature visualization
 * plot_pca()
 * isolate_plot_feature_outliers
 * lof_and_insets_on_sector
+* plot_paramscan_metrics
 
 Autoencoder visualizations
 * diagnostic_plots()
