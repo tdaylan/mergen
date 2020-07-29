@@ -14,22 +14,24 @@
 
 # dat_dir = '../../' # >> directory with input data (ending with /)
 dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/CAE-MAE/' # >> directory to save diagnostic plots
+output_dir = '../../plots/CAE-1/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
                      # >> and plotting_functions.py
+database_dir = '../../databases/' # >> directory containing text files for
+                                  # >> cross-checking classifications
 # >> input data
-sectors = [20]
+sectors = [1]
 cams = [1, 2, 3, 4]
 ccds =  [1, 2, 3, 4]
-train_test_ratio = 0.1 # >> fraction of training set size to testing set size
-# train_test_ratio = 0.92
+# train_test_ratio = 0.1 # >> fraction of training set size to testing set size
+train_test_ratio = 0.9
 
 # >> what this script will run:
 hyperparameter_optimization = False # >> run hyperparameter search
-run_model = True # >> train autoencoder on a parameter set p
-diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
+run_model = False # >> train autoencoder on a parameter set p
+diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 classification=True # >> runs DBSCAN on learned features
 
@@ -41,14 +43,16 @@ classification=True # >> runs DBSCAN on learned features
 norm_type = 'standardization'
 
 input_rms=True # >> concatenate RMS to learned features
-use_tess_features = True
+use_tess_features = False
 input_features=False # >> this option cannot be used yet
 split_at_orbit_gap=False
 
 # >> move targets out of training set and into testing set (integer)
 # !! TODO: print failure if target not in sector
-targets = [219107776] # >> EX DRA # !!
-# targets = []
+# targets = [219107776] # >> EX DRA # !!
+validation_targets = []
+
+custom_mask = list(range(15800, 17400))
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -117,7 +121,7 @@ else:
     p = {'kernel_size': 3,
           'latent_dim': 35,
           'strides': 1,
-          'epochs': 20,
+          'epochs': 15,
           'dropout': 0.3,
           'num_filters': 16,
           'num_conv_layers': 4,
@@ -125,7 +129,7 @@ else:
           'activation': 'elu',
           'optimizer': 'adam',
           'last_activation': 'linear',
-          'losses': tf.keras.losses.MeanAbsoluteError(),
+          'losses': 'mean_squared_error',
           'lr': 0.005,
           'initializer': 'random_normal',
           'num_consecutive': 2}     
@@ -139,7 +143,8 @@ if os.path.isdir(output_dir) == False: # >> check if dir already exists
     
 flux, x, ticid, target_info = \
     df.load_data_from_metafiles(dat_dir, sector, DEBUG=True,
-                                output_dir=output_dir, nan_mask_check=True)
+                                output_dir=output_dir, nan_mask_check=True,
+                                custom_mask=custom_mask)
 
 # !! tmp
 # # >> train and test on high frequency only
@@ -173,7 +178,8 @@ flux, x, ticid, target_info = \
 x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
     target_info_test, rms_train, rms_test, x = \
     ml.autoencoder_preprocessing(flux, ticid, x, target_info, p,
-                                 targets=targets, norm_type=norm_type,
+                                 validation_targets=validation_targets,
+                                 norm_type=norm_type,
                                  input_rms=input_rms,
                                  train_test_ratio=train_test_ratio,
                                  split=split_at_orbit_gap)
@@ -310,7 +316,7 @@ if diag_plots:
                             plot_lof_test=True,
                             plot_lof_train=True,
                             plot_lof_all=True,
-                            plot_reconstruction_error_test=True,
+                            plot_reconstruction_error_test=False,
                             plot_reconstruction_error_all=True)                            
 
 # >> Feature plots
@@ -327,23 +333,32 @@ if classification:
                                     use_learned_features=True,
                                     use_tess_features=use_tess_features,
                                     use_engineered_features=False)
+
         
     pl.latent_space_plot(features, output_dir + 'latent_space-tessfeats.png')
 
     parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores = \
     df.dbscan_param_search(features, x, flux_feat, ticid_feat,
-                           info_feat, DEBUG=True, 
-                           output_dir=output_dir, 
-                           simbad_database_txt='../../simbad_database.txt',
-                           leaf_size=[30], algorithm=['auto'],
-                           metric=['euclidean'], p=[None])      
-    
+                            info_feat, DEBUG=True, 
+                            output_dir=output_dir, 
+                            simbad_database_txt='../../simbad_database.txt',
+                            leaf_size=[30], algorithm=['auto'],
+                            min_samples=[3],
+                            metric=['euclidean'], p=[None],
+                            database_dir=database_dir,
+                            eps=list(np.arange(1.5, 3., 0.1)),
+                            confusion_matrix=True)      
     # parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores = \
-    # df.dbscan_param_search(bottleneck, x, x_test, ticid_test,
-    #                        target_info_test, DEBUG=True, 
+    # df.dbscan_param_search(features, x, flux_feat, ticid_feat,
+    #                        info_feat, DEBUG=True, 
     #                        output_dir=output_dir, 
     #                        simbad_database_txt='../../simbad_database.txt',
-    #                        leaf_size=[30], algorithm=['auto']) 
+    #                        min_samples=[5],
+    #                        leaf_size=[30], algorithm=['auto'],
+    #                        metric=['euclidean'], p=[None],
+    #                        database_dir=database_dir,
+    #                        eps=list(np.arange(1.1, 1.6, 0.1)))       
+
     
         
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::

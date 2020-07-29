@@ -15,69 +15,47 @@ import pandas as pd
 
 
 sectors = [20]
-cams = [1, 2, 3, 4]
-ccds = [1, 2, 3, 4]
+cams = [1]
+ccds = [1,2]
 
 preprocessing = False
 supervised = False
-hyperparameter_optimization = False
-use_tess_features = True # >> train using TESS features
+hyperparameter_optimization = True
+use_tess_features = False # >> 5 features 
+use_engineered_features = False # >> 16 features
+use_tls_features = True # >> 4 features
 run_model = True
 classification = True
 # toi_train = True # >> train only on TOIs
 # toi_validation = True # >> validate classifications with TOIs
 
-output_dir = '../../plots/DAE/' # >> make dir if doesn't exist
+output_dir = '../../plots/DAE-tls/' # >> make dir if doesn't exist
 data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
 # data_dir = '../../'
 # prefix = 'Sector20Cam1CCD1_2'
 prefix = 'Sector20Cam1CCD1'
 
 num_classes = 4
-targets = [219107776]
-# targets = []
+# validation_targets = [219107776]
+validation_targets = []
 
 # tois = pd.read_csv('../../tois.csv', skiprows=[0,1,2,3])
 
-
-      
 if hyperparameter_optimization:
-    hidden = []
-    # for i in range(5): # >> num hidden layers
-    #     for j in [1,2,3,4]: # >> step size
-    #         hidden.append(list(np.arange(1, 16-j*i, -j)))
-    #     for j in range(8, 17):
-    #         hidden.append(list(np.repeat(j, i)))
-    # filter_num = []
-    # for i in range(5): # >> num hidden layers
-    #     for j in range(16, 32, 8): # >> highest dimension
-    #         for k in range(4, 16, 2): # >> lowest dimesion
-    #             for l in range(1,4): # >> number of hidden layers
-    #                 step = max(int(float(j) / k / l), 1)
-    #                 hidden.append(list(np.arange(j, k-1, -step)))
-    # hidden = []
-    
-    # max_dims = range(12, 30, 2)
-    # latent_dim = [4,6,8,10,12]
-    # steps = range(1, 8)
-    # for max_dim in max_dims:
-    #     for l_dim in latent_dim:
-    #         for step in steps:
-    #             hidden.append(list(range(max_dim, l_dim, -step)))
-                    
-            
-    # p = {'hidden_units': hidden, 'latent_dim': [4,6,8,10,12],
-    #       'activation': ['relu','elu'], 'last_activation': ['linear'],
+    # p = {'max_dim': list(range(21, 60)),
+    #      'step': list(range(1, 8)),
+    #      'latent_dim': list(range(4, 20)),
+    #       'activation': ['elu'], 'last_activation': ['linear'],
     #       'optimizer': ['adam', 'adadelta'],
     #       'lr':list(np.arange(0.001, 0.1, 0.01)),
-    #       'epochs': [100], 'losses': ['mean_squared_error'],
+    #       'epochs': [50], 'losses': ['mean_squared_error'],
     #       'batch_size': [128], 'initializer': ['random_normal',
     #                                            'random_uniform',
     #                                            'glorot_normal',
-    #                                            'glorot_uniform', 'zeros']}
-    p = {'max_dim': list(range(21, 60)),
+    #                                            'glorot_uniform', 'zeros']}    
+    p = {'max_dim': list(range(25, 60)),
          'step': list(range(1, 8)),
-         'latent_dim': list(range(4, 20)),
+         'latent_dim': list(range(2, 25)),
           'activation': ['elu'], 'last_activation': ['linear'],
           'optimizer': ['adam', 'adadelta'],
           'lr':list(np.arange(0.001, 0.1, 0.01)),
@@ -85,26 +63,18 @@ if hyperparameter_optimization:
           'batch_size': [128], 'initializer': ['random_normal',
                                                'random_uniform',
                                                'glorot_normal',
-                                               'glorot_uniform', 'zeros']}    
-else:
-    # p = {'hidden_units': [14,12], 'latent_dim': 8,
-    #       'activation': 'elu', 'last_activation': 'elu', 'optimizer': 'adam',
-    #       'lr':0.001, 'epochs': 500, 'losses': 'mean_squared_error',
-    #       'batch_size': 128, 'initializer': 'random_normal'}
-    # p = {'hidden_units': [16,15,14], 'latent_dim': 6,
-    #       'activation': 'elu', 'last_activation': 'linear', 'optimizer': 'adam',
-    #       'lr':0.04, 'epochs': 500, 'losses': 'mean_squared_error',
-    #       'batch_size': 128, 'initializer': 'glorot_uniform'}    
-    # p = {'max_dim': 58, 'step': 6, 'latent_dim': 12,
+                                               'glorot_uniform', 'zeros']}        
+else:     
+    # p = {'max_dim': 50, 'step': 5, 'latent_dim': 17,
     #       'activation': 'elu', 'last_activation': 'linear',
-    #       'optimizer': 'adam',
-    #       'lr':0.011, 'epochs': 50, 'losses': 'mean_squared_error',
-    #       'batch_size': 128, 'initializer': 'glorot_normal'}       
-    p = {'max_dim': 50, 'step': 5, 'latent_dim': 17,
+    #       'optimizer': 'adadelta',
+    #       'lr':0.081, 'epochs': 300, 'losses': 'mean_squared_error',
+    #       'batch_size': 128, 'initializer': 'random_uniform'}      
+    p = {'max_dim': 11, 'step': 7, 'latent_dim': 3,
           'activation': 'elu', 'last_activation': 'linear',
-          'optimizer': 'adadelta',
-          'lr':0.081, 'epochs': 300, 'losses': 'mean_squared_error',
-          'batch_size': 128, 'initializer': 'random_uniform'}      
+          'optimizer': 'adam',
+          'lr':0.001, 'epochs': 300, 'losses': 'mean_squared_error',
+          'batch_size': 128, 'initializer': 'glorot_uniform'}         
 
 if preprocessing:
     if supervised:
@@ -162,21 +132,25 @@ if preprocessing:
 else:
   
     flux, time, ticid, target_info = \
-    df.load_data_from_metafiles(data_dir, sectors[0], nan_mask_check=False)
+    df.load_data_from_metafiles(data_dir, sectors[0], nan_mask_check=False,
+                                cams=cams, ccds=ccds)
     
     features, flux, ticid, target_info = \
         ml.bottleneck_preprocessing(sectors[0], flux, ticid, target_info,
                                     output_dir=output_dir,
                                     data_dir=data_dir,
-                                    use_engineered_features=True,
+                                    use_engineered_features=use_engineered_features,
+                                    use_tls_features=use_tls_features,
                                     use_tess_features=use_tess_features,
-                                    use_learned_features=False)
-    
-    
+                                    use_learned_features=False,
+                                    cams=cams, ccds=ccds)
+
+
     x_train, x_test, y_train, y_test, flux_train, flux_test, \
         ticid_train, ticid_test, target_info_train, target_info_test, time =\
             ml.autoencoder_preprocessing(flux, ticid, time, target_info, p,
-                                         targets=targets, DAE=True,
+                                         validation_targets=validation_targets,
+                                         DAE=True,
                                          features=features)
 
     if supervised:
@@ -189,7 +163,7 @@ else:
                            params=p, model=ml.simple_autoencoder,
                            experiment_name='feature autoencoder',
                            reduction_metric = 'val_loss',
-                           minimize_loss = True, fraction_limit=0.001)
+                           minimize_loss = True, fraction_limit=0.01)
             
             analyze_object = talos.Analyze(t)
             
@@ -270,12 +244,14 @@ else:
                                     target_info_train, DEBUG=True,
                                     leaf_size=[30], p=[1,2,3,4], algorithm=['auto'],
                                     output_dir=output_dir,
-                                    simbad_database_txt='../../simbad_database.txt')
+                                    simbad_database_txt='../../simbad_database.txt',
+                                    database_dir='../../databases/')
         parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores =\
             df.dbscan_param_search(bottleneck, time, flux_train, ticid_train,
                                    target_info_train, DEBUG=True, 
                                    output_dir=output_dir,
-                                   simbad_database_txt='../../simbad_database.txt')            
+                                   simbad_database_txt='../../simbad_database.txt',
+                                   database_dir='../../databases/')            
                                 
     mom_dump = '../../Table_of_momentum_dumps.csv'
     # >> get best parameter set (want to maximize)
@@ -587,3 +563,48 @@ else:
     #     with open(output_dir + 'dbscan_param_search.txt', 'r') as f:
     #         lines = f.readlines()        
             
+        # if use_engineered_features and use_learned_features:
+        #     features = np.concatenate([engineered_feature_vector,
+        #                                learned_feature_vector,
+        #                                tess_features], axis=1)
+        # elif use_engineered_features:
+        #     features = np.concatenate([engineered_feature_vector,
+        #                                tess_features], axis=1)  
+        # elif use_learned_features:
+        #     features = np.concatenate([learned_feature_vector,
+        #                                tess_features], axis=1)
+        # else:
+        #     features = tess_features        
+    # hidden = []
+    # for i in range(5): # >> num hidden layers
+    #     for j in [1,2,3,4]: # >> step size
+    #         hidden.append(list(np.arange(1, 16-j*i, -j)))
+    #     for j in range(8, 17):
+    #         hidden.append(list(np.repeat(j, i)))
+    # filter_num = []
+    # for i in range(5): # >> num hidden layers
+    #     for j in range(16, 32, 8): # >> highest dimension
+    #         for k in range(4, 16, 2): # >> lowest dimesion
+    #             for l in range(1,4): # >> number of hidden layers
+    #                 step = max(int(float(j) / k / l), 1)
+    #                 hidden.append(list(np.arange(j, k-1, -step)))
+    # hidden = []
+    
+    # max_dims = range(12, 30, 2)
+    # latent_dim = [4,6,8,10,12]
+    # steps = range(1, 8)
+    # for max_dim in max_dims:
+    #     for l_dim in latent_dim:
+    #         for step in steps:
+    #             hidden.append(list(range(max_dim, l_dim, -step)))
+                    
+            
+    # p = {'hidden_units': hidden, 'latent_dim': [4,6,8,10,12],
+    #       'activation': ['relu','elu'], 'last_activation': ['linear'],
+    #       'optimizer': ['adam', 'adadelta'],
+    #       'lr':list(np.arange(0.001, 0.1, 0.01)),
+    #       'epochs': [100], 'losses': ['mean_squared_error'],
+    #       'batch_size': [128], 'initializer': ['random_normal',
+    #                                            'random_uniform',
+    #                                            'glorot_normal',
+    #                                            'glorot_uniform', 'zeros']}        

@@ -9,8 +9,9 @@ sys.path.insert(0, '../main/')
 import plotting_functions as pl
 import model as ml
 
-output_dir = '../../plots/CAE-1/'
-report_path = './TESS-unsupervised/072320203633.csv'
+output_dir = '../../plots/DAE-tls/'
+# report_path = './TESS-unsupervised/072320203633.csv'
+report_path = './feature autoencoder/072920065350.csv'
 
 # >> load experiment log
 # res = pd.read_csv(report_path, header=0, usecols=list(range(20)))
@@ -18,7 +19,9 @@ report_path = './TESS-unsupervised/072320203633.csv'
 analyze_object = talos.Analyze(report_path)
 df, best_param_ind, p = pl.hyperparam_opt_diagnosis(analyze_object, output_dir,
                                                   supervised=False)
-    
+
+pdb.set_trace()    
+
 print(df['losses'])
 # loss_name = 'LogCosh'
 loss_name = 'MeanAbsolutePercentageError'
