@@ -1495,7 +1495,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                 classes.append(classes_1)
                                 num_classes.append(len(classes_1))
                                 counts.append(counts_1)
-                                num_noisy.append(counts[0])
+                                num_noisy.append(counts_1[0])
                                 parameter_sets.append([eps[i], min_samples[j],
                                                        metric[k],
                                                        algorithm[l],
@@ -1591,9 +1591,13 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     print("Plot paramscan metrics...")
     pf.plot_paramscan_metrics(output_dir, parameter_sets, 
                               silhouette_scores, db_scores, ch_scores)
-    pf.plot_paramscan_classes(output_dir, parameter_sets, 
-                              num_classes, num_noisy)
-    
+    print(len(parameter_sets), len(num_classes), len(num_noisy), num_noisy)
+    try:
+        pf.plot_paramscan_classes(output_dir, parameter_sets, 
+                                  np.asarray(num_classes), np.asarray(num_noisy)[:,0])
+    except:
+        print("still something wrong with num_noisy plotting")
+        
     return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores
 
 def load_paramscan_txt(path):

@@ -2080,6 +2080,7 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./', prefix=''):
         ax.plot(principalComponents[inds][:,0], principalComponents[inds][:,1],
                 '.', color=color)
     fig.savefig(output_dir + prefix + 'PCA_plot.png')
+    plt.close(fig)
 
 # == helper functions =========================================================
 
