@@ -1475,11 +1475,16 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     silhouette_scores=[]
     ch_scores = []
     db_scores = []
+
     for i in range(len(eps)):
         for j in range(len(min_samples)):
             for k in range(len(metric)):
                 for l in range(len(algorithm)):
                     for m in range(len(leaf_size)):
+                        if metric[k] == 'minkowski':
+                            p = [1,2,3,4]
+                        else:
+                            p = [None]
                         for n in range(len(p)):
                             db = DBSCAN(eps=eps[i],
                                         min_samples=min_samples[j],
@@ -1491,6 +1496,23 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             print(np.unique(db.labels_, return_counts=True))
                             classes_1, counts_1 = \
                                 np.unique(db.labels_, return_counts=True)
+                                
+                            param_num = str(len(parameter_sets)-1)
+                            title='Parameter Set '+param_num+': '+'{} {} {} {} {} {}'.format(eps[i],
+                                                                                        min_samples[j],
+                                                                                        metric[k],
+                                                                                        algorithm[l],
+                                                                                        leaf_size[m],
+                                                                                        p[n])
+                            
+                            prefix='dbscan-p'+param_num                            
+                                
+                            if confusion_matrix:
+                                acc = pf.plot_confusion_matrix(ticid, db.labels_,
+                                                               database_dir=database_dir,
+                                                               output_dir=output_dir,
+                                                               prefix=prefix)                                
+                                
                             if len(classes_1) > 1:
                                 classes.append(classes_1)
                                 num_classes.append(len(classes_1))
@@ -1524,7 +1546,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                     #                                    algorithm[l],
                                     #                                    leaf_size[m],
                                     #                                    p[n])
-                                    f.write('{} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
+                                    f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
                                                                        min_samples[j],
                                                                        metric[k],
                                                                        algorithm[l],
@@ -1533,7 +1555,8 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                                                        len(classes_1),
                                                                        silhouette,
                                                                        score,
-                                                                       dav_boul_score))
+                                                                       dav_boul_score,
+                                                                       acc))
                             else:
                                 with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
                                     # f.write('{} {} {} {} {} {}\n'.format(eps[i],
@@ -1542,24 +1565,17 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                     #                                    algorithm[l],
                                     #                                    leaf_size[m],
                                     #                                    p[n])
-                                    f.write('{} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
+                                    f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
                                                                        min_samples[j],
                                                                        metric[k],
                                                                        algorithm[l],
                                                                        leaf_size[m],
                                                                        p[n],
                                                                        len(classes_1),
-                                                                       np.nan,np.nan,np.nan))                                
+                                                                       np.nan,np.nan,np.nan, np.nan))                                
                                 
                             if DEBUG and len(classes_1) > 1:
-                                param_num = str(len(parameter_sets)-1)
-                                title='Parameter Set '+param_num+': '+'{} {} {} {} {} {}'.format(eps[i],
-                                                                                            min_samples[j],
-                                                                                            metric[k],
-                                                                                            algorithm[l],
-                                                                                            leaf_size[m],
-                                                                                            p[n])
-                                prefix='dbscan-p'+param_num
+
                                 pf.quick_plot_classification(time, flux,
                                                              ticid,
                                                              target_info,
@@ -1570,11 +1586,6 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                                              title=title,
                                                              database_dir=database_dir)
                                 
-                                if confusion_matrix:
-                                    pf.plot_confusion_matrix(ticid, db.labels_,
-                                                             database_dir=database_dir,
-                                                             output_dir=output_dir,
-                                                             prefix=prefix)
                                 
                                 if pca:
                                     print('Plot PCA...')

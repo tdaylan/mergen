@@ -1766,7 +1766,7 @@ def plot_paramscan_metrics(output_dir, parameter_sets, silhouette_scores, db_sco
     
     plt.savefig(output_dir+"paramscan-metric-results.png")
     
-    plt.show()
+    # plt.show()
 
 
 def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
@@ -2220,6 +2220,7 @@ def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
                           output_dir='./', prefix=''):
     from sklearn.metrics import confusion_matrix
     import seaborn as sn
+    from itertools import permutations
     
     # >> get 'ground truth' classifications
     class_info = df.get_true_classifications(ticid, database_dir=database_dir)
@@ -2237,20 +2238,91 @@ def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
     
     # >> make confusion matrix
     cm = confusion_matrix(y_true, y_pred)
-    index = np.insert(labels, 0, 'Outlier')
-    # !! Currently fails if more than 24 classes are found
-    if np.shape(cm)[0] > len(index):
-        for i in range(np.shape(cm)[0] - len(index)):
-            index = np.insert(index, -1, 'unknown_class_'+str(i))
-    columns = list(range(-1, len(labels)))
+    # index = np.insert(labels, -1, 'Outlier')
+    index = labels    
+    columns = np.unique(y_pred).astype('str')
+    
+    # >> remove rows and columns that are all zeros
+    cm = np.delete(cm, np.nonzero(np.prod(cm == 0, axis=0)), axis=1)
+    cm = np.delete(cm, np.nonzero(np.prod(cm == 0, axis=1)), axis=0)
+    
+    # >> find order of columns that gives the best accuracy
+    best_accuracy = 0.
+    perm1 = permutations(list(range(len(columns))))
+    
+    accuracy = []
+    # perm2 = permutations(list(range(len(index))))
+    
+    # !! re-arranging columns won't work as well when we learn few classes
+    # >> re-order rows so that most popular classes are first
+    row_order = np.flip(np.argsort(np.sum(cm, axis=1)))
+    cm = cm[row_order]
+    index = index[row_order]
+    
+    for col_order in list(perm1):
+        # >> re-arrange cm by column
+        col_order = np.array(col_order)
+        cm_tmp = cm[:,col_order]        
+        
+        # >> calculate accuracy
+        diag_length = np.min(np.shape(cm))
+        acc = np.sum(np.diag(cm_tmp)) / np.sum(cm_tmp[:diag_length,:diag_length])
+        accuracy.append(acc)
+        
+        if acc > best_accuracy:
+            best_col_ordering = col_order
+            best_accuracy = acc
+        
+    # >> re-arrange confusion matrix to get the best accuracy  
+    cm = cm[:,best_col_ordering]
+        
+    # pdb.set_trace()
+    # for col_order in list(perm1):
+    #     # >> re-arrange cm by column
+    #     col_order = np.array(col_order)
+    #     cm_tmp = cm[:,col_order]        
+        
+    #     col_accuracy = []
+    #     for row_order in list(perm2):            
+    #         # >> re-arrange cm by row
+    #         row_order = np.array(row_order)
+    #         cm_tmp = cm[row_order]
+            
+    #         # >> calculate accuracy
+    #         diag_length = np.min(np.shape(cm))
+    #         acc = np.sum(np.diag(cm_tmp)) / np.sum(cm_tmp[:diag_length,:diag_length])
+            
+    #         if acc > best_accuracy:
+    #             best_row_ordering = row_order
+    #             best_col_ordering = col_order
+        
+    # # >> re-arrange confusion matrix to get the best accuracy
+    # # best_ind = np.argmax(np.array(accuracy))
+    # # best_order = col_ordering[best_ind]
+    # # cm = cm[:,best_order]
+    # cm = cm[best_row_ordering,best_col_ordering]
     
     df_cm = pd.DataFrame(cm, index=index, columns=columns)
     plt.figure()
     sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
     plt.savefig(output_dir+prefix+'confusion_matrix.png')
     
+    return best_accuracy
+    
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     
+    
+    # cm = cm[:len(labels)]
+    # cm = cm[:, list(range(len(columns)))]
+    
+    # # !! Currently fails if more than 24 classes are found
+    # if np.shape(cm)[0] > len(index):
+    #     for i in range(np.shape(cm)[0] - len(index)):
+    #         index = np.insert(index, -1, 'unknown_class_'+str(i))
+    # if np.shape(cm)[0] > len(columns):
+    #     for i in range(np.shape(cm)[0] - len(columns)):
+    #         columns = np.insert(columns, -1, 'unknown_class_'+str(i))
+    # # columns = list(range(-1, len(labels)))      
 
 # if plot_clustering:
 #     bottleneck_ind = np.nonzero(['dense' in x.name for x in \

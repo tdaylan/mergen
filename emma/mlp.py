@@ -20,16 +20,17 @@ ccds = [1,2]
 
 preprocessing = False
 supervised = False
-hyperparameter_optimization = True
-use_tess_features = False # >> 5 features 
-use_engineered_features = False # >> 16 features
+use_tess_features = True # >> 5 features 
+use_engineered_features = True # >> 16 features
 use_tls_features = True # >> 4 features
-run_model = True
+
+hyperparameter_optimization = False
+run_model = False
 classification = True
 # toi_train = True # >> train only on TOIs
 # toi_validation = True # >> validate classifications with TOIs
 
-output_dir = '../../plots/DAE-tls/' # >> make dir if doesn't exist
+output_dir = '../../plots/DAE/' # >> make dir if doesn't exist
 data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
 # data_dir = '../../'
 # prefix = 'Sector20Cam1CCD1_2'
@@ -70,10 +71,10 @@ else:
     #       'optimizer': 'adadelta',
     #       'lr':0.081, 'epochs': 300, 'losses': 'mean_squared_error',
     #       'batch_size': 128, 'initializer': 'random_uniform'}      
-    p = {'max_dim': 11, 'step': 7, 'latent_dim': 3,
+    p = {'max_dim': 41, 'step': 6, 'latent_dim': 23,
           'activation': 'elu', 'last_activation': 'linear',
           'optimizer': 'adam',
-          'lr':0.001, 'epochs': 300, 'losses': 'mean_squared_error',
+          'lr':0.011, 'epochs': 300, 'losses': 'mean_squared_error',
           'batch_size': 128, 'initializer': 'glorot_uniform'}         
 
 if preprocessing:
@@ -232,7 +233,7 @@ else:
                                 plot_reconstruction_error_test=False,
                                 plot_reconstruction_error_all=False,
                                 load_bottleneck=False)   
-            pl.latent_space_plot(x_test, 
+            pl.latent_space_plot(x_train, 
                                  output_dir+'latent_space-original_features.png',
                                  units='psi')
     
@@ -242,42 +243,44 @@ else:
         parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores =\
             df.dbscan_param_search(bottleneck, time, flux_train, ticid_train,
                                     target_info_train, DEBUG=True,
-                                    leaf_size=[30], p=[1,2,3,4], algorithm=['auto'],
+                                    leaf_size=[30], algorithm=['auto'],
+                                    min_samples=[3],
                                     output_dir=output_dir,
                                     simbad_database_txt='../../simbad_database.txt',
-                                    database_dir='../../databases/')
-        parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores =\
-            df.dbscan_param_search(bottleneck, time, flux_train, ticid_train,
-                                   target_info_train, DEBUG=True, 
-                                   output_dir=output_dir,
-                                   simbad_database_txt='../../simbad_database.txt',
-                                   database_dir='../../databases/')            
+                                    database_dir='../../databases/',
+                                    eps=list(np.arange(1.,3.,0.1)))
+        # parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores =\
+        #     df.dbscan_param_search(bottleneck, time, flux_train, ticid_train,
+        #                            target_info_train, DEBUG=True, 
+        #                            output_dir=output_dir,
+        #                            simbad_database_txt='../../simbad_database.txt',
+        #                            database_dir='../../databases/')            
                                 
-    mom_dump = '../../Table_of_momentum_dumps.csv'
-    # >> get best parameter set (want to maximize)
-    # print('num classes: ' + str(max(num_classes)))
-    print('num classes: ' + str(i))
-    inds = np.nonzero(np.array(num_classes)>10)
-    # !!
-    # best = np.argmin(np.array(num_noisy)[inds])
-    # best = np.argmax(np.array(silhouette_scores)[inds])
-    # best = np.argmin(np.array(db_scores)[inds])
-    best = np.argmax(np.array(ch_scores)[inds])
-    best = inds[0][best]
-    print('best_parameter_set: ' + str(parameter_sets[best]))
-    # print(str(counts[best]))
-    p=parameter_sets[best]
-    classes = pl.features_plotting_2D(bottleneck, bottleneck,
-                                      output_dir, 'dbscan',
-                                      time, flux_train, ticid_train,
-                                      target_info=target_info_train,
-                                      feature_engineering=False,
-                                      eps=p[0], min_samples=p[1],
-                                      metric=p[2], algorithm=p[3],
-                                      leaf_size=p[4], p=p[5],
-                                      folder_suffix='_'+str(i)+\
-                                          'classes',
-                                      momentum_dump_csv=mom_dump)          
+    # mom_dump = '../../Table_of_momentum_dumps.csv'
+    # # >> get best parameter set (want to maximize)
+    # # print('num classes: ' + str(max(num_classes)))
+    # print('num classes: ' + str(i))
+    # inds = np.nonzero(np.array(num_classes)>10)
+    # # !!
+    # # best = np.argmin(np.array(num_noisy)[inds])
+    # # best = np.argmax(np.array(silhouette_scores)[inds])
+    # # best = np.argmin(np.array(db_scores)[inds])
+    # best = np.argmax(np.array(ch_scores)[inds])
+    # best = inds[0][best]
+    # print('best_parameter_set: ' + str(parameter_sets[best]))
+    # # print(str(counts[best]))
+    # p=parameter_sets[best]
+    # classes = pl.features_plotting_2D(bottleneck, bottleneck,
+    #                                   output_dir, 'dbscan',
+    #                                   time, flux_train, ticid_train,
+    #                                   target_info=target_info_train,
+    #                                   feature_engineering=False,
+    #                                   eps=p[0], min_samples=p[1],
+    #                                   metric=p[2], algorithm=p[3],
+    #                                   leaf_size=p[4], p=p[5],
+    #                                   folder_suffix='_'+str(i)+\
+    #                                       'classes',
+    #                                   momentum_dump_csv=mom_dump)          
 
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::

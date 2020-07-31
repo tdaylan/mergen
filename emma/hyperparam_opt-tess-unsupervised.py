@@ -14,7 +14,7 @@
 
 # dat_dir = '../../' # >> directory with input data (ending with /)
 dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/CAE-1/' # >> directory to save diagnostic plots
+output_dir = '../../plots/CAE-Huber/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -30,7 +30,7 @@ train_test_ratio = 0.9
 
 # >> what this script will run:
 hyperparameter_optimization = False # >> run hyperparameter search
-run_model = False # >> train autoencoder on a parameter set p
+run_model = True # >> train autoencoder on a parameter set p
 diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 classification=True # >> runs DBSCAN on learned features
@@ -52,7 +52,10 @@ split_at_orbit_gap=False
 # targets = [219107776] # >> EX DRA # !!
 validation_targets = []
 
-custom_mask = list(range(15800, 17400))
+if sectors[0] == 1:
+    custom_mask = list(range(15800, 17400))
+else:
+    custom_mask = []
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -129,7 +132,7 @@ else:
           'activation': 'elu',
           'optimizer': 'adam',
           'last_activation': 'linear',
-          'losses': 'mean_squared_error',
+          'losses': tf.keras.losses.Huber(),
           'lr': 0.005,
           'initializer': 'random_normal',
           'num_consecutive': 2}     
@@ -332,7 +335,8 @@ if classification:
                                     output_dir=output_dir,
                                     use_learned_features=True,
                                     use_tess_features=use_tess_features,
-                                    use_engineered_features=False)
+                                    use_engineered_features=False,
+                                    use_tls_features=False)
 
         
     pl.latent_space_plot(features, output_dir + 'latent_space-tessfeats.png')
