@@ -142,7 +142,7 @@ def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppa
     
     return features, x, flux, ticid, outlier_indexes    
         
-def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, target_info, sigma, version=0):
+def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, target_info, sigma, version=0, plot=True):
     """ isolate features that are significantly out there and crazy
     plot those outliers, and remove them from the features going into the 
     main lof/plotting/
@@ -187,27 +187,30 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, ta
         
     outlier_indexes = np.asarray(outlier_indexes)
     
-    for i in range(len(outlier_indexes)):
-        target_index = outlier_indexes[i][0] #is the index of the target on the lists
-        feature_index = outlier_indexes[i][1] #is the index of the feature that it triggered on
-        plt.figure(figsize=(8,3))
-        plt.scatter(time, flux[target_index], s=0.5)
-        target = ticids[target_index]
-        #print(features[target_index])
-        
-        if np.isnan(features[target_index][feature_index]) == True:
-            feature_title = features_greek[feature_index] + "=nan"
-        else: 
-            feature_value = '%s' % float('%.2g' % features[target_index][feature_index])
-            feature_title = features_greek[feature_index] + "=" + feature_value
-        print(feature_title)
-        
-        plt.title("TIC " + str(int(target)) + " " + astroquery_pull_data(target, breaks=False) + 
-                  "\n" + feature_title + "  STDEV limit: " + str(sigma), fontsize=8)
-        plt.tight_layout()
-        plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
-        plt.show()
-        
+    if plot:
+        for i in range(len(outlier_indexes)):
+            target_index = outlier_indexes[i][0] #is the index of the target on the lists
+            feature_index = outlier_indexes[i][1] #is the index of the feature that it triggered on
+            plt.figure(figsize=(8,3))
+            plt.scatter(time, flux[target_index], s=0.5)
+            target = ticids[target_index]
+            #print(features[target_index])
+            
+            if np.isnan(features[target_index][feature_index]) == True:
+                feature_title = features_greek[feature_index] + "=nan"
+            else: 
+                feature_value = '%s' % float('%.2g' % features[target_index][feature_index])
+                feature_title = features_greek[feature_index] + "=" + feature_value
+            print(feature_title)
+            
+            plt.title("TIC " + str(int(target)) + " " + astroquery_pull_data(target, breaks=False) + 
+                      "\n" + feature_title + "  STDEV limit: " + str(sigma), fontsize=8)
+            plt.tight_layout()
+            plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
+            plt.show()
+    else: 
+        print("not plotting today!")
+            
         
     features_cropped = np.delete(features, outlier_indexes, axis=0)
     ticids_cropped = np.delete(ticids, outlier_indexes)
@@ -2287,6 +2290,7 @@ def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
     plt.figure()
     sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
     plt.savefig(output_dir+prefix+'confusion_matrix.png')
+    plt.close()
     
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     

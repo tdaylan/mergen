@@ -1475,6 +1475,12 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     silhouette_scores=[]
     ch_scores = []
     db_scores = []
+    with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
+        f.write('{} {} {} {} {} {} {} {} {} {}\n'.format("eps\t", "samp\t", "metric\t\t", 
+                                                         "alg\t", "leaf\t", "p\t",
+                                                         "classes\t",
+                                                         "silhouette\t", 'ch\t\t\t', 
+                                                         'db\t'))
     for i in range(len(eps)):
         for j in range(len(min_samples)):
             for k in range(len(metric)):
@@ -1487,7 +1493,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                         algorithm=algorithm[l],
                                         leaf_size=leaf_size[m],
                                         p=p[n]).fit(bottleneck)
-                            print(db.labels_)
+                            #print(db.labels_)
                             print(np.unique(db.labels_, return_counts=True))
                             classes_1, counts_1 = \
                                 np.unique(db.labels_, return_counts=True)
@@ -1508,9 +1514,9 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                 silhouette_scores.append(silhouette)
                                 
                                 # >> compute calinski harabasz score
-                                score = calinski_harabasz_score(bottleneck,
+                                ch_score = calinski_harabasz_score(bottleneck,
                                                                 db.labels_)
-                                ch_scores.append(score)
+                                ch_scores.append(ch_score)
                                 
                                 # >> compute davies-bouldin score
                                 dav_boul_score = davies_bouldin_score(bottleneck,
@@ -1524,7 +1530,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                     #                                    algorithm[l],
                                     #                                    leaf_size[m],
                                     #                                    p[n])
-                                    f.write('{} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
+                                    f.write('{}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\n'.format(eps[i],
                                                                        min_samples[j],
                                                                        metric[k],
                                                                        algorithm[l],
@@ -1532,7 +1538,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                                                        p[n],
                                                                        len(classes_1),
                                                                        silhouette,
-                                                                       score,
+                                                                       ch_score,
                                                                        dav_boul_score))
                             else:
                                 with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
@@ -1542,7 +1548,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                     #                                    algorithm[l],
                                     #                                    leaf_size[m],
                                     #                                    p[n])
-                                    f.write('{} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
+                                    f.write('{}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\n'.format(eps[i],
                                                                        min_samples[j],
                                                                        metric[k],
                                                                        algorithm[l],
@@ -1591,12 +1597,11 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     print("Plot paramscan metrics...")
     pf.plot_paramscan_metrics(output_dir, parameter_sets, 
                               silhouette_scores, db_scores, ch_scores)
-    print(len(parameter_sets), len(num_classes), len(num_noisy), num_noisy)
-    try:
-        pf.plot_paramscan_classes(output_dir, parameter_sets, 
-                                  np.asarray(num_classes), np.asarray(num_noisy)[:,0])
-    except:
-        print("still something wrong with num_noisy plotting")
+    #print(len(parameter_sets), len(num_classes), len(num_noisy), num_noisy)
+
+    pf.plot_paramscan_classes(output_dir, parameter_sets, 
+                                  np.asarray(num_classes), np.asarray(num_noisy))
+
         
     return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores
 
