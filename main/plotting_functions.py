@@ -6,7 +6,7 @@ Plotting functions only.
 
 @author: Lindsey Gordon @lcgordon and Emma Chickles @emmachickles
 
-Last updated: June 15 2020
+Last updated: July 29 2020
 
 Helper functions
 * plot_lc()
@@ -27,6 +27,7 @@ Feature visualization
 * plot_pca()
 * isolate_plot_feature_outliers
 * lof_and_insets_on_sector
+* plot_paramscan_metrics
 
 Autoencoder visualizations
 * diagnostic_plots()
@@ -141,7 +142,7 @@ def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppa
     
     return features, x, flux, ticid, outlier_indexes    
         
-def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, target_info, sigma, version=0):
+def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, target_info, sigma, version=0, plot=True):
     """ isolate features that are significantly out there and crazy
     plot those outliers, and remove them from the features going into the 
     main lof/plotting/
@@ -186,27 +187,30 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, ta
         
     outlier_indexes = np.asarray(outlier_indexes)
     
-    for i in range(len(outlier_indexes)):
-        target_index = outlier_indexes[i][0] #is the index of the target on the lists
-        feature_index = outlier_indexes[i][1] #is the index of the feature that it triggered on
-        plt.figure(figsize=(8,3))
-        plt.scatter(time, flux[target_index], s=0.5)
-        target = ticids[target_index]
-        #print(features[target_index])
-        
-        if np.isnan(features[target_index][feature_index]) == True:
-            feature_title = features_greek[feature_index] + "=nan"
-        else: 
-            feature_value = '%s' % float('%.2g' % features[target_index][feature_index])
-            feature_title = features_greek[feature_index] + "=" + feature_value
-        print(feature_title)
-        
-        plt.title("TIC " + str(int(target)) + " " + astroquery_pull_data(target, breaks=False) + 
-                  "\n" + feature_title + "  STDEV limit: " + str(sigma), fontsize=8)
-        plt.tight_layout()
-        plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
-        plt.show()
-        
+    if plot:
+        for i in range(len(outlier_indexes)):
+            target_index = outlier_indexes[i][0] #is the index of the target on the lists
+            feature_index = outlier_indexes[i][1] #is the index of the feature that it triggered on
+            plt.figure(figsize=(8,3))
+            plt.scatter(time, flux[target_index], s=0.5)
+            target = ticids[target_index]
+            #print(features[target_index])
+            
+            if np.isnan(features[target_index][feature_index]) == True:
+                feature_title = features_greek[feature_index] + "=nan"
+            else: 
+                feature_value = '%s' % float('%.2g' % features[target_index][feature_index])
+                feature_title = features_greek[feature_index] + "=" + feature_value
+            print(feature_title)
+            
+            plt.title("TIC " + str(int(target)) + " " + astroquery_pull_data(target, breaks=False) + 
+                      "\n" + feature_title + "  STDEV limit: " + str(sigma), fontsize=8)
+            plt.tight_layout()
+            plt.savefig((path + "featureoutlier-SECTOR" + str(sector) +"-TICID" + str(int(target)) + ".png"))
+            plt.show()
+    else: 
+        print("not plotting today!")
+            
         
     features_cropped = np.delete(features, outlier_indexes, axis=0)
     ticids_cropped = np.delete(ticids, outlier_indexes)
@@ -1765,8 +1769,45 @@ def plot_paramscan_metrics(output_dir, parameter_sets, silhouette_scores, db_sco
     host.set_title("DBSCAN Parameter Scan Metric Results")
     
     plt.savefig(output_dir+"paramscan-metric-results.png")
+
+    plt.show()
     
-    # plt.show()
+def plot_paramscan_classes(output_dir, parameter_sets, num_classes, noise_points):
+    """ For use in parameter searches for dbscan
+    inputs: 
+        * output_dir to save figure to, ends in /
+        * parameter sets (only really need the len of them but yknow)
+        * number of classes for each + number of point in the noise class
+        
+    returns: nothing. saves figure to folder specified
+    requires: matplotlib
+    
+    modified [lcg 07292020 - created]"""
+    
+    fig, ax1 = plt.subplots()
+    ax2 = ax1.twinx()
+    x_axis = np.arange(0, len(parameter_sets), 1)
+
+    ax1.scatter(x_axis, num_classes, c='red', label="Number of Classes")
+    ax2.scatter(x_axis, noise_points, c = 'green', label="Noise Points")
+
+    ax1.set_xlabel("Parameter Set")
+    ax1.set_ylabel("Number of Classes")
+    ax2.set_ylabel("Noise Points")
+    
+    ax1.yaxis.label.set_color('red')
+    ax2.yaxis.label.set_color('green')
+
+    tkw = dict(size=4, width=1.5)
+    ax1.tick_params(axis='y', colors='red', **tkw)
+    ax2.tick_params(axis='y', colors='green', **tkw)
+    ax1.tick_params(axis='x', **tkw)
+    
+    ax1.set_title("DBSCAN Parameter Scan Class Results")
+    
+    plt.savefig(output_dir+"paramscan-class-results.png")
+    
+    plt.show()
 
 
 def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
@@ -2042,6 +2083,7 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./', prefix=''):
         ax.plot(principalComponents[inds][:,0], principalComponents[inds][:,1],
                 '.', color=color)
     fig.savefig(output_dir + prefix + 'PCA_plot.png')
+    plt.close(fig)
 
 # == helper functions =========================================================
 
@@ -2306,6 +2348,7 @@ def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
     plt.figure()
     sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
     plt.savefig(output_dir+prefix+'confusion_matrix.png')
+    plt.close()
     
     return best_accuracy
     

@@ -1476,6 +1476,13 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     ch_scores = []
     db_scores = []
 
+    with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
+        f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format("eps\t", "samp\t", "metric\t\t", 
+                                                         "alg\t", "leaf\t", "p\t",
+                                                         "classes\t",
+                                                         "silhouette\t", 'ch\t\t\t', 
+                                                         'db\t', 'acc\t'))
+
     for i in range(len(eps)):
         for j in range(len(min_samples)):
             for k in range(len(metric)):
@@ -1492,7 +1499,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                         algorithm=algorithm[l],
                                         leaf_size=leaf_size[m],
                                         p=p[n]).fit(bottleneck)
-                            print(db.labels_)
+                            #print(db.labels_)
                             print(np.unique(db.labels_, return_counts=True))
                             classes_1, counts_1 = \
                                 np.unique(db.labels_, return_counts=True)
@@ -1511,13 +1518,15 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                 acc = pf.plot_confusion_matrix(ticid, db.labels_,
                                                                database_dir=database_dir,
                                                                output_dir=output_dir,
-                                                               prefix=prefix)                                
+                                                               prefix=prefix)
+                            else:
+                                acc = np.nan
                                 
                             if len(classes_1) > 1:
                                 classes.append(classes_1)
                                 num_classes.append(len(classes_1))
                                 counts.append(counts_1)
-                                num_noisy.append(counts[0])
+                                num_noisy.append(counts_1[0])
                                 parameter_sets.append([eps[i], min_samples[j],
                                                        metric[k],
                                                        algorithm[l],
@@ -1530,49 +1539,31 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                 silhouette_scores.append(silhouette)
                                 
                                 # >> compute calinski harabasz score
-                                score = calinski_harabasz_score(bottleneck,
+                                ch_score = calinski_harabasz_score(bottleneck,
                                                                 db.labels_)
-                                ch_scores.append(score)
+                                ch_scores.append(ch_score)
                                 
                                 # >> compute davies-bouldin score
                                 dav_boul_score = davies_bouldin_score(bottleneck,
                                                              db.labels_)
                                 db_scores.append(dav_boul_score)
                                 
-                                with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
-                                    # f.write('{} {} {} {} {} {}\n'.format(eps[i],
-                                    #                                    min_samples[j],
-                                    #                                    metric[k],
-                                    #                                    algorithm[l],
-                                    #                                    leaf_size[m],
-                                    #                                    p[n])
-                                    f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
-                                                                       min_samples[j],
-                                                                       metric[k],
-                                                                       algorithm[l],
-                                                                       leaf_size[m],
-                                                                       p[n],
-                                                                       len(classes_1),
-                                                                       silhouette,
-                                                                       score,
-                                                                       dav_boul_score,
-                                                                       acc))
                             else:
-                                with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
-                                    # f.write('{} {} {} {} {} {}\n'.format(eps[i],
-                                    #                                    min_samples[j],
-                                    #                                    metric[k],
-                                    #                                    algorithm[l],
-                                    #                                    leaf_size[m],
-                                    #                                    p[n])
-                                    f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
-                                                                       min_samples[j],
-                                                                       metric[k],
-                                                                       algorithm[l],
-                                                                       leaf_size[m],
-                                                                       p[n],
-                                                                       len(classes_1),
-                                                                       np.nan,np.nan,np.nan, np.nan))                                
+                                silhouette, ch_score, dav_boul_score = \
+                                    np.nan, np.nan, np.nan
+                                
+                            with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
+                                f.write('{}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\n'.format(eps[i],
+                                                                   min_samples[j],
+                                                                   metric[k],
+                                                                   algorithm[l],
+                                                                   leaf_size[m],
+                                                                   p[n],
+                                                                   len(classes_1),
+                                                                   silhouette,
+                                                                   ch_score,
+                                                                   dav_boul_score,
+                                                                   acc))
                                 
                             if DEBUG and len(classes_1) > 1:
 
@@ -1602,8 +1593,34 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     print("Plot paramscan metrics...")
     pf.plot_paramscan_metrics(output_dir, parameter_sets, 
                               silhouette_scores, db_scores, ch_scores)
-    
+    #print(len(parameter_sets), len(num_classes), len(num_noisy), num_noisy)
+
+    pf.plot_paramscan_classes(output_dir, parameter_sets, 
+                                  np.asarray(num_classes), np.asarray(num_noisy))
+
+        
     return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores
+
+def load_paramscan_txt(path):
+    """ load in the paramscan stuff from the text file
+    returns: parameter sets, number of classes, metric scores (in order: silhouettte, db, ch)
+    modified [lcg 07292020 - created]"""
+    params = np.genfromtxt(path, dtype=(float, int, 'S10', 'S10', int, int, int, np.float32, np.float32, np.float32), names=['eps', 'minsamp', 'metric', 'algorithm', 'leafsize', 'p', 'numclasses', 'silhouette', 'ch', 'db'])
+    
+    params = np.asarray(params)
+    nan_indexes = []
+    for n in range(len(params)):
+        if np.isnan(params[n][8]):
+            nan_indexes.append(int(n))
+        
+    nan_indexes = np.asarray(nan_indexes)
+    
+    cleaned_params = np.delete(params, nan_indexes, axis=0)   
+
+    number_classes = np.asarray(cleaned_params['numclasses'])
+    metric_scores = np.asarray(cleaned_params[['silhouette', 'db', 'ch']].tolist())
+    
+    return cleaned_params, number_classes, metric_scores
 
 # DEPRECIATED SECTION -----------------------------------------------------
 def load_group_from_txt(sector, camera, ccd, path):
