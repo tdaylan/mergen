@@ -1748,6 +1748,7 @@ def plot_paramscan_metrics(output_dir, parameter_sets, silhouette_scores, db_sco
     par2.spines["right"].set_visible(True)
     
     host.scatter(x_axis, db_scores, c='red', label="DB Scores")
+    host.grid(True)
     par1.scatter(x_axis, silhouette_scores, c = 'green', label="Silhouette Scores")
     par2.scatter(x_axis, ch_scores, c='blue', label="CH Scores")
     
@@ -1789,6 +1790,7 @@ def plot_paramscan_classes(output_dir, parameter_sets, num_classes, noise_points
     x_axis = np.arange(0, len(parameter_sets), 1)
 
     ax1.scatter(x_axis, num_classes, c='red', label="Number of Classes")
+    ax1.grid(True)
     ax2.scatter(x_axis, noise_points, c = 'green', label="Noise Points")
 
     ax1.set_xlabel("Parameter Set")
@@ -1868,7 +1870,7 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
                         bbox_inches='tight')            
         plt.close(fig)
     
-def quick_plot_classification(time, intensity, targets, target_info, labels,
+def quick_plot_classification(time, intensity, targets, target_info, features, labels,
                               path='./', prefix='', addend=1.,
                               simbad_database_txt='./simbad_database.txt',
                               title='', ncols=10, nrows=5,
@@ -1889,6 +1891,9 @@ def quick_plot_classification(time, intensity, targets, target_info, labels,
     ticid_classified = class_info[:,0].astype('int')
     
     num_figs = int(np.ceil(len(classes) / ncols))
+    features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
+                  "E", r'$\epsilon$', "Z", "H", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$', "M", r'$\mu$'
+                  ,"N", r'$\nu$']
     
     for i in range(num_figs): #
         fig, ax = plt.subplots(nrows, ncols, sharex=True,
@@ -1939,8 +1944,21 @@ def quick_plot_classification(time, intensity, targets, target_info, labels,
                             title=True, color=color)
                 format_axes(ax[l,j], ylabel=False)
                 
-            # ax[0, j].set_title('Class ' + str(class_num), color=color)            
-            ax[0, j].set_title('Class '+str(class_num)+'\n'+ax[0,j].get_title(),
+            # ax[0, j].set_title('Class ' + str(class_num), color=color)   
+                
+            #get median features for the class
+                #which feature vectors do i need
+                #get only those feature vectors
+                #take median and convert to string
+            relevant_feats  =[]
+            for k in range(len(labels)):
+                if labels[k] == class_num:
+                    relevant_feats.append(int(k))
+            #index just this list 
+            features_byclass = features[relevant_feats]
+            med_features = np.median(features_byclass, axis=0)
+            med_string = str(med_features)
+            ax[0, j].set_title('Class '+str(class_num)+'\n Median Features:' + med_string + "\n"+ax[0,j].get_title(),
                                color=color, fontsize='xx-small')
             ax[-1, j].set_xlabel('Time [BJD - 2457000]')   
                         
