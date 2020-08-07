@@ -290,10 +290,8 @@ def features_plotting_2D(feature_vectors, path, clustering,
                             path+folder_label+'/', prefix='kmeans',
                             momentum_dump_csv=momentum_dump_csv,
                             target_info=target_info)
-    # >> [etc 060620]
-    colors = ["red","blue", "green", "purple" ,"yellow", "magenta", 'black']
-    colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
-            'skyblue', 'sienna', 'palegreen', 'black']
+ 
+    colors = get_colors()
     #creates labels based on if engineered features or not
     if feature_engineering:
         if version==0:
@@ -369,7 +367,7 @@ def features_plotting_2D(feature_vectors, path, clustering,
                 plt.close()
                 
     if clustering == 'dbscan':
-        np.savetxt(folderpath+"/dbscan-classes.txt", classes_dbscan)
+        np.savetxt(folder_path+"/dbscan-classes.txt", classes_dbscan)
         return classes_dbscan
     if clustering == 'kmeans':
         return classes_kmeans
@@ -1971,7 +1969,10 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
         plt.close(fig)
                 
 def get_colors():
-    '''Returns list of 125 colors for plotting against white background1.'''
+    '''Returns list of 125 colors for plotting against white background1.
+    now removes black from the list and tacks it onto the end (so that when
+    indexing -1 will make the noise points black
+    modified [lcg 08052020 changing pos. of black to end]'''
     from matplotlib import colors as mcolors
     import random
     colors = dict(mcolors.BASE_COLORS, **mcolors.CSS4_COLORS)
@@ -1989,7 +1990,7 @@ def get_colors():
                   'lemonchiffon', 'ivory', 'beige', 'lightyellow',
                   'lightgoldenrodyellow', 'honeydew', 'mintcream',
                   'azure', 'lightcyan', 'aliceblue', 'ghostwhite', 'lavender',
-                  'lavenderblush']
+                  'lavenderblush', 'black']
     for i in range(len(bad_colors)):
         ind = sorted_names.index(bad_colors[i])
         sorted_names.pop(ind)
@@ -1997,6 +1998,7 @@ def get_colors():
     # >> now shuffle
     random.Random(4).shuffle(sorted_names)
     
+    sorted_names.append('black')
     return sorted_names
     
 def plot_classification(time, intensity, targets, labels, path,
