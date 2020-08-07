@@ -1478,11 +1478,11 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     accuracy = []
 
     with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
-        f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format("eps\t", "samp\t", "metric\t\t", 
-                                                         "alg\t", "leaf\t", "p\t",
+        f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format("eps\t\t", "samp\t\t", "metric\t\t", 
+                                                         "alg\t\t", "leaf\t", "p\t",
                                                          "classes\t",
-                                                         "silhouette\t", 'ch\t\t\t', 
-                                                         'db\t', 'acc\t'))
+                                                         "silhouette\t\t\t", 'ch\t\t\t', 
+                                                         'db\t\t\t', 'acc\t'))
 
     for i in range(len(eps)):
         for j in range(len(min_samples)):
@@ -1536,8 +1536,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                                        p[n]])
                                 
                                 # >> compute silhouette
-                                silhouette = silhouette_score(bottleneck,
-                                                              db.labels_)
+                                silhouette = silhouette_score(bottleneck,db.labels_)
                                 silhouette_scores.append(silhouette)
                                 
                                 # >> compute calinski harabasz score
@@ -1555,7 +1554,8 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                     np.nan, np.nan, np.nan
                                 
                             with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
-                                f.write('{}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\n'.format(eps[i],
+                                f.write('{}\t\t {}\t\t {}\t\t {}\t {}\t \
+                                        {}\t {}\t\t\t {}\t\t\t {}\t\t\t {}\t {}\n'.format(eps[i],
                                                                    min_samples[j],
                                                                    metric[k],
                                                                    algorithm[l],
@@ -1571,7 +1571,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
 
                                 pf.quick_plot_classification(time, flux,
                                                              ticid,
-                                                             target_info,
+                                                             target_info, bottleneck,
                                                              db.labels_,
                                                              path=output_dir,
                                                              prefix=prefix,
@@ -1591,7 +1591,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                     pf.plot_tsne(bottleneck, db.labels_,
                                                  output_dir=output_dir,
                                                  prefix=prefix)
-
+                            plt.close('all')
     print("Plot paramscan metrics...")
     pf.plot_paramscan_metrics(output_dir, parameter_sets, 
                               silhouette_scores, db_scores, ch_scores)
