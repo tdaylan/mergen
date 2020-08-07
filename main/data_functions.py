@@ -143,7 +143,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     fname_info = []
     for cam in cams:
         for ccd in ccds:
-            s = 'Sector{sector}Cam{cam}CCD{ccd}/' + \
+            s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
                 'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
             fname_info.append([sector, cam, ccd, data_type, cadence])
@@ -1442,7 +1442,7 @@ def get_true_classifications(ticid_list,
 def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             eps=list(np.arange(0.1,1.5,0.1)),
                             min_samples=[5],
-                            metric=['euclidean', 'minkowski'],
+                            metric=['euclidean', 'manhattan', 'minkowski'],
                             algorithm = ['auto', 'ball_tree', 'kd_tree',
                                          'brute'],
                             leaf_size = [30, 40, 50],
@@ -1475,6 +1475,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     silhouette_scores=[]
     ch_scores = []
     db_scores = []
+    accuracy = []
 
     with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
         f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format("eps\t", "samp\t", "metric\t\t", 
@@ -1521,6 +1522,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                                                prefix=prefix)
                             else:
                                 acc = np.nan
+                            accuracy.append(acc)
                                 
                             if len(classes_1) > 1:
                                 classes.append(classes_1)
@@ -1599,7 +1601,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                   np.asarray(num_classes), np.asarray(num_noisy))
 
         
-    return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores
+    return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, accuracy
 
 def load_paramscan_txt(path):
     """ load in the paramscan stuff from the text file
@@ -1621,6 +1623,61 @@ def load_paramscan_txt(path):
     metric_scores = np.asarray(cleaned_params[['silhouette', 'db', 'ch']].tolist())
     
     return cleaned_params, number_classes, metric_scores
+
+def hdbscan_param_search(bottleneck, time, flux, ticid, target_info,
+                         min_cluster_size=list(range(2,10)),
+                         min_samples=list(range(2,10)),
+                         metric=['euclidean'],
+                         p_space=[1,2,3,4],
+                         output_dir='./',
+                         database_dir='./databases/'):
+    import hdbscan
+    # !! wider p range?
+    
+    param_num=0
+    for i in range(len(min_cluster_size)):
+        for j in range(len(min_samples)):
+            for k in range(len(metric)):
+                if metric[k] == 'minkowski':
+                    p = p_space
+                else:
+                    p = [None]
+                for l in range(len(p)):
+                    param_num += 1
+                    
+                    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size[i],
+                                                min_samples=min_samples[j],
+                                                metric=metric[k])
+                    clusterer.fit(bottleneck)
+                    classes, counts = \
+                        np.unique(clusterer.labels_, return_counts=True)    
+                    print(classes, counts)
+                    
+                    title='Parameter Set '+param_num+': '+'{} {} {}'.format(min_cluster_size[i],
+                                                                            min_samples[j],
+                                                                            metric[k])
+                    
+                    prefix='dbscan-p'+param_num                         
+                    
+                    pf.quick_plot_classification(time, flux,
+                                                ticid,
+                                                target_info,
+                                                clusterer.labels_,
+                                                path=output_dir,
+                                                prefix=prefix,
+                                                title=title,
+                                                database_dir=database_dir)
+                    acc = pf.plot_confusion_matrix(ticid, clusterer.labels_,
+                                                   database_dir=database_dir,
+                                                   output_dir=output_dir,
+                                                   prefix=prefix)        
+                    pf.plot_pca(bottleneck, clusterer.labels_,
+                                output_dir=output_dir, prefix=prefix)    
+                    pf.plot_tsne(bottleneck, clusterer.labels_,
+                                 output_dir=output_dir, prefix=prefix)                    
+                        
+                        
+                        
 
 # DEPRECIATED SECTION -----------------------------------------------------
 def load_group_from_txt(sector, camera, ccd, path):

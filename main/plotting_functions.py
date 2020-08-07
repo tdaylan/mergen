@@ -1770,7 +1770,7 @@ def plot_paramscan_metrics(output_dir, parameter_sets, silhouette_scores, db_sco
     
     plt.savefig(output_dir+"paramscan-metric-results.png")
 
-    plt.show()
+    # plt.show()
     
 def plot_paramscan_classes(output_dir, parameter_sets, num_classes, noise_points):
     """ For use in parameter searches for dbscan

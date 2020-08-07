@@ -38,8 +38,9 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
                               validation_targets=[219107776],
                               DAE=False, features=False,
                               norm_type='standardization', input_rms=True,
+                              input_psd = True,
                               train_test_ratio=0.9,
-                              split=False):
+                              split=False, output_dir='./'):
     '''Preprocesses output from df.load_data_from_metafiles
     Shuffles array.
     Parameters:
@@ -108,6 +109,10 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
             print('Calculating RMS..')
             rms = df.rms(flux)
         else: rms_train, rms_test = False, False
+        
+        if input_psd:
+            from scipy.signal import welch
+            f, psd = welch(flux)           
             
         if norm_type == 'standardization':
             print('Standardizing fluxes...')
@@ -137,6 +142,24 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
         if input_rms:
             rms_train = rms[:np.shape(x_train)[0]]
             rms_test = rms[-1 * np.shape(x_test)[0]:]
+            
+            
+        if input_psd:
+            psd_train = psd[:np.shape(x_train)[0]]
+            psd_test = psd[-1 * np.shape(x_test)[0]:]
+            psd_train = np.reshape(psd_train,
+                                   (x_train.shape[0], x_train.shape[1], 1))
+            psd_test = np.reshape(psd_test,
+                                  (x_test.shape[0], x_test.shape[1], 1))
+            x_train = np.concatenate([x_train, psd_train], axis=0)
+            x_test = np.concatenate([x_test, psd_test], axis=0)
+            fig, ax = plt.subplots(4, 2)
+            for i in range(4):
+                ax[i, 0].plot(x_train[0][i], '.k', markersize=2)
+                ax[i, 1].plot(x_train[1][i])
+                ax[i, 0].set_ylabel('Relative flux')
+                ax[i, 1].set_ylabel('PSD')
+            
             
         if split:
             orbit_gap = np.argmax(np.diff(time))

@@ -14,7 +14,7 @@
 
 # dat_dir = '../../' # >> directory with input data (ending with /)
 dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/CAE-Huber/' # >> directory to save diagnostic plots
+output_dir = '../../plots/CAE-1/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -22,15 +22,17 @@ lib_dir = '../main/' # >> directory containing model.py, data_functions.py
 database_dir = '../../databases/' # >> directory containing text files for
                                   # >> cross-checking classifications
 # >> input data
-sectors = [1]
-cams = [1, 2, 3, 4]
+sectors = [3]
+# cams = [1, 2, 3, 4]
+cams = [1]
 ccds =  [1, 2, 3, 4]
+
 # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
 train_test_ratio = 0.9
 
 # >> what this script will run:
 hyperparameter_optimization = False # >> run hyperparameter search
-run_model = True # >> train autoencoder on a parameter set p
+run_model = False # >> train autoencoder on a parameter set p
 diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 classification=True # >> runs DBSCAN on learned features
@@ -43,6 +45,7 @@ classification=True # >> runs DBSCAN on learned features
 norm_type = 'standardization'
 
 input_rms=True # >> concatenate RMS to learned features
+input_psd=True # >> also train on PSD
 use_tess_features = False
 input_features=False # >> this option cannot be used yet
 split_at_orbit_gap=False
@@ -70,18 +73,7 @@ import sys
 sys.path.insert(0, lib_dir)  # >> needed if scripts not in current dir
 import model as ml              # >> for autoencoder
 import data_functions as df     # >> for classification, pre-processing
-import plotting_functions as pl # >> for vsualizations
-
-# >> file names
-fnames = []
-fname_info = []
-for sector in sectors:
-    for cam in cams:
-        for ccd in ccds:
-            s = 'Sector{sector}Cam{cam}CCD{ccd}/' + \
-                'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
-            fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
-            fname_info.append([sector, cam, ccd])
+import plotting_functions as pf # >> for vsualizations
 
 # >> hyperparameters
 if hyperparameter_optimization: # !! change epochs
@@ -100,8 +92,28 @@ if hyperparameter_optimization: # !! change epochs
     #   'lr': [0.001, 0.005, 0.01, 0.05, 0.1],
     #   'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
     #                   'glorot_uniform']}
+    # p = {'kernel_size': [3],
+    #   'latent_dim': list(np.arange(20, 40, 5)),
+    #   'strides': [1],
+    #   'epochs': [10],
+    #   'dropout': list(np.arange(0.1, 0.6, 0.1)),
+    #   'num_filters': [8, 16, 32, 64],
+    #   'num_conv_layers': [4,6,8,10,12,14],
+    #   'batch_size': [128],
+    #   'activation': ['elu'],
+    #   'optimizer': ['adam'], # 'adadelta'
+    #   'last_activation': ['linear'],
+    #   'losses': ['mean_squared_error', tf.keras.losses.LogCosh(),
+    #              tf.keras.losses.MeanAbsoluteError(),
+    #              tf.keras.losses.MeanAbsolutePercentageError(),
+    #              tf.keras.losses.MeanSquaredLogarithmicError(),
+    #              tf.keras.losses.Huber()],
+    #   'lr': [0.001, 0.005, 0.01, 0.05, 0.1],
+    #   'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
+    #                   'glorot_uniform'],
+    #   'num_consecutive': [2]}    
     p = {'kernel_size': [3],
-      'latent_dim': list(np.arange(20, 40, 5)),
+      'latent_dim': list(np.arange(3, 15)),
       'strides': [1],
       'epochs': [10],
       'dropout': list(np.arange(0.1, 0.6, 0.1)),
@@ -109,32 +121,28 @@ if hyperparameter_optimization: # !! change epochs
       'num_conv_layers': [4,6,8,10,12,14],
       'batch_size': [128],
       'activation': ['elu'],
-      'optimizer': ['adam'], # 'adadelta'
+      'optimizer': ['adam'],
       'last_activation': ['linear'],
-      'losses': ['mean_squared_error', tf.keras.losses.LogCosh(),
-                 tf.keras.losses.MeanAbsoluteError(),
-                 tf.keras.losses.MeanAbsolutePercentageError(),
-                 tf.keras.losses.MeanSquaredLogarithmicError(),
-                 tf.keras.losses.Huber()],
+      'losses': ['mean_squared_error'],
       'lr': [0.001, 0.005, 0.01, 0.05, 0.1],
       'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
                       'glorot_uniform'],
-      'num_consecutive': [2]}    
+      'num_consecutive': [2]}        
 else:
     p = {'kernel_size': 3,
-          'latent_dim': 35,
+          'latent_dim': 5,
           'strides': 1,
           'epochs': 15,
-          'dropout': 0.3,
-          'num_filters': 16,
-          'num_conv_layers': 4,
+          'dropout': 0.2,
+          'num_filters': 64,
+          'num_conv_layers': 12,
           'batch_size': 128,
           'activation': 'elu',
           'optimizer': 'adam',
           'last_activation': 'linear',
-          'losses': tf.keras.losses.Huber(),
-          'lr': 0.005,
-          'initializer': 'random_normal',
+          'losses': 'mean_squared_error',
+          'lr': 0.001,
+          'initializer': 'random_uniform',
           'num_consecutive': 2}     
     
 # -- create output directory --------------------------------------------------
@@ -144,8 +152,9 @@ if os.path.isdir(output_dir) == False: # >> check if dir already exists
     
 # -- load data ----------------------------------------------------------------
     
+# >> currently only handles one sector
 flux, x, ticid, target_info = \
-    df.load_data_from_metafiles(dat_dir, sector, DEBUG=True,
+    df.load_data_from_metafiles(dat_dir, sectors[0], DEBUG=True,
                                 output_dir=output_dir, nan_mask_check=True,
                                 custom_mask=custom_mask)
 
@@ -183,7 +192,7 @@ x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
     ml.autoencoder_preprocessing(flux, ticid, x, target_info, p,
                                  validation_targets=validation_targets,
                                  norm_type=norm_type,
-                                 input_rms=input_rms,
+                                 input_rms=input_rms, input_psd=input_psd,
                                  train_test_ratio=train_test_ratio,
                                  split=split_at_orbit_gap)
 
@@ -221,7 +230,7 @@ if hyperparameter_optimization:
     #                 fraction_limit=0.01, reduction_interval=4)     
     # fraction_limit = 0.001
     analyze_object = talos.Analyze(t)
-    data_frame, best_param_ind,p = pl.hyperparam_opt_diagnosis(analyze_object,
+    data_frame, best_param_ind,p = pf.hyperparam_opt_diagnosis(analyze_object,
                                                        output_dir,
                                                        supervised=False)
 
@@ -257,7 +266,7 @@ if run_model:
     ml.model_summary_txt(output_dir, model)
     
     # >> only plot epoch
-    pl.epoch_plots(history, p, output_dir+'epoch-', supervised=False)
+    pf.epoch_plots(history, p, output_dir+'epoch-', supervised=False)
     
     # >> save x_predict
     hdr = fits.Header()
@@ -267,7 +276,7 @@ if run_model:
 # == Plots ====================================================================
 if diag_plots:
     print('Creating plots...')
-    if run_model == False or split_at_orbit_gap:
+    if split_at_orbit_gap or not run_model:
 
         model, history = [], []    
             
@@ -276,7 +285,7 @@ if diag_plots:
         
         # !! re-arrange x_predict
         
-        pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
+        pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
                             x_test, x_predict, mock_data=False,
                             target_info_test=target_info_test,
                             target_info_train=target_info_train,
@@ -299,7 +308,7 @@ if diag_plots:
                             plot_reconstruction_error_all=True,
                             load_bottleneck=True)
     else: 
-        pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
+        pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
                             x_test, x_predict, mock_data=False,
                             target_info_test=target_info_test,
                             target_info_train=target_info_train,
@@ -337,11 +346,13 @@ if classification:
                                     use_tess_features=use_tess_features,
                                     use_engineered_features=False,
                                     use_tls_features=False)
-
+    
         
-    pl.latent_space_plot(features, output_dir + 'latent_space-tessfeats.png')
+    pf.latent_space_plot(features, output_dir + 'latent_space-tessfeats.png')
+    
+    pdb.set_trace()
 
-    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores = \
+    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
     df.dbscan_param_search(features, x, flux_feat, ticid_feat,
                             info_feat, DEBUG=True, 
                             output_dir=output_dir, 
@@ -352,6 +363,10 @@ if classification:
                             database_dir=database_dir,
                             eps=list(np.arange(1.5, 3., 0.1)),
                             confusion_matrix=True)      
+    
+    with open(output_dir + 'param_summary.txt', 'a') as f:
+        f.write('accuracy: ' + str(np.max(acc)))
+    
     # parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores = \
     # df.dbscan_param_search(features, x, flux_feat, ticid_feat,
     #                        info_feat, DEBUG=True, 
@@ -432,7 +447,7 @@ if classification:
     #         print('best_parameter_set: ' + str(parameter_sets[best]))
     #         print(str(counts[best]))
     #         p=parameter_sets[best]
-    #         classes = pl.features_plotting_2D(bottleneck, bottleneck,
+    #         classes = pf.features_plotting_2D(bottleneck, bottleneck,
     #                                           output_dir, 'dbscan',
     #                                           x, x_test, ticid_test,
     #                                           target_info=target_info_test,
@@ -445,19 +460,19 @@ if classification:
     #                                           momentum_dump_csv=mom_dump)
     
     # else:
-    #     classes = pl.features_plotting_2D(bottleneck, bottleneck, output_dir,
+    #     classes = pf.features_plotting_2D(bottleneck, bottleneck, output_dir,
     #                                       'dbscan', x, x_test, ticid_test,
     #                                       target_info=target_info_test,
     #                                       feature_engineering=False, eps=2.9,
     #                                       min_samples=2, metric='minkowski',
     #                                       algorithm='auto', leaf_size=30, p=4,
     #                                       momentum_dump_csv=mom_dump)        
-    # pl.features_plotting_2D(bottleneck, bottleneck, output_dir, 'kmeans',
+    # pf.features_plotting_2D(bottleneck, bottleneck, output_dir, 'kmeans',
     #                         x, x_test, ticid_test,
     #                         feature_engineering=False,
     #                         momentum_dump_csv=mom_dump)
     
-    # pl.plot_pca(bottleneck, classes, output_dir=output_dir)
+    # pf.plot_pca(bottleneck, classes, output_dir=output_dir)
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     # targets = []
@@ -524,7 +539,7 @@ if classification:
 # history = pickle.load( open(output_dir + 'historydict.p', 'rb'))
     
 # x_predict = np.loadtxt(output_dir+'x_predict.txt', delimiter=',')
-# activations, bottleneck = pl.diagnostic_plots(history, model, p,
+# activations, bottleneck = pf.diagnostic_plots(history, model, p,
 #                                               output_dir, x, x_train,
 #                                               x_test,
 #                     x_predict, mock_data=False,
@@ -623,7 +638,7 @@ if classification:
     # hdr = fits.Header()
     # hdu = fits.PrimaryHDU(x_train, header=hdr)
     # hdu.writeto(output_dir + 'x_train.fits')    
-        # pl.diagnostic_plots(history, model, p, output_dir, x, x_train,
+        # pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
         #                     x_test, x_predict, mock_data=False,
         #                     ticid_train=ticid_train,
         #                     ticid_test=ticid_test, percentage=False,
@@ -739,4 +754,16 @@ if classification:
 #     rms_train = rms[:np.shape(x_train)[0]]
 #     rms_test = rms[-1 * np.shape(x_test)[0]:]
 # else:
-#     rms_train, rms_test = False, False    
+#     rms_train, rms_test = False, False   
+        
+        
+        # # >> file names
+# fnames = []
+# fname_info = []
+# for sector in sectors:
+#     for cam in cams:
+#         for ccd in ccds:
+#             s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
+#                 'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+#             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
+#             fname_info.append([sector, cam, ccd])
