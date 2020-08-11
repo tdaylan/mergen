@@ -14,7 +14,7 @@
 
 # dat_dir = '../../' # >> directory with input data (ending with /)
 dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/CAE-1/' # >> directory to save diagnostic plots
+output_dir = '../../plots/CAE-3/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -22,9 +22,9 @@ lib_dir = '../main/' # >> directory containing model.py, data_functions.py
 database_dir = '../../databases/' # >> directory containing text files for
                                   # >> cross-checking classifications
 # >> input data
-sectors = [3]
-# cams = [1, 2, 3, 4]
-cams = [1]
+sectors = [2]
+cams = [1, 2, 3, 4]
+# cams = [1]
 ccds =  [1, 2, 3, 4]
 
 # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
@@ -32,8 +32,8 @@ train_test_ratio = 0.9
 
 # >> what this script will run:
 hyperparameter_optimization = False # >> run hyperparameter search
-run_model = False # >> train autoencoder on a parameter set p
-diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
+run_model = True # >> train autoencoder on a parameter set p
+diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 classification=True # >> runs DBSCAN on learned features
 
@@ -45,7 +45,8 @@ classification=True # >> runs DBSCAN on learned features
 norm_type = 'standardization'
 
 input_rms=True # >> concatenate RMS to learned features
-input_psd=True # >> also train on PSD
+input_psd=False # >> also train on PSD
+load_psd=False # >> if psd_train.fits, psd_test.fits already exists
 use_tess_features = False
 input_features=False # >> this option cannot be used yet
 split_at_orbit_gap=False
@@ -129,20 +130,35 @@ if hyperparameter_optimization: # !! change epochs
                       'glorot_uniform'],
       'num_consecutive': [2]}        
 else:
+    # p = {'kernel_size': 3,
+    #       'latent_dim': 5,
+    #       'strides': 1,
+    #       'epochs': 15,
+    #       'dropout': 0.2,
+    #       'num_filters': 64,
+    #       'num_conv_layers': 12,
+    #       'batch_size': 128,
+    #       'activation': 'elu',
+    #       'optimizer': 'adam',
+    #       'last_activation': 'linear',
+    #       'losses': 'mean_squared_error',
+    #       'lr': 0.001,
+    #       'initializer': 'random_uniform',
+    #       'num_consecutive': 2}     
     p = {'kernel_size': 3,
-          'latent_dim': 5,
+          'latent_dim': 35,
           'strides': 1,
-          'epochs': 15,
-          'dropout': 0.2,
-          'num_filters': 64,
-          'num_conv_layers': 12,
+          'epochs': 10,
+          'dropout': 0.3,
+          'num_filters': 16,
+          'num_conv_layers': 4,
           'batch_size': 128,
           'activation': 'elu',
           'optimizer': 'adam',
           'last_activation': 'linear',
-          'losses': 'mean_squared_error',
+          'losses': ml.custom_loss_function,
           'lr': 0.001,
-          'initializer': 'random_uniform',
+          'initializer': 'random_normal',
           'num_consecutive': 2}     
     
 # -- create output directory --------------------------------------------------
@@ -154,7 +170,8 @@ if os.path.isdir(output_dir) == False: # >> check if dir already exists
     
 # >> currently only handles one sector
 flux, x, ticid, target_info = \
-    df.load_data_from_metafiles(dat_dir, sectors[0], DEBUG=True,
+    df.load_data_from_metafiles(dat_dir, sectors[0], cams=cams, ccds=ccds,
+                                DEBUG=True,
                                 output_dir=output_dir, nan_mask_check=True,
                                 custom_mask=custom_mask)
 
@@ -193,8 +210,10 @@ x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
                                  validation_targets=validation_targets,
                                  norm_type=norm_type,
                                  input_rms=input_rms, input_psd=input_psd,
+                                 load_psd=load_psd,
                                  train_test_ratio=train_test_ratio,
-                                 split=split_at_orbit_gap)
+                                 split=split_at_orbit_gap,
+                                 output_dir=output_dir)
 
 title='TESS-unsupervised'
 
@@ -238,7 +257,8 @@ if hyperparameter_optimization:
 if run_model:
     print('Training autoencoder...') 
     history, model = ml.conv_autoencoder(x_train, x_train, x_test, x_test, p,
-                                         val=False, split=split_at_orbit_gap)
+                                         val=False, split=split_at_orbit_gap,
+                                         input_psd=input_psd)
     
     bottleneck_train = ml.get_bottleneck(model, x_train, input_rms=input_rms,
                                          rms=rms_train)
@@ -266,7 +286,8 @@ if run_model:
     ml.model_summary_txt(output_dir, model)
     
     # >> only plot epoch
-    pf.epoch_plots(history, p, output_dir+'epoch-', supervised=False)
+    pf.epoch_plots(history, p, output_dir+'epoch-', supervised=False,
+                   input_psd=input_psd)
     
     # >> save x_predict
     hdr = fits.Header()
@@ -276,7 +297,7 @@ if run_model:
 # == Plots ====================================================================
 if diag_plots:
     print('Creating plots...')
-    if split_at_orbit_gap or not run_model:
+    if split_at_orbit_gap or input_psd or not run_model:
 
         model, history = [], []    
             
@@ -292,7 +313,8 @@ if diag_plots:
                             ticid_train=ticid_train, ticid_test=ticid_test,
                             rms_test=rms_test, rms_train=rms_train,
                             input_features=input_features, n_tot=40,
-                            input_rms=input_rms, percentage=False,
+                            input_rms=input_rms, input_psd=input_psd,
+                            percentage=False,
                             plot_epoch = False,
                             plot_in_out = True,
                             plot_in_bottle_out=False,
@@ -316,6 +338,7 @@ if diag_plots:
                             ticid_test=ticid_test, percentage=False,
                             input_features=input_features,
                             input_rms=input_rms, rms_test=rms_test,
+                            input_psd=input_psd,
                             rms_train=rms_train, n_tot=40,
                             plot_epoch = False,
                             plot_in_out = True,
