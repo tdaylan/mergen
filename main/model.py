@@ -135,7 +135,7 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
                             int((2**(np.max(p['num_conv_layers'])/2)))
                 psd = np.delete(psd,np.arange(new_length,np.shape(psd)[1]),1)
                 f = f[:new_length]
-                psd = np.reshape(psd, (psd.shape[0], psd.shape[1], 1))
+                # psd = np.reshape(psd, (psd.shape[0], psd.shape[1], 1))
             else:
                 # >> load data
                 with fits.open(output_dir + 'psd_train.fits') as hdul:
@@ -446,29 +446,33 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     return history, model
 
 def custom_loss_function(y_true, y_pred):
+    '''Fails when compiling. Also an error pops when running K.get_value(loss)'''
     import keras.backend as K
     from scipy import signal
     import tensorflow as tf
     
+    # sess = tf.Session()
+    # with sess.as_default():
+        
     # >> calculating the mean squared error (L2 loss)
     l2_loss = K.mean(K.square(y_pred - y_true))
     
-    # >> applying high pass filter
+    # >> applying high pass filter (cutoff = 1.)
     order=5
     fs=0.001388916488394898
     nyq = 0.5*fs
-    cutoff = 1./0.5*fs
-    # y_filt = []
-    # for y in y_pred:
-    #     b, a = signal.butter(order, cutoff, btype='high')
-    #     y = signal.filtfilt(b, a, y)
-    #     y_filt.append(y)
-    b, a = signal.butter(order, cutoff, btype='high')
+    cutoff = 1./0.5*fs 
+    b, a = signal.butter(order, cutoff, btype='high')        
     y_filt = signal.filtfilt(b, a, y_pred)    
     
     # >> calculate RMS of filtered light curve
     rms = K.sqrt(K.mean(K.square(y_filt)))
     rms = tf.cast(rms, 'float32')
+    
+    debug=False
+    if debug:
+        plt.figure()
+        plt.plot()
     
     return l2_loss + rms
     
@@ -658,30 +662,24 @@ def encoder(x_train, params):
         * lr : learning rate (e.g. 0.01)
         * initializer: 'random_normal', 'random_uniform', ...
     '''
-    from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
-    from keras.layers import Dense, AveragePooling1D, BatchNormalization
+    from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten, \
+        Dense, BatchNormalization, Reshape
     from keras.models import Model
     
     input_dim = np.shape(x_train)[1]
     num_iter = int(params['num_conv_layers']/2)
     # num_iter = int(len(params['num_filters'])/2)
     
-    input_img = Input(shape = (input_dim, 1))
+    # input_img = Input(shape = (input_dim, 1))
+    input_img = Input(shape = (input_dim,))
+    x = Reshape((input_dim, 1))(input_img)
     for i in range(num_iter):
-        if i == 0:
+        x = Conv1D(params['num_filters'], int(params['kernel_size']),
+                activation=params['activation'], padding='same',
+                kernel_initializer=params['initializer'])(x)            
+        if params['num_consecutive'] == 2:
             x = Conv1D(params['num_filters'], int(params['kernel_size']),
-                    activation=params['activation'], padding='same',
-                    kernel_initializer=params['initializer'])(input_img)
-            if params['num_consecutive'] == 2:
-                x = Conv1D(params['num_filters'], int(params['kernel_size']),
-                            activation=params['activation'], padding='same')(x)
-        else:
-            x = Conv1D(params['num_filters'], int(params['kernel_size']),
-                        activation=params['activation'], padding='same',
-                        kernel_initializer=params['initializer'])(x)
-            if params['num_consecutive'] == 2:
-                x = Conv1D(params['num_filters'], int(params['kernel_size']),
-                            activation=params['activation'], padding='same')(x)            
+                        activation=params['activation'], padding='same')(x)      
             
         x = BatchNormalization()(x)            
         x = MaxPooling1D(2, padding='same')(x)
@@ -696,8 +694,8 @@ def encoder(x_train, params):
     return encoder
 
 def decoder(x_train, bottleneck, params):
-    from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout
-    from keras.layers import Lambda, BatchNormalization
+    from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout, \
+        Lambda, BatchNormalization
     input_dim = np.shape(x_train)[1]
     # num_iter = int(len(params['num_filters'])/2)
     num_iter = int(params['num_conv_layers']/2)
@@ -726,7 +724,9 @@ def decoder(x_train, bottleneck, params):
             decoded = Conv1D(1, int(params['kernel_size']),
                               activation=params['last_activation'],
                               padding='same',
-                              kernel_initializer=params['initializer'])(x)            
+                              kernel_initializer=params['initializer'])(x)  
+            
+            decoded = Reshape((input_dim,))(decoded) # !!
             # decoded = Conv1D(1, int(params['kernel_size'][num_iter]),
             #                  activation=params['last_activation'],
             #                  padding='same')(x)
@@ -1096,7 +1096,7 @@ def split_data_features(flux, features, time, ticid, target_info, classes, p,
 def split_data(flux, ticid, target_info, time, p, train_test_ratio = 0.9,
                cutoff=16336,
                supervised=False, classes=False, interpolate=False,
-               resize_arr=True, truncate=True):
+               resize_arr=False, truncate=True):
     '''need to update, might not work'''
 
     # >> truncate (must be a multiple of 2**num_conv_layers)
@@ -2192,4 +2192,65 @@ def get_target_list(sector_num, output_dir='./'):
             #     psd.append(tmp)
             # psd=np.array(psd)
             
+# def encoder(x_train, params):
+#     '''x_train is an array with shape (num light curves, num data points, 1).
+#     params is a dictionary with keys:
+#         * kernel_size : 3, 5
+#         * latent_dim : dimension of bottleneck/latent space
+#         * strides : 1
+#         * epochs
+#         * dropout
+#         * num_filters : 8, 16, 32, 64...
+#         * num_conv_layers : number of convolutional layers in entire
+#           autoencoder (number of conv layers in encoder is num_conv_layers/2)
+#         * num_consecutive : number of consecutive convolutional layers (can
+#           currently only handle 1 or 2)
+#         * batch_size : 128
+#         * activation : 'elu'
+#         * last_activation : 'linear'        
+#         * optimizer : 'adam'
+#         * losses : 'mean_squared_error', 'custom'
+#         * lr : learning rate (e.g. 0.01)
+#         * initializer: 'random_normal', 'random_uniform', ...
+#     '''
+#     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten, \
+#         Dense, BatchNormalization, Reshape
+#     from keras.models import Model
+    
+#     input_dim = np.shape(x_train)[1]
+#     num_iter = int(params['num_conv_layers']/2)
+#     # num_iter = int(len(params['num_filters'])/2)
+    
+#     # input_img = Input(shape = (input_dim, 1))
+#     input_img = Input(shape = (input_dim,))
+#     x = Reshape((input_dim, 1))(input_img)
+#     for i in range(num_iter):
+#         if i == 0:
+#             # x = Conv1D(params['num_filters'], int(params['kernel_size']),
+#             #         activation=params['activation'], padding='same',
+#             #         kernel_initializer=params['initializer'])(input_img)
+#             x = Conv1D(params['num_filters'], int(params['kernel_size']),
+#                     activation=params['activation'], padding='same',
+#                     kernel_initializer=params['initializer'])(x)            
+#             if params['num_consecutive'] == 2:
+#                 x = Conv1D(params['num_filters'], int(params['kernel_size']),
+#                             activation=params['activation'], padding='same')(x)
+#         else:
+#             x = Conv1D(params['num_filters'], int(params['kernel_size']),
+#                         activation=params['activation'], padding='same',
+#                         kernel_initializer=params['initializer'])(x)
+#             if params['num_consecutive'] == 2:
+#                 x = Conv1D(params['num_filters'], int(params['kernel_size']),
+#                             activation=params['activation'], padding='same')(x)            
+            
+#         x = BatchNormalization()(x)            
+#         x = MaxPooling1D(2, padding='same')(x)
+#         x = Dropout(params['dropout'])(x)
+    
+#     x = Flatten()(x)
+#     encoded = Dense(params['latent_dim'], activation=params['activation'],
+#                     kernel_initializer=params['initializer'])(x)
+    
+#     encoder = Model(input_img, encoded)
 
+#     return encoder

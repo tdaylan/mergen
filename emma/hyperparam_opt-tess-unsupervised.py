@@ -22,9 +22,9 @@ lib_dir = '../main/' # >> directory containing model.py, data_functions.py
 database_dir = '../../databases/' # >> directory containing text files for
                                   # >> cross-checking classifications
 # >> input data
-sectors = [2]
-cams = [1, 2, 3, 4]
-# cams = [1]
+sectors = [3]
+# cams = [1, 2, 3, 4]
+cams = [1]
 ccds =  [1, 2, 3, 4]
 
 # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
@@ -63,7 +63,7 @@ else:
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-import talos                    # >> hyperparameter optimization library
+import talos                    # >> a hyperparameter optimization library
 import numpy as np
 import pdb
 import os
@@ -71,48 +71,13 @@ from astropy.io import fits
 import tensorflow as tf
 
 import sys
-sys.path.insert(0, lib_dir)  # >> needed if scripts not in current dir
+sys.path.insert(0, lib_dir)     # >> needed if scripts not in current dir
 import model as ml              # >> for autoencoder
 import data_functions as df     # >> for classification, pre-processing
 import plotting_functions as pf # >> for vsualizations
 
 # >> hyperparameters
-if hyperparameter_optimization: # !! change epochs
-    # p = {'kernel_size': [3,5],
-    #   'latent_dim': list(np.arange(5, 30, 5)),
-    #   'strides': [1],
-    #   'epochs': [15],
-    #   'dropout': list(np.arange(0.1, 0.5, 0.1)),
-    #   'num_filters': [8, 16, 32, 64],
-    #   'num_conv_layers': [2,4,6,8,10],
-    #   'batch_size': [128],
-    #   'activation': ['elu'],
-    #   'optimizer': ['adam', 'adadelta'],
-    #   'last_activation': ['linear'],
-    #   'losses': ['mean_squared_error'],
-    #   'lr': [0.001, 0.005, 0.01, 0.05, 0.1],
-    #   'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
-    #                   'glorot_uniform']}
-    # p = {'kernel_size': [3],
-    #   'latent_dim': list(np.arange(20, 40, 5)),
-    #   'strides': [1],
-    #   'epochs': [10],
-    #   'dropout': list(np.arange(0.1, 0.6, 0.1)),
-    #   'num_filters': [8, 16, 32, 64],
-    #   'num_conv_layers': [4,6,8,10,12,14],
-    #   'batch_size': [128],
-    #   'activation': ['elu'],
-    #   'optimizer': ['adam'], # 'adadelta'
-    #   'last_activation': ['linear'],
-    #   'losses': ['mean_squared_error', tf.keras.losses.LogCosh(),
-    #              tf.keras.losses.MeanAbsoluteError(),
-    #              tf.keras.losses.MeanAbsolutePercentageError(),
-    #              tf.keras.losses.MeanSquaredLogarithmicError(),
-    #              tf.keras.losses.Huber()],
-    #   'lr': [0.001, 0.005, 0.01, 0.05, 0.1],
-    #   'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
-    #                   'glorot_uniform'],
-    #   'num_consecutive': [2]}    
+if hyperparameter_optimization:
     p = {'kernel_size': [3],
       'latent_dim': list(np.arange(3, 15)),
       'strides': [1],
@@ -130,21 +95,6 @@ if hyperparameter_optimization: # !! change epochs
                       'glorot_uniform'],
       'num_consecutive': [2]}        
 else:
-    # p = {'kernel_size': 3,
-    #       'latent_dim': 5,
-    #       'strides': 1,
-    #       'epochs': 15,
-    #       'dropout': 0.2,
-    #       'num_filters': 64,
-    #       'num_conv_layers': 12,
-    #       'batch_size': 128,
-    #       'activation': 'elu',
-    #       'optimizer': 'adam',
-    #       'last_activation': 'linear',
-    #       'losses': 'mean_squared_error',
-    #       'lr': 0.001,
-    #       'initializer': 'random_uniform',
-    #       'num_consecutive': 2}     
     p = {'kernel_size': 3,
           'latent_dim': 35,
           'strides': 1,
@@ -214,6 +164,8 @@ x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
                                  train_test_ratio=train_test_ratio,
                                  split=split_at_orbit_gap,
                                  output_dir=output_dir)
+
+pdb.set_trace()
 
 title='TESS-unsupervised'
 
