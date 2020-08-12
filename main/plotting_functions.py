@@ -2374,6 +2374,112 @@ def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
     
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     
+def plot_lof_2col(time, intensity, targets, features, n, path,
+             momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
+             n_neighbors=20, target_info=False,
+             prefix='', mock_data=False, addend=1., feature_vector=False, log=False):
+    """ lof plotting variant to specifically make a plot for the paper with
+    two columns per plot
+    """
+    # -- calculate LOF -------------------------------------------------------
+    print('Calculating LOF')
+    clf = LocalOutlierFactor(n_neighbors=n_neighbors)
+    fit_predictor = clf.fit_predict(features)
+    negative_factor = clf.negative_outlier_factor_
+    
+    lof = -1 * negative_factor
+    ranked = np.argsort(lof)
+    largest_indices = ranked[::-1][:n] # >> outliers
+    smallest_indices = ranked[:n] # >> inliers
+    
+    # >> save LOF values in txt file
+    print('Saving LOF values')
+    with open(path+'lof-'+prefix+'.txt', 'w') as f:
+        for i in range(len(targets)):
+            f.write('{} {}\n'.format(int(targets[i]), lof[i]))
+      
+
+    # -- momentum dumps ------------------------------------------------------
+    # >> get momentum dump times
+    print('Loading momentum dump times')
+    with open(momentum_dump_csv, 'r') as f:
+        lines = f.readlines()
+        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+        inds = np.nonzero((mom_dumps >= np.min(time)) * \
+                          (mom_dumps <= np.max(time)))
+        mom_dumps = np.array(mom_dumps)[inds]
+
+    # -- plot smallest and largest LOF light curves --------------------------
+    print('Plot highest LOF and lowest LOF light curves')
+    #num_figs = int(n_tot/n) # >> number of figures to generate
+    
+    rownumber = int(n/2) #number of rows per two column figure
+    
+    fig, ax = plt.subplots(rownumber, 2, sharex=True, figsize = (16, 3*rownumber))
+    #just going to do largest first: 
+
+    for i in range(n): #for each of the n plots
+        ind = largest_indices[i] #get index
+        if i < 10: #if in the first column
+            col = 0 #column 0
+            row = int(i) #row is row
+        elif i >= 10: 
+            col = 1
+            row = int(i - rownumber)
+            
+        for t in mom_dumps:
+                    ax[row, col].axvline(t, color='g', linestyle='--')
+        
+        ax[row, col].plot(time, intensity[ind] + addend, '.k')
+        ax[row,col].text(0.98, 0.02, '%.3g'%lof[ind],
+                           transform=ax[row, col].transAxes,
+                           horizontalalignment='right',
+                           verticalalignment='bottom',
+                           fontsize='xx-small')
+        format_axes(ax[row,col], ylabel=True)
+        if not mock_data:
+            ticid_label(ax[row, col], targets[ind], target_info[ind],
+                                title=True)
+            
+        fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
+                             y=0.9)
+        fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
+                            str(n_neighbors) + '-largest.png',
+                            bbox_inches='tight')
+        plt.close(fig)
+     
+    fig, ax = plt.subplots(rownumber, 2, sharex=True, figsize = (16, 3*rownumber))
+    for i in range(n): #for each of the n plots
+        ind = smallest_indices[i] #get index
+        if i < 10: #if in the first column
+            col = 0 #column 0
+            row = int(i) #row is row
+        elif i >= 10: 
+            col = 1
+            row = int(i - rownumber)
+            
+        for t in mom_dumps:
+                    ax[row, col].axvline(t, color='g', linestyle='--')
+        
+        ax[row, col].plot(time, intensity[ind] + addend, '.k')
+        ax[row,col].text(0.98, 0.02, '%.3g'%lof[ind],
+                           transform=ax[row, col].transAxes,
+                           horizontalalignment='right',
+                           verticalalignment='bottom',
+                           fontsize='xx-small')
+        format_axes(ax[row,col], ylabel=True)
+        if not mock_data:
+            ticid_label(ax[row, col], targets[ind], target_info[ind],
+                                title=True)
+            
+        fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
+                             y=0.9)
+        fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
+                            str(n_neighbors) + '-smallest.png',
+                            bbox_inches='tight')
+        plt.close(fig)
+
+        
     
     # cm = cm[:len(labels)]
     # cm = cm[:, list(range(len(columns)))]
