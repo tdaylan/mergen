@@ -1609,6 +1609,9 @@ def kneighbor_plotting(path, features, k_values):
     by calculating the average distances to the k-nearest neighbors and plotting
     those values sorted, you can determine by eye (heuristically) the best eps 
     value. It should be eps value = yaxis value of first valley, and minsamp = k.
+    
+    ** currently uses default values (minkowski p=2) for the n-neighbor search **
+    
     inputs: 
         * path to where you want to save the plots
         * features (should have any significant outliers clipped out)
@@ -1655,57 +1658,96 @@ def load_paramscan_txt(path):
     
     return cleaned_params, number_classes, metric_scores
 
-def hdbscan_param_search(bottleneck, time, flux, ticid, target_info,
-                         min_cluster_size=list(range(2,10)),
-                         min_samples=list(range(2,10)),
-                         metric=['euclidean'],
-                         p_space=[1,2,3,4],
-                         output_dir='./',
-                         database_dir='./databases/'):
-    import hdbscan
-    # !! wider p range?
+def hdbscan_param_search(features, time, flux, ticid, target_info,
+                            min_cluster_size=list(np.arange(2,30,2)),
+                            metric=['euclidean', 'manhattan', 'minkowski'],
+                            p = [1,2,3,4],
+                            output_dir='./', DEBUG=False,
+                            simbad_database_txt='./simbad_database.txt',
+                            database_dir='./databases/',
+                            pca=False, tsne=False):
+    '''Performs a grid serach across parameter space for HDBSCAN. 
     
-    param_num=0
+    Parameters:
+        * features
+        * time/flux/ticids/target information
+        * min cluster size, metric, p (only for minkowski)
+        * output_dir : output directory, ending with '/'
+        * DEBUG : if DEBUG, plots first 5 light curves in each class
+        * optional to plot pca & tsne coloring for it
+        
+    '''
+    import hdbscan         
+    classes = []
+    num_classes = []
+    counts = []
+    num_noisy= []
+    parameter_sets=[]
+    param_num = 0
+    
+
+    with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+        f.write('{} {} {}\n'.format("min cluster size", "metric", "p"))
+
     for i in range(len(min_cluster_size)):
-        for j in range(len(min_samples)):
-            for k in range(len(metric)):
-                if metric[k] == 'minkowski':
-                    p = p_space
-                else:
-                    p = [None]
-                for l in range(len(p)):
-                    param_num += 1
-                    
-                    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size[i],
-                                                min_samples=min_samples[j],
-                                                metric=metric[k])
-                    clusterer.fit(bottleneck)
-                    classes, counts = \
-                        np.unique(clusterer.labels_, return_counts=True)    
-                    print(classes, counts)
-                    
-                    title='Parameter Set '+param_num+': '+'{} {} {}'.format(min_cluster_size[i],
-                                                                            min_samples[j],
-                                                                            metric[k])
-                    
-                    prefix='dbscan-p'+param_num                         
-                    
-                    pf.quick_plot_classification(time, flux,
-                                                ticid,
-                                                target_info,
-                                                clusterer.labels_,
-                                                path=output_dir,
-                                                prefix=prefix,
-                                                title=title,
-                                                database_dir=database_dir)
-                    acc = pf.plot_confusion_matrix(ticid, clusterer.labels_,
-                                                   database_dir=database_dir,
-                                                   output_dir=output_dir,
-                                                   prefix=prefix)        
-                    pf.plot_pca(bottleneck, clusterer.labels_,
-                                output_dir=output_dir, prefix=prefix)    
-                    pf.plot_tsne(bottleneck, clusterer.labels_,
-                                 output_dir=output_dir, prefix=prefix)                    
+        for j in range(len(metric)):
+            if metric[j] == 'minkowski':
+                p = [1,2,3,4]
+            else:
+                p = [None]
+            for n in range(len(p)):
+                clusterer = hdbscan.HDBSCAN(min_cluster_size=int(min_cluster_size[i]),
+                                            metric=metric[j],
+                                            p=p[n], algorithm='best')
+                clusterer.fit(features)
+                labels = clusterer.labels_
+                print(np.unique(labels, return_counts=True))
+                classes_1, counts_1 = np.unique(labels, return_counts=True)
+                        
+                                
+                
+                title='Parameter Set '+str(param_num)+': '+'{} {} {}'.format(min_cluster_size[i],
+                                                                        metric[j],p[n])
+                            
+                prefix='hdbscan-p'+str(param_num)                            
+                                
+                if len(classes_1) > 1:
+                    classes.append(classes_1)
+                    num_classes.append(len(classes_1))
+                    counts.append(counts_1)
+                    num_noisy.append(counts_1[0])
+                    parameter_sets.append([min_cluster_size[i],metric[j],p[n]])
+                                
+                              
+                                
+                with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+                    f.write('{}\t {}\t {}\t \n'.format(min_cluster_size[i],
+                                                       metric[j],p[n]))
+                                
+                if DEBUG and len(classes_1) > 1:
+                    pf.quick_plot_classification(time, flux,ticid,target_info, 
+                                                 features, labels,path=output_dir,
+                                                 prefix=prefix,
+                                                 simbad_database_txt=simbad_database_txt,
+                                                 title=title,
+                                                 database_dir=database_dir)
+                
+                    if pca:
+                        print('Plot PCA...')
+                        pf.plot_pca(features, labels,
+                                    output_dir=output_dir,
+                                    prefix=prefix)
+                                
+                    if tsne:
+                        print('Plot t-SNE...')
+                        pf.plot_tsne(features,labels,
+                                     output_dir=output_dir,
+                                     prefix=prefix)                
+                plt.close('all')
+                param_num +=1
+
+        
+    return parameter_sets, num_classes                     
                         
                         
                         
