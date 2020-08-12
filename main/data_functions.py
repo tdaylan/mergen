@@ -1603,6 +1603,37 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
         
     return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, accuracy
 
+def kneighbor_plotting(path, features, k_values):
+    """ This is based on a metric for finding the best possible eps/minsamp
+    value from the original DBSCAN paper (Ester et al 1996). Essentially,
+    by calculating the average distances to the k-nearest neighbors and plotting
+    those values sorted, you can determine by eye (heuristically) the best eps 
+    value. It should be eps value = yaxis value of first valley, and minsamp = k.
+    inputs: 
+        * path to where you want to save the plots
+        * features (should have any significant outliers clipped out)
+        * k_values: array of integers, ie [2,3,5,10] for the k values
+        
+    output: 
+        * plots the KNN curves into the path
+    modified [lcg 08122020 - created]"""
+    from sklearn.neighbors import NearestNeighbors
+    for n in range(len(k_values)):
+        neigh = NearestNeighbors(n_neighbors=k_values[n])
+        neigh.fit(features)
+    
+        k_dist, k_ind = neigh.kneighbors(features, return_distance=True)
+        
+        avg_kdist = np.mean(k_dist, axis=1)
+        avg_kdist_sorted = np.sort(avg_kdist)[::-1]
+        
+        plt.scatter(np.arange(len(features)), avg_kdist_sorted)
+        plt.xlabel("Points")
+        plt.ylabel("Average K-Neighbor Distance")
+        plt.title("K-Neighbor plot for k=" + str(k_values[n]))
+        plt.savefig(path + "kneighbors-" +str(k_values[n]) +"-plot-sorted.png")
+        plt.close()    
+
 def load_paramscan_txt(path):
     """ load in the paramscan stuff from the text file
     returns: parameter sets, number of classes, metric scores (in order: silhouettte, db, ch)
