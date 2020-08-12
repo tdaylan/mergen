@@ -839,6 +839,7 @@ def diagnostic_plots(history, model, p, output_dir,
                      y_train=False, y_test=False,
                      flux_test=False, flux_train=False, time=False,
                      rms_train=False, rms_test = False, input_rms = False,
+                     input_psd=False,
                      inds = [-1,0,1,2,3,4,5,6,7,-2,-3,-4,-5,-6,-7],
                      intermed_inds = [6,0],
                      input_bottle_inds = [0,1,2,-6,-7],
@@ -894,6 +895,21 @@ def diagnostic_plots(history, model, p, output_dir,
     plt.rcParams.update(plt.rcParamsDefault)
     plt.rcParams['lines.markersize'] = 2 
     
+    if input_psd: # >> separate light curve from PSD
+        psd_train = x_train[1]
+        x_train = x_train[0]
+        psd_test = x_test[1]
+        x_test = x_test[0]
+        f = x[1]
+        x = x[0]
+        psd_predict = x_predict[1]
+        x_predict = x_predict[0]
+        
+    if not feature_vector:
+        flux_test = x_test
+        flux_train = x_train
+        time = x
+    
     # >> plot loss, accuracy, precision, recall vs. epochs
     if plot_epoch:
         print('Plotting loss vs. epoch')
@@ -912,6 +928,16 @@ def diagnostic_plots(history, model, p, output_dir,
                                       mock_data=mock_data,
                                       feature_vector=feature_vector,
                                       percentage=percentage)
+        if input_psd:
+            fig, axes = input_output_plot(f, psd_test, psd_predict,
+                                          output_dir+prefix+\
+                                              'input_output_PSD.png',
+                                          ticid_test=ticid_test,
+                                          inds=inds, target_info=target_info_test,
+                                          addend=addend, sharey=sharey,
+                                          mock_data=mock_data,
+                                          feature_vector=feature_vector,
+                                          percentage=percentage)            
         
     # -- supervised -----------------------------------------------------------
     if supervised:
@@ -994,18 +1020,11 @@ def diagnostic_plots(history, model, p, output_dir,
     if plot_lof_test:
         print('Plotting LOF for testing set')
         for n in [20]: # [20, 50, 100]: loop through n_neighbors
-            if feature_vector:
-                plot_lof(time, flux_test, ticid_test, bottleneck, 20,
-                         output_dir, prefix='test-'+prefix, n_neighbors=n,
-                         mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot, target_info=target_info_test,
-                         log=True)
-            else:
-                plot_lof(x, x_test, ticid_test, bottleneck, 20, output_dir,
-                         prefix = 'test-'+prefix, n_neighbors=n,
-                         mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot, target_info=target_info_test,
-                         log=True)
+            plot_lof(time, flux_test, ticid_test, bottleneck, 20, output_dir,
+                     prefix='test-'+prefix, n_neighbors=n, mock_data=mock_data,
+                     feature_vector=feature_vector, n_tot=n_tot,
+                     target_info=target_info_test, log=True)
+
     
     if plot_latent_train or plot_lof_train or plot_lof_all:
         if load_bottleneck:
@@ -1038,42 +1057,24 @@ def diagnostic_plots(history, model, p, output_dir,
         print('Plotting LOF for testing set')
         for n in [20]: # [20, 50, 100]:
             # if type(flux_train) != bool:
-            if feature_vector: # >> x_train is features, not fluxes
-                plot_lof(time, flux_train, ticid_train, bottleneck_train, 20,
-                         output_dir, prefix='train-'+prefix, n_neighbors=n,
-                         mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot, target_info=target_info_train,
-                         log=True)
-            else:
-                plot_lof(x, x_train, ticid_train, bottleneck_train, 20,
-                         output_dir, prefix = 'train-'+prefix, n_neighbors=n,
-                         mock_data=mock_data, feature_vector=feature_vector,
-                         n_tot=n_tot, target_info=target_info_train,
-                         log=True)   
+            plot_lof(time, flux_train, ticid_train, bottleneck_train, 20,
+                     output_dir, prefix='train-'+prefix, n_neighbors=n,
+                     mock_data=mock_data, feature_vector=feature_vector,
+                     n_tot=n_tot, target_info=target_info_train,
+                     log=True)
+
                 
     if plot_lof_all:
         print('Plotting LOF for entire dataset')
         bottleneck_all = np.concatenate([bottleneck, bottleneck_train], axis=0)
-        # # >> save to fits file
-        # hdr = fits.Header()
-        # hdu=fits.PrimaryHDU(bottleneck_all, header=hdr)
-        # hdu.writeto(output_dir+'bottleneck.fits')
-        if feature_vector:
-            plot_lof(time, np.concatenate([flux_test, flux_train], axis=0),
-                     np.concatenate([ticid_test, ticid_train]), bottleneck_all,
-                     20, output_dir, prefix='all-'+prefix, n_neighbors=n,
-                     mock_data=mock_data, feature_vector=feature_vector,
-                     n_tot=n_tot, log=True,
-                     target_info=np.concatenate([target_info_test,
-                                                 target_info_train], axis=0))   
-        else:
-            plot_lof(x, np.concatenate([x_test, x_train], axis=0),
-                     np.concatenate([ticid_test, ticid_train], axis=0),
-                     bottleneck_all, 20, output_dir, prefix='all-'+prefix,
-                     n_neighbors=20, n_tot=n_tot, log=True,
-                     mock_data=mock_data, feature_vector=feature_vector,
-                     target_info=np.concatenate([target_info_test,
-                                                 target_info_train], axis=0))
+        plot_lof(time, np.concatenate([flux_test, flux_train], axis=0),
+                 np.concatenate([ticid_test, ticid_train]), bottleneck_all,
+                 20, output_dir, prefix='all-'+prefix, n_neighbors=n,
+                 mock_data=mock_data, feature_vector=feature_vector,
+                 n_tot=n_tot, log=True,
+                 target_info=np.concatenate([target_info_test,
+                                             target_info_train], axis=0))   
+
     
     # -- plot reconstruction error (unsupervised) -----------------------------
     # >> plot light curves with highest, smallest and random reconstruction
@@ -1088,7 +1089,13 @@ def diagnostic_plots(history, model, p, output_dir,
         print('Plotting reconstruction error for entire dataset')
         # >> concatenate test and train sets
         tmp = np.concatenate([x_test, x_train], axis=0)
-        tmp_predict = model.predict(tmp)
+        
+        if input_psd:
+            tmp1 = np.concatenate([psd_test, psd_train], axis=0)
+            tmp_predict = model.predict([tmp, tmp1])
+        else:
+            tmp_predict = model.predict(tmp)
+        
         plot_reconstruction_error(x, tmp, tmp, tmp_predict, 
                                   np.concatenate([ticid_test, ticid_train],
                                                  axis=0),
@@ -1101,13 +1108,14 @@ def diagnostic_plots(history, model, p, output_dir,
         
     # return activations, bottleneck
 
-def epoch_plots(history, p, out_dir, supervised):
+def epoch_plots(history, p, out_dir, supervised=False, input_psd=False):
     '''Plot metrics vs. epochs.
     Parameters:
         * history : dictionary, output from model.history
         * model = Keras Model()
         * activations
         * '''
+        
     if supervised:
         label_list = [['loss', 'accuracy'], ['precision', 'recall']]
         key_list = [['loss', 'accuracy'], [list(history.history.keys())[-2],
@@ -1143,6 +1151,19 @@ def epoch_plots(history, p, out_dir, supervised):
         fig.tight_layout()
         plt.savefig(out_dir + 'loss.png')
         plt.close(fig)
+        
+        if input_psd:
+            fig, ax1 = plt.subplots()
+            ax1.plot(history.history[list(history.history.keys())[-1]],
+                     label='PSD loss')
+            ax1.set_ylabel('loss')
+            ax1.set_xlabel('epoch')
+            ax1.set_xticks(np.arange(0, int(p['epochs']),
+                                     max(int(p['epochs']/10),1)))
+            ax1.tick_params('both', labelsize='x-small')
+            fig.tight_layout()
+            plt.savefig(out_dir + 'loss-PSD.png')
+            plt.close(fig)
 
 # == visualizations for unsupervised pipeline =================================
 
@@ -1150,7 +1171,7 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
                       inds = [-1,0,1,2,3,4,5,6,7,-2,-3,-4,-5,-6,-7],
                       addend = 1., sharey=False,
                       mock_data=False, feature_vector=False,
-                      percentage=False, target_info=False):
+                      percentage=False, target_info=False, psd=False):
     '''Plots input light curve, output light curve and the residual.
     Can only handle len(inds) divisible by 3 or 5.
     Parameters:
@@ -1201,14 +1222,25 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
             
         if feature_vector: # >> x-axis is latent dims
             axes[-1, i].set_xlabel('\u03C8', fontsize='small')
+        elif psd:
+            axes[-1, i].set_xlabel('Frequency [Hz]', fontsize='small')
         else: # >> x-axis is time
-            axes[-1, i].set_xlabel('time [BJD - 2457000]', fontsize='small')
+            axes[-1, i].set_xlabel('Time [BJD - 2457000]', fontsize='small')
             
     # >> make y-axis labels
     for i in range(ngroups):
-        axes[3*i,   0].set_ylabel('input\nrelative flux',  fontsize='small')
-        axes[3*i+1, 0].set_ylabel('output\nrelative flux', fontsize='small')
-        axes[3*i+2, 0].set_ylabel('residual', fontsize='small') 
+        if feature_vector:
+            axes[3*i,   0].set_ylabel('input',  fontsize='small')
+            axes[3*i+1, 0].set_ylabel('output', fontsize='small')
+            axes[3*i+2, 0].set_ylabel('residual', fontsize='small')     
+        elif psd:
+            axes[3*i,   0].set_ylabel('input\nrelative PSD',  fontsize='small')
+            axes[3*i+1, 0].set_ylabel('output\nrelative PSD', fontsize='small')
+            axes[3*i+2, 0].set_ylabel('residual\nrelative PSD', fontsize='small')  
+        else:            
+            axes[3*i,   0].set_ylabel('input\nrelative flux',  fontsize='small')
+            axes[3*i+1, 0].set_ylabel('output\nrelative flux', fontsize='small')
+            axes[3*i+2, 0].set_ylabel('residual', fontsize='small') 
         
     fig.tight_layout()
     plt.savefig(out)
@@ -2281,6 +2313,7 @@ def plot_tsne(bottleneck, labels, n_components=2, output_dir='./', prefix=''):
 def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
                           output_dir='./', prefix=''):
     from sklearn.metrics import confusion_matrix
+    from scipy.optimize import linear_sum_assignment
     import seaborn as sn
     from itertools import permutations
     
@@ -2304,73 +2337,26 @@ def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
     index = labels    
     columns = np.unique(y_pred).astype('str')
     
+    # >> find order of columns that gives the best accuracy using the
+    # >> Hungarian algorithm (tries to minimize the diagonal)
+    row_ind, col_ind = linear_sum_assignment(-1*cm)
+    cm = cm[:,col_ind]
+    # !! need to reorder columns label
+    
     # >> remove rows and columns that are all zeros
     cm = np.delete(cm, np.nonzero(np.prod(cm == 0, axis=0)), axis=1)
     cm = np.delete(cm, np.nonzero(np.prod(cm == 0, axis=1)), axis=0)
+    accuracy = np.sum(np.diag(cm)) / np.sum(cm)
     
-    # >> find order of columns that gives the best accuracy
-    best_accuracy = 0.
-    perm1 = permutations(list(range(len(columns))))
-    
-    accuracy = []
-    # perm2 = permutations(list(range(len(index))))
-    
-    # !! re-arranging columns won't work as well when we learn few classes
-    # >> re-order rows so that most popular classes are first
-    row_order = np.flip(np.argsort(np.sum(cm, axis=1)))
-    cm = cm[row_order]
-    index = index[row_order]
-    
-    for col_order in list(perm1):
-        # >> re-arrange cm by column
-        col_order = np.array(col_order)
-        cm_tmp = cm[:,col_order]        
-        
-        # >> calculate accuracy
-        diag_length = np.min(np.shape(cm))
-        acc = np.sum(np.diag(cm_tmp)) / np.sum(cm_tmp[:diag_length,:diag_length])
-        accuracy.append(acc)
-        
-        if acc > best_accuracy:
-            best_col_ordering = col_order
-            best_accuracy = acc
-        
-    # >> re-arrange confusion matrix to get the best accuracy  
-    cm = cm[:,best_col_ordering]
-        
-    # pdb.set_trace()
-    # for col_order in list(perm1):
-    #     # >> re-arrange cm by column
-    #     col_order = np.array(col_order)
-    #     cm_tmp = cm[:,col_order]        
-        
-    #     col_accuracy = []
-    #     for row_order in list(perm2):            
-    #         # >> re-arrange cm by row
-    #         row_order = np.array(row_order)
-    #         cm_tmp = cm[row_order]
-            
-    #         # >> calculate accuracy
-    #         diag_length = np.min(np.shape(cm))
-    #         acc = np.sum(np.diag(cm_tmp)) / np.sum(cm_tmp[:diag_length,:diag_length])
-            
-    #         if acc > best_accuracy:
-    #             best_row_ordering = row_order
-    #             best_col_ordering = col_order
-        
-    # # >> re-arrange confusion matrix to get the best accuracy
-    # # best_ind = np.argmax(np.array(accuracy))
-    # # best_order = col_ordering[best_ind]
-    # # cm = cm[:,best_order]
-    # cm = cm[best_row_ordering,best_col_ordering]
-    
+    # >> plot
     df_cm = pd.DataFrame(cm, index=index, columns=columns)
-    plt.figure()
+    fig, ax = plt.subplots()
     sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
-    plt.savefig(output_dir+prefix+'confusion_matrix.png')
+    ax.set_aspect(1)
+    fig.savefig(output_dir+prefix+'confusion_matrix.png')
     plt.close()
     
-    return best_accuracy
+    return accuracy
     
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     
@@ -2575,8 +2561,83 @@ def plot_lof_2col(time, intensity, targets, features, n, path,
 #                 plt.ylabel(graph_label2)
 #                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".pdf")
 #                 plt.show()
-                
-
+        # else:
+        #     plot_lof(x, x_test, ticid_test, bottleneck, 20, output_dir,
+        #              prefix = 'test-'+prefix, n_neighbors=n,
+        #              mock_data=mock_data, feature_vector=feature_vector,
+        #              n_tot=n_tot, target_info=target_info_test,
+        #              log=True)                
+            # else:
+            #     plot_lof(x, x_train, ticid_train, bottleneck_train, 20,
+            #              output_dir, prefix = 'train-'+prefix, n_neighbors=n,
+            #              mock_data=mock_data, feature_vector=feature_vector,
+            #              n_tot=n_tot, target_info=target_info_train,
+            #              log=True)   
      
+        # else:
+        #     plot_lof(x, np.concatenate([x_test, x_train], axis=0),
+        #              np.concatenate([ticid_test, ticid_train], axis=0),
+        #              bottleneck_all, 20, output_dir, prefix='all-'+prefix,
+        #              n_neighbors=20, n_tot=n_tot, log=True,
+        #              mock_data=mock_data, feature_vector=feature_vector,
+        #              target_info=np.concatenate([target_info_test,
+        #                                          target_info_train], axis=0))
+        # # >> save to fits file
+        # hdr = fits.Header()
+        # hdu=fits.PrimaryHDU(bottleneck_all, header=hdr)
+        # hdu.writeto(output_dir+'bottleneck.fits')
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
+    # best_accuracy = 0.
+    # perm1 = permutations(list(range(len(columns))))
+    
+    # accuracy = []
+    # # perm2 = permutations(list(range(len(index))))
+    
+    # # !! re-arranging columns won't work as well when we learn few classes
+    # # >> re-order rows so that most popular classes are first
+    # row_order = np.flip(np.argsort(np.sum(cm, axis=1)))
+    # cm = cm[row_order]
+    # index = index[row_order]
+    
+    # for col_order in list(perm1):
+    #     # >> re-arrange cm by column
+    #     col_order = np.array(col_order)
+    #     cm_tmp = cm[:,col_order]        
+        
+    #     # >> calculate accuracy
+    #     diag_length = np.min(np.shape(cm))
+    #     acc = np.sum(np.diag(cm_tmp)) / np.sum(cm_tmp[:diag_length,:diag_length])
+    #     accuracy.append(acc)
+        
+    #     if acc > best_accuracy:
+    #         best_col_ordering = col_order
+    #         best_accuracy = acc
+        
+    # # >> re-arrange confusion matrix to get the best accuracy  
+    # cm = cm[:,best_col_ordering]
+        
+    # # pdb.set_trace()
+    # # for col_order in list(perm1):
+    # #     # >> re-arrange cm by column
+    # #     col_order = np.array(col_order)
+    # #     cm_tmp = cm[:,col_order]        
+        
+    # #     col_accuracy = []
+    # #     for row_order in list(perm2):            
+    # #         # >> re-arrange cm by row
+    # #         row_order = np.array(row_order)
+    # #         cm_tmp = cm[row_order]
+            
+    # #         # >> calculate accuracy
+    # #         diag_length = np.min(np.shape(cm))
+    # #         acc = np.sum(np.diag(cm_tmp)) / np.sum(cm_tmp[:diag_length,:diag_length])
+            
+    # #         if acc > best_accuracy:
+    # #             best_row_ordering = row_order
+    # #             best_col_ordering = col_order
+        
+    # # # >> re-arrange confusion matrix to get the best accuracy
+    # # # best_ind = np.argmax(np.array(accuracy))
+    # # # best_order = col_ordering[best_ind]
+    # # # cm = cm[:,best_order]
+    # # cm = cm[best_row_ordering,best_col_ordering]
