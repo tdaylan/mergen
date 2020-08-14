@@ -1476,6 +1476,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     ch_scores = []
     db_scores = []
     accuracy = []
+    param_num = 0
 
     with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
         f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format("eps\t\t", "samp\t\t", "metric\t\t", 
@@ -1490,7 +1491,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                 for l in range(len(algorithm)):
                     for m in range(len(leaf_size)):
                         if metric[k] == 'minkowski':
-                            p = [1,2,3,4]
+                            p = p
                         else:
                             p = [None]
                         for n in range(len(p)):
@@ -1505,15 +1506,15 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             classes_1, counts_1 = \
                                 np.unique(db.labels_, return_counts=True)
                                 
-                            param_num = str(len(parameter_sets)-1)
-                            title='Parameter Set '+param_num+': '+'{} {} {} {} {} {}'.format(eps[i],
+                            #param_num = str(len(parameter_sets)-1)
+                            title='Parameter Set '+str(param_num)+': '+'{} {} {} {} {} {}'.format(eps[i],
                                                                                         min_samples[j],
                                                                                         metric[k],
                                                                                         algorithm[l],
                                                                                         leaf_size[m],
                                                                                         p[n])
                             
-                            prefix='dbscan-p'+param_num                            
+                            prefix='dbscan-p'+str(param_num)                            
                                 
                             if confusion_matrix:
                                 acc = pf.plot_confusion_matrix(ticid, db.labels_,
@@ -1592,6 +1593,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                                  output_dir=output_dir,
                                                  prefix=prefix)
                             plt.close('all')
+                            param_num +=1
     print("Plot paramscan metrics...")
     pf.plot_paramscan_metrics(output_dir, parameter_sets, 
                               silhouette_scores, db_scores, ch_scores)
@@ -1660,6 +1662,7 @@ def load_paramscan_txt(path):
 
 def hdbscan_param_search(features, time, flux, ticid, target_info,
                             min_cluster_size=list(np.arange(2,30,2)),
+                            min_samples = [2,5,10,15],
                             metric=['euclidean', 'manhattan', 'minkowski'],
                             p = [1,2,3,4],
                             output_dir='./', DEBUG=False,
@@ -1687,7 +1690,7 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
     
 
     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
-        f.write('{} {} {}\n'.format("min cluster size", "metric", "p"))
+        f.write('{} {} {} {}\n'.format("min cluster size", "min_samples","metric", "p"))
 
     for i in range(len(min_cluster_size)):
         for j in range(len(metric)):
@@ -1696,55 +1699,57 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
             else:
                 p = [None]
             for n in range(len(p)):
-                clusterer = hdbscan.HDBSCAN(min_cluster_size=int(min_cluster_size[i]),
-                                            metric=metric[j],
-                                            p=p[n], algorithm='best')
-                clusterer.fit(features)
-                labels = clusterer.labels_
-                print(np.unique(labels, return_counts=True))
-                classes_1, counts_1 = np.unique(labels, return_counts=True)
-                        
-                                
-                
-                title='Parameter Set '+str(param_num)+': '+'{} {} {}'.format(min_cluster_size[i],
-                                                                        metric[j],p[n])
+                for k in range(len(min_samples)):
+                    clusterer = hdbscan.HDBSCAN(min_cluster_size=int(min_cluster_size[i]),
+                                                metric=metric[j], min_samples=min_samples[k],
+                                                p=p[n], algorithm='best')
+                    clusterer.fit(features)
+                    labels = clusterer.labels_
+                    print(np.unique(labels, return_counts=True))
+                    classes_1, counts_1 = np.unique(labels, return_counts=True)
                             
-                prefix='hdbscan-p'+str(param_num)                            
+                                    
+                    
+                    title='Parameter Set '+str(param_num)+': '+'{} {} {} {}'.format(min_cluster_size[i],
+                                                                                 min_samples[k],
+                                                                                 metric[j],p[n])
                                 
-                if len(classes_1) > 1:
-                    classes.append(classes_1)
-                    num_classes.append(len(classes_1))
-                    counts.append(counts_1)
-                    num_noisy.append(counts_1[0])
-                    parameter_sets.append([min_cluster_size[i],metric[j],p[n]])
-                                
-                              
-                                
-                with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
-                    f.write('{}\t {}\t {}\t \n'.format(min_cluster_size[i],
-                                                       metric[j],p[n]))
-                                
-                if DEBUG and len(classes_1) > 1:
-                    pf.quick_plot_classification(time, flux,ticid,target_info, 
-                                                 features, labels,path=output_dir,
-                                                 prefix=prefix,
-                                                 simbad_database_txt=simbad_database_txt,
-                                                 title=title,
-                                                 database_dir=database_dir)
-                
-                    if pca:
-                        print('Plot PCA...')
-                        pf.plot_pca(features, labels,
-                                    output_dir=output_dir,
-                                    prefix=prefix)
-                                
-                    if tsne:
-                        print('Plot t-SNE...')
-                        pf.plot_tsne(features,labels,
-                                     output_dir=output_dir,
-                                     prefix=prefix)                
-                plt.close('all')
-                param_num +=1
+                    prefix='hdbscan-p'+str(param_num)                            
+                                    
+                    if len(classes_1) > 1:
+                        classes.append(classes_1)
+                        num_classes.append(len(classes_1))
+                        counts.append(counts_1)
+                        num_noisy.append(counts_1[0])
+                        parameter_sets.append([min_cluster_size[i],metric[j],p[n]])
+                                    
+                                  
+                                    
+                    with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+                        f.write('{}\t {}\t {} \t{}\t \n'.format(min_cluster_size[i], min_samples[k],
+                                                           metric[j],p[n]))
+                                    
+                    if DEBUG and len(classes_1) > 1:
+                        pf.quick_plot_classification(time, flux,ticid,target_info, 
+                                                     features, labels,path=output_dir,
+                                                     prefix=prefix,
+                                                     simbad_database_txt=simbad_database_txt,
+                                                     title=title,
+                                                     database_dir=database_dir)
+                    
+                        if pca:
+                            print('Plot PCA...')
+                            pf.plot_pca(features, labels,
+                                        output_dir=output_dir,
+                                        prefix=prefix)
+                                    
+                        if tsne:
+                            print('Plot t-SNE...')
+                            pf.plot_tsne(features,labels,
+                                         output_dir=output_dir,
+                                         prefix=prefix)                
+                    plt.close('all')
+                    param_num +=1
 
         
     return parameter_sets, num_classes                     
