@@ -634,7 +634,7 @@ def eleanor_lc(path, ra_declist, plotting = False):
             
             fluxandtime = [data.time[q], data.raw_flux[q]]
             lightcurve = np.asarray(fluxandtime)
-            print(lightcurve)
+            #print(lightcurve)
             coordpair = np.array(([ra_declist[n][0], ra_declist[n][1]]))
             good_coords.append(coordpair)
             if n ==0: #setting up fits file + save first one            
@@ -650,6 +650,7 @@ def eleanor_lc(path, ra_declist, plotting = False):
     
     fits.append(filename, np.asarray(good_coords))
     print("All light curves saved into fits file")
+    return good_coords
     
 
 def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
@@ -1487,6 +1488,27 @@ def get_true_classifications(ticid_list,
                     ticid_classified.append(ticid)
                     class_info.append([int(ticid), otype, bibcode])
     return np.array(class_info)
+
+def get_radecfromtext(directory):
+    '''
+    '''
+    ra_all = []
+    dec_all = []
+    
+    # >> find all text files in directory
+    fnames = fm.filter(os.listdir(directory), '*.txt')
+    
+    for fname in fnames:
+        # >> read text file
+        with open(directory + fname, 'r') as f:
+            lines = f.readlines()
+            for line in lines:
+                name, ra, dec, empty = line.split(',')
+                
+                ra_all.append(ra)
+                dec_all.append(dec)
+                
+    return np.asarray(ra_all), np.asarray(dec_all)
                            
 def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             eps=list(np.arange(0.1,1.5,0.1)),
