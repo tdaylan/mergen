@@ -607,51 +607,75 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
 def eleanor_lc(path, ra_declist, plotting = False):
     """ 
     retrieves + produces eleanor light curves from FFI files
+    ignores warnings + skips targets that have not been imaged by tess
+    parameters: 
+        * path to where you want everything saved
+        * ra_declist: list of coordinate pairs. if pulling from the
+        get_radecfromtext function, will be in hms, dms format as two
+        strings. whatever it is, it needs to be parseable by SkyCoord
+        * plotting - default is false, if true, ONLY plots every 10th light
+        curve, just to check it's still running and also to keep it awake
+    output:
+        * fits file: each HDU is a light curve ([0] is time, [1] is intensity)
+        and the [-1] HDU is all of the GAIA dr2 ID numbers
+    returns:
+        * gaia_ids - all the gaia identifiers that data was found for
+        
+    modified [lcg 08182020 - fixed searcherror + plotting]
     """
     import eleanor
     from astropy import units as u
     from astropy.coordinates import SkyCoord
+    import warnings
+    warnings.filterwarnings('ignore')
+    from eleanor.utils import SearchError
     
-    good_coords = []
+    gaia_ids = []
     filename = path + "eleanor_lightcurves_from_radeclist.fits"
     
     for n in range(len(ra_declist)):
-        coords = SkyCoord(ra=ra_declist[n][0], dec=ra_declist[n][1], unit=(u.deg, u.deg))
         try:
+            coords = SkyCoord(ra=ra_declist[n][0], dec=ra_declist[n][1], unit=(u.deg, u.deg))
+            #try:
             files = eleanor.Source(coords=coords, tic=0) #by not providing a sector argument, will ONLY retrieve most recent sector
             print('Found TIC {0} (Gaia {1}), with TESS magnitude {2}, RA {3}, and Dec {4}'
-                     .format(files.tic, files.gaia, files.tess_mag, files.coords[0], files.coords[1]))
+                         .format(files.tic, files.gaia, files.tess_mag, files.coords[0], files.coords[1]))
             data = eleanor.TargetData(files)
             plt.figure(figsize=(16,6))
-
+    
             q = data.quality == 0
-            if plotting: 
-                plt.scatter(data.time[q], data.raw_flux[q]/np.nanmedian(data.raw_flux[q])+0.06, c='black', s=0.5)
-                plt.scatter(data.time[q], data.corr_flux[q]/np.nanmedian(data.corr_flux[q]) + 0.03, c='red', s=0.5)
-                plt.ylabel('Normalized Flux')
-                plt.xlabel('Time [BJD - 2457000]')
-                plt.title("(", str(ra_declist[n][0]), str(ra_declist[n][1]), ")")
-            
+            if plotting and n % 20 == 0: 
+                    plt.scatter(data.time[q], data.raw_flux[q]/np.nanmedian(data.raw_flux[q])+0.06, c='black', s=0.5)
+                    plt.scatter(data.time[q], data.corr_flux[q]/np.nanmedian(data.corr_flux[q]) + 0.03, c='red', s=0.5)
+                    plt.ylabel('Normalized Flux')
+                    plt.xlabel('Time [BJD - 2457000]')
+                    plt.title("(" + str(ra_declist[n][0]) + str(ra_declist[n][1]) + ")")
+                    plt.savefig(path + str(n) + 'lightcurveplotted.png')
+                    plt.show()
+                    plt.close()
+                
             fluxandtime = [data.time[q], data.raw_flux[q]]
             lightcurve = np.asarray(fluxandtime)
-            #print(lightcurve)
-            coordpair = np.array(([ra_declist[n][0], ra_declist[n][1]]))
-            good_coords.append(coordpair)
-            if n ==0: #setting up fits file + save first one            
+                #print(lightcurve)
+            if n == 0: #setting up fits file + save first one            
                 hdr = fits.Header() # >> make the header
                 hdu = fits.PrimaryHDU(lightcurve, header=hdr)
                 hdu.writeto(filename)
-                                        
-            else: #saving the rest
+                                            
+            elif n != 0: #saving the rest
                 fits.append(filename, lightcurve)
-           
-        except:
-            print("Tess has not yet observed target (", str(ra_declist[n][0]), str(ra_declist[n][1]), ")")
-    
-    fits.append(filename, np.asarray(good_coords))
+                print(int(n))
+               
+            #except:
+               # print("Tess has not yet observed target (", str(ra_declist[n][0]), str(ra_declist[n][1]), ")")
+            
+            gaia_ids.append(int(files.gaia))
+        except SearchError:
+            print("TESS has not imaged this target")
+            
+    fits.append(filename, np.asarray(gaia_ids))
     print("All light curves saved into fits file")
-    return good_coords
-    
+    return gaia_ids
 
 def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
     """ Creates a fits file of the first n TICs that fall between the given
@@ -1490,7 +1514,7 @@ def get_true_classifications(ticid_list,
     return np.array(class_info)
 
 def get_radecfromtext(directory):
-    '''
+    ''' pulls ra and dec from text file containing all targets
     '''
     ra_all = []
     dec_all = []
