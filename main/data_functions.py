@@ -1165,14 +1165,14 @@ def create_save_featvec_different_timeaxes(yourpath, times, intensities, gaia_id
     fname_features = yourpath + "/"+ filelabel + "_features_v"+str(version)+".fits"
     feature_list = []
     
-    
     if version == 0:
 	#median normalize for the v0 features
         for n in range(len(intensities)):
             intensities[n] = normalize(intensities[n], axis=0)
     elif version == 1: 
+        import transitleastsquares
         from transitleastsquares import transitleastsquares
-	#mean normalize the intensity so goes to 1
+        #mean normalize the intensity so goes to 1
         for n in range(len(intensities)):
             intensities[n] = mean_norm(intensities[n], axis=0)
 
@@ -1215,11 +1215,11 @@ def create_save_featvec_homogenous_time(yourpath, times, intensities, filelabel,
     fname_features = yourpath + "/"+ filelabel + "_features_v"+str(version)+".fits"
     feature_list = []
     if version == 0:
-	#median normalize for the v0 features
+        #median normalize for the v0 features
         intensities = normalize(intensities)
     elif version == 1: 
         from transitleastsquares import transitleastsquares
-	#mean normalize the intensity so goes to 1
+        #mean normalize the intensity so goes to 1
         intensities = mean_norm(intensities)
 
     print("Begining Feature Vector Creation Now")
@@ -1356,11 +1356,12 @@ def featvec(x_axis, sampledata, v=0):
     
     #tls 
     elif v == 1: 
+        from transitleastsquares import transitleastsquares
         model = transitleastsquares(x_axis, sampledata)
         results = model.power(show_progress_bar=False)
         featvec.append(results.period)
         featvec.append(results.duration)
-        featvec.append((1 -results.depth))
+        featvec.append((1 - results.depth))
         featvec.append((results.power.max()))
     
     return featvec 
