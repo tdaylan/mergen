@@ -155,7 +155,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     target_info = [] # >> [sector, cam, ccd, data_type, cadence]
     for i in range(len(fnames)):
         print('Loading ' + fnames[i] + '...')
-        with fits.open(data_dir + fnames[i], mmap=False) as hdul:
+        with fits.open(data_dir + fnames[i], memmap=False) as hdul:
             if i == 0:
                 x = hdul[0].data
             flux = hdul[1].data
@@ -186,7 +186,7 @@ def load_group_from_fits(path, sector, camera, ccd):
     """
     filename_lc = path + "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd) + "_lightcurves.fits"
    
-    f = fits.open(filename_lc, mmap=False)
+    f = fits.open(filename_lc, memmap=False)
     
     time = f[0].data
     intensities = f[1].data
@@ -544,7 +544,7 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
         print(count)
         
         # >> open file
-        with fits.open(fits_path + file, mmap=False) as hdul:
+        with fits.open(fits_path + file, memmap=False) as hdul:
             hdu_data = hdul[1].data
             
             # >> get time array (only for the first light curve)
@@ -607,21 +607,6 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
 def eleanor_lc(path, ra_declist, plotting = False):
     """ 
     retrieves + produces eleanor light curves from FFI files
-    ignores warnings + skips targets that have not been imaged by tess
-    parameters: 
-        * path to where you want everything saved
-        * ra_declist: list of coordinate pairs. if pulling from the
-        get_radecfromtext function, will be in hms, dms format as two
-        strings. whatever it is, it needs to be parseable by SkyCoord
-        * plotting - default is false, if true, ONLY plots every 10th light
-        curve, just to check it's still running and also to keep it awake
-    output:
-        * fits file: each HDU is a light curve ([0] is time, [1] is intensity)
-        and the [-1] HDU is all of the GAIA dr2 ID numbers
-    returns:
-        * gaia_ids - all the gaia identifiers that data was found for
-        
-    modified [lcg 08182020 - fixed searcherror + plotting]
     """
     import eleanor
     from astropy import units as u
@@ -666,16 +651,38 @@ def eleanor_lc(path, ra_declist, plotting = False):
                 fits.append(filename, lightcurve)
                 print(int(n))
                
-            #except:
-               # print("Tess has not yet observed target (", str(ra_declist[n][0]), str(ra_declist[n][1]), ")")
-            
             gaia_ids.append(int(files.gaia))
-        except SearchError:
-            print("TESS has not imaged this target")
-            
+        except (SearchError, ValueError):
+            print("Some kind of error - either no TESS image exists, no GAIA ID exists, or there was a connection issue")
+        
+        if os.path.isdir("/Users/conta/.eleanor/tesscut") == True:
+            shutil.rmtree("/Users/conta/.eleanor/tesscut")
+            print("All files deleted")
     fits.append(filename, np.asarray(gaia_ids))
     print("All light curves saved into fits file")
     return gaia_ids
+
+def open_eleanor_fits_file(path):
+    """ opens the fits file that the eleanor light curves are saved into
+    parameters:
+        * path to the fits file
+    returns:
+        * list of gaia_ids
+        * time indexes
+        * intensities
+    modified [lcg 08212020]"""
+    f = fits.open(path, memmap=False)
+    gaia_ids = f[-1].data
+    target_nums = len(f) - 1
+    all_timeindexes = []
+    all_intensities = []
+    for n in range(target_nums):
+        all_timeindexes.append(f[n].data[0])
+        all_intensities.append(f[n].data[1])
+        
+    f.close()
+    
+    return gaia_ids, np.asarray(all_timeindexes), np.asarray(all_intensities)
 
 def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
     """ Creates a fits file of the first n TICs that fall between the given
@@ -1137,8 +1144,59 @@ def targetwise_lc(yourpath, target_list, fname_time_intensities,fname_notes):
     return np.asarray(ticids)
 
 #Feature Vector Production -----------------------------
+    
+def create_save_featvec_different_timeaxes(yourpath, times, intensities, gaia_ids, filelabel, version=0, save=True):
+    """Produces the feature vectors for each light curve and saves them all
+    into a single fits file. all light curves have their OWN time axis
+    this is set up to work on the eleanor light curves
+    Parameters:
+        * yourpath = folder you want the file saved into
+        * times = all time axes
+        * intensities = array of all light curves (NOT normalized)
+        * sector, camera, ccd = integers 
+        * version = what version of feature vector to calculate for all. 
+            default is 0
+        * save = whether or not to save into a fits file
+    returns: list of feature vectors + fits file containing all feature vectors
+    requires: featvec()
+    modified: [lcg 08212020]"""
+    
 
-def create_save_featvec(yourpath, times, intensities, filelabel, version=0, save=True):
+    fname_features = yourpath + "/"+ filelabel + "_features_v"+str(version)+".fits"
+    feature_list = []
+    
+    
+    if version == 0:
+	#median normalize for the v0 features
+        for n in range(len(intensities)):
+            intensities[n] = normalize(intensities[n], axis=0)
+    elif version == 1: 
+        from transitleastsquares import transitleastsquares
+	#mean normalize the intensity so goes to 1
+        for n in range(len(intensities)):
+            intensities[n] = mean_norm(intensities[n], axis=0)
+
+    print("Begining Feature Vector Creation Now")
+    for n in range(len(intensities)):
+        feature_vector = featvec(times[n], intensities[n], v=version)
+        feature_list.append(feature_vector)
+        
+        if n % 25 == 0: print(str(n) + " completed")
+    
+    feature_list = np.asarray(feature_list)
+    
+    if save == True:
+        hdr = fits.Header()
+        hdr["VERSION"] = version
+        hdu = fits.PrimaryHDU(feature_list, header=hdr)
+        hdu.writeto(fname_features)
+        fits.append(fname_features, gaia_ids)
+    else: 
+        print("Not saving feature vectors to fits")
+    
+    return feature_list
+
+def create_save_featvec_homogenous_time(yourpath, times, intensities, filelabel, version=0, save=True):
     """Produces the feature vectors for each light curve and saves them all
     into a single fits file. requires all light curves on the same time axis
     parameters:
@@ -1151,7 +1209,7 @@ def create_save_featvec(yourpath, times, intensities, filelabel, version=0, save
         * save = whether or not to save into a fits file
     returns: list of feature vectors + fits file containing all feature vectors
     requires: featvec()
-    modified: [lcg 07112020]"""
+    modified: [lcg 08212020]"""
     
 
     fname_features = yourpath + "/"+ filelabel + "_features_v"+str(version)+".fits"
@@ -1360,7 +1418,7 @@ def feature_gen_from_lc_fits(path, sector, feature_version=0):
             ccd = int(m)
             file_label = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
             folderpath = path + "/" + file_label + "/"
-            f = fits.open(folderpath + file_label + "_features.fits", mmap=False)
+            f = fits.open(folderpath + file_label + "_features.fits", memmap=False)
             feats = f[0].data
             feats_all = np.concatenate((feats_all, feats))
             f.close()
@@ -1458,7 +1516,32 @@ def build_simbad_database(out='./simbad_database.txt'):
         for ticid in ticids:
             with open(out, 'a') as f:
                 f.write(ticid + ',' + obj + ',' + otype + ',' + bibcode + '\n')
-                
+ 
+def build_simbad_extragalactic_database(out='./simbad_v19galaxies.txt'):
+    '''Object type follows format in:
+    http://vizier.u-strasbg.fr/cgi-bin/OType?$1'''
+    
+    # -- querying object type -------------------------------------------------
+    customSimbad = Simbad()
+    customSimbad.TIMEOUT = 1000
+    # customSimbad.get_votable_fields()
+    customSimbad.add_votable_fields('otype')
+    customSimbad.add_votable_fields('ra(:;A;ICRS;J2000)', 'dec(:;D;ICRS;2000)')
+    table = customSimbad.query_criteria('Vmag <=19', otype='G')
+    objects = list(table['MAIN_ID'])
+    ras = list(table['RA___A_ICRS_J2000'])
+    decs = list(table['DEC___D_ICRS_2000'])
+
+    # >> now loop through all of the objects
+    for i in range(len(objects)):
+        # >> decode bytes object to convert to string
+        obj = objects[i].decode('utf-8')
+        ra = ras[i]
+        dec = decs[i]
+       
+        with open(out, 'a') as f:
+                f.write(obj + ',' + ra + ',' + dec + ',' + '\n')
+               
 def get_simbad_classifications(ticid_list,
                                simbad_database_txt='./simbad_database.txt'):
     '''Query Simbad classification and bibcode from .txt file (output from
