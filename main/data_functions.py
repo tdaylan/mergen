@@ -1765,31 +1765,6 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                         
 
 # DEPRECIATED SECTION -----------------------------------------------------
-def load_group_from_txt(sector, camera, ccd, path):
-    """loads in a given group's data provided you have it saved in TEXT metafiles already
-    path needs to be a string, ending with a forward slash
-    camera, ccd, secotr all should be integers
-    moved to depreciated 7/8/2020 by lcg
-    """
-    folder = "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd)
-    time_path = path + folder + "/" + folder + "_times_processed.txt"
-    intensities_path = path + folder + "/" + folder + "_intensities_processed.txt"
-    features_path = path + folder + "/" + folder + "_features.txt"
-    targets_path = path + folder + "/" + folder + "_targets.txt"
-    notes_path = path + folder + "/" + folder + "_group_notes.txt"
-    
-    t = np.loadtxt(time_path)
-    intensities = np.loadtxt(intensities_path)
-    try: 
-        targets = np.loadtxt(targets_path)
-    except ValueError:
-        targets = np.loadtxt(targets_path, skiprows=1)
-        
-    targets.astype(int)
-    features = np.loadtxt(features_path, skiprows=1)
-    notes = np.loadtxt(notes_path, skiprows=1)
-    
-    return t, intensities, targets, features, notes 
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     # TESS_features = np.array(TESS_features)

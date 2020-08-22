@@ -41,16 +41,252 @@ import scipy.signal as signal
 from astropy.stats import SigmaClip
 from astropy.utils import exceptions
 
+import astroquery
+from astroquery.simbad import Simbad
+from astroquery.mast import Catalogs
+from astroquery.mast import Observations
+from astroquery import exceptions
+from astroquery.exceptions import RemoteServiceError
+
 import pdb
 import fnmatch as fm
 
-import plotting_functions as pf
+#import plotting_functions as pf
 import data_functions as df
 
 
 def test_data():
     """make sure the module loads in"""
     print("FFI functions loaded in.")
+    
+    
+class FFI_lc(object):
+    """
+    init params:
+        * path to save everything into
+        * maglimit for max magnitude value to query simbad for
+        * tls = False - whether or not you want to produce the tls features 
+            which currently do not run in spyder (still ugh)
+        
+    what it does: 
+        - creates folder in path
+        - creates simbad database text file of all galaxies with Vmag <=maglimit
+        - accesses eleanor light curves from FFI files for those galaxies
+        - produces the v0 feature vectors for those light curves and saves into file
+        - if tls = True, produces the v1 feature vectors and saves into file
+        
+    modified [lcg 08222020 - created it]
+    """
+
+    def __init__(self, path=None, maglimit=None, tls=False):
+
+        if maglimit is None:
+            print('Please pass a magnitude limit')
+            return
+        if path is None:
+            print('Please pass a path to save into')
+            return
+
+        self.maglimit = maglimit
+        self.path = path + 'ffi_lc_limit{}/'.format(self.maglimit)
+        self.catalog = self.path + "simbad_catalog.txt"
+        self.lightcurvefilepath = self.path + "eleanor_lightcurves_maglimit{}.fits".format(self.maglimit)
+        self.features0path = self.path + "eleanor_features_v0.fits"
+        self.features1path = self.path + "eleanor_features_v1.fits"
+        
+        try:
+            os.mkdir(self.path)
+            success = 1
+        except OSError:
+            print('Directory exists already!')
+            success = 0
+
+        if success == 1:
+            print("Producing RA and DEC list")
+            self.build_simbad_extragalactic_database()
+            print("Accessing RA and DEC list")
+            self.ralist, self.declist = self.get_radecfromtext()
+            print("Getting and saving eleanor light curves into a fits file")
+            self.radecall = np.column_stack((self.ralist, self.declist))
+            self.gaia_ids = self.eleanor_lc()
+            print("Producing v0 feature vectors")
+            self.gaia_ids, self.times, self.intensities = self.open_eleanor_lc_files()
+            self.version = 0
+            self.savetrue = True
+            self.features = self.create_save_featvec_different_timeaxes()
+            if tls:
+                print("Producing v1 feature vectors")
+                self.version = 1
+                self.features = self.create_save_featvec_different_timeaxes()
+    
+    def build_simbad_extragalactic_database(self):
+        '''Object type follows format in:
+        http://vizier.u-strasbg.fr/cgi-bin/OType?$1'''
+        
+        # -- querying object type -------------------------------------------------
+        customSimbad = Simbad()
+        customSimbad.TIMEOUT = 1000
+        # customSimbad.get_votable_fields()
+        customSimbad.add_votable_fields('otype')
+        customSimbad.add_votable_fields('ra(:;A;ICRS;J2000)', 'dec(:;D;ICRS;2000)')
+        table = customSimbad.query_criteria('Vmag <=' + str(self.maglimit), otype='G')
+        objects = list(table['MAIN_ID'])
+        ras = list(table['RA___A_ICRS_J2000'])
+        decs = list(table['DEC___D_ICRS_2000'])
+    
+        # >> now loop through all of the objects
+        for i in range(len(objects)):
+            # >> decode bytes object to convert to string
+            obj = objects[i].decode('utf-8')
+            ra = ras[i]
+            dec = decs[i]
+           
+            with open(self.catalog, 'a') as f:
+                    f.write(obj + ',' + ra + ',' + dec + ',' + '\n')
+        return
+    
+    def get_radecfromtext(self):
+        ''' pulls ra and dec from text file containing all targets
+        '''
+        ra_all = []
+        dec_all = []
+        
+        with open(self.catalog, 'r') as f:
+            lines = f.readlines()
+            for line in lines:
+                name, ra, dec, empty = line.split(',')
+                    
+                ra_all.append(ra)
+                dec_all.append(dec)
+                    
+        return np.asarray(ra_all), np.asarray(dec_all)
+    
+    def eleanor_lc(self):
+        """ 
+        retrieves + produces eleanor light curves from FFI files
+        """
+        import eleanor
+        from astropy import units as u
+        from astropy.coordinates import SkyCoord
+        import warnings
+        warnings.filterwarnings('ignore')
+        from eleanor.utils import SearchError
+        
+        download_dir = os.path.join(os.path.expanduser('~'), '.eleanor', 'tesscut')
+        print(download_dir)
+        
+        gaia_ids = []
+        
+        
+        for n in range(len(self.radecall)):
+            try:
+                coords = SkyCoord(ra=self.radecall[n][0], dec=self.radecall[n][1], unit=(u.deg, u.deg))
+                #try:
+                files = eleanor.Source(coords=coords, tic=0) #by not providing a sector argument, will ONLY retrieve most recent sector
+                print('Found TIC {0} (Gaia {1}), with TESS magnitude {2}, RA {3}, and Dec {4}'
+                             .format(files.tic, files.gaia, files.tess_mag, files.coords[0], files.coords[1]))
+                data = eleanor.TargetData(files)
+                plt.figure(figsize=(16,6))
+        
+                q = data.quality == 0
+                fluxandtime = [data.time[q], data.raw_flux[q]]
+                lightcurve = np.asarray(fluxandtime)
+                    #print(lightcurve)
+                if n == 0: #setting up fits file + save first one            
+                    hdr = fits.Header() # >> make the header
+                    hdu = fits.PrimaryHDU(lightcurve, header=hdr)
+                    hdu.writeto(self.lightcurvefilepath)
+                                                
+                elif n != 0: #saving the rest
+                    fits.append(self.lightcurvefilepath, lightcurve)
+                    print(int(n))
+                   
+                gaia_ids.append(int(files.gaia))
+            except (SearchError, ValueError):
+                print("Some kind of error - either no TESS image exists, no GAIA ID exists, or there was a connection issue")
+            
+            #if os.path.isdir(download_dir) == True:
+             #   shutil.rmtree(download_dir)
+              #  print("All files deleted")
+                
+        fits.append(self.lightcurvefilepath, np.asarray(gaia_ids))
+        print("All light curves saved into fits file")
+        return gaia_ids
+    
+    def open_eleanor_lc_files(self):
+        """ opens the fits file that the eleanor light curves are saved into
+        parameters:
+            * path to the fits file
+        returns:
+            * list of gaia_ids
+            * time indexes
+            * intensities
+        modified [lcg 08212020]"""
+        f = fits.open(self.lightcurvefilepath, memmap=False)
+        gaia_ids = f[-1].data
+        target_nums = len(f) - 1
+        all_timeindexes = []
+        all_intensities = []
+        for n in range(target_nums):
+            all_timeindexes.append(f[n].data[0])
+            all_intensities.append(f[n].data[1])
+                
+        f.close()
+            
+        return gaia_ids, np.asarray(all_timeindexes), np.asarray(all_intensities)
+    
+    def create_save_featvec_different_timeaxes(self):
+        """Produces the feature vectors for each light curve and saves them all
+        into a single fits file. all light curves have their OWN time axis
+        this is set up to work on the eleanor light curves
+        Parameters:
+            * yourpath = folder you want the file saved into
+            * times = all time axes
+            * intensities = array of all light curves (NOT normalized)
+            * sector, camera, ccd = integers 
+            * version = what version of feature vector to calculate for all. 
+                default is 0
+            * save = whether or not to save into a fits file
+        returns: list of feature vectors + fits file containing all feature vectors
+        requires: featvec()
+        modified: [lcg 08212020]"""
+        
+        feature_list = []
+        
+        if self.version == 0:
+            fname_features = self.features0path
+            #median normalize for the v0 features
+            for n in range(len(self.intensities)):
+                self.intensities[n] = normalize(self.intensities[n], axis=0)
+        elif self.version == 1: 
+            fname_features = self.features1path
+            import transitleastsquares
+            from transitleastsquares import transitleastsquares
+            #mean normalize the intensity so goes to 1
+            for n in range(len(self.intensities)):
+                self.intensities[n] = mean_norm(self.intensities[n], axis=0)
+    
+        print("Begining Feature Vector Creation Now")
+        for n in range(len(self.intensities)):
+            feature_vector = df.featvec(self.times[n], self.intensities[n], v=self.version)
+            feature_list.append(feature_vector)
+            
+            if n % 25 == 0: print(str(n) + " completed")
+        
+        feature_list = np.asarray(feature_list)
+        
+        if self.savetrue:
+            hdr = fits.Header()
+            hdr["VERSION"] = self.version
+            hdu = fits.PrimaryHDU(feature_list, header=hdr)
+            hdu.writeto(fname_features)
+            fits.append(fname_features, self.gaia_ids)
+        else: 
+            print("Not saving feature vectors to fits")
+        
+        return feature_list
+
+#%%
 
 def eleanor_lc(path, ra_declist, plotting = False):
     """ 
