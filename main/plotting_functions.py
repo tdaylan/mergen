@@ -549,7 +549,9 @@ def get_extrema(feature_vectors, feat1, feat2):
     return indexes_unique      
 
 # colored inset plotting -------------------------------------------------------
-def features_insets_colored(time, intensity, feature_vectors, targets, path, realclasses):
+def features_insets_colored(time, intensity, feature_vectors, 
+                            targets, path, realclasses,
+                            eps = 2.4, min_samples=3):
     """Plots features in pairs against each other with inset plots. 
     Inset plots are colored based on the hand-identified classes, with the 
     lines connecting them to the feature point and the feature point colored by
@@ -572,20 +574,22 @@ def features_insets_colored(time, intensity, feature_vectors, targets, path, rea
         print ("Successfully created the directory %s" % folderpath) 
  
     graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-                    "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-                    "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-                    "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                            "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                            "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)", "TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
+                            "TLS Best fit Power"]
     fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                    "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                    "P0", "P1", "P2", "Period0to0_1"]
-    
-    db = DBSCAN(eps=2.2, min_samples=18).fit(feature_vectors) #eps is NOT epochs
+                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                            "P0", "P1", "P2", "Period0to0_1", "TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+            
+    db = DBSCAN(eps=eps, min_samples=min_samples,
+                metric="minkowski", p=2).fit(feature_vectors) #eps is NOT epochs
     guessclasses = db.labels_
     
-    for n in range(16):
+    for n in range(len(feature_vectors[0])):
         graph_label1 = graph_labels[n]
         fname_label1 = fname_labels[n]
-        for m in range(16):
+        for m in range(len(feature_vectors[0])):
             if m == n:
                 continue
             graph_label2 = graph_labels[m]
@@ -618,7 +622,7 @@ def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_i
     y_range = datay.max() - datay.min()
     y_offset = 0.2 * y_range
     x_offset = 0.01 * x_range
-    colors = ["red","blue", "green", "purple" ,"yellow", "magenta", 'black']
+    colors = get_colors()
     
     fig, ax1 = plt.subplots()
     
@@ -753,81 +757,7 @@ def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
 
 
 # plotting features by color and shape
-def features_2D_colorshape(feature_vectors, path, clusteralg, hand_classes):
-    """ plots features against each other
-    COLORING based on the given hand classes. 
-    SHAPE based on the assigned class by the given cluster algorithm
-    folderpath and clusteralg should be strings
-    """
-    if clusteralg == 'dbscan':
-        db = DBSCAN(eps=2.2, min_samples=18).fit(feature_vectors) #eps is NOT epochs
-        classes_dbscan = db.labels_
 
-    elif clusteralg == 'kmeans': 
-        Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
-        x = Kmean.fit(feature_vectors)
-        classes_kmeans = x.labels_
-    else: 
-        print("please enter a valid clustering algorithm")
- 
-    try:
-        os.makedirs(path)
-    except OSError:
-        print ("Creation of the directory %s failed" % path)
-        print("New folder created will have -new at the end. Please rename.")
-        os.makedirs(path + "-new")
-    else:
-        print ("Successfully created the directory %s" % path) 
- 
-    graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-                    "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-                    "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-                    "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
-    fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                    "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                    "P0", "P1", "P2", "Period0to0_1"]
-    for n in range(16):
-        feat1 = feature_vectors[:,n]
-        graph_label1 = graph_labels[n]
-        fname_label1 = fname_labels[n]
-        for m in range(16):
-            if m == n:
-                continue
-            graph_label2 = graph_labels[m]
-            fname_label2 = fname_labels[m]                
-            feat2 = feature_vectors[:,m]
-            
-            colors = ["red", "blue", "green", "purple", "yellow", "magenta", "black"]
-            shapes = ['.', 'P', 'h', '+', 'x']
-            
-            if clusteralg == 'dbscan':
-                for p in range(len(feature_vectors)):
-                    #assign a color
-                    c = colors[classes_dbscan[p]]
-                    
-                    if classes_dbscan[p] == hand_classes[p]:
-                        s = '^' #if they match the arrow goes up
-                    else:
-                        s = 'v' #if they do not match the arrow goes down
-                    
-                    plt.scatter(feat1[p], feat2[p], c = c, s = 1, marker=s)
-                plt.xlabel(graph_label1)
-                plt.ylabel(graph_label2)
-                plt.savefig((path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.pdf"))
-                plt.show()
-            elif clusteralg == 'kmeans':
-                for p in range(len(feature_vectors)):
-                    #assign color
-                    c = colors[classes_kmeans[p]]
-                    if classes_kmeans[p] == hand_classes[p]:
-                        s = '^'
-                    else:
-                        s = 'v'
-                    plt.scatter(feat1[p], feat2[p], c = c,s = 1, marker=s)
-                plt.xlabel(graph_label1)
-                plt.ylabel(graph_label2)
-                plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.pdf")
-                plt.show()
                  
 
 def diagnostic_plots(history, model, p, output_dir, 
@@ -2003,7 +1933,9 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
             features_byclass = features[relevant_feats]
             med_features = np.median(features_byclass, axis=0)
             med_string = str(med_features)
-            ax[0, j].set_title('Class '+str(class_num)+'\n Median Features:' + med_string + "\n"+ax[0,j].get_title(),
+            ax[0, j].set_title('Class '+str(class_num)+ "# Curves:" + str(counts[j]) +
+                               '\n Median Features:' + med_string + 
+                               "\n"+ax[0,j].get_title(),
                                color=color, fontsize='xx-small')
             ax[-1, j].set_xlabel('Time [BJD - 2457000]')   
                         
@@ -2714,6 +2646,112 @@ def presentation_plot_classifications(x, flux, ticid, target_info, output_dir,
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     
+def plot_lof_2col(time, intensity, targets, features, n, path,
+             momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
+             n_neighbors=20, target_info=False,
+             prefix='', mock_data=False, addend=1., feature_vector=False, log=False):
+    """ lof plotting variant to specifically make a plot for the paper with
+    two columns per plot
+    """
+    # -- calculate LOF -------------------------------------------------------
+    print('Calculating LOF')
+    clf = LocalOutlierFactor(n_neighbors=n_neighbors)
+    fit_predictor = clf.fit_predict(features)
+    negative_factor = clf.negative_outlier_factor_
+    
+    lof = -1 * negative_factor
+    ranked = np.argsort(lof)
+    largest_indices = ranked[::-1][:n] # >> outliers
+    smallest_indices = ranked[:n] # >> inliers
+    
+    # >> save LOF values in txt file
+    print('Saving LOF values')
+    with open(path+'lof-'+prefix+'.txt', 'w') as f:
+        for i in range(len(targets)):
+            f.write('{} {}\n'.format(int(targets[i]), lof[i]))
+      
+
+    # -- momentum dumps ------------------------------------------------------
+    # >> get momentum dump times
+    print('Loading momentum dump times')
+    with open(momentum_dump_csv, 'r') as f:
+        lines = f.readlines()
+        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+        inds = np.nonzero((mom_dumps >= np.min(time)) * \
+                          (mom_dumps <= np.max(time)))
+        mom_dumps = np.array(mom_dumps)[inds]
+
+    # -- plot smallest and largest LOF light curves --------------------------
+    print('Plot highest LOF and lowest LOF light curves')
+    #num_figs = int(n_tot/n) # >> number of figures to generate
+    
+    rownumber = int(n/2) #number of rows per two column figure
+    
+    fig, ax = plt.subplots(rownumber, 2, sharex=True, figsize = (16, 3*rownumber))
+    #just going to do largest first: 
+
+    for i in range(n): #for each of the n plots
+        ind = largest_indices[i] #get index
+        if i < 10: #if in the first column
+            col = 0 #column 0
+            row = int(i) #row is row
+        elif i >= 10: 
+            col = 1
+            row = int(i - rownumber)
+            
+        for t in mom_dumps:
+                    ax[row, col].axvline(t, color='g', linestyle='--')
+        
+        ax[row, col].plot(time, intensity[ind] + addend, '.k')
+        ax[row,col].text(0.98, 0.02, '%.3g'%lof[ind],
+                           transform=ax[row, col].transAxes,
+                           horizontalalignment='right',
+                           verticalalignment='bottom',
+                           fontsize='xx-small')
+        format_axes(ax[row,col], ylabel=True)
+        if not mock_data:
+            ticid_label(ax[row, col], targets[ind], target_info[ind],
+                                title=True)
+            
+        fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
+                             y=0.9)
+        fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
+                            str(n_neighbors) + '-largest.png',
+                            bbox_inches='tight')
+        plt.close(fig)
+     
+    fig, ax = plt.subplots(rownumber, 2, sharex=True, figsize = (16, 3*rownumber))
+    for i in range(n): #for each of the n plots
+        ind = smallest_indices[i] #get index
+        if i < 10: #if in the first column
+            col = 0 #column 0
+            row = int(i) #row is row
+        elif i >= 10: 
+            col = 1
+            row = int(i - rownumber)
+            
+        for t in mom_dumps:
+                    ax[row, col].axvline(t, color='g', linestyle='--')
+        
+        ax[row, col].plot(time, intensity[ind] + addend, '.k')
+        ax[row,col].text(0.98, 0.02, '%.3g'%lof[ind],
+                           transform=ax[row, col].transAxes,
+                           horizontalalignment='right',
+                           verticalalignment='bottom',
+                           fontsize='xx-small')
+        format_axes(ax[row,col], ylabel=True)
+        if not mock_data:
+            ticid_label(ax[row, col], targets[ind], target_info[ind],
+                                title=True)
+            
+        fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
+                             y=0.9)
+        fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
+                            str(n_neighbors) + '-smallest.png',
+                            bbox_inches='tight')
+        plt.close(fig)
+
+        
     
     # cm = cm[:len(labels)]
     # cm = cm[:, list(range(len(columns)))]
@@ -2889,3 +2927,78 @@ def presentation_plot_classifications(x, flux, ticid, target_info, output_dir,
     # # # best_order = col_ordering[best_ind]
     # # # cm = cm[:,best_order]
     # # cm = cm[best_row_ordering,best_col_ordering]
+#def features_2D_colorshape(feature_vectors, path, clusteralg, hand_classes):
+ #   """ plots features against each other
+  #  COLORING based on the given hand classes. 
+   # SHAPE based on the assigned class by the given cluster algorithm
+  #  folderpath and clusteralg should be strings
+  #  """
+  #  if clusteralg == 'dbscan':
+   #     db = DBSCAN(eps=2.2, min_samples=18).fit(feature_vectors) #eps is NOT epochs
+   #     classes_dbscan = db.labels_
+
+    #elif clusteralg == 'kmeans': 
+     #   Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
+    #    x = Kmean.fit(feature_vectors)
+    #    classes_kmeans = x.labels_
+   # else: 
+    #    print("please enter a valid clustering algorithm")
+ 
+    #try:
+     #   os.makedirs(path)
+   # except OSError:
+    #    print ("Creation of the directory %s failed" % path)
+     #   print("New folder created will have -new at the end. Please rename.")
+      #  os.makedirs(path + "-new")
+   # else:
+    #    print ("Successfully created the directory %s" % path) 
+ 
+  #  graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+   #                 "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+    #                "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+     #               "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+    #fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+     #               "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+      #              "P0", "P1", "P2", "Period0to0_1"]
+    #for n in range(16):
+     #   feat1 = feature_vectors[:,n]
+      #  graph_label1 = graph_labels[n]
+       # fname_label1 = fname_labels[n]
+       # for m in range(16):
+        #    if m == n:
+         #       continue
+          #  graph_label2 = graph_labels[m]
+      #      fname_label2 = fname_labels[m]                
+       #     feat2 = feature_vectors[:,m]
+            
+        #    colors = ["red", "blue", "green", "purple", "yellow", "magenta", "black"]
+         #   shapes = ['.', 'P', 'h', '+', 'x']
+            
+          #  if clusteralg == 'dbscan':
+           #     for p in range(len(feature_vectors)):
+            #        #assign a color
+             #       c = colors[classes_dbscan[p]]
+                    
+              #      if classes_dbscan[p] == hand_classes[p]:
+               #         s = '^' #if they match the arrow goes up
+                #    else:
+                 #       s = 'v' #if they do not match the arrow goes down
+                    
+                  #  plt.scatter(feat1[p], feat2[p], c = c, s = 1, marker=s)
+               # plt.xlabel(graph_label1)
+                #plt.ylabel(graph_label2)
+              #  plt.savefig((path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.pdf"))
+               # plt.show()
+            #elif clusteralg == 'kmeans':
+             #   for p in range(len(feature_vectors)):
+                    #assign color
+              #      c = colors[classes_kmeans[p]]
+               #     if classes_kmeans[p] == hand_classes[p]:
+                #        s = '^'
+                 #   else:
+                  #      s = 'v'
+                   # plt.scatter(feat1[p], feat2[p], c = c,s = 1, marker=s)
+            #    plt.xlabel(graph_label1)
+             #   plt.ylabel(graph_label2)
+              #  plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.pdf")
+        

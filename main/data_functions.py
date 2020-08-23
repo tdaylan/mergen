@@ -161,7 +161,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     target_info = [] # >> [sector, cam, ccd, data_type, cadence]
     for i in range(len(fnames)):
         print('Loading ' + fnames[i] + '...')
-        with fits.open(data_dir + fnames[i], mmap=False) as hdul:
+        with fits.open(data_dir + fnames[i], memmap=False) as hdul:
             if i == 0:
                 x = hdul[0].data
             flux = hdul[1].data
@@ -192,7 +192,7 @@ def load_group_from_fits(path, sector, camera, ccd):
     """
     filename_lc = path + "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd) + "_lightcurves.fits"
    
-    f = fits.open(filename_lc, mmap=False)
+    f = fits.open(filename_lc, memmap=False)
     
     time = f[0].data
     intensities = f[1].data
@@ -550,7 +550,7 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
         print(count)
         
         # >> open file
-        with fits.open(fits_path + file, mmap=False) as hdul:
+        with fits.open(fits_path + file, memmap=False) as hdul:
             hdu_data = hdul[1].data
             
             # >> get time array (only for the first light curve)
@@ -608,6 +608,8 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
     
     print("lc_from_bulk_download has finished running")
     return time, intensity_interp, ticid_interp, flagged, ticid_flagged
+
+
 
 def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
     """ Creates a fits file of the first n TICs that fall between the given
@@ -1069,8 +1071,10 @@ def targetwise_lc(yourpath, target_list, fname_time_intensities,fname_notes):
     return np.asarray(ticids)
 
 #Feature Vector Production -----------------------------
+    
 
-def create_save_featvec(yourpath, times, intensities, filelabel, version=0, save=True):
+
+def create_save_featvec_homogenous_time(yourpath, times, intensities, filelabel, version=0, save=True):
     """Produces the feature vectors for each light curve and saves them all
     into a single fits file. requires all light curves on the same time axis
     parameters:
@@ -1083,17 +1087,17 @@ def create_save_featvec(yourpath, times, intensities, filelabel, version=0, save
         * save = whether or not to save into a fits file
     returns: list of feature vectors + fits file containing all feature vectors
     requires: featvec()
-    modified: [lcg 07112020]"""
+    modified: [lcg 08212020]"""
     
 
     fname_features = yourpath + "/"+ filelabel + "_features_v"+str(version)+".fits"
     feature_list = []
     if version == 0:
-	#median normalize for the v0 features
+        #median normalize for the v0 features
         intensities = normalize(intensities)
     elif version == 1: 
         from transitleastsquares import transitleastsquares
-	#mean normalize the intensity so goes to 1
+        #mean normalize the intensity so goes to 1
         intensities = mean_norm(intensities)
 
     print("Begining Feature Vector Creation Now")
@@ -1230,11 +1234,12 @@ def featvec(x_axis, sampledata, v=0):
     
     #tls 
     elif v == 1: 
+        from transitleastsquares import transitleastsquares
         model = transitleastsquares(x_axis, sampledata)
         results = model.power(show_progress_bar=False)
         featvec.append(results.period)
         featvec.append(results.duration)
-        featvec.append((1 -results.depth))
+        featvec.append((1 - results.depth))
         featvec.append((results.power.max()))
     
     return featvec 
@@ -1292,7 +1297,7 @@ def feature_gen_from_lc_fits(path, sector, feature_version=0):
             ccd = int(m)
             file_label = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
             folderpath = path + "/" + file_label + "/"
-            f = fits.open(folderpath + file_label + "_features.fits", mmap=False)
+            f = fits.open(folderpath + file_label + "_features.fits", memmap=False)
             feats = f[0].data
             feats_all = np.concatenate((feats_all, feats))
             f.close()
@@ -1392,7 +1397,9 @@ def build_simbad_database(out='./simbad_database.txt'):
         for ticid in ticids:
             with open(out, 'a') as f:
                 f.write(ticid + ',' + obj + ',' + otype + ',' + bibcode + '\n')
-                
+ 
+
+               
 def get_simbad_classifications(ticid_list,
                                simbad_database_txt='./simbad_database.txt'):
     '''Query Simbad classification and bibcode from .txt file (output from
@@ -1619,6 +1626,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     ch_scores = []
     db_scores = []
     accuracy = []
+    param_num = 0
 
     with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
         f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format("eps\t\t", "samp\t\t", "metric\t\t", 
@@ -1633,7 +1641,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                 for l in range(len(algorithm)):
                     for m in range(len(leaf_size)):
                         if metric[k] == 'minkowski':
-                            p = [1,2,3,4]
+                            p = p
                         else:
                             p = [None]
                         for n in range(len(p)):
@@ -1648,15 +1656,15 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             classes_1, counts_1 = \
                                 np.unique(db.labels_, return_counts=True)
                                 
-                            param_num = str(len(parameter_sets)-1)
-                            title='Parameter Set '+param_num+': '+'{} {} {} {} {} {}'.format(eps[i],
+                            #param_num = str(len(parameter_sets)-1)
+                            title='Parameter Set '+str(param_num)+': '+'{} {} {} {} {} {}'.format(eps[i],
                                                                                         min_samples[j],
                                                                                         metric[k],
                                                                                         algorithm[l],
                                                                                         leaf_size[m],
                                                                                         p[n])
                             
-                            prefix='dbscan-p'+param_num                            
+                            prefix='dbscan-p'+str(param_num)                            
                                 
                             if confusion_matrix:
                                 acc = pf.plot_confusion_matrix(ticid, db.labels_,
@@ -1735,6 +1743,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                                  output_dir=output_dir,
                                                  prefix=prefix)
                             plt.close('all')
+                            param_num +=1
     print("Plot paramscan metrics...")
     pf.plot_paramscan_metrics(output_dir, parameter_sets, 
                               silhouette_scores, db_scores, ch_scores)
@@ -1745,6 +1754,40 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
 
         
     return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, accuracy
+
+def kneighbor_plotting(path, features, k_values):
+    """ This is based on a metric for finding the best possible eps/minsamp
+    value from the original DBSCAN paper (Ester et al 1996). Essentially,
+    by calculating the average distances to the k-nearest neighbors and plotting
+    those values sorted, you can determine by eye (heuristically) the best eps 
+    value. It should be eps value = yaxis value of first valley, and minsamp = k.
+    
+    ** currently uses default values (minkowski p=2) for the n-neighbor search **
+    
+    inputs: 
+        * path to where you want to save the plots
+        * features (should have any significant outliers clipped out)
+        * k_values: array of integers, ie [2,3,5,10] for the k values
+        
+    output: 
+        * plots the KNN curves into the path
+    modified [lcg 08122020 - created]"""
+    from sklearn.neighbors import NearestNeighbors
+    for n in range(len(k_values)):
+        neigh = NearestNeighbors(n_neighbors=k_values[n])
+        neigh.fit(features)
+    
+        k_dist, k_ind = neigh.kneighbors(features, return_distance=True)
+        
+        avg_kdist = np.mean(k_dist, axis=1)
+        avg_kdist_sorted = np.sort(avg_kdist)[::-1]
+        
+        plt.scatter(np.arange(len(features)), avg_kdist_sorted)
+        plt.xlabel("Points")
+        plt.ylabel("Average K-Neighbor Distance")
+        plt.title("K-Neighbor plot for k=" + str(k_values[n]))
+        plt.savefig(path + "kneighbors-" +str(k_values[n]) +"-plot-sorted.png")
+        plt.close()    
 
 def load_paramscan_txt(path):
     """ load in the paramscan stuff from the text file
@@ -1767,16 +1810,33 @@ def load_paramscan_txt(path):
     
     return cleaned_params, number_classes, metric_scores
 
-def hdbscan_param_search(bottleneck, time, flux, ticid, target_info,
-                         min_cluster_size=list(range(3,10, 2)),
-                         min_samples=list(range(3,10, 2)),
-                         metric=['euclidean', 'braycurtis'],
-                         p_space=[1,2,3,4],
-                         output_dir='./',
-                         database_dir='./databases/', make_plots=True):
+def hdbscan_param_search(features, time, flux, ticid, target_info,
+                            min_cluster_size=list(np.arange(2,30,2)),
+                            min_samples = [2,5,10,15],
+                            metric=['euclidean', 'manhattan', 'minkowski'],
+                            p = [1,2,3,4],
+                            output_dir='./', DEBUG=False,
+                            simbad_database_txt='./simbad_database.txt',
+                            database_dir='./databases/',
+                            pca=False, tsne=False):
+    '''Performs a grid serach across parameter space for HDBSCAN. 
+    
+    Parameters:
+        * features
+        * time/flux/ticids/target information
+        * min cluster size, metric, p (only for minkowski)
+        * output_dir : output directory, ending with '/'
+        * DEBUG : if DEBUG, plots first 5 light curves in each class
+        * optional to plot pca & tsne coloring for it
         
-    import hdbscan
-    # !! wider p range?
+    '''
+    import hdbscan         
+    classes = []
+    num_classes = []
+    counts = []
+    num_noisy= []
+    parameter_sets=[]
+    param_num = 0
     
     if metric[0] == 'all':
         metric = list(hdbscan.dist_metrics.METRIC_MAPPING.keys())
@@ -1786,105 +1846,168 @@ def hdbscan_param_search(bottleneck, time, flux, ticid, target_info,
         metric.remove('haversine')
         metric.remove('cosine')
         metric.remove('arccos')
-        metric.remove('pyfunc')
-    
+        metric.remove('pyfunc')    
+
     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
-        f.write('{}\t {}\t {}\t {}\n'.format("min_cluster_size", 
-                                             'min_samples', 'metric',
-                                             'silhouette'))    
-    
-    param_num=0
+        f.write('{} {} {} {}\n'.format("min cluster size", "min_samples","metric", "p"))
+
     for i in range(len(min_cluster_size)):
-        for j in range(len(min_samples)):
-            for k in range(len(metric)):
-                if metric[k] == 'minkowski':
-                    p = p_space
-                else:
-                    p = [None]
-                for l in range(len(p)):
+        for j in range(len(metric)):
+            if metric[j] == 'minkowski':
+                p = [1,2,3,4]
+            else:
+                p = [None]
+            for n in range(len(p)):
+                for k in range(len(min_samples)):
+                    clusterer = hdbscan.HDBSCAN(min_cluster_size=int(min_cluster_size[i]),
+                                                metric=metric[j], min_samples=min_samples[k],
+                                                p=p[n], algorithm='best')
+                    clusterer.fit(features)
+                    labels = clusterer.labels_
+                    print(np.unique(labels, return_counts=True))
+                    classes_1, counts_1 = np.unique(labels, return_counts=True)
+                            
+                                    
                     
-                    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size[i],
-                                                min_samples=min_samples[j],
-                                                metric=metric[k], p=p[l])
-                    clusterer.fit(bottleneck)
-                    classes, counts = \
-                        np.unique(clusterer.labels_, return_counts=True)    
-                    print(classes, counts)
-                    
-                    
-                    if len(classes) > 1:
-                        silhouette = silhouette_score(bottleneck, clusterer.labels_)
-                    else:
-                        silhouette= np.nan
-                    
+                    title='Parameter Set '+str(param_num)+': '+'{} {} {} {}'.format(min_cluster_size[i],
+                                                                                 min_samples[k],
+                                                                                 metric[j],p[n])
+                                
+                    prefix='hdbscan-p'+str(param_num)                            
+                                    
+                    if len(classes_1) > 1:
+                        classes.append(classes_1)
+                        num_classes.append(len(classes_1))
+                        counts.append(counts_1)
+                        num_noisy.append(counts_1[0])
+                        parameter_sets.append([min_cluster_size[i],metric[j],p[n]])
+                                    
+                                  
+                                    
                     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
-                        f.write('{}\t {}\t {}\t {}\n'.format(min_cluster_size[i],
-                                                             min_samples[j],
-                                                             metric[k],
-                                                             silhouette))    
-                    title='Parameter Set '+str(param_num)+': '+'{} {} {}'.format(min_cluster_size[i],
-                                                                            min_samples[j],
-                                                                            metric[k])
+                        f.write('{}\t {}\t {} \t{}\t \n'.format(min_cluster_size[i], min_samples[k],
+                                                           metric[j],p[n]))
+                                    
+                    if DEBUG and len(classes_1) > 1:
+                        pf.quick_plot_classification(time, flux,ticid,target_info, 
+                                                     features, labels,path=output_dir,
+                                                     prefix=prefix,
+                                                     simbad_database_txt=simbad_database_txt,
+                                                     title=title,
+                                                     database_dir=database_dir)
                     
-                    prefix='hdbscan-p'+str(param_num)
-                    
-                    if make_plots:
-                        acc = pf.plot_confusion_matrix(ticid, clusterer.labels_,
-                                                       database_dir=database_dir,
-                                                       output_dir=output_dir,
-                                                       prefix=prefix)        
-                        pf.plot_pca(bottleneck, clusterer.labels_,
-                                    output_dir=output_dir, prefix=prefix)    
-                        pf.plot_tsne(bottleneck, clusterer.labels_,
-                                     output_dir=output_dir, prefix=prefix)   
-                        pf.quick_plot_classification(time, flux, ticid,
-                                                    target_info, bottleneck,
-                                                    clusterer.labels_,
-                                                    path=output_dir,
-                                                    prefix=prefix,
-                                                    title=title,
-                                                    database_dir=database_dir)                    
-                        
-                        plt.figure()
-                        clusterer.condensed_tree_.plot()
-                        plt.savefig(output_dir + prefix + '-tree.png')
-                    
-                    param_num += 1
-                    
-    return acc
+                        if pca:
+                            print('Plot PCA...')
+                            pf.plot_pca(features, labels,
+                                        output_dir=output_dir,
+                                        prefix=prefix)
+                                    
+                        if tsne:
+                            print('Plot t-SNE...')
+                            pf.plot_tsne(features,labels,
+                                         output_dir=output_dir,
+                                         prefix=prefix)                
+                    plt.close('all')
+                    param_num +=1
+
+        
+    return parameter_sets, num_classes              
                         
                         
                         
 
 # DEPRECIATED SECTION -----------------------------------------------------
-def load_group_from_txt(sector, camera, ccd, path):
-    """loads in a given group's data provided you have it saved in TEXT metafiles already
-    path needs to be a string, ending with a forward slash
-    camera, ccd, secotr all should be integers
-    moved to depreciated 7/8/2020 by lcg
-    """
-    folder = "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd)
-    time_path = path + folder + "/" + folder + "_times_processed.txt"
-    intensities_path = path + folder + "/" + folder + "_intensities_processed.txt"
-    features_path = path + folder + "/" + folder + "_features.txt"
-    targets_path = path + folder + "/" + folder + "_targets.txt"
-    notes_path = path + folder + "/" + folder + "_group_notes.txt"
-    
-    t = np.loadtxt(time_path)
-    intensities = np.loadtxt(intensities_path)
-    try: 
-        targets = np.loadtxt(targets_path)
-    except ValueError:
-        targets = np.loadtxt(targets_path, skiprows=1)
-        
-    targets.astype(int)
-    features = np.loadtxt(features_path, skiprows=1)
-    notes = np.loadtxt(notes_path, skiprows=1)
-    
-    return t, intensities, targets, features, notes 
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+# def hdbscan_param_search(bottleneck, time, flux, ticid, target_info,
+#                          min_cluster_size=list(range(3,10, 2)),
+#                          min_samples=list(range(3,10, 2)),
+#                          metric=['euclidean', 'braycurtis'],
+#                          p_space=[1,2,3,4],
+#                          output_dir='./',
+#                          database_dir='./databases/', make_plots=True):
+        
+#     import hdbscan
+#     # !! wider p range?
+    
+#     if metric[0] == 'all':
+#         metric = list(hdbscan.dist_metrics.METRIC_MAPPING.keys())
+#         metric.remove('seuclidean')
+#         metric.remove('mahalanobis')
+#         metric.remove('wminkowski')
+#         metric.remove('haversine')
+#         metric.remove('cosine')
+#         metric.remove('arccos')
+#         metric.remove('pyfunc')
+    
+#     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+#         f.write('{}\t {}\t {}\t {}\n'.format("min_cluster_size", 
+#                                              'min_samples', 'metric',
+#                                              'silhouette'))    
+    
+#     param_num=0
+#     for i in range(len(min_cluster_size)):
+#         for j in range(len(min_samples)):
+#             for k in range(len(metric)):
+#                 if metric[k] == 'minkowski':
+#                     p = p_space
+#                 else:
+#                     p = [None]
+#                 for l in range(len(p)):
+                    
+#                     clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size[i],
+#                                                 min_samples=min_samples[j],
+#                                                 metric=metric[k], p=p[l])
+#                     clusterer.fit(bottleneck)
+#                     classes, counts = \
+#                         np.unique(clusterer.labels_, return_counts=True)    
+#                     print(classes, counts)
+                    
+                    
+#                     if len(classes) > 1:
+#                         silhouette = silhouette_score(bottleneck, clusterer.labels_)
+#                     else:
+#                         silhouette= np.nan
+                    
+#                     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+#                         f.write('{}\t {}\t {}\t {}\n'.format(min_cluster_size[i],
+#                                                              min_samples[j],
+#                                                              metric[k],
+#                                                              silhouette))    
+#                     title='Parameter Set '+str(param_num)+': '+'{} {} {}'.format(min_cluster_size[i],
+#                                                                             min_samples[j],
+#                                                                             metric[k])
+                    
+#                     prefix='hdbscan-p'+str(param_num)
+                    
+#                     if make_plots:
+#                         acc = pf.plot_confusion_matrix(ticid, clusterer.labels_,
+#                                                        database_dir=database_dir,
+#                                                        output_dir=output_dir,
+#                                                        prefix=prefix)        
+#                         pf.plot_pca(bottleneck, clusterer.labels_,
+#                                     output_dir=output_dir, prefix=prefix)    
+#                         pf.plot_tsne(bottleneck, clusterer.labels_,
+#                                      output_dir=output_dir, prefix=prefix)   
+#                         pf.quick_plot_classification(time, flux, ticid,
+#                                                     target_info, bottleneck,
+#                                                     clusterer.labels_,
+#                                                     path=output_dir,
+#                                                     prefix=prefix,
+#                                                     title=title,
+#                                                     database_dir=database_dir)                    
+                        
+#                         plt.figure()
+#                         clusterer.condensed_tree_.plot()
+#                         plt.savefig(output_dir + prefix + '-tree.png')
+                    
+#                     param_num += 1
+                    
+#     return acc    
+
     # TESS_features = np.array(TESS_features)
+
     # hdr = fits.Header()
     # hdu = fits.PrimaryHDU(TESS_features[:,1:-1].astype('float'))
     # hdu.writeto(output_dir + 'tess_features.fits')
