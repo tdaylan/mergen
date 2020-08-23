@@ -1429,19 +1429,8 @@ def get_simbad_classifications(ticid_list,
     return simbad_info
 
 def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
-    '''To get classifications for a sector:
-    import data_functions as df
-    output_dir = '../../'
-    dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-    _, _, ticid, _ = \
-    df.load_data_from_metafiles(dat_dir, 2, cams=[1,2,3,4], ccds=[1,2,3,4],
-                                DEBUG=True,
-                                output_dir=output_dir, nan_mask_check=False,
-                                custom_mask=[])  
-    tic, obj, mid = df.query_simbad_classifications(ticid, output_dir=output_dir)
-    
-    
-    We have a bunch of time.sleep(6) to avoid ConnectionError
+    '''Call like this:
+    query_simbad_classifications([453370125.0, 356473029])
     '''
     import time
     
