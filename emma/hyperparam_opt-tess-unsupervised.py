@@ -14,7 +14,7 @@
 
 # dat_dir = '../../' # >> directory with input data (ending with /)
 dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/CAE-3/' # >> directory to save diagnostic plots
+output_dir = '../../plots/CAE6/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -22,10 +22,10 @@ lib_dir = '../main/' # >> directory containing model.py, data_functions.py
 database_dir = '../../databases/' # >> directory containing text files for
                                   # >> cross-checking classifications
 # >> input data
-sectors = [3]
-# cams = [1, 2, 3, 4]
-cams = [1]
-ccds =  [1, 2, 3, 4]
+sectors = [2]
+cams = [1,2,3,4]
+# cams = [1]
+ccds =  [1,2,3,4]
 
 # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
 train_test_ratio = 0.9
@@ -93,12 +93,130 @@ if hyperparameter_optimization:
       'lr': [0.001, 0.005, 0.01, 0.05, 0.1],
       'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
                       'glorot_uniform'],
-      'num_consecutive': [2]}        
+      'num_consecutive': [2]}       
+    p = {'kernel_size': [3],
+          'latent_dim': [35],
+          'strides': [1],
+          'epochs': [10],
+          'dropout': [0.3],
+          'num_filters': [16, 32, 64],
+          'num_conv_layers': [4,6,8],
+          'batch_size': [128],
+          'activation': [tf.keras.activations.softplus,
+                         tf.keras.activations.selu,
+                         tf.keras.activations.relu,
+                         'swish',
+                         tf.keras.activations.exponential,
+                         tf.keras.activations.elu, 'linear'],
+          'optimizer': ['adam', 'adadelta'],
+          'last_activation': [tf.keras.activations.softplus,
+                         tf.keras.activations.selu,
+                         tf.keras.activations.relu,
+                         'swish',
+                         tf.keras.activations.exponential,
+                         tf.keras.activations.elu, 'linear'],
+          'losses': ['mean_squared_error'], #ml.custom_loss_function
+          'lr': [0.001],
+          'initializer': ['random_normal'],
+          'num_consecutive': [2]}        
+    
+    p = {'kernel_size': [3,5],
+          'latent_dim': [25],
+          'strides': [2],# 3
+          'epochs': [10],
+          'dropout': [0.1, 0.2, 0.3, 0.4, 0.5],
+          'num_filters': [32,64,128],
+          'num_conv_layers': [4,6,8,10],
+          'batch_size': [128],
+          'activation': [tf.keras.activations.softplus,
+                         tf.keras.activations.selu,
+                         tf.keras.activations.relu,
+                         'swish',
+                         tf.keras.activations.exponential,
+                         tf.keras.activations.elu, 'linear'],
+          'optimizer': ['adam', 'adadelta'],
+          'last_activation': ['linear'],
+          'losses': ['mean_squared_error'],
+          'lr': [0.001],
+          'initializer': ['random_normal'],
+          'num_consecutive': [2],
+           'kernel_regularizer': [None],
+          
+           'bias_regularizer': [None],
+          
+           'activity_regularizer': [None],
+         
+          'pool_size': [1]}     
+          # 'kernel_regularizer': [tf.keras.regularizers.l1_l2(l1=0.01, l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0.01, l2=0.),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.),
+          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.),
+          #                        None],
+          
+          # 'bias_regularizer': [tf.keras.regularizers.l1_l2(l1=0.01, l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0.01, l2=0.),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.),
+          #                        None],
+          
+          # 'activity_regularizer': [tf.keras.regularizers.l1_l2(l1=0.01, l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0.01, l2=0.),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.),
+          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.),
+          #                        None],    
 else:
     p = {'kernel_size': 3,
           'latent_dim': 35,
           'strides': 1,
-          'epochs': 10,
+          'epochs': 8,
+          'dropout': 0.3,
+          'num_filters': 16,
+          'num_conv_layers': 4,
+          'batch_size': 128,
+          'activation': tf.keras.activations.softplus,
+          'optimizer': 'adam',
+          'last_activation': 'linear',
+          'losses': 'mean_squared_error', #ml.custom_loss_function
+          'lr': 0.001,
+          'initializer': 'random_normal',
+          'num_consecutive': 2}     
+    p = {'kernel_size': 3,
+          'latent_dim': 25,
+          'strides': 2,# 3
+          'epochs': 20,
+          'dropout': 0.3,
+          'num_filters': 64,
+          'num_conv_layers': 12,
+          'batch_size': 128,
+          'activation': 'elu',
+          'optimizer': 'adam',
+          'last_activation': 'linear',
+          'losses': 'mean_squared_error',
+          'lr': 0.001,
+          'initializer': 'random_normal',
+          'num_consecutive': 2,
+          'kernel_regularizer': None,
+          'bias_regularizer': None,
+          'activity_regularizer': None,
+          'pool_size': 1}     
+    p = {'kernel_size': 3,
+          'latent_dim': 35,
+          'strides': 1,
+          'epochs': 15,
           'dropout': 0.3,
           'num_filters': 16,
           'num_conv_layers': 4,
@@ -106,10 +224,14 @@ else:
           'activation': 'elu',
           'optimizer': 'adam',
           'last_activation': 'linear',
-          'losses': ml.custom_loss_function,
-          'lr': 0.001,
+          'losses': 'mean_squared_error',
+          'lr': 0.005,
           'initializer': 'random_normal',
-          'num_consecutive': 2}     
+          'num_consecutive': 2,
+          'kernel_regularizer': None,
+          'bias_regularizer': None,
+          'activity_regularizer': None,
+          'pool_size': 1}      
     
 # -- create output directory --------------------------------------------------
     
@@ -165,22 +287,13 @@ x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
                                  split=split_at_orbit_gap,
                                  output_dir=output_dir)
 
-pdb.set_trace()
-
 title='TESS-unsupervised'
+
+pdb.set_trace()
 
 # == talos experiment =========================================================
 if hyperparameter_optimization:
     print('Starting hyperparameter optimization...')
-    # t = talos.Scan(x=np.concatenate([x_train, x_test]),
-    #                 y=np.concatenate([x_train, x_test]),
-    #                 params=p,
-    #                 model=ml.conv_autoencoder,
-    #                 experiment_name=title, 
-    #                 reduction_metric = 'val_loss',
-    #                 minimize_loss=True,
-    #                 reduction_method='correlation',
-    #                 fraction_limit=0.001) 
     t = talos.Scan(x=x_test,
                     y=x_test,
                     params=p,
@@ -189,16 +302,7 @@ if hyperparameter_optimization:
                     reduction_metric = 'val_loss',
                     minimize_loss=True,
                     reduction_method='correlation',
-                    fraction_limit=0.001)     
-    # t = talos.Scan(x=x_test,
-    #                y=x_test,
-    #                 params=p,
-    #                 model=ml.conv_autoencoder,
-    #                 experiment_name=title, 
-    #                 reduction_metric = 'val_loss',
-    #                 minimize_loss=True,
-    #                 reduction_method='correlation',
-    #                 fraction_limit=0.01, reduction_interval=4)     
+                    fraction_limit = 0.001)      
     # fraction_limit = 0.001
     analyze_object = talos.Analyze(t)
     data_frame, best_param_ind,p = pf.hyperparam_opt_diagnosis(analyze_object,
@@ -220,11 +324,14 @@ if run_model:
                                    rms=rms_test)    
     hdr = fits.Header()
     hdu = fits.PrimaryHDU(bottleneck, header=hdr)
-    hdu.writeto(output_dir + 'bottleneck_test.fits')      
+    hdu.writeto(output_dir + 'bottleneck_test.fits')    
+    fits.append(output_dir + 'bottleneck_test.fits', ticid_test)    
     
     hdr = fits.Header()
     hdu = fits.PrimaryHDU(bottleneck_train, header=hdr)
     hdu.writeto(output_dir + 'bottleneck_train.fits')    
+    fits.append(output_dir + 'bottleneck_train.fits', ticid_train)    
+    
     
     x_predict = model.predict(x_test)
     
@@ -245,16 +352,23 @@ if run_model:
     hdr = fits.Header()
     hdu = fits.PrimaryHDU(x_predict, header=hdr)
     hdu.writeto(output_dir + 'x_predict.fits')
+    fits.append(output_dir + 'x_predict.fits', ticid_test)    
+    
+    # >> saev weights
+    model.save(output_dir + 'model')
 
 # == Plots ====================================================================
 if diag_plots:
     print('Creating plots...')
     if split_at_orbit_gap or input_psd or not run_model:
 
-        model, history = [], []    
+        history = []
             
         with fits.open(output_dir + 'x_predict.fits') as hdul:
             x_predict = hdul[0].data
+            
+        import keras
+        model = keras.models.load_model(output_dir+'model') 
         
         # !! re-arrange x_predict
         
@@ -297,7 +411,7 @@ if diag_plots:
                             plot_in_bottle_out=False,
                             plot_latent_test = True,
                             plot_latent_train = True,
-                            plot_kernel=True,
+                            plot_kernel=False,
                             plot_intermed_act=False,
                             make_movie = False,
                             plot_lof_test=True,
@@ -324,8 +438,6 @@ if classification:
     
         
     pf.latent_space_plot(features, output_dir + 'latent_space-tessfeats.png')
-    
-    pdb.set_trace()
 
     parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
     df.dbscan_param_search(features, x, flux_feat, ticid_feat,
@@ -334,24 +446,17 @@ if classification:
                             simbad_database_txt='../../simbad_database.txt',
                             leaf_size=[30], algorithm=['auto'],
                             min_samples=[3],
-                            metric=['euclidean'], p=[None],
+                            metric=['minkowski'], p=[2],
                             database_dir=database_dir,
                             eps=list(np.arange(1.5, 3., 0.1)),
                             confusion_matrix=True)      
+        
+    acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
+                                  info_feat, output_dir=output_dir,
+                                  database_dir=database_dir, metric=['all'])
     
     with open(output_dir + 'param_summary.txt', 'a') as f:
-        f.write('accuracy: ' + str(np.max(acc)))
-    
-    # parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores = \
-    # df.dbscan_param_search(features, x, flux_feat, ticid_feat,
-    #                        info_feat, DEBUG=True, 
-    #                        output_dir=output_dir, 
-    #                        simbad_database_txt='../../simbad_database.txt',
-    #                        min_samples=[5],
-    #                        leaf_size=[30], algorithm=['auto'],
-    #                        metric=['euclidean'], p=[None],
-    #                        database_dir=database_dir,
-    #                        eps=list(np.arange(1.1, 1.6, 0.1)))       
+        f.write('accuracy: ' + str(np.max(acc)))    
 
     
         

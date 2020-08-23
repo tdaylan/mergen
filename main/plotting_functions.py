@@ -832,7 +832,7 @@ def features_2D_colorshape(feature_vectors, path, clusteralg, hand_classes):
 
 def diagnostic_plots(history, model, p, output_dir, 
                      x, x_train, x_test, x_predict, 
-                     target_info_test=False, target_info_train=[],
+                     target_info_test=False, target_info_train=False,
                      sharey=False, prefix='',
                      mock_data=False, ticid_train=False, ticid_test=False,
                      supervised=False, y_true=False, y_predict=False,
@@ -955,6 +955,11 @@ def diagnostic_plots(history, model, p, output_dir,
         activations = ml.get_activations(model, x_test) 
     if plot_intermed_act:
         print('Plotting intermediate activations')
+        err = (x_test - x_predict)**2
+        err = np.mean(err, axis=1)
+        err = err.reshape(np.shape(err)[0])
+        ranked = np.argsort(err)
+        intermed_inds = [ranked[0], ranked[-1]]
         intermed_act_plot(x, model, activations, x_test,
                           output_dir+prefix+'intermed_act-', addend=addend,
                           inds=intermed_inds, feature_vector=feature_vector)
@@ -1069,7 +1074,7 @@ def diagnostic_plots(history, model, p, output_dir,
         bottleneck_all = np.concatenate([bottleneck, bottleneck_train], axis=0)
         plot_lof(time, np.concatenate([flux_test, flux_train], axis=0),
                  np.concatenate([ticid_test, ticid_train]), bottleneck_all,
-                 20, output_dir, prefix='all-'+prefix, n_neighbors=n,
+                 20, output_dir, prefix='all-'+prefix, n_neighbors=20,
                  mock_data=mock_data, feature_vector=feature_vector,
                  n_tot=n_tot, log=True,
                  target_info=np.concatenate([target_info_test,
@@ -1083,7 +1088,8 @@ def diagnostic_plots(history, model, p, output_dir,
         print('Plotting reconstruction error for testing set')
         plot_reconstruction_error(x, x_test, x_test, x_predict, ticid_test,
                                   output_dir=output_dir,
-                                  target_info=target_info_test)
+                                  target_info=target_info_test,
+                                  mock_data=mock_data)
     
     if plot_reconstruction_error_all:
         print('Plotting reconstruction error for entire dataset')
@@ -1269,7 +1275,7 @@ def kernel_filter_plot(model, out_dir):
         plt.savefig(out_dir + 'layer' + str(a) + '.png')
         plt.close(fig)
 
-def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.,
+def intermed_act_plot(x, model, activations, x_test, out_dir, addend=1.,
                       inds = [0, -1], feature_vector=False):
     '''Visualizing intermediate activations.
     Parameters:
@@ -1313,6 +1319,12 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=0.,
         # -- plot intermediate activations ------------------------------------
         for a in act_inds: # >> loop through layers
             activation = activations[a]
+            
+            # >> reshape if image with image width = 1
+            if len(np.shape(activation)) == 4:
+                act_shape = np.array(activation.shape)
+                new_shape = act_shape[np.nonzero(act_shape != 1)]
+                activation = np.reshape(activation, new_shape)
             
             if len(np.shape(activation)) == 2:
                 ncols, nrows = 1, 1
@@ -1575,19 +1587,20 @@ def plot_lof(time, intensity, targets, features, n, path,
     smallest_indices = ranked[:n_tot] # >> inliers
     
     # >> save LOF values in txt file
-    print('Saving LOF values')
-    with open(path+'lof-'+prefix+'.txt', 'w') as f:
-        for i in range(len(targets)):
-            f.write('{} {}\n'.format(int(targets[i]), lof[i]))
-      
-    # >> make histogram of LOF values
-    print('Make LOF histogram')
-    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                   targets, path+'lof-'+prefix+'histogram-insets.png',
-                   insets=True, log=log)
-    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                   targets, path+'lof-'+prefix+'histogram.png', insets=False,
-                   log=log)
+    if not mock_data:
+        print('Saving LOF values')
+        with open(path+'lof-'+prefix+'.txt', 'w') as f:
+            for i in range(len(targets)):
+                f.write('{} {}\n'.format(int(targets[i]), lof[i]))
+          
+        # >> make histogram of LOF values
+        print('Make LOF histogram')
+        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+                       targets, path+'lof-'+prefix+'histogram-insets.png',
+                       insets=True, log=log)
+        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+                       targets, path+'lof-'+prefix+'histogram.png', insets=False,
+                       log=log)
         
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
@@ -1698,10 +1711,10 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
         f.write(str(df.iloc[best_param_ind]) + '\n')
     
     if supervised:
-        label_list = ['val_loss', 'val_acc', 'val_precision',
-                      'val_recall']
+        label_list = ['val_loss']
         key_list = ['val_loss', 'val_accuracy', 'val_precision_1',
                     'val_recall_1']
+        
     else:
         label_list = ['val_loss']
         key_list = ['val_loss']
@@ -1731,8 +1744,9 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     
     # >> get best parameter set
     hyperparameters = list(analyze_object.data.columns)
-    for col in ['round_epochs', 'val_loss', 'val_accuracy', 'val_precision_1',
-            'val_recall_1', 'loss', 'accuracy', 'precision_1', 'recall_1']:
+    # for col in ['round_epochs', 'val_loss', 'val_accuracy', 'val_precision_1',
+    #         'val_recall_1', 'loss', 'accuracy', 'precision_1', 'recall_1']:
+    for col in ['round_epochs', 'val_loss', 'loss']:    
         hyperparameters.remove(col)
         
     p = {}
@@ -1859,9 +1873,10 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
     random_inds = ranked[:n]
     
     # >> save in txt file
-    with open(output_dir+'reconstruction_error.txt', 'w') as f:
-        for i in range(len(ticid_test)):
-            f.write('{} {}\n'.format(ticid_test[i], err[i]))
+    if not mock_data:
+        with open(output_dir+'reconstruction_error.txt', 'w') as f:
+            for i in range(len(ticid_test)):
+                f.write('{} {}\n'.format(ticid_test[i], err[i]))
     
     for i in range(3):
         fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
@@ -1885,7 +1900,7 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
         if feature_vector:
             ax[n-1].set_xlabel('\u03C8')
         else:
-            ax[n-1].set_xlabel('time [BJD - 2457000]')
+            ax[n-1].set_xlabel('Time [BJD - 2457000]')
         if i == 0:
             fig.suptitle('largest reconstruction error', fontsize=16, y=0.9)
             fig.savefig(output_dir + 'reconstruction_error-largest.png',
@@ -1996,7 +2011,7 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
                 for m in range(nrows):
                     ax[m, 0].set_ylabel('Relative flux')
                     
-        # fig.tight_layout()
+        fig.tight_layout()
         fig.savefig(path + prefix + '-' + str(i) + '.png')
         plt.close(fig)
                 
@@ -2139,7 +2154,8 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./', prefix=''):
 
 # == helper functions =========================================================
 
-def ticid_label(ax, ticid, target_info, title=False, color='black'):
+def ticid_label(ax, ticid, target_info, title=False, color='black',
+                fontsize='xx-small'):
     '''Query catalog data and add text to axis.
     Parameters:
         * target_info : [sector, camera, ccd, data_type, cadence]
@@ -2177,18 +2193,18 @@ def ticid_label(ax, ticid, target_info, title=False, color='black'):
                                       Teff, '%.2g'%rad, '%.2g'%mass,
                                       '%.3g'%GAIAmag, '%.3g'%d, objType,
                                       '%.3g'%Tmag),
-                         fontsize='xx-small', color=color)
+                         fontsize=fontsize, color=color)
         else:
             ax.text(0.98, 0.98, info.format(Teff, '%.2g'%rad, '%.2g'%mass, 
                                             '%.3g'%GAIAmag, '%.3g'%d, objType,
                                             Tmag),
                       transform=ax.transAxes, horizontalalignment='right',
-                      verticalalignment='top', fontsize='xx-small')
+                      verticalalignment='top', fontsize=fontsize)
     except (ConnectionError, OSError, TimeoutError):
         print("there was a connection error!")
         ax.text(0.98, 0.98, "there was a connection error",
                       transform=ax.transAxes, horizontalalignment='right',
-                      verticalalignment='top', fontsize='xx-small')
+                      verticalalignment='top', fontsize=fontsize)
             
 def simbad_label(ax, ticid, simbad_info):
     '''simbad_info = [ticid, main_id, otype, bibcode]'''
@@ -2309,6 +2325,11 @@ def plot_tsne(bottleneck, labels, n_components=2, output_dir='./', prefix=''):
     plt.savefig(output_dir + prefix + 't-sne.png')
     plt.close()
     
+def get_tsne(bottleneck, n_components=2):
+    from sklearn.manifold import TSNE
+    X = TSNE(n_components=n_components).fit_transform(bottleneck)
+    return X
+    
     
 def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
                           output_dir='./', prefix=''):
@@ -2341,7 +2362,14 @@ def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
     # >> Hungarian algorithm (tries to minimize the diagonal)
     row_ind, col_ind = linear_sum_assignment(-1*cm)
     cm = cm[:,col_ind]
-    # !! need to reorder columns label
+    # !! TODO need to reorder columns label
+    
+    df_cm = pd.DataFrame(cm)
+    fig, ax = plt.subplots()
+    sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
+    ax.set_aspect(1)
+    fig.savefig(output_dir+prefix+'confusion_matrix_no_labels.png')
+    plt.close()
     
     # >> remove rows and columns that are all zeros
     cm = np.delete(cm, np.nonzero(np.prod(cm == 0, axis=0)), axis=1)
@@ -2358,6 +2386,332 @@ def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
     
     return accuracy
     
+def plot_lof_paper(features, time, flux, targets, n_neighbors=20, nrows=4,
+                   target_info=False, addend=1., output_dir='./', lof=None,
+                   momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
+                   fontsize=6):
+    from astropy.timeseries import LombScargle
+    
+    # -- calculate LOF --------------------------------------------------------
+    if type(lof) == type(None):
+        print('Calculating LOF')
+        clf = LocalOutlierFactor(n_neighbors=n_neighbors)
+        fit_predictor = clf.fit_predict(features)
+        negative_factor = clf.negative_outlier_factor_
+        lof = -1 * negative_factor
+        
+    ranked = np.argsort(lof)    
+    largest_indices = ranked[::-1][:nrows] # >> outliers
+    smallest_indices = ranked[:nrows] # >> inliers    
+    
+    # -- momentum dumps ------------------------------------------------------
+    # >> get momentum dump times
+    print('Loading momentum dump times')
+    with open(momentum_dump_csv, 'r') as f:
+        lines = f.readlines()
+        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+        inds = np.nonzero((mom_dumps >= np.min(time)) * \
+                          (mom_dumps <= np.max(time)))
+        mom_dumps = np.array(mom_dumps)[inds]
+
+    # >> compute frequency    
+    f, tmp = LombScargle(time, flux[0]).autopower() 
+    
+    # -- plot -----------------------------------------------------------------
+    fig, ax= plt.subplots(nrows, 2)
+    for i in range(nrows):
+        # >> plot momentum dumps
+        for t in mom_dumps:
+            ax[i,0].axvline(t, color='g', linestyle='--')        
+        
+        ind = largest_indices[i]
+        ax[i,0].plot(time, flux[ind], '.k')
+        # format_axes(ax[i,0], ylabel=True)
+        ticid_label(ax[i,0], targets[ind], target_info[ind], title=True,
+                    fontsize=fontsize)        
+        ax[i,0].set_ylabel('Relative flux')
+        ax[i,0].text(0.98, 0.02, 'LOF %.3g'%lof[ind],
+                     transform=ax[i,0].transAxes,
+                     horizontalalignment='right',
+                     verticalalignment='bottom', fontsize=fontsize)
+        
+        power = LombScargle(time, flux[ind]).power(f)
+        ax[i,1].plot(f, power, 'k', lw=1)
+        ax[i,1].set_xscale('log')
+        ax[i,1].set_yscale('log')
+        # format_axes(ax[i,1], ylabel=True)
+        ticid_label(ax[i,1], targets[ind], target_info[ind], title=True,
+                    fontsize=fontsize)        
+        ax[i,1].set_ylabel('Power')
+        ax[i,1].text(0.98, 0.02, 'LOF %.3g'%lof[ind],
+                     transform=ax[i,1].transAxes,
+                     horizontalalignment='right',
+                     verticalalignment='bottom', fontsize=fontsize)        
+        
+    
+    # >> more formatting
+    for i in range(nrows-1):
+        ax[i,0].set_xticklabels([])
+        ax[i,1].set_xticklabels([])
+    ax[-1,1].set_xlabel('Frequency [days^-1]')
+    ax[-1,0].set_xlabel('Time [BJD - 2457000.0]')
+    
+    fig.tight_layout()
+    # fig.subplots_adjust()
+    fig.savefig(output_dir + 'LOF_paper_plot.png')
+    
+        
+def get_lof(ticid_feat, features, database_dir='./databases/',
+            n_neighbors=20, output_dir='./'):
+    class_info = df.get_true_classifications(ticid_feat,
+                                             database_dir=database_dir)
+    ticid_classified = class_info[:,0].astype('int')     
+    
+    print('Calculating LOF')
+    clf = LocalOutlierFactor(n_neighbors=n_neighbors)
+    fit_predictor = clf.fit_predict(features)
+    negative_factor = clf.negative_outlier_factor_
+    lof = -1 * negative_factor   
+    lof = np.array(lof) 
+    
+    intersection, comm1, comm2 = np.intersect1d(ticid_feat, ticid_classified,
+                                                return_indices=True)
+    
+    sorted_lof = np.argsort(lof[comm1])
+    
+    with open(output_dir+'lof_classified.txt', 'w') as f:
+        for i in range(len(intersection)):
+            intersection_ind = sorted_lof[-1*i - 1]
+            lof_ind = comm1[intersection_ind]
+            class_ind = comm2[intersection_ind]
+            f.write('{} {} {} {} \n'.format(ticid_feat[lof_ind],
+                                              lof[lof_ind],
+                                              class_info[class_ind][1],
+                                              class_info[class_ind][2]))    
+    
+    return lof
+    
+    
+def paper_schematic(x_test, x_predict, output_dir='./'):
+    x_predict = np.reshape(x_predict, (np.shape(x_predict)[0], 
+                                       np.shape(x_predict)[1]))
+    err = (x_test - x_predict)**2
+    err = np.mean(err, axis=1)
+    err = err.reshape(np.shape(err)[0])
+    ranked = np.argsort(err)  
+    ind = ranked[0]
+    
+    fig, ax = plt.subplots(figsize=(8, 3))
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.plot(x_test[ind], '.k', markersize=1)
+    
+    fig1, ax = plt.subplots(figsize=(8, 3))
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.plot(x_predict[ind], '.k', markersize=1)    
+
+def plot_lc(time, flux, target_info, ticid, ind, output_dir='./',
+            momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
+            addend=1.):
+    # -- momentum dumps ------------------------------------------------------
+    # >> get momentum dump times
+    print('Loading momentum dump times')
+    with open(momentum_dump_csv, 'r') as f:
+        lines = f.readlines()
+        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+        inds = np.nonzero((mom_dumps >= np.min(time)) * \
+                          (mom_dumps <= np.max(time)))
+        mom_dumps = np.array(mom_dumps)[inds]    
+    
+    # -- plot -----------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(8,3))
+    for t in mom_dumps:
+        ax.axvline(t, color='g', linestyle='--')
+        
+    ax.plot(time, flux[ind][0] + addend, '.k', ms=2)
+    format_axes(ax, xlabel=True)
+    ticid_label(ax, ticid[ind], target_info[ind][0], title=True)      
+    ax.set_ylabel('Flux')
+    
+    fig.tight_layout()
+    fig.savefig(output_dir + 'TICID' + str(int(ticid[ind])) + '.png')
+    
+    return fig, ax
+    
+
+def presentation_kernel_plots(model, x_test, x_predict, ind, output_dir='./'):
+    from keras.models import Model
+    layer_outputs = [layer.output for layer in model.layers][1:] 
+    activation_model = Model(inputs=model.input, outputs=layer_outputs) 
+    
+    z1 = np.reshape(x_test[ind], (1, np.shape(x_test)[1]))
+    activations = activation_model.predict(z1)
+    
+    conv_inds = np.nonzero(['conv' in x.name for x in model.layers])[0]
+    conv_inds = conv_inds[:len(conv_inds)//2]
+
+    conv_ind = 0
+    filters, biases = model.layers[conv_inds[conv_ind]].get_weights()
+    filters = np.reshape(filters, (np.shape(filters)[-1], np.shape(filters)[0]))
+    
+    # >> choose a filter
+    i = len(conv_inds) -1
+    plt.figure()
+    plt.imshow(np.reshape(filters[i], (1,3)))
+    plt.savefig(output_dir + str(i)+'.png')
+    
+    plt.figure()
+    plt.plot(activations[conv_inds[conv_ind] + 1][0][:,i], '.k', markersize=2)
+    plt.savefig(output_dir + str(i)+'-act.png')
+    
+    fig, ax = plt.subplots()
+    ax.imshow(np.reshape(filters, (3, np.shape(filters)[0])))
+    ax.set_yticklabels([])
+    ax.set_ylabel('filter')
+    fig.savefig(output_dir + str(i) + '-all.png')
+    
+    fig, ax = plt.subplots(8, 8)
+    act = activations[conv_inds[conv_ind] + 1][0]
+    for k in range(8):
+        for j in range(8):
+            ax[k,j].plot(act[:,8*k + j], '.k', markersize=1)
+            ax[k,j].set_xticklabels([])
+            ax[k,j].set_yticklabels([])
+    fig.subplots_adjust(wspace=0, hspace=0)
+    fig.savefig(output_dir + str(i) + '-all_filt.png')
+            
+
+def presentation_LOF_by_feature(features, features_ticid, feature_lof=None,
+                             n_neighbors=20, output_dir='./', bins=20):
+    '''What is the LOF triggering on?'''
+    
+    # ind = np.nonzero(features_ticid == ticid)
+    
+    # >> compute the LOF for each feature
+    if type(feature_lof) == type(None):
+        feature_lof = []
+        for i in range(features.shape[1]):
+            clf = LocalOutlierFactor(n_neighbors=n_neighbors)
+            fit_predictor = clf.fit_predict(features[:,i].reshape(-1,1))
+            negative_factor = clf.negative_outlier_factor_
+            lof = -1 * negative_factor    
+            feature_lof.append(lof)
+            
+    for i in range(features.shape[1]):
+        fig, ax = plt.subplots(figsize=(4,4))
+        n_in, bins, patches = ax.hist(feature_lof[i], bins, log=True)        
+        ax.set_ylabel('Number of light curves')
+        if i == features.shape[1] - 1:
+            ax.set_xlabel('LOF RMS (\u03C6'+str(i) + ')')
+        else:
+            ax.set_xlabel('LOF \u03C6'+str(i))
+        fig.tight_layout()
+        fig.savefig(output_dir+'lof_hist_'+str(i)+'.png')
+        
+        plt.close()
+            
+    return feature_lof
+    
+
+def presentation_feature(features, ind, output_dir = './'):
+    # >> assumes triangle shape
+    ranked = np.argsort(features[ind])
+    
+    fig, ax = plt.subplots(figsize=(5,5))
+    ax.plot(features[:,ranked[-1]], features[:,ranked[-2]], '.', markersize=2)
+    ax.plot([features[:,ranked[-1]][ind]], [features[:,ranked[-2]][ind]], 'Xg',
+            markersize=30)
+    ax.set_xlabel('\u03C6' + str(ranked[-1]))
+    ax.set_ylabel('\u03C6' + str(ranked[-2]))
+    fig.savefig(output_dir + 'feat'+str(ranked[-1])+'-'+str(ranked[-2])+'.png')
+    plt.close()
+    
+    
+def presentation_validation(model, p, ind):
+    '''Can only handle constant num_filters'''
+    bottleneck_ind = np.nonzero(['dense' in x.name for x in model.layers])[0][0]
+    filters, biases = model.layers[bottleneck_ind].get_weights()
+    filters = filters.reshape(p['num_filters'],
+                              int(np.shape(filters)[0]/p['num_filters']), -1)
+    
+    fig, ax = plt.subplots(4,4)
+    for i in range(4):
+        for j in range(4):
+            ax[i,j].plot(filters[4*i+j,:,ind], '.') 
+            ax[i,j].set_xticklabels([])
+            ax[i,j].set_yticklabels([])
+            
+    
+    
+    
+    
+def presentation_plot_classifications(x, flux, ticid, target_info, output_dir,
+                                      ticid_list, classnum, addend=1.,
+                                      plot_psd=False,
+                                      momentum_dump_csv = '../../Table_of_momentum_dumps.csv'):  
+    from astropy.timeseries import LombScargle
+    
+    color = get_colors()[classnum+1]
+    
+    
+    # -- momentum dumps ------------------------------------------------------
+    # >> get momentum dump times
+    print('Loading momentum dump times')
+    with open(momentum_dump_csv, 'r') as f:
+        lines = f.readlines()
+        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+        inds = np.nonzero((mom_dumps >= np.min(x)) * \
+                          (mom_dumps <= np.max(x)))
+        mom_dumps = np.array(mom_dumps)[inds]
+    
+    
+    if not plot_psd:
+        fig, ax = plt.subplots(len(ticid_list), figsize=(8, 3*len(ticid_list)))
+        for i in range(len(ticid_list)):
+            
+            # >> plot momentum dumps
+            for t in mom_dumps:
+                ax[i].axvline(t, color='g', linestyle='--')                  
+            
+            ind = np.nonzero(ticid == ticid_list[i])
+            ax[i].plot(x, flux[ind].reshape(-1)+addend, '.k')
+            ticid_label(ax[i], ticid[ind], target_info[ind][0], title=True,
+                        color=color, fontsize='small')
+            format_axes(ax[i], xlabel=True, ylabel=True)
+        fig.tight_layout()
+        fig.savefig(output_dir+'class'+str(classnum)+'.png')
+        plt.close()
+        
+    else:
+        f, tmp = LombScargle(x, flux[0]).autopower()
+        fig, ax = plt.subplots(len(ticid_list), 2, figsize=(8, 3*len(ticid_list)))
+        for i in range(len(ticid_list)):
+        
+            # >> plot momentum dumps
+            for t in mom_dumps:
+                ax[i,0].axvline(t, color='g', linestyle='--')            
+            
+            ind = np.nonzero(ticid == ticid_list[i])
+            ax[i,0].plot(x, flux[ind].reshape(-1)+addend, '.k')
+            ticid_label(ax[i,0], ticid[ind], target_info[ind][0], title=True,
+                        color=color, fontsize='small')
+            format_axes(ax[i,0], xlabel=True, ylabel=True)
+            
+            power = LombScargle(x, flux[ind].reshape(-1)).power(f)
+            ax[i,1].plot(f, power, 'k', lw=1)
+            ax[i,1].set_xscale('log')
+            ax[i,1].set_yscale('log')
+            ax[i,1].set_xlabel('Frequency [days$^{-1}$]')
+            ax[i,1].set_ylabel('Power')
+            ax[i,1].set_aspect(3./8)
+            ticid_label(ax[i,1], ticid[ind], target_info[ind][0], title=True,
+                        color=color, fontsize='small')            
+        fig.tight_layout()
+        fig.savefig(output_dir+'class'+str(classnum)+'-psd.png')
+        plt.close()        
+    
+
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     
     
