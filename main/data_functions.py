@@ -1749,7 +1749,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
         
     return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, accuracy
 
-def kneighbor_plotting(path, features, k_values):
+def KNN_plotting(path, features, k_values):
     """ This is based on a metric for finding the best possible eps/minsamp
     value from the original DBSCAN paper (Ester et al 1996). Essentially,
     by calculating the average distances to the k-nearest neighbors and plotting
