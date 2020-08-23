@@ -1442,6 +1442,8 @@ def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
     otypes_simbad = []
     main_id_simbad = []
     
+    with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
+        f.write('')    
     
     with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'r') as f:
         lines = f.readlines()
@@ -1536,7 +1538,10 @@ def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
             if type(res) == type(None):
                 print('failed :(')
                 with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
-                    f.write('{},{},{}\n'.format(tic, '', ''))                
+                    f.write('{},{},{}\n'.format(tic, '', ''))              
+                ticid_simbad.append(tic)
+                otypes_simbad.append('none')
+                main_id_simbad.append('none')                
             else:
                 otypes = res['OTYPES'][0].decode('utf-8')
                 main_id = res['MAIN_ID'].data[0].decode('utf-8')
@@ -1551,7 +1556,7 @@ def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
             
             
             
-        return ticid_simbad, otypes_simbad
+    return ticid_simbad, otypes_simbad, main_id_simbad
         
 
 def get_true_classifications(ticid_list,
