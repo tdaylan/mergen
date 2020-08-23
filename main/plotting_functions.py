@@ -1509,12 +1509,16 @@ def plot_lof(time, intensity, targets, features, n, path,
     with open(path+'lof-'+prefix+'.txt', 'w') as f:
         for i in range(len(targets)):
             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
+        f.write("Ten highest LOF\n")
+        for k in range(n):
+            ind = largest_indices[k]
+            f.write(str(targets[ind]) + " " + str(features[ind]) + "\n")
       
     # >> make histogram of LOF values
     print('Make LOF histogram')
-    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                   targets, path+'lof-'+prefix+'histogram-insets.png',
-                   insets=True, log=log)
+    #plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+     #              targets, path+'lof-'+prefix+'histogram-insets.png',
+      #             insets=True, log=log)
     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
                    targets, path+'lof-'+prefix+'histogram.png', insets=False,
                    log=log)
