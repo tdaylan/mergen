@@ -84,11 +84,17 @@ from astroquery.mast import Catalogs
 from astroquery.mast import Observations
 from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
+import astropy.coordinates as coord
+import astropy.units as u
 
 import pdb
 import fnmatch as fm
 
 import numba
+
+from sklearn.cluster import DBSCAN
+from sklearn.metrics import silhouette_score, calinski_harabasz_score
+from sklearn.metrics import davies_bouldin_score   
 # import batman
 # from transitleastsquares import transitleastsquares
 
@@ -852,7 +858,7 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
 def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
              ticid=False, target_info=False,
              output_dir='./', prefix='', tol1=0.05, tol2=0.1,
-             custom_mask=[]):
+             custom_mask=[], use_tol2=True):
     '''Apply nan mask to flux and time array.
     Returns masked, homogenous flux and time array.
     If there are only a few (less than tol1 light curves) light curves that
@@ -930,7 +936,7 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
     # >> check if only a few light curves contribute to NaN mask
     num_nan = np.array(num_nan)
     worst_inds = np.nonzero( num_nan > tol2 )
-    if len(worst_inds[0]) < tol1 * len(flux): # >> only a few bad light curves
+    if len(worst_inds[0]) < tol1 * len(flux) and use_tol2: # >> only a few bad light curves
         np.delete(flux, worst_inds, 0)
         
         # >> and calculate new mask
@@ -1312,7 +1318,7 @@ def feature_gen_from_lc_fits(path, sector, feature_version=0):
 
 def get_tess_features(ticid):
     '''Query catalog data https://arxiv.org/pdf/1905.10694.pdf'''
-    from astroquery.mast import Catalogs
+    
 
     target = 'TIC '+str(int(ticid))
     catalog_data = Catalogs.query_object(target, radius=0.02, catalog='TIC')
@@ -1359,7 +1365,9 @@ def get_tess_feature_txt(ticid_list, out='./tess_features_sectorX.txt'):
     
 def build_simbad_database(out='./simbad_database.txt'):
     '''Object type follows format in:
-    http://vizier.u-strasbg.fr/cgi-bin/OType?$1'''
+    http://vizier.u-strasbg.fr/cgi-bin/OType?$1
+    Can see other Simbad fields with Simbad.list_votable_fields()
+    TODO  change votable field to otypes'''
     
     # -- querying object type -------------------------------------------------
     customSimbad = Simbad()
@@ -1420,6 +1428,143 @@ def get_simbad_classifications(ticid_list,
                             bibcode_list[i]])
     return simbad_info
 
+def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
+    '''To get classifications for a sector:
+    import data_functions as df
+    output_dir = '../../'
+    dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
+    _, _, ticid, _ = \
+    df.load_data_from_metafiles(dat_dir, 2, cams=[1,2,3,4], ccds=[1,2,3,4],
+                                DEBUG=True,
+                                output_dir=output_dir, nan_mask_check=False,
+                                custom_mask=[])  
+    tic, obj, mid = df.query_simbad_classifications(ticid, output_dir=output_dir)
+    
+    
+    We have a bunch of time.sleep(6) to avoid ConnectionError
+    '''
+    import time
+    
+    customSimbad = Simbad()
+    customSimbad.add_votable_fields('otypes')
+    # customSimbad.add_votable_fields('biblio')
+    
+    ticid_simbad = []
+    otypes_simbad = []
+    main_id_simbad = []
+    
+    
+    with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'r') as f:
+        lines = f.readlines()
+        ticid_already_classified = []
+        for line in lines:
+            ticid_already_classified.append(float(line.split(',')[0]))
+    
+    for tic in ticid_list:
+        
+        if tic in ticid_already_classified:
+            print('Skipping TIC')
+            
+        else:
+            print('get coords for TIC' + str(int(tic)))
+            
+            # >> get coordinates
+            target = 'TIC ' + str(int(tic))
+            catalog_data = Catalogs.query_object(target, radius=0.02,
+                                                 catalog='TIC')[0]
+            # time.sleep(6)
+    
+            
+            # -- get object type from Simbad --------------------------------------
+            
+            # >> first just try querying the TICID
+            res = customSimbad.query_object(target)
+            # time.sleep(6)
+            
+            # >> if no luck with that, try checking other IDs
+            if type(res) == type(None):
+                if type(catalog_data['TYC']) != np.ma.core.MaskedConstant:
+                    target_new = 'TYC ' + str(catalog_data['TYC'])
+                    res = customSimbad.query_object(target_new)
+                    # time.sleep(6)
+                    
+            if type(res) == type(None):
+                if type(catalog_data['HIP']) != np.ma.core.MaskedConstant:
+                    target_new = 'HIP ' + str(catalog_data['HIP'])
+                    res = customSimbad.query_object(target_new)
+                    # time.sleep(6)
+    
+            # # >> UCAC not added to Simbad yet
+            # if type(res) == type(None):
+            #     if type(catalog_data['UCAC']) != np.ma.core.MaskedConstant:
+            #         target_new = 'UCAC ' + str(catalog_data['UCAC'])
+            #         res = customSimbad.query_object(target_new)
+                    
+            if type(res) == type(None):
+                if type(catalog_data['TWOMASS']) != np.ma.core.MaskedConstant:
+                    target_new = '2MASS ' + str(catalog_data['TWOMASS'])
+                    res = customSimbad.query_object(target_new)     
+                    # time.sleep(6)
+    
+            if type(res) == type(None):
+                if type(catalog_data['SDSS']) != np.ma.core.MaskedConstant:
+                    target_new = 'SDSS ' + str(catalog_data['SDSS'])
+                    res = customSimbad.query_object(target_new) 
+                    # time.sleep(6)
+    
+            if type(res) == type(None):
+                if type(catalog_data['ALLWISE']) != np.ma.core.MaskedConstant:
+                    target_new = 'ALLWISE ' + str(catalog_data['ALLWISE'])
+                    res = customSimbad.query_object(target_new)
+                    # time.sleep(6)
+                    
+            if type(res) == type(None):
+                if type(catalog_data['GAIA']) != np.ma.core.MaskedConstant:
+                    target_new = 'Gaia ' + str(catalog_data['GAIA'])
+                    res = customSimbad.query_object(target_new)      
+                    # time.sleep(6)
+                    
+            if type(res) == type(None):
+                if type(catalog_data['APASS']) != np.ma.core.MaskedConstant:
+                    target_new = 'APASS ' + str(catalog_data['APASS'])
+                    res = customSimbad.query_object(target_new)        
+                    # time.sleep(6)
+                    
+            if type(res) == type(None):
+                if type(catalog_data['KIC']) != np.ma.core.MaskedConstant:
+                    target_new = 'KIC ' + str(catalog_data['KIC'])
+                    res = customSimbad.query_object(target_new)    
+                    # time.sleep(6)
+            
+            # # >> if still nothing, query with coordinates
+            # if type(res) == type(None):
+            #     ra = catalog_data['ra']
+            #     dec = catalog_data['dec']            
+            #     coords = coord.SkyCoord(ra, dec, unit=(u.deg, u.deg))
+            #     res = customSimbad.query_region(coords, radius='0d0m2s')         
+            #     time.sleep(6)
+            
+            if type(res) == type(None):
+                print('failed :(')
+                with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
+                    f.write('{},{},{}\n'.format(tic, '', ''))                
+            else:
+                otypes = res['OTYPES'][0].decode('utf-8')
+                main_id = res['MAIN_ID'].data[0].decode('utf-8')
+                ticid_simbad.append(tic)
+                otypes_simbad.append(otypes)
+                main_id_simbad.append(main_id)
+                
+                with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
+                    f.write('{},{},{}\n'.format(tic, otypes, main_id))
+                    
+            # time.sleep(6)
+            
+            
+            
+        return ticid_simbad, otypes_simbad
+        
+
 def get_true_classifications(ticid_list,
                              database_dir='./databases/'):
     '''Query classifications and bibcode from *_database.txt file.
@@ -1471,9 +1616,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
         
     TODO : only loop over p if metric = 'minkowski'
     '''
-    from sklearn.cluster import DBSCAN
-    from sklearn.metrics import silhouette_score, calinski_harabasz_score
-    from sklearn.metrics import davies_bouldin_score      
+   
     classes = []
     num_classes = []
     counts = []
@@ -1695,6 +1838,15 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
     parameter_sets=[]
     param_num = 0
     
+    if metric[0] == 'all':
+        metric = list(hdbscan.dist_metrics.METRIC_MAPPING.keys())
+        metric.remove('seuclidean')
+        metric.remove('mahalanobis')
+        metric.remove('wminkowski')
+        metric.remove('haversine')
+        metric.remove('cosine')
+        metric.remove('arccos')
+        metric.remove('pyfunc')    
 
     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
         f.write('{} {} {} {}\n'.format("min cluster size", "min_samples","metric", "p"))
@@ -1759,7 +1911,7 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                     param_num +=1
 
         
-    return parameter_sets, num_classes                     
+    return parameter_sets, num_classes              
                         
                         
                         
@@ -1767,7 +1919,95 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
 # DEPRECIATED SECTION -----------------------------------------------------
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+# def hdbscan_param_search(bottleneck, time, flux, ticid, target_info,
+#                          min_cluster_size=list(range(3,10, 2)),
+#                          min_samples=list(range(3,10, 2)),
+#                          metric=['euclidean', 'braycurtis'],
+#                          p_space=[1,2,3,4],
+#                          output_dir='./',
+#                          database_dir='./databases/', make_plots=True):
+        
+#     import hdbscan
+#     # !! wider p range?
+    
+#     if metric[0] == 'all':
+#         metric = list(hdbscan.dist_metrics.METRIC_MAPPING.keys())
+#         metric.remove('seuclidean')
+#         metric.remove('mahalanobis')
+#         metric.remove('wminkowski')
+#         metric.remove('haversine')
+#         metric.remove('cosine')
+#         metric.remove('arccos')
+#         metric.remove('pyfunc')
+    
+#     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+#         f.write('{}\t {}\t {}\t {}\n'.format("min_cluster_size", 
+#                                              'min_samples', 'metric',
+#                                              'silhouette'))    
+    
+#     param_num=0
+#     for i in range(len(min_cluster_size)):
+#         for j in range(len(min_samples)):
+#             for k in range(len(metric)):
+#                 if metric[k] == 'minkowski':
+#                     p = p_space
+#                 else:
+#                     p = [None]
+#                 for l in range(len(p)):
+                    
+#                     clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size[i],
+#                                                 min_samples=min_samples[j],
+#                                                 metric=metric[k], p=p[l])
+#                     clusterer.fit(bottleneck)
+#                     classes, counts = \
+#                         np.unique(clusterer.labels_, return_counts=True)    
+#                     print(classes, counts)
+                    
+                    
+#                     if len(classes) > 1:
+#                         silhouette = silhouette_score(bottleneck, clusterer.labels_)
+#                     else:
+#                         silhouette= np.nan
+                    
+#                     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+#                         f.write('{}\t {}\t {}\t {}\n'.format(min_cluster_size[i],
+#                                                              min_samples[j],
+#                                                              metric[k],
+#                                                              silhouette))    
+#                     title='Parameter Set '+str(param_num)+': '+'{} {} {}'.format(min_cluster_size[i],
+#                                                                             min_samples[j],
+#                                                                             metric[k])
+                    
+#                     prefix='hdbscan-p'+str(param_num)
+                    
+#                     if make_plots:
+#                         acc = pf.plot_confusion_matrix(ticid, clusterer.labels_,
+#                                                        database_dir=database_dir,
+#                                                        output_dir=output_dir,
+#                                                        prefix=prefix)        
+#                         pf.plot_pca(bottleneck, clusterer.labels_,
+#                                     output_dir=output_dir, prefix=prefix)    
+#                         pf.plot_tsne(bottleneck, clusterer.labels_,
+#                                      output_dir=output_dir, prefix=prefix)   
+#                         pf.quick_plot_classification(time, flux, ticid,
+#                                                     target_info, bottleneck,
+#                                                     clusterer.labels_,
+#                                                     path=output_dir,
+#                                                     prefix=prefix,
+#                                                     title=title,
+#                                                     database_dir=database_dir)                    
+                        
+#                         plt.figure()
+#                         clusterer.condensed_tree_.plot()
+#                         plt.savefig(output_dir + prefix + '-tree.png')
+                    
+#                     param_num += 1
+                    
+#     return acc    
+
     # TESS_features = np.array(TESS_features)
+
     # hdr = fits.Header()
     # hdu = fits.PrimaryHDU(TESS_features[:,1:-1].astype('float'))
     # hdu.writeto(output_dir + 'tess_features.fits')

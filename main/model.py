@@ -35,6 +35,9 @@ from astropy.io import fits
 from astropy.timeseries import LombScargle
 import random
 from scipy.signal import lombscargle
+import keras.backend as K
+from keras.layers import Lambda, Activation, Conv2DTranspose
+import tensorflow as tf
 
 
 def autoencoder_preprocessing(flux, ticid, time, target_info, p, 
@@ -408,8 +411,13 @@ def model_summary_txt(output_dir, model):
 
 def conv_autoencoder(x_train, y_train, x_test, y_test, params, 
                      val=True, split=False, input_features=False,
-                     features=None, input_psd=False):
+                     features=None, input_psd=False, reshape=False):
     from keras.models import Model
+    
+    # -- making swish activation function -------------------------------------
+    from keras.utils.generic_utils import get_custom_objects
+    from keras.layers import Activation
+    get_custom_objects().update({'swish': Activation(swish)})
 
     # -- encoding -------------------------------------------------------------
     if split:
@@ -417,7 +425,7 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     elif input_psd:
         encoded = encoder_split_diff_weights(x_train, params)
     else:
-        encoded = encoder(x_train, params)        
+        encoded = encoder(x_train, params, reshape=reshape)        
 
     # -- decoding -------------------------------------------------------------
     if split:
@@ -425,16 +433,18 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     elif input_psd:
         decoded = decoder_split_diff_weights(x_train, encoded.output, params)
     else:
-        decoded = decoder(x_train, encoded.output, params)
+        decoded = decoder(x_train, encoded.output, params, reshape=reshape)
         
     
     model = Model(encoded.input, decoded)
     print(model.summary())
     
     # -- compile model --------------------------------------------------------
+    print('Compiling model...')
     compile_model(model, params)
 
     # -- train model ----------------------------------------------------------
+    print('Training model...')
     if val:
         history = model.fit(x_train, x_train, epochs=params['epochs'],
                             batch_size=params['batch_size'], shuffle=True,
@@ -445,7 +455,117 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     
     return history, model
 
+def swish(x, beta=1):
+    '''https://www.bignerdranch.com/blog/implementing-swish-activation-function
+    -in-keras/'''
+    from keras.backend import sigmoid
+    return (x*sigmoid(beta*x))
+
 def custom_loss_function(y_true, y_pred):
+    '''Might be useful for testing:
+        t=tf.convert_to_tensor(t, 'float32')
+        t=tf.where(tf.is_nan(t), tf.zeros_like(t), t)
+    '''
+    import keras.backend as K
+    from scipy import signal
+    import tensorflow as tf
+    
+    # sess = tf.Session()
+    # with sess.as_default():
+        
+    # >> calculating the mean squared error (L2 loss)
+    l2_loss = K.mean(K.square(y_pred - y_true))
+    
+    # >> calculating Fourier Transform
+    # >> note frequencies = [0, 1/(dt*n), ..., n/(2*dt*n)]
+    yf_true = tf.signal.rfft(y_true)
+    yf_true = tf.math.real(yf_true) # >> only keep real values
+    yf_pred = tf.signal.rfft(y_pred)
+    yf_pred = tf.math.real(yf_pred)
+    
+    # >> integrating over high frequencies (from f=0.3 to f=10 days^-1)
+    # dt = 0.001388916488394898 # >> sampling interval = (sampling rate)^-1
+    # n = y_true.get_shape().as_list()[0]
+    # low = 0.3
+    # high = 10.
+    # low_ind = int(low*dt*n)
+    # high_ind = int(high*dt*n)
+    
+    # dt = tf.constant(0.001388916488394898) # >> sampling interval
+    # n = tf.constant(y_true.get_shape().as_list()[0]) # >> length of light curve
+    # n = tf.cast(n, 'float32')
+    # # n = tf.shape(y_true)
+    # low = tf.constant(0.3)
+    # high = tf.constant(10.)
+    # low_ind = tf.math.round(low*dt*n)
+    # low_ind = tf.cast(low_ind, 'int32')
+    # high_ind = tf.math.round(high*dt*n)
+    # high_ind = tf.cast(high_ind, 'int32')
+    # size = high_ind - low_ind
+    
+    # >> normalize
+    # yf_true = yf_true / n
+    # yf_pred = yf_pred / n
+    
+    # power_true = tf.math.reduce_sum(yf_true[low_ind:high_ind])
+    # power_pred = tf.math.reduce_sum(yf_pred[low_ind:high_ind])
+    
+    power_true = tf.math.reduce_sum(yf_true)
+    power_pred = tf.math.reduce_sum(yf_pred)    
+    
+    # >> penalty for loss of high frequency information
+    scale_factor = 1./15000
+    penalty = tf.math.abs(scale_factor*power_true - scale_factor*power_pred)
+    
+    return l2_loss + penalty
+
+def test_loss_function(y_true, y_pred, output_dir='./',
+                       dt=0.001388916488394898):
+    import tensorflow as tf
+    import keras.backend as K
+    
+    N = len(y_true)
+    
+    # >> plot light curves
+    fig, ax = plt.subplots(2)
+    ax[0].plot(y_true, '.k', markersize=2)
+    ax[0].plot(y_pred, '.', markersize=2)    
+    ax[0].set_xlabel('Time [BJD - 2457000]')
+    ax[0].set_ylabel('Relative flux')
+    
+    # >> convert to tensors
+    y_true=tf.convert_to_tensor(y_true, 'float32')
+    y_pred=tf.convert_to_tensor(y_pred, 'float32')
+    
+    # >> compute l2_loss
+    l2_loss = K.mean(K.square(y_pred - y_true))
+    
+    # >> compute custom loss
+    custom_loss = custom_loss_function(y_true, y_pred)
+    
+    # >> report loss
+    ax[0].set_title('MSE: ' + str(K.get_value(l2_loss)) + ', custom loss: '+\
+                    str(K.get_value(custom_loss)))
+    
+    # >> compute FFT
+    yf_true = tf.signal.rfft(y_true)
+    yf_true = tf.math.real(yf_true) # >> only keep real values
+    yf_pred = tf.signal.rfft(y_pred)
+    yf_pred = tf.math.real(yf_pred)    
+    f = np.fft.fftfreq(N, dt)
+    
+    # >> plot FFT
+    ax[1].plot(f[:N//2], K.get_value(yf_true)[:N//2], 'k')
+    ax[1].plot(f[:N//2], K.get_value(yf_pred)[:N//2])
+    ax[1].set_xscale('log')
+    ax[1].set_xlabel('Frequency [days^-1]')
+    ax[1].set_ylabel('Power')
+    
+    fig.savefig(output_dir + 'custom_loss.png')
+    
+    return fig, ax
+
+def custom_loss_function1(y_true, y_pred):
     '''Fails when compiling. Also an error pops when running K.get_value(loss)'''
     import keras.backend as K
     from scipy import signal
@@ -459,7 +579,8 @@ def custom_loss_function(y_true, y_pred):
     
     # >> applying high pass filter (cutoff = 1.)
     order=5
-    fs=0.001388916488394898
+    T=0.001388916488394898
+    fs=1/T
     nyq = 0.5*fs
     cutoff = 1./0.5*fs 
     b, a = signal.butter(order, cutoff, btype='high')        
@@ -641,7 +762,7 @@ def compile_model(model, params, mlp=False):
         #               keras.metrics.Recall()])
 
 
-def encoder(x_train, params):
+def encoder(x_train, params, reshape=False):
     '''x_train is an array with shape (num light curves, num data points, 1).
     params is a dictionary with keys:
         * kernel_size : 3, 5
@@ -668,80 +789,190 @@ def encoder(x_train, params):
     
     input_dim = np.shape(x_train)[1]
     num_iter = int(params['num_conv_layers']/2)
-    # num_iter = int(len(params['num_filters'])/2)
     
-    # input_img = Input(shape = (input_dim, 1))
-    input_img = Input(shape = (input_dim,))
-    x = Reshape((input_dim, 1))(input_img)
+    if type(params['num_filters']) == np.int:
+        params['num_filters'] = list(np.repeat(params['num_filters'], num_iter))
+    
+    if reshape:
+        input_img = Input(shape = (input_dim, 1))
+        x = input_img
+    else:
+        input_img = Input(shape = (input_dim,))
+        x = Reshape((input_dim, 1))(input_img)
     for i in range(num_iter):
-        x = Conv1D(params['num_filters'], int(params['kernel_size']),
-                activation=params['activation'], padding='same',
-                kernel_initializer=params['initializer'])(x)            
-        if params['num_consecutive'] == 2:
-            x = Conv1D(params['num_filters'], int(params['kernel_size']),
-                        activation=params['activation'], padding='same')(x)      
+        # # !! 
+        # if i > 0:
+        #     params['activity_regularizer'] = None
+        
+        for j in range(params['num_consecutive']):
+            x = Conv1D(params['num_filters'][i], int(params['kernel_size']),
+                    activation=params['activation'], padding='same',
+                    kernel_initializer=params['initializer'],
+                    strides=params['strides'],
+                    kernel_regularizer=params['kernel_regularizer'],
+                    bias_regularizer=params['bias_regularizer'],
+                    activity_regularizer=params['activity_regularizer'])(x)               
             
-        x = BatchNormalization()(x)            
-        x = MaxPooling1D(2, padding='same')(x)
+            x = BatchNormalization()(x)            
+        x = MaxPooling1D(params['pool_size'], padding='same')(x)
         x = Dropout(params['dropout'])(x)
-    
+
     x = Flatten()(x)
+    
+    # x = Dense(128, activation=params['activation'],
+    #                 kernel_initializer=params['initializer'])(x)
+    # x = Dense(64, activation=params['activation'],
+    #                 kernel_initializer=params['initializer'])(x)
+    # x = Dense(32, activation=params['activation'],
+    #                 kernel_initializer=params['initializer'])(x)    
     encoded = Dense(params['latent_dim'], activation=params['activation'],
-                    kernel_initializer=params['initializer'])(x)
+                    kernel_initializer=params['initializer'],
+                    kernel_regularizer=params['kernel_regularizer'],
+                    bias_regularizer=params['bias_regularizer'],
+                    activity_regularizer=params['activity_regularizer'])(x)
     
     encoder = Model(input_img, encoded)
 
     return encoder
 
-def decoder(x_train, bottleneck, params):
+
+
+
+def Conv1DTranspose(input_tensor, filters, kernel_size, strides=2, padding='same',
+                    kernel_initializer='random_normal', activation='relu',
+                    kernel_regularizer='l2', activity_regularizer='l2',
+                    bias_regularizer='l2'):
+    """Conv1DTranpose has not been implemented in Keras, so I convert the 1D
+    tensor to a 2D tensor with an image width of 1, then apply
+    Conv2Dtranspose.
+    
+    This code is inspired by this:
+    https://stackoverflow.com/questions/44061208/how-to-implement-the-
+    conv1dtranspose-in-keras
+        input_tensor: tensor, with the shape (batch_size, time_steps, dims)
+        filters: int, output dimension, i.e. the output tensor will have the shape of (batch_size, time_steps, filters)
+        kernel_size: int, size of the convolution kernel
+        strides: int, convolution step size
+        padding: 'same' | 'valid'
+    """
+    
+    # >> save shape of input tensor
+    dim = input_tensor.get_shape().as_list()[1]
+
+    x = Lambda(lambda x: K.expand_dims(x, axis=2))(input_tensor)
+    x = Conv2DTranspose(filters=filters, kernel_size=(kernel_size, 1),
+                        strides=(strides, 1), padding=padding,
+                        kernel_initializer=kernel_initializer,
+                        kernel_regularizer=kernel_regularizer,
+                        bias_regularizer=bias_regularizer,
+                        activity_regularizer=activity_regularizer)(x)
+    
+    # >> explicitly set the shape, because TensorFlow hates me >:(  
+    x = Lambda(lambda x: tf.ensure_shape(x, (None, strides*dim, 1, filters)))(x)
+    
+     
+    # x.set_shape((None, strides*dim, 1, filters))
+    x = Lambda(lambda x: K.squeeze(x, axis=2))(x)
+    # x = x[:,:,0] # >> convert to 1D    
+    
+    x = Activation(activation)(x)
+    return x
+
+def decoder(x_train, bottleneck, params, reshape=False):
     from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout, \
         Lambda, BatchNormalization
+    import tensorflow as tf
     input_dim = np.shape(x_train)[1]
-    # num_iter = int(len(params['num_filters'])/2)
     num_iter = int(params['num_conv_layers']/2)
     
-    # def repeat_elts(x):
-    #     '''helper function for lambda layer'''
-    #     import tensorflow as tf
-    #     return tf.keras.backend.repeat_elements(x,params['num_filters'],2)
-        # return tf.keras.backend.repeat_elements(x,params['num_filters'][num_iter+i],2)
+    # x = Dense(32, activation=params['activation'],
+    #                 kernel_initializer=params['initializer'])(bottleneck)
+    # x = Dense(64, activation=params['activation'],
+    #                 kernel_initializer=params['initializer'])(x)
+    # x = Dense(128, activation=params['activation'],
+    #                 kernel_initializer=params['initializer'])(x)       
     
-    # x = Dense(int(input_dim/(2**(num_iter))))(bottleneck)
-    # x = Reshape((int(input_dim/(2**(num_iter))), 1))(x)
-    # x = Lambda(repeat_elts)(x)
-    x = Dense(int(input_dim*params['num_filters']/(2**(num_iter))),
-              kernel_initializer=params['initializer'])(bottleneck)
-    x = Reshape((int(input_dim/(2**(num_iter))), params['num_filters']))(x)
+    
+    if type(params['num_filters']) == np.int:
+        params['num_filters'] = list(np.repeat(params['num_filters'], num_iter))    
+    
+    reduction_factor = params['pool_size'] * params['strides']**params['num_consecutive']
+    tot_reduction_factor = reduction_factor**num_iter
+    x = Dense(int(input_dim*params['num_filters'][-1]/tot_reduction_factor),
+              kernel_initializer=params['initializer'],
+              kernel_regularizer=params['kernel_regularizer'],
+              bias_regularizer=params['bias_regularizer'],
+              activity_regularizer=params['activity_regularizer'])(bottleneck)
+    # x = Dense(int(input_dim*params['num_filters'][-1]/tot_reduction_factor),
+    #           kernel_initializer=params['initializer'])(x)    
+    x = Reshape((int(input_dim/tot_reduction_factor),
+                 params['num_filters'][-1]))(x)
     for i in range(num_iter):
-        # x = Lambda(repeat_elts)(x)
         x = Dropout(params['dropout'])(x)
-        x = UpSampling1D(2)(x)
-        if i == num_iter-1:
+        x = UpSampling1D(params['pool_size'])(x)
+
+        # if i != num_iter - 1:
+        #     params['activity_regularizer'] = None
+        # else: 
+        #     params['activity_regularizer'] = 'l2'
+        
+        
+        for j in range(params['num_consecutive']):
             x = BatchNormalization()(x)
-            if params['num_consecutive'] == 2:
-                x = Conv1D(params['num_filters'], int(params['kernel_size']),
-                            activation=params['activation'], padding='same')(x)            
-            decoded = Conv1D(1, int(params['kernel_size']),
-                              activation=params['last_activation'],
-                              padding='same',
-                              kernel_initializer=params['initializer'])(x)  
-            
-            decoded = Reshape((input_dim,))(decoded) # !!
-            # decoded = Conv1D(1, int(params['kernel_size'][num_iter]),
-            #                  activation=params['last_activation'],
-            #                  padding='same')(x)
-        else:
-            x = BatchNormalization()(x)
-            if params['num_consecutive'] == 2:
-                x = Conv1D(params['num_filters'], int(params['kernel_size']),
-                            activation=params['activation'], padding='same')(x)            
-            x = Conv1D(params['num_filters'], int(params['kernel_size']),
-                       activation=params['activation'], padding='same',
-                       kernel_initializer=params['initializer'])(x)            
-            # x = Conv1D(1, int(params['kernel_size']),
-            #            activation=params['activation'], padding='same')(x)
-            # x = Conv1D(1, int(params['kernel_size'][num_iter+i]),
-            #            activation=params['activation'], padding='same')(x)
+            if i == num_iter-1 and j == params['num_consecutive']-1:
+                
+                if params['strides'] == 1: # >> faster than Conv1Dtranspose
+                    decoded = Conv1D(1, int(params['kernel_size']),
+                                      activation=params['last_activation'],
+                                      padding='same', strides=params['strides'],
+                                      kernel_initializer=params['initializer'],
+                                      kernel_regularizer=params['kernel_regularizer'],
+                                      bias_regularizer=params['bias_regularizer'],
+                                      activity_regularizer=params['activity_regularizer'])(x)  
+                
+                else:
+                    decoded = Conv1DTranspose(x, 1, int(params['kernel_size']),
+                               activation=params['activation'], padding='same',
+                               strides=params['strides'],
+                               kernel_initializer=params['initializer'],
+                               kernel_regularizer=params['kernel_regularizer'],
+                               bias_regularizer=params['bias_regularizer'],
+                          activity_regularizer=params['activity_regularizer'])
+                
+                
+                
+                if not reshape:
+                    decoded = Reshape((input_dim,))(decoded)
+                    
+            else:
+                if params['strides'] == 1:
+                    x = Conv1D(params['num_filters'][-1*i - 1],
+                                int(params['kernel_size']),
+                                activation=params['activation'], padding='same',
+                                strides=params['strides'],
+                                kernel_initializer=params['initializer'],
+                                kernel_regularizer=params['kernel_regularizer'],
+                                bias_regularizer=params['bias_regularizer'],
+                                activity_regularizer=params['activity_regularizer']                                )(x)   
+                else:
+                    x = Conv1DTranspose(x, params['num_filters'][-1*i - 1],
+                               int(params['kernel_size']),
+                               activation=params['activation'], padding='same',
+                               strides=params['strides'],
+                               kernel_initializer=params['initializer'],
+                               kernel_regularizer=params['kernel_regularizer'],
+                               bias_regularizer=params['bias_regularizer'],
+                               activity_regularizer=params['activity_regularizer'])
+
+        # else:
+        #     # x = Conv1D(params['num_filters'], int(params['kernel_size']),
+        #     #            activation=params['activation'], padding='same',
+        #     #            strides=params['strides'],
+        #     #            kernel_initializer=params['initializer'])(x)        
+        #     x = tf.nn.conv1d_transpose(params['num_filters'], int(params['kernel_size']),
+        #                padding='same',
+        #                strides=params['strides'])(x)      
+        #     x = tf.keras.layers.Activation(params['activation'])(x)    
     return decoded
 
 
@@ -1100,12 +1331,23 @@ def split_data(flux, ticid, target_info, time, p, train_test_ratio = 0.9,
     '''need to update, might not work'''
 
     # >> truncate (must be a multiple of 2**num_conv_layers)
+    # if truncate:
+    #     new_length = int(np.shape(flux)[1] / \
+    #                  (2**(np.max(p['num_conv_layers'])/2)))*\
+    #                  int((2**(np.max(p['num_conv_layers'])/2)))
+    #     flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
+    #     time = time[:new_length]
+        
     if truncate:
+        # >> dim reduced each iteration
+        reduction_factor = np.max(p['pool_size'])* np.max(p['strides'])**np.max(p['num_consecutive'] )
+        num_iter = np.max(p['num_conv_layers'])/2
+        tot_reduction_factor = reduction_factor**num_iter
         new_length = int(np.shape(flux)[1] / \
-                     (2**(np.max(p['num_conv_layers'])/2)))*\
-                     int((2**(np.max(p['num_conv_layers'])/2)))
+                     tot_reduction_factor)*\
+                     int(tot_reduction_factor)
         flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
-        time = time[:new_length]
+        time = time[:new_length]         
 
     # >> split test and train data
     if supervised:
@@ -1158,7 +1400,8 @@ def split_data(flux, ticid, target_info, time, p, train_test_ratio = 0.9,
         target_info_train, target_info_test, time
     
 
-def get_activations(model, x_test, input_rms = False, rms_test = False):
+def get_activations(model, x_test, input_rms = False, rms_test = False,
+                    ind=None):
     '''Returns intermediate activations.'''
     from keras.models import Model
     layer_outputs = [layer.output for layer in model.layers][1:]
@@ -1166,7 +1409,10 @@ def get_activations(model, x_test, input_rms = False, rms_test = False):
     if input_rms:
         activations = activation_model.predict([x_test, rms_test])
     else:
-        activations = activation_model.predict(x_test)        
+        if type(ind) == type(None):
+            activations = activation_model.predict(x_test)   
+        else:
+            activations = activation_model.predict(x_test[ind].reshape(1,-1))
     return activations
 
 def get_bottleneck(model, x_test, input_features=False, features=False,
@@ -1392,7 +1638,62 @@ def get_fits_files(mypath, target_list):
                                                download_dir = mypath)
         except (ConnectionError, OSError, TimeoutError):
             print(targ + "could not be accessed due to an error")
-            
+       
+        
+def get_high_freq_mock_data(p=None, dataset_size=10000, train_test_ratio=0.9,
+                            input_dim = 18688, xmax=20, f_mean=3.5, f_std=0.5,
+                            noise_level=0.1, reshape=False, truncate=False,
+                            hyperparam_opt=False):
+    '''Generate training and testing datasets with high frequency sine curves.
+    * f_min : in days^-1
+    * f_max : in days^-1
+    '''
+
+    x = np.linspace(0, 20, input_dim)
+    
+    # >> get frequencies of each light curve
+    random_values = np.random.randn(dataset_size)
+    freq = f_mean + random_values*f_std
+
+    flux = []
+    for i in range(dataset_size):        
+        flux.append(np.sin(2*np.pi*freq[i] * x))
+    flux = np.array(flux)
+
+    # >> add a little noise
+    flux += np.random.normal(scale = noise_level, size = np.shape(flux))
+    
+    # >> truncate
+    if truncate:
+        # >> dim reduced each iteration
+        if hyperparam_opt:
+            reduction_factor = 2
+        else: # !!
+            reduction_factor = p['pool_size']* p['strides']**p['num_consecutive'] 
+        num_iter = np.max(p['num_conv_layers'])/2
+        tot_reduction_factor = reduction_factor**num_iter
+        new_length = int(np.shape(flux)[1] / \
+                     tot_reduction_factor)*\
+                     int(tot_reduction_factor)
+        flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
+        x = x[:new_length]           
+
+    # >> standardize
+    flux = df.standardize(flux)
+    
+    # >> partition data
+    split_ind = int(train_test_ratio*np.shape(flux)[0])
+    x_train = flux[:split_ind]
+    x_test = flux[split_ind:]
+    
+    if reshape:
+        x_train = np.reshape(x_train, (np.shape(x_train)[0],
+                                       np.shape(x_train)[1], 1))
+        x_test = np.reshape(x_test, (np.shape(x_test)[0],
+                                     np.shape(x_test)[1], 1))
+
+    return x, x_train, x_test     
+        
 def get_target_list(sector_num, output_dir='./'):
     '''Get TICID from sector_num (given as int)'''
     from astroquery.mast import Observations
@@ -2254,3 +2555,57 @@ def get_target_list(sector_num, output_dir='./'):
 #     encoder = Model(input_img, encoded)
 
 #     return encoder
+
+        # if i == num_iter-1:
+        #     x = BatchNormalization()(x)
+        #     if params['num_consecutive'] == 2:
+        #         x = Conv1D(params['num_filters'], int(params['kernel_size']),
+        #                     activation=params['activation'], padding='same',
+        #                     strides=params['strides'], 
+        #                     kernel_initializer=params['initializer'])(x)            
+        #     decoded = Conv1D(1, int(params['kernel_size']),
+        #                       activation=params['last_activation'],
+        #                       padding='same', strides=params['strides'],
+        #                       kernel_initializer=params['initializer'])(x)  
+            
+        #     if not reshape:
+        #         decoded = Reshape((input_dim,))(decoded) # !!
+        #     # decoded = Conv1D(1, int(params['kernel_size'][num_iter]),
+        #     #                  activation=params['last_activation'],
+        #     #                  padding='same')(x)
+        # else:
+
+
+    # def repeat_elts(x):
+    #     '''helper function for lambda layer'''
+    #     import tensorflow as tf
+    #     return tf.keras.backend.repeat_elements(x,params['num_filters'],2)
+        # return tf.keras.backend.repeat_elements(x,params['num_filters'][num_iter+i],2)
+    
+    # x = Dense(int(input_dim/(2**(num_iter))))(bottleneck)
+    # x = Reshape((int(input_dim/(2**(num_iter))), 1))(x)
+    # x = Lambda(repeat_elts)(x)
+
+        # x = Conv1D(1, int(params['kernel_size']),
+        #            activation=params['activation'], padding='same')(x)
+        # x = Conv1D(1, int(params['kernel_size'][num_iter+i]),
+        #            activation=params['activation'], padding='same')(x)
+        # if params['num_consecutive'] == 2:
+        #     x = Conv1D(params['num_filters'], int(params['kernel_size']),
+        #                 activation=params['activation'], padding='same',
+        #                 strides=params['strides'])(x)  
+
+            # output_shape = x.shape
+            # output_shape[1] = output_shape[1] * params['strides']
+            # x = tf.nn.conv1d_transpose(x, int(params['kernel_size']),
+            #                            output_shape, params['strides'],
+            #                            padding='same')
+            # x = tf.keras.layers.Activation(params['activation'])(x)   
+                # decoded = tf.nn.conv1d_transpose(1,int(params['kernel_size']),
+                #            padding='same',
+                #            strides=params['strides'])(x)   
+                # decoded = tf.keras.layers.Activation(params['activation'])(decoded)   
+
+    # x = Lambda(lambda x: K.squeeze(x, axis=2))(x)
+    # x = tf.layers.conv2d_transpose(x, filters, 1, strides, padding='same')
+
