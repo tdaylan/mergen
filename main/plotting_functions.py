@@ -2465,7 +2465,7 @@ def paper_schematic(x_test, x_predict, output_dir='./'):
 
 def plot_lc(time, flux, target_info, ticid, ind, output_dir='./',
             momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
-            addend=1.):
+            addend=1., plot_mom_dump=False):
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
     print('Loading momentum dump times')
@@ -2478,8 +2478,9 @@ def plot_lc(time, flux, target_info, ticid, ind, output_dir='./',
     
     # -- plot -----------------------------------------------------------------
     fig, ax = plt.subplots(figsize=(8,3))
-    for t in mom_dumps:
-        ax.axvline(t, color='g', linestyle='--')
+    if plot_mom_dump:
+        for t in mom_dumps:
+            ax.axvline(t, color='g', linestyle='--')
         
     ax.plot(time, flux[ind][0] + addend, '.k', ms=2)
     format_axes(ax, xlabel=True)
