@@ -1386,7 +1386,7 @@ def build_simbad_database(out='./simbad_database.txt'):
         bibcode = res['COO_BIBCODE'][i].decode('utf-8')
         otype = res['OTYPE'][i].decode('utf-8')
         
-        print(obj + ' ' + otype)
+        #print(obj + ' ' + otype)
         
         # >> now query TICID
         obs_table = Observations.query_criteria(obs_collection='TESS',
@@ -1559,6 +1559,20 @@ def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
     return ticid_simbad, otypes_simbad, main_id_simbad
         
 
+def quick_simbad(ticidasstring):
+    """ only returns if it has a tyc id"""
+    catalogdata = Catalogs.query_object(ticidasstring, radius=0.02, catalog="TIC")[0]
+    try: 
+        tyc = "TYC " + catalogdata["TYC"]
+        customSimbad = Simbad()
+        customSimbad.add_votable_fields("otypes")
+        res = customSimbad.query_object(tyc)
+        objecttype = res['OTYPES'][0].decode('utf-8')
+    except: 
+        objecttype = "there is no TYC for this object"
+    return objecttype
+
+
 def get_true_classifications(ticid_list,
                              database_dir='./databases/'):
     '''Query classifications and bibcode from *_database.txt file.
@@ -1634,10 +1648,10 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
             for k in range(len(metric)):
                 for l in range(len(algorithm)):
                     for m in range(len(leaf_size)):
-                        if metric[k] == 'minkowski':
-                            p = p
-                        else:
-                            p = [None]
+                        #if metric[k] == 'minkowski' or 'manhattan':
+                         #   p = p
+                        #else:
+                         #   p = [None]
                         for n in range(len(p)):
                             db = DBSCAN(eps=eps[i],
                                         min_samples=min_samples[j],
@@ -1779,6 +1793,7 @@ def KNN_plotting(path, features, k_values):
         plt.scatter(np.arange(len(features)), avg_kdist_sorted)
         plt.xlabel("Points")
         plt.ylabel("Average K-Neighbor Distance")
+        plt.ylim((0, 50))
         plt.title("K-Neighbor plot for k=" + str(k_values[n]))
         plt.savefig(path + "kneighbors-" +str(k_values[n]) +"-plot-sorted.png")
         plt.close()    

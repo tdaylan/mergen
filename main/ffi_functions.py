@@ -99,9 +99,9 @@ class FFI_lc(object):
     modified [lcg 08232020 - fixes]
     """
 
-    def __init__(self, path=None, simbadquery="Vmag <=19", tls=False):
+    def __init__(self, path=None, folderlabel="Vmag19", simbadquery="Vmag <=19", download=True, tls=False):
 
-        if maglimit is None:
+        if simbadquery is None:
             print('Please pass a magnitude limit')
             return
         if path is None:
@@ -109,36 +109,51 @@ class FFI_lc(object):
             return
 
         self.simbadquery = simbadquery
-        self.path = path + 'ffi_lc_limit{}/'.format(self.maglimit)
+        self.folderlabel = folderlabel
+        self.path = path + 'ffi_lc_{}/'.format(self.folderlabel)
         self.catalog = self.path + "simbad_catalog.txt"
-        self.lightcurvefilepath = self.path + "eleanor_lightcurves_{}.fits".format(self.simbadquery)
-        self.features0path = self.path + "eleanor_features_v0.fits"
-        self.features1path = self.path + "eleanor_features_v1.fits"
+        self.lightcurvefilepath = self.path + "{}_lightcurves.fits".format(self.folderlabel)
+        self.features0path = self.path + "{}_features_v0.fits".format(self.folderlabel)
+        self.features1path = self.path + "{}_features_v1.fits".format(self.folderlabel)
         
-        try:
-            os.mkdir(self.path)
-            success = 1
-        except OSError:
-            print('Directory exists already!')
-            success = 0
-
-        if success == 1:
-            print("Producing RA and DEC list")
-            self.build_simbad_extragalactic_database()
-            print("Accessing RA and DEC list")
-            self.ralist, self.declist = self.get_radecfromtext()
-            print("Getting and saving eleanor light curves into a fits file")
-            self.radecall = np.column_stack((self.ralist, self.declist))
-            self.gaia_ids = self.eleanor_lc()
-            print("Producing v0 feature vectors")
-            self.gaia_ids, self.times, self.intensities = self.open_eleanor_lc_files()
-            self.version = 0
-            self.savetrue = True
-            self.features = self.create_save_featvec_different_timeaxes()
-            if tls:
-                print("Producing v1 feature vectors")
-                self.version = 1
+        if download: 
+            try:
+                print(self.path)
+                os.mkdir(self.path)
+                success = 1
+            except OSError:
+                print('Directory exists already!')
+                success = 0
+    
+            if success == 1:
+                print("Producing RA and DEC list")
+                self.build_simbad_extragalactic_database()
+                print("Accessing RA and DEC list")
+                self.ralist, self.declist = self.get_radecfromtext()
+                print("Getting and saving eleanor light curves into a fits file")
+                self.radecall = np.column_stack((self.ralist, self.declist))
+                self.gaia_ids = self.eleanor_lc()
+                print("Producing v0 feature vectors")
+                self.gaia_ids, self.times, self.intensities = self.open_eleanor_lc_files()
+                self.version = 0
+                self.savetrue = True
                 self.features = self.create_save_featvec_different_timeaxes()
+                if tls:
+                    print("Producing v1 feature vectors")
+                    self.version = 1
+                    self.features = self.create_save_featvec_different_timeaxes()
+        else: 
+            print("Not downloading anything. Attempting to access LC and Features")
+            self.gaia_ids, self.times, self.intensities = self.open_eleanor_lc_files()
+            self.features = self.open_eleanor_features()[0]
+            print(self.features[0])
+            if len(self.features[0]) == 16 or len(self.features[0]) == 20:
+                self.version = 0
+            elif len(self.features[0]) == 4:
+                self.version = 1
+            else: 
+                ("something has gone terribly wrong while loading in the features")
+            
     
     def build_simbad_extragalactic_database(self):
         '''Object type follows format in:
@@ -308,29 +323,115 @@ class FFI_lc(object):
         return feature_list
     
     def open_eleanor_features(self):
+        
         """ 
-        opens all eleanor features in a given folderpath
+        opens all eleanor features 
         returns a single array of ALL features and list of gaia_ids
         """
+        features_filelabel = self.folderlabel + "_features"
+        print(features_filelabel)
         filepaths = []
         for root, dirs, files in os.walk(self.path):
             for name in files:
                 #print(name)
-                if name.startswith(("eleanor_features")):
+                if name.startswith((features_filelabel)):
                         filepaths.append(root + "/" + name)
-        print(filepaths)
+        
+        print("found ", len(filepaths), 'feature files')
         f = fits.open(filepaths[0], memmap=False)
-        features = f[0].data
-        gaia_ids = f[1].data
+        features = np.asarray(f[0].data)
+        gaia_ids = np.asarray(f[1].data)
         f.close()
         for n in range(len(filepaths) - 1):
             f = fits.open(filepaths[n+1], memmap=False)
-            features_new = f[0].data
+            features_new = np.asarray(f[0].data)
             features = np.column_stack((features, features_new))
             f.close()
         
-        return features, gaia_ids
-
+        return np.asarray(features), np.asarray(gaia_ids)
+    
+    def clip_feature_outliers(self, sigma=20, plot=True):
+        """ 
+        plots and then removes any outlier or nan features to avoid messiness in the 
+        feature space. 
+        parameters: 
+            * path to save shit into
+            * features (all)
+            * time axis (needs a time axis for every flux)
+            * flux (all)
+            * gaia ids (all)
+            * sigma to crop to
+            * version of the features - v0 includes both v0 and v1 right now
+            * plot=True by default, can skip if you only want to trim and not examine any outliers
+            
+        returns: 
+            features_cropped, gaia_ids_cropped, flux_cropped, time_cropped, outlier_indexes
+        modified [lcg 08252020 - adapted for multiple time axes]"""
+        
+        #set up the directory
+        path = self.path + "clipped-feature-outliers/"
+        try:
+            os.makedirs(path)
+        except OSError:
+            print ("%s already exists" % path)
+        else:
+            print ("Successfully created the directory %s" % path)
+        
+        #labels for the plots
+        if self.version==0:
+            features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
+                      "E", r'$\epsilon$', "Z", "H", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$', "M", r'$\mu$'
+                      ,"N", r'$\nu$']
+        elif self.version==1: 
+            features_greek = ["M", r'$\mu$',"N", r'$\nu$']
+    
+        #identifying the outlier indexes
+        outlier_indexes = []
+        for i in range(len(self.features[0])):
+            column = self.features[:,i] #get each column
+            column_std = np.std(column) #find std
+            column_top = np.mean(column) + column_std * sigma #find max limit
+            column_bottom = np.mean(column) - (column_std * sigma) #min limit
+            for n in range(len(column)):
+                #find and note the position of any outliers
+                if column[n] < column_bottom or column[n] > column_top or np.isnan(column[n]) ==True: 
+                    outlier_indexes.append((int(n), int(i))) #(pos of outlier, which feature)
+                    
+        #print(np.asarray(outlier_indexes))
+            
+        outlier_indexes = np.asarray(outlier_indexes)
+        target_indexes = outlier_indexes[:,0] #is the index of the target on the lists
+        print(target_indexes)
+        feature_indexes = outlier_indexes[:,1] #is the index of the feature that it triggered on
+        if plot:
+            for i in range(len(outlier_indexes)):
+                target_index = target_indexes[i]
+                feature_index = feature_indexes[i]
+                plt.figure(figsize=(8,3))
+                plt.scatter(self.times[target_index], self.intensities[target_index], s=0.5)
+                target = self.gaia_ids[target_index]
+                
+                if np.isnan(self.features[target_index][feature_index]) == True:
+                    feature_title = features_greek[feature_index] + "=nan"
+                else: 
+                    feature_value = '%s' % float('%.2g' % self.features[target_index][feature_index])
+                    feature_title = features_greek[feature_index] + "=" + feature_value
+                print(feature_title)
+                
+                plt.title("GAIA_ID " + str(int(target)) + " " + feature_title, fontsize=8)
+                plt.tight_layout()
+                plt.savefig((path + "featureoutlier-TICID" + str(int(target)) + ".png"))
+                plt.show()
+        else: 
+            print("Not plotting outliers!")
+                
+            
+        features_cropped = np.delete(self.features, target_indexes, axis=0)
+        gaia_ids_cropped = np.delete(self.gaia_ids, target_indexes)
+        flux_cropped = np.delete(self.intensities, target_indexes, axis=0)
+        time_cropped = np.delete(self.times, target_indexes, axis=0)
+            
+        return features_cropped, gaia_ids_cropped, flux_cropped, time_cropped, target_indexes
 #%%
 
 def eleanor_lc(path, ra_declist, plotting = False):
@@ -538,19 +639,22 @@ def get_radecfromtext(directory):
 
 
 def clip_feature_outliers(path, features, time, flux, gaia_ids, sigma, version=0, plot=True):
-    """ isolate features that are significantly out there and crazy
-    plot those outliers, and remove them from the features going into the 
-    main lof/plotting/
-    also removes any TLS features which returned only nans
+    """ 
+    plots and then removes any outlier or nan features to avoid messiness in the 
+    feature space. 
     parameters: 
-        *path to save shit into
+        * path to save shit into
         * features (all)
-        * time axis (1) (ALREADY PROCESSED)
-        * flux (all) (must ALREADY BE PROCESSED)
-        * ticids (all)
+        * time axis (needs a time axis for every flux)
+        * flux (all)
+        * gaia ids (all)
+        * sigma to crop to
+        * version of the features - v0 includes both v0 and v1 right now
+        * plot=True by default, can skip if you only want to trim and not examine any outliers
         
-    returns: features_cropped, ticids_cropped, flux_cropped, outlier_indexes 
-    modified [lcg 07272020 - changed plotting size issue]"""
+    returns: 
+        features_cropped, gaia_ids_cropped, flux_cropped, time_cropped, outlier_indexes
+    modified [lcg 08252020 - adapted for multiple time axes]"""
     path = path + "clipped-feature-outliers/"
     try:
         os.makedirs(path)
@@ -598,12 +702,12 @@ def clip_feature_outliers(path, features, time, flux, gaia_ids, sigma, version=0
                 feature_title = features_greek[feature_index] + "=" + feature_value
             print(feature_title)
             
-            plt.title("GAIA_ID " + str(int(target)) + " ", fontsize=8)
+            plt.title("GAIA_ID " + str(int(target)) + " " + feature_title, fontsize=8)
             plt.tight_layout()
             plt.savefig((path + "featureoutlier-TICID" + str(int(target)) + ".png"))
             plt.show()
     else: 
-        print("not plotting today!")
+        print("Not plotting outliers!")
             
         
     features_cropped = np.delete(features, outlier_indexes, axis=0)
@@ -755,6 +859,7 @@ def features_plotting_FFI(feature_vectors, path, clustering,
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
         folder_label = "dbscan-colored"
+        
 
     elif clustering == 'kmeans': 
         Kmean = KMeans(n_clusters=kmeans_clusters, max_iter=700, n_init = 20)
@@ -778,6 +883,10 @@ def features_plotting_FFI(feature_vectors, path, clustering,
         print ("Successfully created the directory %s" % folder_path) 
  
     if clustering == 'dbscan':
+        with open(folder_path + '/dbscan_paramset.txt', 'a') as f:
+            f.write('eps {} min samples {} metric {} algorithm {} \
+                    leaf_size {} p {} # classes {} \n'.format(eps,min_samples,
+                    metric,algorithm, leaf_size, p,numclasses))
         plot_classification_FFI(time, intensity, targets, db.labels_,
                             folder_path+'/', prefix='dbscan',
                             momentum_dump_csv=momentum_dump_csv,
