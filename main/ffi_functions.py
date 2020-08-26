@@ -96,7 +96,7 @@ class FFI_lc(object):
     * build_simbad_extragalactic_database  - produces text file list of the targets
     * get_radecfromtext - pulls ra and dec from simbad database
         
-    modified [lcg 08232020 - fixes]
+    modified [lcg 08252020 - plotting]
     """
 
     def __init__(self, path=None, folderlabel="Vmag19", simbadquery="Vmag <=19",
@@ -615,9 +615,10 @@ class FFI_lc(object):
         #creates labels
         if self.version==0:
             graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-                                "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
                                 "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-                                "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)", "TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
+                                "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)", 
+                            "TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
                                 "TLS Best fit Power"]
             fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
                                 "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
@@ -675,7 +676,7 @@ class FFI_lc(object):
         if clustering == 'kmeans':
             return classes_kmeans
 
-    def plot_classification(self, labels, path,n=20):
+    def plot_classification(self, labels, path, n=20):
         """ 
         FFI veersion of pf.plot_classification
         plots the first ten items in a class
@@ -698,8 +699,7 @@ class FFI_lc(object):
             
             for k in range(min(n, counts[i])): # >> loop through each row
                 ind = class_inds[k]
-                
-                
+               
                 with open(self.momdumpcsv, 'r') as f:
                     lines = f.readlines()
                     mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
@@ -731,7 +731,7 @@ class FFI_lc(object):
             plt.close(fig)
         return classes, counts
     
-    def quick_plot_classification(self, labels, path = self.path, title=''):
+    def quick_plot_classification(self, labels, path = "/users/conta/urop/", title=''):
         '''
         plots first five light curves in each class in vertical columns
         '''
