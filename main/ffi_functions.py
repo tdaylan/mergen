@@ -8,14 +8,8 @@ All functions for accessing FFI light curves + producing their custom feature ve
 
 class FFI_lc()
 
-Functions: 
-    * eleanor_lc  - pulls data from ra and dec list
-    * open_eleanor_lc_files  - opens the saved light curves
-    * create_save_featvec_different_timeaxes - produces featvecs and saves them
-    * build_simbad_extragalactic_database  - produces text file list of the targets
-    * get_radecfromtext
     
-Updated: 8/22/2020
+Updated: 8/26/2020
 """
 import numpy as np
 import numpy.ma as ma 
@@ -77,26 +71,40 @@ def test_ffi():
 class FFI_lc(object):
     """
     init params:
-        * path to save everything into
-        * maglimit for max magnitude value to query simbad for
+        * path = path to save everything into
+        * folderlabel = label for subfolder that everything is going to go into
+        * simbadquery - formatted as a criteria query
+        * download = True if you want to get data, False if you already have light curve
+        and feature files saved in the specified folderlabel folder
         * tls = False - whether or not you want to produce the tls features 
             which currently do not run in spyder (still ugh)
-        
-    what it does: 
-        - creates folder in path
-        - creates simbad database text file of all galaxies with Vmag <=maglimit
-        - accesses eleanor light curves from FFI files for those galaxies
-        - produces the v0 feature vectors for those light curves and saves into file
-        - if tls = True, produces the v1 feature vectors and saves into file
-        
-    Functions: 
-    * eleanor_lc  - pulls data from ra and dec list
-    * open_eleanor_lc_files  - opens the saved light curves
-    * create_save_featvec_different_timeaxes - produces featvecs and saves them
-    * build_simbad_extragalactic_database  - produces text file list of the targets
-    * get_radecfromtext - pulls ra and dec from simbad database
-        
-    modified [lcg 08252020 - plotting]
+        * momentumdumpcsv = path to the table_of_momentum_dumps.csv for the TESS mission
+     
+    init: 
+        if downloading: 
+            * runs build_simbad_extragalactic_database()
+            * opens database and gets ra/dec get_radecfromtext()
+            * produces and saves LC with eleanor_lc()
+            * open eleanor light curves with open_eleanor_lc_files()
+            * produces features using create_save_featvec_different_timeaxes()
+            if tls = True:
+                * produces tls features and saves them.
+        else:
+            * opens LC with open_eleanor_lc_files()
+            * opens features with open_eleanor_features()[0]
+                * 0 used to avoid some weird indexing issues i haven't been able to resolve
+            
+    Other Functions: 
+        * features_plotting - plots 2D feature plots, optionally colored by clustering
+        * plot_classification - plots first n items in each class
+        * plot_lof - calculates and plots the top n LOF scored light curves. 
+        * plot_histogram - plots the histogram of given data, optionally plots insets
+        * column_plot_classification - used by dbscan_param_search, plots 1st 5 LC in
+            each class in big 50 curve plots. 
+        * dbscan_param_search - runs and plots dbscan information for the parameter
+            search grid.
+    
+    modified [lcg 08262020 - plotting]
     """
 
     def __init__(self, path=None, folderlabel="Vmag19", simbadquery="Vmag <=19",
@@ -144,7 +152,8 @@ class FFI_lc(object):
                 if tls:
                     print("Producing v1 feature vectors")
                     self.version = 1
-                    self.features = self.create_save_featvec_different_timeaxes()
+                    self.features1 = self.create_save_featvec_different_timeaxes()
+                    self.features = np.column_stack((self.features, self.features0))
         else: 
             print("Not downloading anything. Attempting to access LC and Features")
             self.gaia_ids, self.times, self.intensities = self.open_eleanor_lc_files()
@@ -457,10 +466,23 @@ class FFI_lc(object):
             * Text file with gaia id in column 1, and LOF in column 2 (lof-*.txt)
             * Log histogram of LOF (lof-histogram.png)
             * light curves with highest and lowest LOF
-        modified [lcg 0825020 - FFI version]
-        *** TO DO: fix inset histogram plotting
+        modified [lcg 0862020 - fixed histogram plotting]
         """
         # -- calculate LOF -------------------------------------------------------
+        saveoriginalpath = self.path
+        
+        self.path = self.path + "LOF/"
+        
+        try:
+            os.makedirs(self.path)
+        except OSError:
+            print ("Creation of the directory %s failed" % self.path)
+            print("New folder created will have -new at the end. Please rename.")
+            folder_path = self.path + "-new"
+            os.makedirs(self.path)
+        else:
+            print ("Successfully created the directory %s" % self.path)
+            
         print('Calculating LOF')
         clf = LocalOutlierFactor(n_neighbors=n_neighbors)
         fit_predictor = clf.fit_predict(self.features)
@@ -479,13 +501,9 @@ class FFI_lc(object):
           
         # >> make histogram of LOF values
         print('Make LOF histogram')
-        #plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-         #              targets, path+'lof-'+prefix+'histogram-insets.png',
-          #             insets=True, log=log)
-        pf.plot_histogram(lof, 20, "Local Outlier Factor (LOF)", self.times, self.intensities,
-                       self.gaia_ids, self.path+'lof-histogram.png', insets=False,
-                       log=True)
-    
+        self.plot_histogram(lof, 20, "Local Outlier Factor (LOF)", insets=False, log=False)
+        self.plot_histogram(lof, 20, "Local Outlier Factor (LOF)", insets=True, log=False)
+        
         # -- plot smallest and largest LOF light curves --------------------------
         print('Plot highest LOF and lowest LOF light curves')
         num_figs = int(n_tot/n) # >> number of figures to generate
@@ -540,6 +558,63 @@ class FFI_lc(object):
                                 str(j*n + n) + '.png',
                                 bbox_inches='tight')
                     plt.close(fig)
+            #rest self.path
+            self.path = saveoriginalpath
+            
+    def plot_histogram(self, data, bins, x_label, insets=True, log=True):
+        """ plot a histogram with one light curve from each bin plotted on top
+        data is the histogram data
+        bins is bins
+        x-label is what you want the xaxis to be labelled as
+        insetx is the SAME x-axis to plot
+        insety is the full list of light curves
+        filename is the exact place you want it saved
+        insets is a true/false of if you want them
+        modified [lcg 08262020 - FFI version]
+        """
+        filename = self.path + "histogram.png"
+        #this is the very very simple histogram plotting
+        fig, ax1 = plt.subplots()
+        n_in, bins, patches = ax1.hist(data, bins, log=log)
+        
+        y_range = np.abs(n_in.max() - n_in.min())
+        x_range = np.abs(data.max() - data.min())
+        ax1.set_ylabel('Number of light curves')
+        ax1.set_xlabel(x_label)
+        
+        if insets == True:
+            filename = self.path + "histogram-insets.png"
+            for n in range(len(n_in)): #how many bins?
+                if n_in[n] == 0: #if the bin has nothing in it, keep moving
+                    continue
+                else: 
+                    #set up axis and dimension for it
+                    axis_name = "axins" + str(n)
+                    inset_width = 0.33 * x_range * 0.5
+                    inset_x = bins[n] - (0.5*inset_width)
+                    inset_y = n_in[n]
+                    inset_height = 0.125 * y_range * 0.5
+                        #x pos, y pos, width, height
+                    axis_name = ax1.inset_axes([inset_x, inset_y, 
+                                                inset_width, inset_height], 
+                                               transform = ax1.transData) 
+                    
+                    #identify a light curve from that one
+                    for m in range(len(data)):
+                        #print(bins[n], bins[n+1])
+                        if bins[n] <= data[m] <= bins[n+1]:
+                            #print(data[m], m)
+                            timeaxis = self.times[m]
+                            lc_to_plot = self.intensities[m]
+                            lc_ticid = self.gaia_ids[m]
+                            break
+                        else: 
+                            continue
+                    
+                    axis_name.scatter(timeaxis, lc_to_plot, c='black', s = 0.1, rasterized=True)
+                    axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=6)
+        plt.savefig(filename)
+        plt.close()
 
     def features_plotting(self, clustering = 'dbscan', eps=3, min_samples=10,
                              metric='minkowski', algorithm='auto', leaf_size=30,
@@ -731,7 +806,7 @@ class FFI_lc(object):
             plt.close(fig)
         return classes, counts
     
-    def quick_plot_classification(self, labels, path = "/users/conta/urop/", title=''):
+    def column_plot_classification(self, labels, prefix='prefix', title='title'):
         '''
         plots first five light curves in each class in vertical columns
         '''
@@ -746,7 +821,7 @@ class FFI_lc(object):
                       "M", r'$\mu$',"N", r'$\nu$']
         
         for i in range(num_figs): #
-            fig, ax = plt.subplots(nrows, ncols, sharex=True,
+            fig, ax = plt.subplots(nrows, ncols, sharex=False,
                                    figsize=(8*ncols*0.75, 3*nrows))
             fig.suptitle(title)
             
@@ -772,7 +847,7 @@ class FFI_lc(object):
                 for k in range(min(nrows, len(class_inds))): 
                     ind = class_inds[k] # >> to index targets
                     ax[k, j].plot(self.times[ind], self.intensities[ind], '.k')
-                    ax[k,j].set_title("GAIA ID " + self.gaia_ids[ind], color='black')
+                    ax[k,j].set_title("GAIA ID " + str(self.gaia_ids[ind]), color='black')
                     pf.format_axes(ax[k, j], ylabel=True) 
                     
                 features_byclass = self.features[class_inds]
@@ -789,8 +864,165 @@ class FFI_lc(object):
                         ax[m, 0].set_ylabel('Relative flux')
                         
             fig.tight_layout()
-            fig.savefig(path +'class-' + str(i) + '.pdf')
+            fig.savefig(self.path + prefix + '-' + str(i) + '.pdf')
             plt.close(fig)
+            
+    def dbscan_param_search(self, eps=list(np.arange(0.5,10,0.4)),
+                                min_samples=[2,5,10],
+                                metric=['euclidean', 'minkowski'],
+                                algorithm = ['auto'],
+                                leaf_size = [30, 40, 50],
+                                p = [1,2,3,4], plotting=False,
+                                database_dir='./databases/', pca=True, tsne=True,
+                                confusion_matrix=False):
+        '''Performs a grid serach across parameter space for DBSCAN. 
+        
+        '''
+        from sklearn.cluster import DBSCAN
+        from sklearn.metrics import silhouette_score, calinski_harabasz_score
+        from sklearn.metrics import davies_bouldin_score 
+        classes = []
+        num_classes = []
+        counts = []
+        num_noisy= []
+        parameter_sets=[]
+        silhouette_scores=[]
+        ch_scores = []
+        db_scores = []
+        accuracy = []
+        param_num = 0
+        
+        saveoriginalpath = self.path
+        
+        self.path = self.path + "/dbscan-paramscan/"
+        
+        try:
+            os.makedirs(self.path)
+        except OSError:
+            print ("Creation of the directory %s failed" % self.path)
+            print("New folder created will have -new at the end. Please rename.")
+            folder_path = self.path + "-new"
+            os.makedirs(self.path)
+        else:
+            print ("Successfully created the directory %s" % self.path)
+        
+    
+        with open(self.path + 'dbscan_param_search.txt', 'a') as f:
+            f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format("eps", "samp", "metric", 
+                                                             "alg", "leaf", "p",
+                                                             "#classes", "# noise",
+                                                             "silhouette", 'ch', 
+                                                             'db', 'acc'))
+    
+        for i in range(len(eps)):
+            for j in range(len(min_samples)):
+                for k in range(len(metric)):
+                    for l in range(len(algorithm)):
+                        for m in range(len(leaf_size)):
+                            #if metric[k] == 'minkowski' or 'manhattan':
+                             #   p = p
+                            #else:
+                             #   p = [None]
+                            for n in range(len(p)):
+                                db = DBSCAN(eps=eps[i],
+                                            min_samples=min_samples[j],
+                                            metric=metric[k],
+                                            algorithm=algorithm[l],
+                                            leaf_size=leaf_size[m],
+                                            p=p[n]).fit(self.features)
+                                #print(db.labels_)
+                                print(np.unique(db.labels_, return_counts=True))
+                                classes_1, counts_1 = \
+                                    np.unique(db.labels_, return_counts=True)
+                                    
+                                #param_num = str(len(parameter_sets)-1)
+                                title='Parameter Set '+str(param_num)+': '+'{} {} {} {} {} {}'.format(eps[i],
+                                                                                            min_samples[j],
+                                                                                            metric[k],
+                                                                                            algorithm[l],
+                                                                                            leaf_size[m],
+                                                                                            p[n])
+                                
+                                prefix='dbscan-p'+str(param_num)                            
+                                    
+                                if confusion_matrix:
+                                    acc = pf.plot_confusion_matrix(self.gaia_ids, db.labels_,
+                                                                   database_dir=database_dir,
+                                                                   output_dir=self.path,
+                                                                   prefix=prefix)
+                                else:
+                                    acc = np.nan
+                                accuracy.append(acc)
+                                    
+                                if len(classes_1) > 1:
+                                    classes.append(classes_1)
+                                    num_classes.append(len(classes_1))
+                                    counts.append(counts_1)
+                                    num_noisy.append(counts_1[0])
+                                    parameter_sets.append([eps[i], min_samples[j],
+                                                           metric[k],
+                                                           algorithm[l],
+                                                           leaf_size[m],
+                                                           p[n]])
+                                    
+                                    # >> compute silhouette
+                                    silhouette = silhouette_score(self.features, db.labels_)
+                                    silhouette_scores.append(silhouette)
+                                    
+                                    # >> compute calinski harabasz score
+                                    ch_score = calinski_harabasz_score(self.features, db.labels_)
+                                    ch_scores.append(ch_score)
+                                    
+                                    # >> compute davies-bouldin score
+                                    dav_boul_score = davies_bouldin_score(self.features, db.labels_)
+                                    db_scores.append(dav_boul_score)
+                                    
+                                else:
+                                    silhouette, ch_score, dav_boul_score = np.nan, np.nan, np.nan
+                                    
+                                with open(self.path + 'dbscan_param_search.txt', 'a') as f:
+                                    f.write('{} {} {} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
+                                                                       min_samples[j],
+                                                                       metric[k],
+                                                                       algorithm[l],
+                                                                       leaf_size[m],
+                                                                       p[n],
+                                                                       len(classes_1),
+                                                                       counts_1[0],
+                                                                       silhouette,
+                                                                       ch_score,
+                                                                       dav_boul_score,
+                                                                       acc))
+                                    
+                                if plotting and len(classes_1) > 1:
+    
+                                    self.column_plot_classification(db.labels_, prefix = prefix,title=title)
+                                    
+                                    if pca:
+                                        print('Plot PCA...')
+                                        pf.plot_pca(self.features, db.labels_,
+                                                    output_dir=self.path,
+                                                    prefix=prefix)
+                                    
+                                    if tsne:
+                                        print('Plot t-SNE...')
+                                        pf.plot_tsne(self.features, db.labels_,
+                                                     output_dir=self.path,
+                                                     prefix=prefix)
+                                plt.close('all')
+                                param_num +=1
+        print("Plot paramscan metrics...")
+        pf.plot_paramscan_metrics(self.path, parameter_sets, 
+                                  silhouette_scores, db_scores, ch_scores)
+    
+        pf.plot_paramscan_classes(self.path, parameter_sets, 
+                                      np.asarray(num_classes), np.asarray(num_noisy))
+    
+        self.path = saveoriginalpath
+        return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, accuracy        
+                
+                
+            
 #%%
 def eleanor_lc(path, ra_declist, plotting = False):
     """ 
