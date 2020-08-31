@@ -14,18 +14,26 @@
 
 # dat_dir = '../../' # >> directory with input data (ending with /)
 dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/CAE6/' # >> directory to save diagnostic plots
+output_dir = '../../plots/CAE-SegNet/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
                      # >> and plotting_functions.py
-database_dir = '../../databases/' # >> directory containing text files for
+# database_dir = '../../databases/' # >> directory containing text files for
                                   # >> cross-checking classifications
+database_dir = output_dir + 'all_simbad_classifications.txt'
+simbad_database_dir = ''
 # >> input data
-sectors = [2]
+sectors = [20]
 cams = [1,2,3,4]
 # cams = [1]
 ccds =  [1,2,3,4]
+
+
+# weights init
+# model_init = output_dir + 'model'
+model_init = None
+
 
 # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
 train_test_ratio = 0.9
@@ -35,14 +43,16 @@ hyperparameter_optimization = False # >> run hyperparameter search
 run_model = True # >> train autoencoder on a parameter set p
 diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
-classification=True # >> runs DBSCAN on learned features
+
+classification_param_search=False
+classification=False # >> runs DBSCAN on learned features
 
 # >> normalization options:
 #    * standardization : sets mean to 0. and standard deviation to 1.
 #    * median_normalization : divides by median
 #    * minmax_normalization : sets range of values from 0. to 1.
 #    * none : no normalization
-norm_type = 'standardization'
+norm_type = 'minmax_normalization'
 
 input_rms=True # >> concatenate RMS to learned features
 input_psd=False # >> also train on PSD
@@ -78,48 +88,6 @@ import plotting_functions as pf # >> for vsualizations
 
 # >> hyperparameters
 if hyperparameter_optimization:
-    p = {'kernel_size': [3],
-      'latent_dim': list(np.arange(3, 15)),
-      'strides': [1],
-      'epochs': [10],
-      'dropout': list(np.arange(0.1, 0.6, 0.1)),
-      'num_filters': [8, 16, 32, 64],
-      'num_conv_layers': [4,6,8,10,12,14],
-      'batch_size': [128],
-      'activation': ['elu'],
-      'optimizer': ['adam'],
-      'last_activation': ['linear'],
-      'losses': ['mean_squared_error'],
-      'lr': [0.001, 0.005, 0.01, 0.05, 0.1],
-      'initializer': ['random_normal', 'random_uniform', 'glorot_normal',
-                      'glorot_uniform'],
-      'num_consecutive': [2]}       
-    p = {'kernel_size': [3],
-          'latent_dim': [35],
-          'strides': [1],
-          'epochs': [10],
-          'dropout': [0.3],
-          'num_filters': [16, 32, 64],
-          'num_conv_layers': [4,6,8],
-          'batch_size': [128],
-          'activation': [tf.keras.activations.softplus,
-                         tf.keras.activations.selu,
-                         tf.keras.activations.relu,
-                         'swish',
-                         tf.keras.activations.exponential,
-                         tf.keras.activations.elu, 'linear'],
-          'optimizer': ['adam', 'adadelta'],
-          'last_activation': [tf.keras.activations.softplus,
-                         tf.keras.activations.selu,
-                         tf.keras.activations.relu,
-                         'swish',
-                         tf.keras.activations.exponential,
-                         tf.keras.activations.elu, 'linear'],
-          'losses': ['mean_squared_error'], #ml.custom_loss_function
-          'lr': [0.001],
-          'initializer': ['random_normal'],
-          'num_consecutive': [2]}        
-    
     p = {'kernel_size': [3,5],
           'latent_dim': [25],
           'strides': [2],# 3
@@ -147,91 +115,37 @@ if hyperparameter_optimization:
            'activity_regularizer': [None],
          
           'pool_size': [1]}     
-          # 'kernel_regularizer': [tf.keras.regularizers.l1_l2(l1=0.01, l2=0.01),
-          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.001),
-          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.1),
-          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.01),
-          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.001),
-          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.1),
-          #                        tf.keras.regularizers.l1_l2(l1=0.01, l2=0.),
-          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.),
-          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.),
-          #                        None],
-          
-          # 'bias_regularizer': [tf.keras.regularizers.l1_l2(l1=0.01, l2=0.01),
-          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.001),
-          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.1),
-          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.01),
-          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.001),
-          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.1),
-          #                        tf.keras.regularizers.l1_l2(l1=0.01, l2=0.),
-          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.),
-          #                        None],
-          
-          # 'activity_regularizer': [tf.keras.regularizers.l1_l2(l1=0.01, l2=0.01),
-          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.001),
-          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.1),
-          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.01),
-          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.001),
-          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.1),
-          #                        tf.keras.regularizers.l1_l2(l1=0.01, l2=0.),
-          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.),
-          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.),
-          #                        None],    
+
 else:
+    # >> strides: list, len = num_consecutive
     p = {'kernel_size': 3,
           'latent_dim': 35,
           'strides': 1,
-          'epochs': 8,
-          'dropout': 0.3,
-          'num_filters': 16,
-          'num_conv_layers': 4,
-          'batch_size': 128,
-          'activation': tf.keras.activations.softplus,
-          'optimizer': 'adam',
-          'last_activation': 'linear',
-          'losses': 'mean_squared_error', #ml.custom_loss_function
-          'lr': 0.001,
-          'initializer': 'random_normal',
-          'num_consecutive': 2}     
-    p = {'kernel_size': 3,
-          'latent_dim': 25,
-          'strides': 2,# 3
-          'epochs': 20,
-          'dropout': 0.3,
-          'num_filters': 64,
-          'num_conv_layers': 12,
-          'batch_size': 128,
+          'epochs': 5,
+          'dropout': 0.,
+          'num_filters': [64, 128, 256, 512, 512],
+          'num_conv_layers': 10,
+          'batch_size': 64,
           'activation': 'elu',
           'optimizer': 'adam',
           'last_activation': 'linear',
           'losses': 'mean_squared_error',
-          'lr': 0.001,
+          'lr': 0.0001,
           'initializer': 'random_normal',
-          'num_consecutive': 2,
+          'num_consecutive': [2, 2, 3, 3, 3],
+          'pool_size': 2, 
+          'pool_strides': 2,
           'kernel_regularizer': None,
           'bias_regularizer': None,
           'activity_regularizer': None,
-          'pool_size': 1}     
-    p = {'kernel_size': 3,
-          'latent_dim': 35,
-          'strides': 1,
-          'epochs': 15,
-          'dropout': 0.3,
-          'num_filters': 16,
-          'num_conv_layers': 4,
-          'batch_size': 128,
-          'activation': 'elu',
-          'optimizer': 'adam',
-          'last_activation': 'linear',
-          'losses': 'mean_squared_error',
-          'lr': 0.005,
-          'initializer': 'random_normal',
-          'num_consecutive': 2,
-          'kernel_regularizer': None,
-          'bias_regularizer': None,
-          'activity_regularizer': None,
-          'pool_size': 1}      
+          'fully_conv': False,
+          'encoder_decoder_skip': False,
+          'encoder_skip': False,
+          'decoder_skip': False,
+          'full_feed_forward_highway': False,
+          'cvae': False,
+          'share_pool_inds': False,
+          'batchnorm_before_act': True}      
     
 # -- create output directory --------------------------------------------------
     
@@ -246,6 +160,8 @@ flux, x, ticid, target_info = \
                                 DEBUG=True,
                                 output_dir=output_dir, nan_mask_check=True,
                                 custom_mask=custom_mask)
+    
+
 
 # !! tmp
 # # >> train and test on high frequency only
@@ -289,7 +205,6 @@ x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
 
 title='TESS-unsupervised'
 
-pdb.set_trace()
 
 # == talos experiment =========================================================
 if hyperparameter_optimization:
@@ -314,13 +229,18 @@ if run_model:
     print('Training autoencoder...') 
     history, model = ml.conv_autoencoder(x_train, x_train, x_test, x_test, p,
                                          val=False, split=split_at_orbit_gap,
-                                         input_psd=input_psd)
+                                         input_psd=input_psd, model_init=model_init,
+                                         save_model=True, predict=True,
+                                         save_bottleneck=True, output_dir=output_dir)
     
-    bottleneck_train = ml.get_bottleneck(model, x_train, input_rms=input_rms,
+    x_predict = model.predict(x_test)
+    
+    
+    bottleneck_train = ml.get_bottleneck(model, x_train, p, input_rms=input_rms,
                                          rms=rms_train)
     
     # >> save bottleneck_test, bottleneck_train
-    bottleneck = ml.get_bottleneck(model, x_test, input_rms=input_rms,
+    bottleneck = ml.get_bottleneck(model, x_test, p, input_rms=input_rms,
                                    rms=rms_test)    
     hdr = fits.Header()
     hdu = fits.PrimaryHDU(bottleneck, header=hdr)
@@ -332,8 +252,7 @@ if run_model:
     hdu.writeto(output_dir + 'bottleneck_train.fits')    
     fits.append(output_dir + 'bottleneck_train.fits', ticid_train)    
     
-    
-    x_predict = model.predict(x_test)
+
     
     if split_at_orbit_gap:
         x_train = np.concatenate(x_train, axis=1)
@@ -368,7 +287,8 @@ if diag_plots:
             x_predict = hdul[0].data
             
         import keras
-        model = keras.models.load_model(output_dir+'model') 
+        import tensorflow as tf
+        model = keras.models.load_model(output_dir+'model', custom_objects={'tf': tf}) 
         
         # !! re-arrange x_predict
         
@@ -392,12 +312,12 @@ if diag_plots:
                             plot_lof_test=True,
                             plot_lof_train=True,
                             plot_lof_all=True,
-                            plot_reconstruction_error_test=True,
+                            plot_reconstruction_error_test=False,
                             plot_reconstruction_error_all=True,
                             load_bottleneck=True)
     else: 
         pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
-                            x_test, x_predict, mock_data=False,
+                            x_test, x_predict, mock_data=False, addend=0.,
                             target_info_test=target_info_test,
                             target_info_train=target_info_train,
                             ticid_train=ticid_train,
@@ -412,51 +332,124 @@ if diag_plots:
                             plot_latent_test = True,
                             plot_latent_train = True,
                             plot_kernel=False,
-                            plot_intermed_act=False,
+                            plot_intermed_act=True,
                             make_movie = False,
-                            plot_lof_test=True,
-                            plot_lof_train=True,
-                            plot_lof_all=True,
+                            plot_lof_test=False,
+                            plot_lof_train=False,
+                            plot_lof_all=False,
                             plot_reconstruction_error_test=False,
-                            plot_reconstruction_error_all=True)                            
+                            plot_reconstruction_error_all=True,
+                            load_bottleneck=True)                            
 
-# >> Feature plots
+
+
+
 
 if classification:
-    features, flux_feat, ticid_feat, info_feat = \
-        ml.bottleneck_preprocessing(sectors[0],
-                                    np.concatenate([x_train, x_test], axis=0),
-                                    np.concatenate([ticid_train, ticid_test]),
-                                    np.concatenate([target_info_train,
-                                                    target_info_test]),
-                                    data_dir=dat_dir,
-                                    output_dir=output_dir,
-                                    use_learned_features=True,
-                                    use_tess_features=use_tess_features,
-                                    use_engineered_features=False,
-                                    use_tls_features=False)
     
+    for i in range(4):
+        if i == 0:
+            use_tess_features=False
+            use_tls_features=False
+            description='_0_learned'
+        elif i == 1:
+            use_tess_features=False
+            use_tls_features=False
+            description='_1_learned_RMS'
+        elif i == 2:
+            use_tess_features=True
+            use_tls_features=False
+            description='_2_learned_RMS_tls'
+        else:
+            use_tess_features=False
+            use_tls_features=True
+            cams=[1] # !!
+            description='_3_learned_RMS'
         
-    pf.latent_space_plot(features, output_dir + 'latent_space-tessfeats.png')
+        print('Creating feature space')
+        features, flux_feat, ticid_feat, info_feat = \
+            ml.bottleneck_preprocessing(sectors[0],
+                                        np.concatenate([x_train, x_test], axis=0),
+                                        np.concatenate([ticid_train, ticid_test]),
+                                        np.concatenate([target_info_train,
+                                                        target_info_test]),
+                                        data_dir=dat_dir,
+                                        output_dir=output_dir,
+                                        use_learned_features=True,
+                                        use_tess_features=use_tess_features,
+                                        use_engineered_features=False,
+                                        use_tls_features=use_tls_features,
+                                        cams=cams, ccds=ccds)
+            
+        if i == 0:
+            # >> test without RMS
+            features = features[:,:p['latent_dim']]
+        
+        print('Plotting feature space')
+        pf.latent_space_plot(features, output_dir + 'feature_space' + \
+                             description+'.png')
+        
+        print('Novelty detection')
+        pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
+                    n_tot=40, target_info=info_feat, prefix=str(i),
+                    cross_check_txt=database_dir, debug=True, addend=0.)
 
-    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
-    df.dbscan_param_search(features, x, flux_feat, ticid_feat,
-                            info_feat, DEBUG=True, 
-                            output_dir=output_dir, 
-                            simbad_database_txt='../../simbad_database.txt',
-                            leaf_size=[30], algorithm=['auto'],
-                            min_samples=[3],
-                            metric=['minkowski'], p=[2],
-                            database_dir=database_dir,
-                            eps=list(np.arange(1.5, 3., 0.1)),
-                            confusion_matrix=True)      
-        
-    acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
-                                  info_feat, output_dir=output_dir,
-                                  database_dir=database_dir, metric=['all'])
+        if classification_param_search:
+            df.KNN_plotting(output_dir +'str(i)-', features, [10, 20, 100])
     
-    with open(output_dir + 'param_summary.txt', 'a') as f:
-        f.write('accuracy: ' + str(np.max(acc)))    
+            print('DBSCAN parameter search')
+            parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
+            df.dbscan_param_search(features, x, flux_feat, ticid_feat,
+                                    info_feat, DEBUG=False, 
+                                    output_dir=output_dir, 
+                                    simbad_database_txt=simbad_database_dir,
+                                    leaf_size=[30], algorithm=['auto'],
+                                    min_samples=[5],
+                                    metric=['minkowski'], p=[3,4],
+                                    database_dir=database_dir,
+                                    eps=list(np.arange(1.5, 4., 0.1)),
+                                    confusion_matrix=False, pca=False, tsne=False,
+                                    tsne_clustering=False)      
+            
+            print('Classification with best parameter set')
+            best_ind = np.argmax(silhouette_scores)
+            best_param_set = parameter_sets[best_ind]
+            
+        else:
+            best_param_set=[2.0, 3, 'minkowski', 'auto', 30, 4]    
+        
+        parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
+        df.dbscan_param_search(features, x, flux_feat, ticid_feat,
+                                info_feat, DEBUG=True, 
+                                output_dir=output_dir+str(i), single_file=True,
+                                simbad_database_txt=simbad_database_dir,
+                                leaf_size=[best_param_set[4]],
+                                algorithm=[best_param_set[3]],
+                                min_samples=[best_param_set[1]],
+                                metric=[best_param_set[2]], p=[best_param_set[5]],
+                                database_dir=database_dir,
+                                eps=[best_param_set[0]])      
+    
+        
+        if classification_param_search:
+            print('HDBSCAN parameter search')
+            acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
+                                          info_feat, output_dir=output_dir,
+                                          p0=[3,4], single_file=True,
+                                          database_dir=database_dir, metric=['all'])
+        else:
+            best_param_set = [5, 5, 'manhattan', None]
+            print('HDBSCAN parameter search')
+            acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
+                                          info_feat, output_dir=output_dir,
+                                          p0=[best_param_set[3]], single_file=True,
+                                          database_dir=database_dir,
+                                          metric=[best_param_set[2]],
+                                          min_cluster_size=[best_param_set[0]],
+                                          min_samples=[best_param_set[1]])            
+        
+        with open(output_dir + 'param_summary.txt', 'a') as f:
+            f.write('accuracy: ' + str(np.max(acc)))    
 
     
         
@@ -847,3 +840,35 @@ if classification:
 #                 'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
 #             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
 #             fname_info.append([sector, cam, ccd])
+        
+          # 'kernel_regularizer': [tf.keras.regularizers.l1_l2(l1=0.01, l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0.01, l2=0.),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.),
+          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.),
+          #                        None],
+          
+          # 'bias_regularizer': [tf.keras.regularizers.l1_l2(l1=0.01, l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0.01, l2=0.),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.),
+          #                        None],
+          
+          # 'activity_regularizer': [tf.keras.regularizers.l1_l2(l1=0.01, l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.01),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.001),
+          #                        tf.keras.regularizers.l1_l2(l1=0., l2=0.1),
+          #                        tf.keras.regularizers.l1_l2(l1=0.01, l2=0.),
+          #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.),
+          #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.),
+          #                        None],            
