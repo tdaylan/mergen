@@ -86,6 +86,7 @@ from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
 import astropy.coordinates as coord
 import astropy.units as u
+from astroquery.vizier import Vizier
 
 import pdb
 import fnmatch as fm
@@ -96,7 +97,7 @@ from sklearn.cluster import DBSCAN
 from sklearn.metrics import silhouette_score, calinski_harabasz_score
 from sklearn.metrics import davies_bouldin_score   
 # import batman
-# from transitleastsquares import transitleastsquares
+from transitleastsquares import transitleastsquares
 
 
 def test_data():
@@ -1119,7 +1120,7 @@ def create_save_featvec_homogenous_time(yourpath, times, intensities, filelabel,
     
     return feature_list
 
-def featvec(x_axis, sampledata, v=0): 
+def featvec(x_axis, sampledata, ticid=None, v=0): 
     """calculates the feature vector of a single light curve
         version 0: features 0-15
         version 1: features 0-19
@@ -1234,9 +1235,34 @@ def featvec(x_axis, sampledata, v=0):
     
     #tls 
     elif v == 1: 
-        from transitleastsquares import transitleastsquares
+        from transitleastsquares import transitleastsquares, period_grid, catalog_info
         model = transitleastsquares(x_axis, sampledata)
-        results = model.power(show_progress_bar=False)
+        
+        if type(ticid) != type(None):
+            dt = np.max(x_axis) - np.min(x_axis)            
+            ab, mass, mass_min, mass_max, radius, radius_min, radius_max = catalog_info(TIC_ID=int(ticid))
+            # >> find smallest period grid
+            rm_set = []
+            grid_lengths = [period_grid(1, 1, dt).shape[0]]
+            rm_set.append([1,1])
+            
+            if not np.isnan(radius):                
+                grid_lengths.append(period_grid(radius, 1, dt).shape[0])
+                rm_set.append([radius, 1])
+                
+            if not np.isnan(mass):
+                grid_lengths.append(period_grid(1, mass, dt).shape[0])
+                rm_set.append([1, mass])
+                
+            
+            ind = np.argmin(grid_lengths)
+            R_star, M_star = rm_set[ind]
+            
+        else:
+            R_star, M_star = 1,1
+        
+        results = model.power(show_progress_bar=True, R_star=R_star,
+                              M_star=M_star)
         featvec.append(results.period)
         featvec.append(results.duration)
         featvec.append((1 - results.depth))
@@ -1367,6 +1393,7 @@ def build_simbad_database(out='./simbad_database.txt'):
     '''Object type follows format in:
     http://vizier.u-strasbg.fr/cgi-bin/OType?$1
     Can see other Simbad fields with Simbad.list_votable_fields()
+    http://simbad.u-strasbg.fr/Pages/guide/sim-fscript.htx
     TODO  change votable field to otypes'''
     
     # -- querying object type -------------------------------------------------
@@ -1441,6 +1468,7 @@ def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
     ticid_simbad = []
     otypes_simbad = []
     main_id_simbad = []
+    bibcode_simbad = []
     
     with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
         f.write('')    
@@ -1451,116 +1479,187 @@ def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
         for line in lines:
             ticid_already_classified.append(float(line.split(',')[0]))
     
+
     for tic in ticid_list:
         
-        if tic in ticid_already_classified:
-            print('Skipping TIC')
+        res=None
+        
+        while res is None:
+            try:
+                if tic in ticid_already_classified:
+                    print('Skipping TIC')
+                    
+                else:
+                    print('get coords for TIC' + str(int(tic)))
+                    
+                    # >> get coordinates
+                    target = 'TIC ' + str(int(tic))
+                    catalog_data = Catalogs.query_object(target, radius=0.02,
+                                                         catalog='TIC')[0]
+                    # time.sleep(6)
             
-        else:
-            print('get coords for TIC' + str(int(tic)))
-            
-            # >> get coordinates
-            target = 'TIC ' + str(int(tic))
-            catalog_data = Catalogs.query_object(target, radius=0.02,
-                                                 catalog='TIC')[0]
-            # time.sleep(6)
-    
-            
-            # -- get object type from Simbad --------------------------------------
-            
-            # >> first just try querying the TICID
-            res = customSimbad.query_object(target)
-            # time.sleep(6)
-            
-            # >> if no luck with that, try checking other IDs
-            if type(res) == type(None):
-                if type(catalog_data['TYC']) != np.ma.core.MaskedConstant:
-                    target_new = 'TYC ' + str(catalog_data['TYC'])
-                    res = customSimbad.query_object(target_new)
+                    
+                    # -- get object type from Simbad --------------------------------------
+                    
+                    # >> first just try querying the TICID
+                    res = customSimbad.query_object(target)
                     # time.sleep(6)
                     
-            if type(res) == type(None):
-                if type(catalog_data['HIP']) != np.ma.core.MaskedConstant:
-                    target_new = 'HIP ' + str(catalog_data['HIP'])
-                    res = customSimbad.query_object(target_new)
-                    # time.sleep(6)
-    
-            # # >> UCAC not added to Simbad yet
-            # if type(res) == type(None):
-            #     if type(catalog_data['UCAC']) != np.ma.core.MaskedConstant:
-            #         target_new = 'UCAC ' + str(catalog_data['UCAC'])
-            #         res = customSimbad.query_object(target_new)
-                    
-            if type(res) == type(None):
-                if type(catalog_data['TWOMASS']) != np.ma.core.MaskedConstant:
-                    target_new = '2MASS ' + str(catalog_data['TWOMASS'])
-                    res = customSimbad.query_object(target_new)     
-                    # time.sleep(6)
-    
-            if type(res) == type(None):
-                if type(catalog_data['SDSS']) != np.ma.core.MaskedConstant:
-                    target_new = 'SDSS ' + str(catalog_data['SDSS'])
-                    res = customSimbad.query_object(target_new) 
-                    # time.sleep(6)
-    
-            if type(res) == type(None):
-                if type(catalog_data['ALLWISE']) != np.ma.core.MaskedConstant:
-                    target_new = 'ALLWISE ' + str(catalog_data['ALLWISE'])
-                    res = customSimbad.query_object(target_new)
-                    # time.sleep(6)
-                    
-            if type(res) == type(None):
-                if type(catalog_data['GAIA']) != np.ma.core.MaskedConstant:
-                    target_new = 'Gaia ' + str(catalog_data['GAIA'])
-                    res = customSimbad.query_object(target_new)      
-                    # time.sleep(6)
-                    
-            if type(res) == type(None):
-                if type(catalog_data['APASS']) != np.ma.core.MaskedConstant:
-                    target_new = 'APASS ' + str(catalog_data['APASS'])
-                    res = customSimbad.query_object(target_new)        
-                    # time.sleep(6)
-                    
-            if type(res) == type(None):
-                if type(catalog_data['KIC']) != np.ma.core.MaskedConstant:
-                    target_new = 'KIC ' + str(catalog_data['KIC'])
-                    res = customSimbad.query_object(target_new)    
-                    # time.sleep(6)
+                    # >> if no luck with that, try checking other IDs
+                    if type(res) == type(None):
+                        if type(catalog_data['TYC']) != np.ma.core.MaskedConstant:
+                            target_new = 'TYC ' + str(catalog_data['TYC'])
+                            res = customSimbad.query_object(target_new)
+                            # time.sleep(6)
+                            
+                    if type(res) == type(None):
+                        if type(catalog_data['HIP']) != np.ma.core.MaskedConstant:
+                            target_new = 'HIP ' + str(catalog_data['HIP'])
+                            res = customSimbad.query_object(target_new)
+                            # time.sleep(6)
             
-            # # >> if still nothing, query with coordinates
-            # if type(res) == type(None):
-            #     ra = catalog_data['ra']
-            #     dec = catalog_data['dec']            
-            #     coords = coord.SkyCoord(ra, dec, unit=(u.deg, u.deg))
-            #     res = customSimbad.query_region(coords, radius='0d0m2s')         
-            #     time.sleep(6)
+                    # # >> UCAC not added to Simbad yet
+                    # if type(res) == type(None):
+                    #     if type(catalog_data['UCAC']) != np.ma.core.MaskedConstant:
+                    #         target_new = 'UCAC ' + str(catalog_data['UCAC'])
+                    #         res = customSimbad.query_object(target_new)
+                            
+                    if type(res) == type(None):
+                        if type(catalog_data['TWOMASS']) != np.ma.core.MaskedConstant:
+                            target_new = '2MASS ' + str(catalog_data['TWOMASS'])
+                            res = customSimbad.query_object(target_new)     
+                            # time.sleep(6)
             
-            if type(res) == type(None):
-                print('failed :(')
-                with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
-                    f.write('{},{},{}\n'.format(tic, '', ''))              
-                ticid_simbad.append(tic)
-                otypes_simbad.append('none')
-                main_id_simbad.append('none')                
-            else:
-                otypes = res['OTYPES'][0].decode('utf-8')
-                main_id = res['MAIN_ID'].data[0].decode('utf-8')
-                ticid_simbad.append(tic)
-                otypes_simbad.append(otypes)
-                main_id_simbad.append(main_id)
-                
-                with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
-                    f.write('{},{},{}\n'.format(tic, otypes, main_id))
+                    if type(res) == type(None):
+                        if type(catalog_data['SDSS']) != np.ma.core.MaskedConstant:
+                            target_new = 'SDSS ' + str(catalog_data['SDSS'])
+                            res = customSimbad.query_object(target_new) 
+                            # time.sleep(6)
+            
+                    if type(res) == type(None):
+                        if type(catalog_data['ALLWISE']) != np.ma.core.MaskedConstant:
+                            target_new = 'ALLWISE ' + str(catalog_data['ALLWISE'])
+                            res = customSimbad.query_object(target_new)
+                            # time.sleep(6)
+                            
+                    if type(res) == type(None):
+                        if type(catalog_data['GAIA']) != np.ma.core.MaskedConstant:
+                            target_new = 'Gaia ' + str(catalog_data['GAIA'])
+                            res = customSimbad.query_object(target_new)      
+                            # time.sleep(6)
+                            
+                    if type(res) == type(None):
+                        if type(catalog_data['APASS']) != np.ma.core.MaskedConstant:
+                            target_new = 'APASS ' + str(catalog_data['APASS'])
+                            res = customSimbad.query_object(target_new)        
+                            # time.sleep(6)
+                            
+                    if type(res) == type(None):
+                        if type(catalog_data['KIC']) != np.ma.core.MaskedConstant:
+                            target_new = 'KIC ' + str(catalog_data['KIC'])
+                            res = customSimbad.query_object(target_new)    
+                            # time.sleep(6)
                     
-            # time.sleep(6)
-            
-            
+                    # # >> if still nothing, query with coordinates
+                    # if type(res) == type(None):
+                    #     ra = catalog_data['ra']
+                    #     dec = catalog_data['dec']            
+                    #     coords = coord.SkyCoord(ra, dec, unit=(u.deg, u.deg))
+                    #     res = customSimbad.query_region(coords, radius='0d0m2s')         
+                    #     time.sleep(6)
+                    
+                    if type(res) == type(None):
+                        print('failed :(')
+                        res=0
+                        with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
+                            f.write('{},{},{}\n'.format(tic, '', ''))              
+                        ticid_simbad.append(tic)
+                        otypes_simbad.append('none')
+                        main_id_simbad.append('none')                
+                    else:
+                        otypes = res['OTYPES'][0].decode('utf-8')
+                        main_id = res['MAIN_ID'].data[0].decode('utf-8')
+                        ticid_simbad.append(tic)
+                        otypes_simbad.append(otypes)
+                        main_id_simbad.append(main_id)
+                        
+                        with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
+                            f.write('{},{},{}\n'.format(tic, otypes, main_id))
+                            
+                    # time.sleep(6)
+            except:
+                pass
+                print('connection failed! Trying again now')
+                    
+                    
             
     return ticid_simbad, otypes_simbad, main_id_simbad
         
 
+def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
+                 dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/',
+                 sector=20):
+    '''http://www.sai.msu.su/gcvs/gcvs/vartype.htm'''
+    
+    # Vizier.ROW_LIMIT=-1
+    # catalog_list=Vizier.find_catalogs('B/gcvs')
+    # catalogs = Vizier.get_catalogs(catalog_list.keys())    
+    # catalogs=catalogs[0]
+    
+    if type(ticid_list) == type(None):
+        flux, x, ticid_list, target_info = \
+            load_data_from_metafiles(dat_dir, sector, DEBUG=False,
+                                     nan_mask_check=False)        
+    
+    ticid_viz = []
+    otypes_viz = []
+    main_id_viz = []
+    ticid_already_classified = []
+    
+    # >> make sure output file exists
+    with open(out, 'a') as f:
+        f.write('')    
+    
+    with open(out, 'r') as f:
+        lines = f.readlines()
+        ticid_already_classified = []
+        for line in lines:
+            ticid_already_classified.append(float(line.split(',')[0]))
+            
+    
+    for tic in ticid_list:
+        target = 'TIC ' + str(int(tic))
+        catalog_data = Catalogs.query_object(target, radius=0.02,
+                                             catalog='TIC')[0]
+        ra = catalog_data['ra']
+        dec = catalog_data['dec']            
+        # coords = coord.SkyCoord(ra, dec, unit=(u.deg, u.deg)) 
+        # ra = coords.ra.deg
+        # dec = coords
+        res = Vizier.query_region(coord.SkyCoord(ra=ra, dec=dec,
+                                                 unit=(u.deg, u.deg),
+                                                 frame='icrs'),
+                                  radius=0.003*u.deg, catalog=catalog)
+        if len(res) > 0:
+            otype = res[0]['VarType'][0]
+            main_id = res[0]['VarName'][0]
+            ticid_viz.append(tic)
+            otypes_viz.append(otype)
+            main_id_viz.append(main_id)
+            # with open(out, 'a') as f:
+            #     f.write('{},{},{}\n'.format(tic, otype, main_id))              
+        else:
+            otype = ''
+            main_id = ''
+            
+        with open(out, 'a') as f:
+            f.write('{},{},{}\n'.format(tic, otype, main_id))    
+    return ticid_viz, otypes_viz, main_id_viz
+
 def get_true_classifications(ticid_list,
-                             database_dir='./databases/'):
+                             database_dir='./databases/',
+                             single_file=False,
+                             useless_classes = ['*', 'IR', 'UV', 'X', 'PM', '?']):
     '''Query classifications and bibcode from *_database.txt file.
     Returns a list where class_info[i] = [ticid, obj type, bibcode]
     Object type follows format in:
@@ -1570,33 +1669,55 @@ def get_true_classifications(ticid_list,
     class_info = []
     
     # >> find all text files in directory
-    fnames = fm.filter(os.listdir(database_dir), '*.txt')
+    if single_file:
+        fnames = ['']
+    else:
+        fnames = fm.filter(os.listdir(database_dir), '*.txt')
     
     for fname in fnames:
         # >> read text file
         with open(database_dir + fname, 'r') as f:
             lines = f.readlines()
             for line in lines:
-                ticid, otype, bibcode = line[:-2].split(',')
+                ticid, otype, bibcode = line[:-1].split(',')
+                
+                # >> remove useless classes
+                for u_c in useless_classes:
+                    otype = otype.replace(u_c, '')
+                
+                # >> remove any repeats and any empty classes and sort
+                otype_list = otype.split('|')
+                while '' in otype_list:
+                    otype_list.remove('')
+                otype_list.sort()
+                otype = '|'.join(list(dict.fromkeys(otype_list)))
                 
                 # >> only get classifications for ticid_list, avoid repeats
-                if float(ticid) in ticid_list and ticid not in ticid_classified:
-                    ticid_classified.append(ticid)
-                    class_info.append([int(ticid), otype, bibcode])
+                # >> and only include objects with interesting lables
+                ticid = float(ticid)
+                if ticid in ticid_list and len(otype) > 0:
+                    if ticid in ticid_classified:
+                        ind = np.nonzero(ticid_classified == ticid)[0][0]
+                        class_info[ind][1] += '|' + otype
+                    else:
+                        ticid_classified.append(ticid)
+                        class_info.append([int(ticid), otype, bibcode])
+                    
+    # >> check for any repeats
     return np.array(class_info)
                            
 def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
-                            eps=list(np.arange(0.1,1.5,0.1)),
-                            min_samples=[5],
-                            metric=['euclidean', 'manhattan', 'minkowski'],
-                            algorithm = ['auto', 'ball_tree', 'kd_tree',
-                                         'brute'],
-                            leaf_size = [30, 40, 50],
-                            p = [1,2,3,4],
-                            output_dir='./', DEBUG=False,
-                            simbad_database_txt='./simbad_database.txt',
-                            database_dir='./databases/', pca=True, tsne=True,
-                            confusion_matrix=True):
+                        eps=list(np.arange(0.1,1.5,0.1)),
+                        min_samples=[5],
+                        metric=['euclidean', 'manhattan', 'minkowski'],
+                        algorithm = ['auto', 'ball_tree', 'kd_tree',
+                                     'brute'],
+                        leaf_size = [30, 40, 50],
+                        p = [1,2,3,4],
+                        output_dir='./', DEBUG=False, single_file=False,
+                        simbad_database_txt='./simbad_database.txt',
+                        database_dir='./databases/', pca=True, tsne=True,
+                        confusion_matrix=True, tsne_clustering=True):
     '''Performs a grid serach across parameter space for DBSCAN. Calculates
     
     Parameters:
@@ -1621,6 +1742,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
     db_scores = []
     accuracy = []
     param_num = 0
+    p0=p
 
     with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
         f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format("eps\t\t", "samp\t\t", "metric\t\t", 
@@ -1635,7 +1757,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                 for l in range(len(algorithm)):
                     for m in range(len(leaf_size)):
                         if metric[k] == 'minkowski':
-                            p = p
+                            p = p0
                         else:
                             p = [None]
                         for n in range(len(p)):
@@ -1661,8 +1783,10 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             prefix='dbscan-p'+str(param_num)                            
                                 
                             if confusion_matrix:
+                                print('Plotting confusion matrix')
                                 acc = pf.plot_confusion_matrix(ticid, db.labels_,
                                                                database_dir=database_dir,
+                                                               single_file=single_file,
                                                                output_dir=output_dir,
                                                                prefix=prefix)
                             else:
@@ -1681,15 +1805,18 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                                        p[n]])
                                 
                                 # >> compute silhouette
+                                print('Computing silhouette score')
                                 silhouette = silhouette_score(bottleneck,db.labels_)
                                 silhouette_scores.append(silhouette)
                                 
                                 # >> compute calinski harabasz score
+                                print('Computing calinski harabasz score')
                                 ch_score = calinski_harabasz_score(bottleneck,
                                                                 db.labels_)
                                 ch_scores.append(ch_score)
                                 
                                 # >> compute davies-bouldin score
+                                print('Computing davies-bouldin score')
                                 dav_boul_score = davies_bouldin_score(bottleneck,
                                                              db.labels_)
                                 db_scores.append(dav_boul_score)
@@ -1698,6 +1825,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                 silhouette, ch_score, dav_boul_score = \
                                     np.nan, np.nan, np.nan
                                 
+                            print('Saving results to text file')
                             with open(output_dir + 'dbscan_param_search.txt', 'a') as f:
                                 f.write('{}\t\t {}\t\t {}\t\t {}\t {}\t \
                                         {}\t {}\t\t\t {}\t\t\t {}\t\t\t {}\t {}\n'.format(eps[i],
@@ -1714,6 +1842,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                 
                             if DEBUG and len(classes_1) > 1:
 
+                                print('Plotting classification results')
                                 pf.quick_plot_classification(time, flux,
                                                              ticid,
                                                              target_info, bottleneck,
@@ -1722,7 +1851,8 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                                              prefix=prefix,
                                                              simbad_database_txt=simbad_database_txt,
                                                              title=title,
-                                                             database_dir=database_dir)
+                                                             database_dir=database_dir,
+                                                             single_file=single_file)
                                 
                                 
                                 if pca:
@@ -1736,14 +1866,17 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                     pf.plot_tsne(bottleneck, db.labels_,
                                                  output_dir=output_dir,
                                                  prefix=prefix)
+                                # if tsne_clustering:
+                                    
+                                    
                             plt.close('all')
                             param_num +=1
     print("Plot paramscan metrics...")
-    pf.plot_paramscan_metrics(output_dir, parameter_sets, 
+    pf.plot_paramscan_metrics(output_dir+'dbscan-', parameter_sets, 
                               silhouette_scores, db_scores, ch_scores)
     #print(len(parameter_sets), len(num_classes), len(num_noisy), num_noisy)
 
-    pf.plot_paramscan_classes(output_dir, parameter_sets, 
+    pf.plot_paramscan_classes(output_dir+'dbscan-', parameter_sets, 
                                   np.asarray(num_classes), np.asarray(num_noisy))
 
         
@@ -1805,14 +1938,15 @@ def load_paramscan_txt(path):
     return cleaned_params, number_classes, metric_scores
 
 def hdbscan_param_search(features, time, flux, ticid, target_info,
-                            min_cluster_size=list(np.arange(2,30,2)),
-                            min_samples = [2,5,10,15],
+                            min_cluster_size=list(np.arange(5,30,2)),
+                            min_samples = [5,10,15],
                             metric=['euclidean', 'manhattan', 'minkowski'],
-                            p = [1,2,3,4],
+                            p0 = [1,2,3,4],
                             output_dir='./', DEBUG=False,
                             simbad_database_txt='./simbad_database.txt',
                             database_dir='./databases/',
-                            pca=False, tsne=False):
+                            pca=False, tsne=False, confusion_matrix=True,
+                            single_file=False):
     '''Performs a grid serach across parameter space for HDBSCAN. 
     
     Parameters:
@@ -1830,7 +1964,11 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
     counts = []
     num_noisy= []
     parameter_sets=[]
+    silhouette_scores=[]
+    ch_scores = []
+    db_scores = []    
     param_num = 0
+    accuracy = []
     
     if metric[0] == 'all':
         metric = list(hdbscan.dist_metrics.METRIC_MAPPING.keys())
@@ -1843,12 +1981,14 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
         metric.remove('pyfunc')    
 
     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
-        f.write('{} {} {} {}\n'.format("min cluster size", "min_samples","metric", "p"))
+        f.write('{} {} {} {}\n'.format("min_cluster_size", "min_samples",
+                                       "metric", "p", 'num_classes', 
+                                       'silhouette', 'db', 'ch', 'acc'))
 
     for i in range(len(min_cluster_size)):
         for j in range(len(metric)):
             if metric[j] == 'minkowski':
-                p = [1,2,3,4]
+                p = p0
             else:
                 p = [None]
             for n in range(len(p)):
@@ -1875,12 +2015,44 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                         counts.append(counts_1)
                         num_noisy.append(counts_1[0])
                         parameter_sets.append([min_cluster_size[i],metric[j],p[n]])
+                        print('Computing silhouette score')
+                        silhouette = silhouette_score(features, labels)
+                        silhouette_scores.append(silhouette)
+                        
+                        # >> compute calinski harabasz score
+                        print('Computing calinski harabasz score')
+                        ch_score = calinski_harabasz_score(features, labels)
+                        ch_scores.append(ch_score)
+                        
+                        # >> compute davies-bouldin score
+                        print('Computing davies-bouldin score')
+                        dav_boul_score = davies_bouldin_score(features, labels)
+                        db_scores.append(dav_boul_score)                        
                                     
+                        if confusion_matrix:
+                            print('Computing accuracy')
+                            acc = pf.plot_confusion_matrix(ticid, labels,
+                                                           database_dir=database_dir,
+                                                           single_file=single_file,
+                                                           output_dir=output_dir,
+                                                           prefix=prefix)       
+                        else:
+                            acc=None
+                        accuracy.append(acc)
                                   
                                     
                     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
-                        f.write('{}\t {}\t {} \t{}\t \n'.format(min_cluster_size[i], min_samples[k],
-                                                           metric[j],p[n]))
+                        f.write(' \t'.join(map(str, [min_cluster_size[i],
+                                                     min_samples[k],
+                                                     metric[j], p[n],
+                                                     len(classes_1),
+                                                     silhouette, ch_score,
+                                                     dav_boul_score, acc])) + '\n')
+                        # s = '{}\t {}\t {}\t {}\t {}\t {}\t {}\t {}\n'
+                        # f.write(s.format(min_cluster_size[i], min_samples[k],
+                        #                  metric[j], p[n], len(classes_1),
+                        #                  silhouette, ch_score,
+                        #                  dav_boul_score, acc))
                                     
                     if DEBUG and len(classes_1) > 1:
                         pf.quick_plot_classification(time, flux,ticid,target_info, 
@@ -1888,7 +2060,8 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                                                      prefix=prefix,
                                                      simbad_database_txt=simbad_database_txt,
                                                      title=title,
-                                                     database_dir=database_dir)
+                                                     database_dir=database_dir,
+                                                     single_file=single_file)
                     
                         if pca:
                             print('Plot PCA...')
@@ -1905,7 +2078,7 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                     param_num +=1
 
         
-    return parameter_sets, num_classes              
+    return parameter_sets, num_classes, acc         
                         
                         
                         

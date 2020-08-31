@@ -752,6 +752,9 @@ def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
                 
                 axis_name.scatter(insetx, lc_to_plot, c='black', s = 0.1, rasterized=True)
                 axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=6)
+                # >> change aspect ratio
+                # axis_name.set_adjustable("box")
+                # axis_name.set_aspect(3./8)
     plt.savefig(filename)
     plt.close()
 
@@ -771,24 +774,24 @@ def diagnostic_plots(history, model, p, output_dir,
                      rms_train=False, rms_test = False, input_rms = False,
                      input_psd=False,
                      inds = [-1,0,1,2,3,4,5,6,7,-2,-3,-4,-5,-6,-7],
-                     intermed_inds = [6,0],
+                     intermed_inds = None,
                      input_bottle_inds = [0,1,2,-6,-7],
                      addend = 1., feature_vector=False, percentage=False,
                      input_features = False, load_bottleneck=False, n_tot=100,
                      DAE=False,
-                     plot_epoch = True,
-                     plot_in_out = True,
+                     plot_epoch = False,
+                     plot_in_out = False,
                      plot_in_bottle_out=False,
                      plot_latent_test = False,
                      plot_latent_train = False,
                      plot_kernel=False,
                      plot_intermed_act=False,
                      make_movie = False,
-                     plot_lof_test=True,
-                     plot_lof_train=True,
-                     plot_lof_all=True,
+                     plot_lof_test=False,
+                     plot_lof_train=False,
+                     plot_lof_all=False,
                      plot_reconstruction_error_test=False,
-                     plot_reconstruction_error_all=True):
+                     plot_reconstruction_error_all=False):
     '''Produces all plots.
     Parameters:
         * history : Keras model.history
@@ -879,31 +882,6 @@ def diagnostic_plots(history, model, p, output_dir,
                               output_dir+prefix+'lc-', ticid_train, ticid_test,
                               mock_data=mock_data)
         
-    # -- intermediate activations visualization -------------------------------
-    if plot_intermed_act or make_movie:
-        print('Calculating intermediate activations')
-        activations = ml.get_activations(model, x_test) 
-    if plot_intermed_act:
-        print('Plotting intermediate activations')
-        err = (x_test - x_predict)**2
-        err = np.mean(err, axis=1)
-        err = err.reshape(np.shape(err)[0])
-        ranked = np.argsort(err)
-        intermed_inds = [ranked[0], ranked[-1]]
-        intermed_act_plot(x, model, activations, x_test,
-                          output_dir+prefix+'intermed_act-', addend=addend,
-                          inds=intermed_inds, feature_vector=feature_vector)
-    
-    if make_movie:
-        print('Making movie of intermediate activations')
-        movie(x, model, activations, x_test, p, output_dir+prefix+'movie-',
-              ticid_test, addend=addend, inds=intermed_inds)        
-        
-    # >> plot kernel vs. filter
-    if plot_kernel:
-        print('Plotting kernel vs. filter')
-        kernel_filter_plot(model, output_dir+prefix+'kernel-')
-        
     # -- latent space visualization -------------------------------------------
         
     # >> get bottleneck
@@ -921,19 +899,12 @@ def diagnostic_plots(history, model, p, output_dir,
                 bottleneck = hdul[0].data
         else:
             print('Getting bottleneck (testing set)')
-            bottleneck = ml.get_bottleneck(model, x_test,
+            bottleneck = ml.get_bottleneck(model, x_test, p,
                                            input_features=input_features,
                                            features=features,
                                            input_rms=input_rms,
                                            rms=rms_test,
                                            DAE=DAE)
-            # activations = ml.get_activations(model, x_test)
-            # bottleneck = ml.get_bottleneck(model, activations, p,
-            #                             input_features=input_features,
-            #                             features=features,
-            #                             input_rms=input_rms, rms=rms_test)
-            # >> remove activations from memory
-            # del activations
         
     # >> plot input, bottleneck, output
     if plot_in_bottle_out and not supervised:
@@ -958,7 +929,7 @@ def diagnostic_plots(history, model, p, output_dir,
             plot_lof(time, flux_test, ticid_test, bottleneck, 20, output_dir,
                      prefix='test-'+prefix, n_neighbors=n, mock_data=mock_data,
                      feature_vector=feature_vector, n_tot=n_tot,
-                     target_info=target_info_test, log=True)
+                     target_info=target_info_test, log=True, addend=addend)
 
     
     if plot_latent_train or plot_lof_train or plot_lof_all:
@@ -968,20 +939,12 @@ def diagnostic_plots(history, model, p, output_dir,
                 bottleneck_train = hdul[0].data
         else:
             print('Getting bottleneck (training set)')
-            bottleneck_train = ml.get_bottleneck(model, x_train,
+            bottleneck_train = ml.get_bottleneck(model, x_train, p,
                                                  input_features=input_features,
                                                  features=features,
                                                  input_rms=input_rms,
                                                  rms=rms_train,
                                                  DAE=DAE)
-            # activations_train = get_activations(model, x_train)        
-            # bottleneck_train = get_bottleneck(model, activations_train, p,
-            #                                   input_features=input_features,
-            #                                   features=features,
-            #                                   input_rms=input_rms,
-            #                                   rms=rms_train)
-            # # >> remove activations from memory
-            # del activations_train
         
     if plot_latent_train:
         print('Plotting latent space for training set')
@@ -996,7 +959,7 @@ def diagnostic_plots(history, model, p, output_dir,
                      output_dir, prefix='train-'+prefix, n_neighbors=n,
                      mock_data=mock_data, feature_vector=feature_vector,
                      n_tot=n_tot, target_info=target_info_train,
-                     log=True)
+                     log=True, addend=addend)
 
                 
     if plot_lof_all:
@@ -1006,7 +969,7 @@ def diagnostic_plots(history, model, p, output_dir,
                  np.concatenate([ticid_test, ticid_train]), bottleneck_all,
                  20, output_dir, prefix='all-'+prefix, n_neighbors=20,
                  mock_data=mock_data, feature_vector=feature_vector,
-                 n_tot=n_tot, log=True,
+                 n_tot=n_tot, log=True, addend=addend,
                  target_info=np.concatenate([target_info_test,
                                              target_info_train], axis=0))   
 
@@ -1019,7 +982,7 @@ def diagnostic_plots(history, model, p, output_dir,
         plot_reconstruction_error(x, x_test, x_test, x_predict, ticid_test,
                                   output_dir=output_dir,
                                   target_info=target_info_test,
-                                  mock_data=mock_data)
+                                  mock_data=mock_data, addend=addend)
     
     if plot_reconstruction_error_all:
         print('Plotting reconstruction error for entire dataset')
@@ -1035,12 +998,39 @@ def diagnostic_plots(history, model, p, output_dir,
         plot_reconstruction_error(x, tmp, tmp, tmp_predict, 
                                   np.concatenate([ticid_test, ticid_train],
                                                  axis=0),
-                                  output_dir=output_dir,
+                                  output_dir=output_dir, addend=addend,
                                   target_info=\
                                       np.concatenate([target_info_test,
                                                       target_info_train]))
         # >> remove x_train reconstructions from memory
         del tmp    
+        
+    # -- intermediate activations visualization -------------------------------
+    if plot_intermed_act or make_movie:
+        print('Calculating intermediate activations')
+        if type(intermed_inds) == type(None):
+            err = (x_test - x_predict)**2
+            err = np.mean(err, axis=1)
+            err = err.reshape(np.shape(err)[0])
+            ranked = np.argsort(err)
+            intermed_inds = [ranked[0], ranked[-1]]
+        activations = ml.get_activations(model, x_test[intermed_inds]) 
+    if plot_intermed_act:
+        print('Plotting intermediate activations')
+        intermed_act_plot(x, model, activations, x_test[intermed_inds],
+                          output_dir+prefix+'intermed_act-', addend=addend,
+                          inds=list(range(len(intermed_inds))),
+                          feature_vector=feature_vector)
+    
+    if make_movie:
+        print('Making movie of intermediate activations')
+        movie(x, model, activations, x_test, p, output_dir+prefix+'movie-',
+              ticid_test, addend=addend, inds=intermed_inds)        
+        
+    # >> plot kernel vs. filter
+    if plot_kernel:
+        print('Plotting kernel vs. filter')
+        kernel_filter_plot(model, output_dir+prefix+'kernel-')    
         
     # return activations, bottleneck
 
@@ -1131,7 +1121,7 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
         ncols = 3
     ngroups = int(len(inds)/ncols)
     nrows = int(3*ngroups)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(15,12), sharey=sharey,
+    fig, axes = plt.subplots(nrows, ncols, figsize=(15,12), sharey=False,
                              sharex=True)
     plt.subplots_adjust(hspace=0)
     for i in range(ncols):
@@ -1146,6 +1136,9 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
             
             # >> plot output
             axes[ngroup*3+1,i].plot(x,x_predict[inds[ind]]+addend, '.k')
+            if sharey:
+                bottom, top = axes[ngroup*3,i].get_ylim()
+                axes[ngroup*3+1,i].set_ylim(bottom, top)
             # >> calculate residual
             residual = (x_test[inds[ind]] - x_predict[inds[ind]])
             if percentage:
@@ -1483,9 +1476,10 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
 
 def plot_lof(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
-             n_neighbors=20, target_info=False,
+             n_neighbors=20, target_info=False, p=2,
              prefix='', mock_data=False, addend=1., feature_vector=False,
-             n_tot=100, log=False):
+             n_tot=100, log=False, debug=False, feature_lof=None,
+             bins=50, cross_check_txt=None):
     """ Plots the 20 most and least interesting light curves based on LOF.
     Parameters:
         * time : array with shape 
@@ -1507,7 +1501,7 @@ def plot_lof(time, intensity, targets, features, n, path,
     """
     # -- calculate LOF -------------------------------------------------------
     print('Calculating LOF')
-    clf = LocalOutlierFactor(n_neighbors=n_neighbors)
+    clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p)
     fit_predictor = clf.fit_predict(features)
     negative_factor = clf.negative_outlier_factor_
     
@@ -1515,11 +1509,28 @@ def plot_lof(time, intensity, targets, features, n, path,
     ranked = np.argsort(lof)
     largest_indices = ranked[::-1][:n_tot] # >> outliers
     smallest_indices = ranked[:n_tot] # >> inliers
+    random_inds = list(range(len(lof)))
+    random.Random(4).shuffle(random_inds)
+    random_inds = random_inds[:n_tot] # >> random
+    ncols=1
+    
+    if debug:
+        # >> figure out what the LOF is triggering on
+        ncols=2
+        if type(feature_lof) == type(None):
+            feature_lof = []
+            for i in range(features.shape[1]):
+                clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p)
+                fit_predictor = clf.fit_predict(features[:,i].reshape(-1,1))
+                negative_factor = clf.negative_outlier_factor_
+                lof = -1 * negative_factor    
+                feature_lof.append(lof) 
+            feature_lof=np.array(feature_lof)
+            # >> has shape (num_features, num_light_curves)
     
     # >> save LOF values in txt file
-
     print('Saving LOF values')
-    with open(path+'lof-'+prefix+'.txt', 'w') as f:
+    with open(path+'lof-'+prefix+'kneigh' + str(n_neighbors)+'.txt', 'w') as f:
         for i in range(len(targets)):
             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
         f.write("Ten highest LOF\n")
@@ -1538,17 +1549,19 @@ def plot_lof(time, intensity, targets, features, n, path,
 
     if not mock_data:
         print('Saving LOF values')
-        with open(path+'lof-'+prefix+'.txt', 'w') as f:
+        with open(path+'lof-'+prefix+'kneigh' + str(n_neighbors)+'.txt', 'w') as f:
             for i in range(len(targets)):
                 f.write('{} {}\n'.format(int(targets[i]), lof[i]))
           
         # >> make histogram of LOF values
         print('Make LOF histogram')
         plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                       targets, path+'lof-'+prefix+'histogram-insets.png',
+                       targets, path+'lof-'+prefix+'kneigh' + str(n_neighbors)+\
+                           'histogram-insets.png',
                        insets=True, log=log)
         plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                       targets, path+'lof-'+prefix+'histogram.png', insets=False,
+                       targets, path+'lof-'+prefix+'kneigh' + str(n_neighbors)+\
+                           'histogram.png', insets=False,
                        log=log)
 
         
@@ -1561,6 +1574,13 @@ def plot_lof(time, intensity, targets, features, n, path,
         inds = np.nonzero((mom_dumps >= np.min(time)) * \
                           (mom_dumps <= np.max(time)))
         mom_dumps = np.array(mom_dumps)[inds]
+        
+    # -- plot cross-identifications -------------------------------------------
+    if type(cross_check_txt) != type(None):
+        class_info = df.get_true_classifications(targets, single_file=True,
+                                                 database_dir=cross_check_txt,
+                                                 useless_classes=[])        
+        ticid_classified = class_info[:,0].astype('int')
 
     # -- plot smallest and largest LOF light curves --------------------------
     print('Plot highest LOF and lowest LOF light curves')
@@ -1568,37 +1588,69 @@ def plot_lof(time, intensity, targets, features, n, path,
     
     for j in range(num_figs):
         
-        for i in range(2): # >> loop through smallest and largest LOF plots
-            fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
+        for i in range(3): # >> loop through smallest, largest, random LOF plots
+            fig, ax = plt.subplots(n, ncols, sharex=False,
+                                   figsize = (8*ncols, 3*n))
             
             for k in range(n): # >> loop through each row
+                if debug:
+                    axis = ax[k, 0]
+                else:
+                    axis = ax[k]
+                
                 if i == 0: ind = largest_indices[j*n + k]
-                elif i == 1: ind = smallest_indices[j*n + k]\
+                elif i == 1: ind = smallest_indices[j*n + k]
+                else: ind = random_inds[j*n + k]
                 
                 # >> plot momentum dumps
                 for t in mom_dumps:
-                    ax[k].axvline(t, color='g', linestyle='--')
+                    axis.axvline(t, color='g', linestyle='--')
                     
                 # >> plot light curve
-                ax[k].plot(time, intensity[ind] + addend, '.k')
-                ax[k].text(0.98, 0.02, '%.3g'%lof[ind],
-                           transform=ax[k].transAxes,
+                axis.plot(time, intensity[ind] + addend, '.k')
+                axis.text(0.98, 0.02, '%.3g'%lof[ind],
+                           transform=axis.transAxes,
                            horizontalalignment='right',
                            verticalalignment='bottom',
                            fontsize='xx-small')
-                format_axes(ax[k], ylabel=True)
+                format_axes(axis, ylabel=True)
                 if not mock_data:
-                    ticid_label(ax[k], targets[ind], target_info[ind],
+                    ticid_label(axis, targets[ind], target_info[ind],
                                 title=True)
+                    if targets[ind] in ticid_classified:
+                        classified_ind = np.nonzero(ticid_classified == targets[ind])[0][0]
+                        classification_label(axis, targets[ind],
+                                             class_info[classified_ind])                        
+                    
+                if k != n - 1:
+                    axis.set_xticklabels([])
+                    
+                if debug:
+                    # >> find the feature this light curve is triggering on
+                    feature_ranked = np.argsort(feature_lof[:,ind])
+                    ax[k,1].plot(features[:,feature_ranked[-1]],
+                                 features[:,feature_ranked[-2]], '.', ms=1)
+                    ax[k,1].plot([features[ind,feature_ranked[-1]]],
+                                  [features[ind,feature_ranked[-2]]], 'Xg',
+                                   ms=30)    
+                    ax[k,1].set_xlabel('\u03C6' + str(feature_ranked[-1]))
+                    ax[k,1].set_ylabel('\u03C6' + str(feature_ranked[-2])) 
+                    # ax[k,1].set_adjustable("box")
+                    # ax[k,1].set_aspect(1)                              
+                    
     
             # >> label axes
-            ax[n-1].set_xlabel('time [BJD - 2457000]')
+            if debug:
+                ax[n-1,0].set_xlabel('time [BJD - 2457000]')
+            else:
+                ax[n-1].set_xlabel('time [BJD - 2457000]')
                 
             # >> save figures
             if i == 0:
                 
                 fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
                              y=0.9)
+                fig.tight_layout()
                 fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
                             str(n_neighbors) + '-largest_' + str(j*n) + 'to' +\
                             str(j*n + n) + '.png',
@@ -1607,39 +1659,22 @@ def plot_lof(time, intensity, targets, features, n, path,
             elif i == 1:
                 fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
                              y=0.9)
+                fig.tight_layout()
                 fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
                             str(n_neighbors) + '-smallest' + str(j*n) + 'to' +\
                             str(j*n + n) + '.png',
                             bbox_inches='tight')
                 plt.close(fig)
+            else:
+                fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
+                
+                # >> save figure
+                fig.tight_layout()
+                fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
+                            + "-random"+ str(j*n) + 'to' +\
+                            str(j*n + n) +".png", bbox_inches='tight')
+                plt.close(fig)                
                     
-    # -- plot n random LOF light curves --------------------------------------
-    fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))   
-                 
-    for k in range(n):
-        ind = np.random.choice(range(len(lof)-1))
-            
-        # >> plot momentum dumps
-        for t in mom_dumps:
-            ax[k].axvline(t, color='g', linestyle='--')
-            
-        # >> plot light curve
-        ax[k].plot(time, intensity[ind] + addend, '.k')
-        ax[k].text(0.98, 0.02, '%.3g'%lof[ind], transform=ax[k].transAxes,
-                   horizontalalignment='right', verticalalignment='bottom',
-                   fontsize='xx-small')
-        
-        # >> formatting
-        format_axes(ax[k], ylabel=True)
-        if not mock_data:
-            ticid_label(ax[k], targets[ind], target_info[ind], title=True)
-    ax[n-1].set_xlabel('time [BJD - 2457000]')     
-    fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
-    
-    # >> save figure
-    fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
-                + "-random.png", bbox_inches='tight')
-    plt.close(fig)
     
 def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     import pandas as pd
@@ -1869,7 +1904,7 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
                               path='./', prefix='', addend=1.,
                               simbad_database_txt='./simbad_database.txt',
                               title='', ncols=10, nrows=5,
-                              database_dir='./databases/'):
+                              database_dir='./databases/', single_file=False):
     '''Unfinished. Aim is to give an overview of the classifications, by
     plotting the first 5 light curves of each class. Any light curves
     classified by Simbad will be plotted first in their respective classes.'''
@@ -1882,7 +1917,8 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
     # class_info = df.get_simbad_classifications(targets, simbad_database_txt)
     # ticid_classified = np.array(simbad_info)[:,0].astype('int')    
     class_info = df.get_true_classifications(targets,
-                                             database_dir=database_dir)
+                                             database_dir=database_dir,
+                                             single_file=single_file)
     ticid_classified = class_info[:,0].astype('int')
     
     num_figs = int(np.ceil(len(classes) / ncols))
@@ -2254,9 +2290,12 @@ def latent_space_plot(activation, out, n_bins = 50, log = True,
     plt.close(fig)
     # return fig, axes
     
-def plot_tsne(bottleneck, labels, n_components=2, output_dir='./', prefix=''):
-    from sklearn.manifold import TSNE
-    X = TSNE(n_components=n_components).fit_transform(bottleneck)
+    
+def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
+              prefix=''):
+    if type(X) == type(None):
+        from sklearn.manifold import TSNE
+        X = TSNE(n_components=n_components).fit_transform(bottleneck)
     unique_classes = np.unique(labels)
     colors = get_colors()
     
@@ -2283,32 +2322,55 @@ def get_tsne(bottleneck, n_components=2):
     return X
     
     
-def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
-                          output_dir='./', prefix=''):
+def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
+                          output_dir='./', prefix='', single_file=False):
     from sklearn.metrics import confusion_matrix
     from scipy.optimize import linear_sum_assignment
     import seaborn as sn
     from itertools import permutations
     
+    # >> get clusterer classes
+    inds = np.nonzero(y_pred > -1)
+    ticid_pred = ticid_pred[inds]
+    y_pred = y_pred[inds]
+    
     # >> get 'ground truth' classifications
-    class_info = df.get_true_classifications(ticid, database_dir=database_dir)
-    ticid_classified = class_info[:,0].astype('int')
-    labels = np.unique(class_info[:,1])
+    class_info = df.get_true_classifications(ticid_pred,
+                                             database_dir=database_dir,
+                                             single_file=single_file)
+    ticid_true = class_info[:,0].astype('int')
+    y_true_labels = np.unique(class_info[:,1])
     y_true = []
-    for i in range(len(ticid_classified)):
-        class_num = np.nonzero(labels == class_info[i][1])[0][0]
+    for i in range(len(ticid_true)):
+        class_num = np.nonzero(y_true_labels == class_info[i][1])[0][0]
         y_true.append(class_num)
     y_true = np.array(y_true)
     
-    # >> get assigned classes
-    inds = np.isin(ticid, ticid_classified)
-    y_pred = y_pred[inds]
-    
-    # >> make confusion matrix
-    cm = confusion_matrix(y_true, y_pred)
-    # index = np.insert(labels, -1, 'Outlier')
-    index = labels    
+    # >> find intersection
+    intersection, comm1, comm2 = np.intersect1d(ticid_pred, ticid_true,
+                                                return_indices=True)
+    ticid_pred = ticid_pred[comm1]
+    y_pred = y_pred[comm1]
+    ticid_true = ticid_true[comm2]
+    y_true = y_true[comm2]
+
+    # -- make confusion matrix ------------------------------------------------
     columns = np.unique(y_pred).astype('str')
+    while len(columns) < len(y_true_labels):
+        columns = np.append(columns, 'X')
+    while len(y_true_labels) < len(columns):
+        y_true_labels = np.append(y_true_labels, 'X')        
+    cm = confusion_matrix(y_true, y_pred)
+    df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
+    fig, ax = plt.subplots()
+    sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
+    ax.set_aspect(1)
+    fig.savefig(output_dir+prefix+'confusion_matrix_raw.png')
+    plt.close()    
+    # index = np.insert(labels, -1, 'Outlier')
+    
+    
+
     
     # >> find order of columns that gives the best accuracy using the
     # >> Hungarian algorithm (tries to minimize the diagonal)
@@ -2316,20 +2378,22 @@ def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
     cm = cm[:,col_ind]
     # !! TODO need to reorder columns label
     
-    df_cm = pd.DataFrame(cm)
+    df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
     fig, ax = plt.subplots()
     sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
     ax.set_aspect(1)
-    fig.savefig(output_dir+prefix+'confusion_matrix_no_labels.png')
+    fig.savefig(output_dir+prefix+'confusion_matrix_ordered.png')
     plt.close()
     
     # >> remove rows and columns that are all zeros
     cm = np.delete(cm, np.nonzero(np.prod(cm == 0, axis=0)), axis=1)
     cm = np.delete(cm, np.nonzero(np.prod(cm == 0, axis=1)), axis=0)
     accuracy = np.sum(np.diag(cm)) / np.sum(cm)
+    columns = np.delete(columns, np.nonzero(columns=='X'))
+    y_true_labels = np.delete(y_true_labels, np.nonzero(y_true_labels=='X'))
     
     # >> plot
-    df_cm = pd.DataFrame(cm, index=index, columns=columns)
+    df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
     fig, ax = plt.subplots()
     sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
     ax.set_aspect(1)
@@ -2337,12 +2401,49 @@ def plot_confusion_matrix(ticid, y_pred, database_dir='./databases/',
     plt.close()
     
     return accuracy
-    
-def plot_lof_paper(features, time, flux, targets, n_neighbors=20, nrows=4,
-                   target_info=False, addend=1., output_dir='./', lof=None,
+
+
+
+def paper_plot_lof(features=None, time=None, flux=None, target_info=None, 
+                   targets=[192980481,  18783433], n_neighbors=20, nrows=4,
+                   addend=1., output_dir='./', lof=None,
                    momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
-                   fontsize=6):
+                   fontsize=6, load_from_metafiles=True,
+                   dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/' ,
+                   sector=20, ccds=[1,2,3,4], cams=[1,2,3,4], custom_mask=[],
+                   figsize=(11,6)):
+    '''
+    if load_from_metafiles, then the following must be provided:
+        * lof, with len(lof = len(targets))
+        * targets
+        * dat_dir
+        * sector
+        * ccds
+        * cams
+        * custom_mask (optionally)
+    if not load_from_metafiles, then the following must be provided:
+        * time
+        * flux
+        * targets
+        * target_info
+        * lof (optionally)
+    '''
     from astropy.timeseries import LombScargle
+    
+    # -- load from metafiles --------------------------------------------------
+    if load_from_metafiles:
+        flux, time, ticid, target_info = \
+            df.load_data_from_metafiles(dat_dir, sector, cams=cams, ccds=ccds,
+                                        DEBUG=False, nan_mask_check=True,
+                                        custom_mask=custom_mask)
+        flux = df.standardize(flux)
+        inds = []
+        for i in range(len(targets)):
+            inds.append(np.nonzero(ticid==targets[i])[0][0])
+        inds = np.array(inds)
+        flux = flux[inds]
+        target_info=target_info[inds]
+        
     
     # -- calculate LOF --------------------------------------------------------
     if type(lof) == type(None):
@@ -2370,7 +2471,7 @@ def plot_lof_paper(features, time, flux, targets, n_neighbors=20, nrows=4,
     f, tmp = LombScargle(time, flux[0]).autopower() 
     
     # -- plot -----------------------------------------------------------------
-    fig, ax= plt.subplots(nrows, 2)
+    fig, ax= plt.subplots(nrows, 2, figsize=figsize)
     for i in range(nrows):
         # >> plot momentum dumps
         for t in mom_dumps:
@@ -2405,7 +2506,7 @@ def plot_lof_paper(features, time, flux, targets, n_neighbors=20, nrows=4,
     for i in range(nrows-1):
         ax[i,0].set_xticklabels([])
         ax[i,1].set_xticklabels([])
-    ax[-1,1].set_xlabel('Frequency [days^-1]')
+    ax[-1,1].set_xlabel('Frequency [days$^{-1}$]')
     ax[-1,0].set_xlabel('Time [BJD - 2457000.0]')
     
     fig.tight_layout()
@@ -2669,14 +2770,14 @@ def presentation_plot_classifications(x, flux, ticid, target_info, output_dir,
     
 def plot_lof_2col(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
-             n_neighbors=20, target_info=False,
+             n_neighbors=20, target_info=False, p=2,
              prefix='', mock_data=False, addend=1., feature_vector=False, log=False):
     """ lof plotting variant to specifically make a plot for the paper with
     two columns per plot
     """
     # -- calculate LOF -------------------------------------------------------
     print('Calculating LOF')
-    clf = LocalOutlierFactor(n_neighbors=n_neighbors)
+    clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p)
     fit_predictor = clf.fit_predict(features)
     negative_factor = clf.negative_outlier_factor_
     
