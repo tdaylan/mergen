@@ -1318,7 +1318,21 @@ class FFI_lc(object):
             plt.ylim((0, 20))
             plt.title("K-Neighbor plot for k=" + str(k_values[n]))
             plt.savefig(self.knnpath + "kneighbors-" +str(k_values[n]) +"-plot-sorted.png")
-            plt.close()                   
+            plt.close() 
+
+    def cae_truncate(self):
+        """ truncates arrays into homogenous cube of data
+        modified [lcg 08312020 - created]"""
+        lengths = []
+        for n in range(len(self.times)):
+            lengths.append(len(self.times[n]))
+        
+        crop = np.asarray(lengths).min()
+        print(crop)
+        
+        for n in range(len(self.times)):
+            self.times[n] = self.times[n][:crop]
+            self.intensities[n] = self.intensities[n][:crop]                  
                 
 #%% all the generic versions of the functions - NOT updated.
 def eleanor_lc(path, ra_declist, plotting = False):
