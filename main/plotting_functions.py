@@ -186,11 +186,12 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, ta
     print(np.asarray(outlier_indexes))
         
     outlier_indexes = np.asarray(outlier_indexes)
-    
+    target_indexes = outlier_indexes[:,0] #is the index of the target on the lists
+    feature_indexes = outlier_indexes[:,1] #is the index of the feature that it triggered on
     if plot:
         for i in range(len(outlier_indexes)):
-            target_index = outlier_indexes[i][0] #is the index of the target on the lists
-            feature_index = outlier_indexes[i][1] #is the index of the feature that it triggered on
+            target_index = target_indexes[i]
+            feature_index = feature_indexes[i]
             plt.figure(figsize=(8,3))
             plt.scatter(time, flux[target_index], s=0.5)
             target = ticids[target_index]
@@ -212,10 +213,10 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, ta
         print("not plotting today!")
             
         
-    features_cropped = np.delete(features, outlier_indexes, axis=0)
-    ticids_cropped = np.delete(ticids, outlier_indexes)
-    flux_cropped = np.delete(flux, outlier_indexes, axis=0)
-    targetinfo_cropped = np.delete(target_info, outlier_indexes, axis=0)
+    features_cropped = np.delete(features, target_indexes, axis=0)
+    ticids_cropped = np.delete(ticids, target_indexes)
+    flux_cropped = np.delete(flux, target_indexes, axis=0)
+    targetinfo_cropped = np.delete(target_info, target_indexes, axis=0)
         
     return features_cropped, ticids_cropped, flux_cropped, targetinfo_cropped, outlier_indexes
 
@@ -256,6 +257,11 @@ def features_plotting_2D(feature_vectors, path, clustering,
         classes_dbscan = db.labels_
         numclasses = str(len(set(classes_dbscan)))
         folder_label = "dbscan-colored"
+        
+        with open(path + 'dbscan_param_search.txt', 'a') as f:
+            f.write('eps {} min samples {} metric {} algorithm {} \
+                    leaf_size {} p {} # classes {} \n'.format(eps,min_samples,
+                    metric,algorithm, leaf_size, p,numclasses))
 
     elif clustering == 'kmeans': 
         Kmean = KMeans(n_clusters=kmeans_clusters, max_iter=700, n_init = 20)
@@ -544,7 +550,9 @@ def get_extrema(feature_vectors, feat1, feat2):
     indexes.append(index_feat1[2]) #third xmin
     indexes.append(index_feat2[2]) #third ymin
 
-    indexes_unique = np.unique(np.asarray(indexes))
+    indexes_unique, ind_order = np.unique(np.asarray(indexes), return_index=True)
+    #fixes the ordering of stuff
+    indexes_unique = [np.asarray(indexes)[index] for index in sorted(ind_order)]
     
     return indexes_unique      
 
@@ -2000,7 +2008,7 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
                     ax[m, 0].set_ylabel('Relative flux')
                     
         fig.tight_layout()
-        fig.savefig(path + prefix + '-' + str(i) + '.png')
+        fig.savefig(path + prefix + '-' + str(i) + '.pdf')
         plt.close(fig)
                 
 def get_colors():
