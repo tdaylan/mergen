@@ -145,7 +145,7 @@ else:
           'full_feed_forward_highway': False,
           'cvae': False,
           'share_pool_inds': False,
-          'batchnorm': True}      
+          'batchnorm_before_act': True}      
     
 # -- create output directory --------------------------------------------------
     
@@ -229,7 +229,9 @@ if run_model:
     print('Training autoencoder...') 
     history, model = ml.conv_autoencoder(x_train, x_train, x_test, x_test, p,
                                          val=False, split=split_at_orbit_gap,
-                                         input_psd=input_psd, model_init=model_init)
+                                         input_psd=input_psd, model_init=model_init,
+                                         save_model=True, predict=True,
+                                         save_bottleneck=True, output_dir=output_dir)
     
     x_predict = model.predict(x_test)
     

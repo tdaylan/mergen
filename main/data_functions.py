@@ -99,10 +99,161 @@ from sklearn.metrics import davies_bouldin_score
 # import batman
 from transitleastsquares import transitleastsquares
 
+import model as ml
+
 
 def test_data():
     """make sure the module loads in"""
     print("Data functions loaded in.")
+
+
+def representation_learning(flux, x, ticid, target_info, 
+                            output_dir='./',
+                            dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/',
+                            mom_dump = '/Users/studentadmin/Dropbox/TESS_UROP/Table_of_momentum_dumps.csv',
+                            database_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/databases/',
+                            p=None,
+                            validation_targets=[],
+                            norm_type='minmax_normalization',
+                            input_rms=True, input_psd=False, load_psd=False,
+                            train_test_ratio=0.9, split=False):
+    '''
+    Parameters you have to change:
+        * flux : np.array, with shape (num_samples, num_data_points)
+        * x : np.array, with shape (num_data_points)
+        * ticid : np.array, with shape (num_samples)
+        * target_info : np.array, with shape (num_samples, 5)
+        * dat_dir : Dropbox directory with all of our metafiles
+        * mom_dump : path to momentum dump csv file
+        * data_base_dir : Dropbox directory with all of the database .txt files
+        
+    Parameters to ignore:
+        * p : dictionary of parameters        
+        * validation_targets
+        * 
+    '''
+    
+    # >> use default parameter set if not given
+    if type(p) == type(None):
+        p = {'kernel_size': 3,
+              'latent_dim': 35,
+              'strides': 1,
+              'epochs': 10,
+              'dropout': 0.,
+              'num_filters': 16,
+              'num_conv_layers': 12,
+              'batch_size': 64,
+              'activation': 'elu',
+              'optimizer': 'adam',
+              'last_activation': 'linear',
+              'losses': 'mean_squared_error',
+              'lr': 0.0001,
+              'initializer': 'random_normal',
+              'num_consecutive': 2,
+              'pool_size': 2, 
+              'pool_strides': 2,
+              'kernel_regularizer': None,
+              'bias_regularizer': None,
+              'activity_regularizer': None,
+              'fully_conv': False,
+              'encoder_decoder_skip': False,
+              'encoder_skip': False,
+              'decoder_skip': False,
+              'full_feed_forward_highway': False,
+              'cvae': False,
+              'share_pool_inds': False,
+              'batchnorm_before_act': False} 
+        
+    print('Preprocessing')
+    x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
+        target_info_test, rms_train, rms_test, x = \
+        ml.autoencoder_preprocessing(flux, ticid, x, target_info, p,
+                                     validation_targets=validation_targets,
+                                     norm_type=norm_type,
+                                     input_rms=input_rms, input_psd=input_psd,
+                                     load_psd=load_psd,
+                                     train_test_ratio=train_test_ratio,
+                                     split=split,
+                                     output_dir=output_dir)       
+        
+    print('Training CAE')
+    history, model, x_predict = \
+        ml.conv_autoencoder(x_train, y_train, x_test, y_test, p,
+                            input_rms=True, rms_train=rms_train, rms_test=rms_test,
+                            ticid_train=ticid_train, ticid_test=ticid_test,
+                            output_dir=output_dir)
+        
+    print('Diagnostic plots')
+    pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
+                        x_test, x_predict, mock_data=False, addend=0.,
+                        target_info_test=target_info_test,
+                        target_info_train=target_info_train,
+                        ticid_train=ticid_train,
+                        ticid_test=ticid_test, percentage=False,
+                        input_features=False,
+                        input_rms=input_rms, rms_test=rms_test,
+                        input_psd=input_psd,
+                        rms_train=rms_train, n_tot=40,
+                        plot_epoch = False,
+                        plot_in_out = True,
+                        plot_in_bottle_out=False,
+                        plot_latent_test = True,
+                        plot_latent_train = True,
+                        plot_kernel=False,
+                        plot_intermed_act=True,
+                        make_movie = False,
+                        plot_lof_test=False,
+                        plot_lof_train=False,
+                        plot_lof_all=False,
+                        plot_reconstruction_error_test=False,
+                        plot_reconstruction_error_all=True,
+                        load_bottleneck=True)            
+
+    features, flux_feat, ticid_feat, info_feat = \
+        ml.bottleneck_preprocessing(None,
+                                    np.concatenate([x_train, x_test], axis=0),
+                                    np.concatenate([ticid_train, ticid_test]),
+                                    np.concatenate([target_info_train,
+                                                    target_info_test]),
+                                    data_dir=dat_dir,
+                                    output_dir=output_dir,
+                                    use_learned_features=True,
+                                    use_tess_features=False,
+                                    use_engineered_features=False,
+                                    use_tls_features=False)         
+        
+    print('Novelty detection')
+    pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
+                n_tot=40, target_info=info_feat, prefix='',
+                cross_check_txt=database_dir, debug=False, addend=0.)        
+    
+    print('DBSCAN parameter search')
+    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
+    dbscan_param_search(features, x, flux_feat, ticid_feat,
+                            info_feat, DEBUG=False, 
+                            output_dir=output_dir, 
+                            leaf_size=[30], algorithm=['auto'],
+                            min_samples=[5],
+                            metric=['minkowski'], p=[3,4],
+                            database_dir=database_dir,
+                            eps=list(np.arange(1.5, 4., 0.1)),
+                            confusion_matrix=False, pca=False, tsne=False,
+                            tsne_clustering=False)    
+    
+    best_ind = np.argmax(silhouette_scores)
+    best_param_set = parameter_sets[best_ind]   
+        
+    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
+    dbscan_param_search(features, x, flux_feat, ticid_feat,
+                            info_feat, DEBUG=True, 
+                            output_dir=output_dir+'best', single_file=True,
+                            leaf_size=[best_param_set[4]],
+                            algorithm=[best_param_set[3]],
+                            min_samples=[best_param_set[1]],
+                            metric=[best_param_set[2]], p=[best_param_set[5]],
+                            database_dir=database_dir,
+                            eps=[best_param_set[0]])      
+
     
 def lc_by_camera_ccd(sectorfile, camera, ccd):
     """gets all the targets for a given sector, camera, ccd
@@ -1772,17 +1923,11 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
             for k in range(len(metric)):
                 for l in range(len(algorithm)):
                     for m in range(len(leaf_size)):
-<<<<<<< HEAD
                         if metric[k] == 'minkowski':
                             p = p0
                         else:
                             p = [None]
-=======
-                        #if metric[k] == 'minkowski' or 'manhattan':
-                         #   p = p
-                        #else:
-                         #   p = [None]
->>>>>>> 0a5d636dbd881ca4cf07cfdf2c43419de5f883ea
+
                         for n in range(len(p)):
                             db = DBSCAN(eps=eps[i],
                                         min_samples=min_samples[j],
