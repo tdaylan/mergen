@@ -550,7 +550,9 @@ def get_extrema(feature_vectors, feat1, feat2):
     indexes.append(index_feat1[2]) #third xmin
     indexes.append(index_feat2[2]) #third ymin
 
-    indexes_unique = np.unique(np.asarray(indexes))
+    indexes_unique, ind_order = np.unique(np.asarray(indexes), return_index=True)
+    #fixes the ordering of stuff
+    indexes_unique = [np.asarray(indexes)[index] for index in sorted(ind_order)]
     
     return indexes_unique      
 

@@ -79,6 +79,7 @@ class FFI_lc(object):
         * tls = False - whether or not you want to produce the tls features 
             which currently do not run in spyder (still ugh)
         * momentumdumpcsv = path to the table_of_momentum_dumps.csv for the TESS mission
+        * customlist
      
     init: 
         if downloading: 
@@ -96,66 +97,105 @@ class FFI_lc(object):
             
     Other Functions: 
         * features_plotting - plots 2D feature plots, optionally colored by clustering
-        * plot_classification - plots first n items in each class
+            * plot_classification - plots first n items in each class
         * plot_lof - calculates and plots the top n LOF scored light curves. 
         * plot_histogram - plots the histogram of given data, optionally plots insets
-        * column_plot_classification - used by dbscan_param_search, plots 1st 5 LC in
-            each class in big 50 curve plots. 
-        * dbscan_param_search - runs and plots dbscan information for the parameter
-            search grid.
+        * dbscan_param_search - runs and plots dbscan information for the parameter search grid. 
+            * column_plot_classification - used by dbscan_param_search, plots 1st 5 LC in
+                each class in big 50 curve plots. 
+        * features_insets with helpers inset_plotting and get_extrema
     
     modified [lcg 08262020 - plotting]
     """
 
     def __init__(self, path=None, folderlabel="Vmag19", simbadquery="Vmag <=19",
                  download=True, tls=False, 
-                 momentumdumpcsv = "/users/conta/urop/Table_of_momentum_dumps.csv"):
+                 momentumdumpcsv = "/users/conta/urop/Table_of_momentum_dumps.csv",
+                 customlist = False):
 
         if simbadquery is None:
-            print('Please pass a magnitude limit')
+            print('Please pass a simbad query')
             return
         if path is None:
             print('Please pass a path to save into')
             return
 
-        self.simbadquery = simbadquery
-        self.folderlabel = folderlabel
-        self.path = path + 'ffi_lc_{}/'.format(self.folderlabel)
-        self.catalog = self.path + "simbad_catalog.txt"
-        self.lightcurvefilepath = self.path + "{}_lightcurves.fits".format(self.folderlabel)
-        self.features0path = self.path + "{}_features_v0.fits".format(self.folderlabel)
-        self.features1path = self.path + "{}_features_v1.fits".format(self.folderlabel)
-        self.momdumpcsv = momentumdumpcsv
+        if len(folderlabel) == 1:
+            print("Only one folder label passed.")
+            self.simbadquery = simbadquery
+            self.folderlabel = folderlabel
+            self.path = path + 'ffi_{}/'.format(self.folderlabel)
+            self.catalog = self.path + "simbad_catalog.txt"
+            self.lightcurvefilepath = self.path + "{}_lightcurves.fits".format(self.folderlabel)
+            self.features0path = self.path + "{}_features_v0.fits".format(self.folderlabel)
+            self.features1path = self.path + "{}_features_v1.fits".format(self.folderlabel)
+            self.momdumpcsv = momentumdumpcsv
+            
+            if download: 
+                try:
+                    print(self.path)
+                    os.mkdir(self.path)
+                    success = 1
+                except OSError:
+                    print('Directory exists already!')
+                    #this should check to see if there is anything in the directory
+                    for root, dirs, files in os.walk(self.path):
+                        if len(files) > 0: 
+                            print("there are files here")
+                            success = 0
+                            if os.path.isfile(self.path +"/simbad_catalog.txt") and customlist and len(files) == 1:
+                                print("there is one file, the custom input list. accessing.")
+                                success = 1
+                        else: 
+                            print("this folder is empty")
+                            success = 1
         
-        if download: 
-            try:
-                print(self.path)
-                os.mkdir(self.path)
-                success = 1
-            except OSError:
-                print('Directory exists already!')
-                success = 0
-    
-            if success == 1:
-                print("Producing RA and DEC list")
-                self.build_simbad_extragalactic_database()
-                print("Accessing RA and DEC list")
-                self.ralist, self.declist = self.get_radecfromtext()
-                print("Getting and saving eleanor light curves into a fits file")
-                self.radecall = np.column_stack((self.ralist, self.declist))
-                self.gaia_ids = self.eleanor_lc()
-                print("Producing v0 feature vectors")
+                if success == 1:
+                    if not customlist: #if not using a custom input list, make the inputlist
+                        print("Producing RA and DEC list")
+                        self.build_simbad_extragalactic_database()
+                        print("Accessing RA and DEC list") 
+                    #go grab everythign from the list
+                    self.ralist, self.declist = self.get_radecfromtext()
+                    print("Getting and saving eleanor light curves into a fits file")
+                    self.radecall = np.column_stack((self.ralist, self.declist))
+                    self.gaia_ids = self.eleanor_lc()
+                    print("Producing v0 feature vectors")
+                    self.gaia_ids, self.times, self.intensities = self.open_eleanor_lc_files()
+                    self.version = 0
+                    self.savetrue = True
+                    self.features = self.create_save_featvec_different_timeaxes()
+                    if tls:
+                        print("Producing v1 feature vectors")
+                        self.version = 1
+                        self.features1 = self.create_save_featvec_different_timeaxes()
+                        self.features = np.column_stack((self.features, self.features0))
+            else: 
+                print("Not downloading anything. Attempting to access LC and Features")
                 self.gaia_ids, self.times, self.intensities = self.open_eleanor_lc_files()
-                self.version = 0
-                self.savetrue = True
-                self.features = self.create_save_featvec_different_timeaxes()
-                if tls:
-                    print("Producing v1 feature vectors")
+                self.features = self.open_eleanor_features()[0]
+                print(self.features[0])
+                if len(self.features[0]) == 16 or len(self.features[0]) == 20:
+                    self.version = 0
+                elif len(self.features[0]) == 4:
                     self.version = 1
-                    self.features1 = self.create_save_featvec_different_timeaxes()
-                    self.features = np.column_stack((self.features, self.features0))
+                else: 
+                    ("something has gone terribly wrong while loading in the features")
         else: 
-            print("Not downloading anything. Attempting to access LC and Features")
+            ("Loading multiple folders in")
+            self.simbadquery = simbadquery
+            self.momdumpcsv = momentumdumpcsv
+            
+            self.labels_all = folderlabel
+            
+            self.folderlabel = self.labels_all[0]
+            self.path = path + 'ffi_{}/'.format(self.folderlabel)
+            print(self.path)
+            self.catalog = self.path + "simbad_catalog.txt"
+            self.lightcurvefilepath = self.path + "{}_lightcurves.fits".format(self.folderlabel)
+            self.features0path = self.path + "{}_features_v0.fits".format(self.folderlabel)
+            self.features1path = self.path + "{}_features_v1.fits".format(self.folderlabel)
+            
             self.gaia_ids, self.times, self.intensities = self.open_eleanor_lc_files()
             self.features = self.open_eleanor_features()[0]
             print(self.features[0])
@@ -165,6 +205,39 @@ class FFI_lc(object):
                 self.version = 1
             else: 
                 ("something has gone terribly wrong while loading in the features")
+                
+            print("loaded in first folder, ", len(self.intensities), " light curves")
+            
+            for i in range(len(folderlabel) - 1):
+                n = i + 1
+                self.folderlabel = self.labels_all[n]
+                #self.folderlabel = folderlabel[n]
+                self.path = path + 'ffi_{}/'.format(self.folderlabel)
+                print(self.path)
+                self.lightcurvefilepath = self.path + "{}_lightcurves.fits".format(self.folderlabel)
+                self.features0path = self.path + "{}_features_v0.fits".format(self.folderlabel)
+                self.features1path = self.path + "{}_features_v1.fits".format(self.folderlabel)
+                
+                gaias, ts, ints = self.open_eleanor_lc_files()
+                feats = self.open_eleanor_features()[0]
+                
+                self.gaia_ids = np.concatenate((self.gaia_ids, gaias))
+                self.times = np.concatenate((self.times, ts))
+                self.intensities = np.concatenate((self.intensities, ints))
+                self.features = np.concatenate((self.features, feats))
+                
+                print("loaded in next folder,", len(self.intensities), " light curves")
+                
+            #now make a concatenation folder? 
+            newfolderlabel = 'ffi_output_' + "".join(self.labels_all) + "/"
+            self.path = path + newfolderlabel
+            try:
+                print(self.path)
+                os.mkdir(self.path)
+                success = 1
+            except OSError:
+                print('Directory exists already!')
+                
             
     
     def build_simbad_extragalactic_database(self):
@@ -176,8 +249,10 @@ class FFI_lc(object):
         customSimbad.TIMEOUT = 1000
         # customSimbad.get_votable_fields()
         customSimbad.add_votable_fields('otype')
+        customSimbad.add_votable_fields('distance')
+        customSimbad.add_votable_fields('dim_angle')
         customSimbad.add_votable_fields('ra(:;A;ICRS;J2000)', 'dec(:;D;ICRS;2000)')
-        table = customSimbad.query_criteria(self.simbadquery, otype='G')
+        table = customSimbad.query_criteria(self.simbadquery)
         objects = list(table['MAIN_ID'])
         ras = list(table['RA___A_ICRS_J2000'])
         decs = list(table['DEC___D_ICRS_2000'])
@@ -209,7 +284,7 @@ class FFI_lc(object):
                     
         return np.asarray(ra_all), np.asarray(dec_all)
     
-    def eleanor_lc(self):
+    def eleanor_lc(self, plot=False):
         """ 
         retrieves + produces eleanor light curves from FFI files
         """
@@ -220,43 +295,72 @@ class FFI_lc(object):
         warnings.filterwarnings('ignore')
         from eleanor.utils import SearchError
         
-        download_dir = os.path.join(os.path.expanduser('~'), '.eleanor', 'tesscut')
-        print(download_dir)
+        download_dir_tesscut = os.path.join(os.path.expanduser('~'), '.eleanor', 'tesscut')
         
+        download_dir_mastdownload = os.path.join(os.path.expanduser('~'), '.eleanor', 'mastDownload')
+        print(download_dir_tesscut, download_dir_mastdownload)
         gaia_ids = []
         
         
         for n in range(len(self.radecall)):
             try:
                 coords = SkyCoord(ra=self.radecall[n][0], dec=self.radecall[n][1], unit=(u.deg, u.deg))
-                #try:
-                files = eleanor.Source(coords=coords, tic=0) #by not providing a sector argument, will ONLY retrieve most recent sector
+                    #try:
+                files = eleanor.multi_sectors(coords=coords, tic=0, sectors='all') #by not providing a sector argument, will ONLY retrieve most recent sector
                 print('Found TIC {0} (Gaia {1}), with TESS magnitude {2}, RA {3}, and Dec {4}'
-                             .format(files.tic, files.gaia, files.tess_mag, files.coords[0], files.coords[1]))
-                data = eleanor.TargetData(files)
-                plt.figure(figsize=(16,6))
-        
-                q = data.quality == 0
-                fluxandtime = [data.time[q], data.raw_flux[q]]
-                lightcurve = np.asarray(fluxandtime)
-                    #print(lightcurve)
-                if n == 0: #setting up fits file + save first one            
-                    hdr = fits.Header() # >> make the header
-                    hdu = fits.PrimaryHDU(lightcurve, header=hdr)
-                    hdu.writeto(self.lightcurvefilepath)
-                                                
-                elif n != 0: #saving the rest
-                    fits.append(self.lightcurvefilepath, lightcurve)
-                    print(int(n))
-                   
-                gaia_ids.append(int(files.gaia))
-            except (SearchError, ValueError):
-                print("Some kind of error - either no TESS image exists, no GAIA ID exists, or there was a connection issue")
-            
-            #if os.path.isdir(download_dir) == True:
-             #   shutil.rmtree(download_dir)
-              #  print("All files deleted")
+                      .format(files[0].tic, files[0].gaia, files[0].tess_mag, files[0].coords[0], files[0].coords[1]))
+                #data = eleanor.TargetData(files)
                 
+                for file in files:
+                    data = eleanor.TargetData(file)
+                    q = data.quality == 0
+                    fluxandtime = [data.time[q], data.raw_flux[q]]
+                    lightcurve = np.asarray(fluxandtime)
+                    
+                    if plot: 
+                        #!!! put plotting background here
+                        print("Plotting TPF + aperture")
+                        fig, (ax1, ax2, ax3) = plt.subplots(ncols=3, figsize=(15,4))
+                        ax1.imshow(data.tpf[0])
+                        ax1.set_title('Target Pixel File')
+                        ax2.imshow(data.bkg_tpf[0])
+                        ax2.set_title('2D interpolated background');
+                        ax3.imshow(data.aperture)
+                        ax3.set_title('Aperture')
+                        plt.savefig("/users/conta/urop/ffi_Vmag7.5/tpf-aperture-" + str(files[0].gaia) + ".png")
+                   
+                    if not os.path.isfile(self.lightcurvefilepath):
+                        #setting up fits file + save first one            
+                        hdr = fits.Header() # >> make the header
+                        hdu = fits.PrimaryHDU(lightcurve, header=hdr)
+                        hdu.writeto(self.lightcurvefilepath)
+                        print(int(n))
+                                                        
+                    else: #save the rest
+                        fits.append(self.lightcurvefilepath, lightcurve)
+                        print(int(n))
+                           
+                    gaia_ids.append(int(file.gaia))
+            except (SearchError, ValueError):
+                print("Search Error or ValueError occurred")
+            
+            #try: 
+            for root, dirs, files in os.walk(download_dir_tesscut):
+                for file in files:
+                    try: 
+                        os.remove(os.path.join(root, file))
+                        #print("Deleted", os.path.join(root, file))
+                    except (PermissionError, OSError):
+                        #print("Unable to delete", os.path.join(root, file))
+                        continue
+            for root, dirs, files in os.walk(download_dir_mastdownload):
+                for file in files:
+                    try:
+                        os.remove(os.path.join(root, file))
+                        #print("Deleted", os.path.join(root, file))
+                    except (PermissionError, OSError):
+                        #print("Deleted", os.path.join(root, file))
+                        continue
         fits.append(self.lightcurvefilepath, np.asarray(gaia_ids))
         print("All light curves saved into fits file")
         return gaia_ids
@@ -381,13 +485,14 @@ class FFI_lc(object):
         modified [lcg 08252020 - adapted for multiple time axes]"""
         
         #set up the directory
-        path = self.path + "clipped-feature-outliers/"
-        try:
-            os.makedirs(path)
-        except OSError:
-            print ("%s already exists" % path)
-        else:
-            print ("Successfully created the directory %s" % path)
+        if plot == True: 
+            path = self.path + "clipped-feature-outliers/"
+            try:
+                os.makedirs(path)
+            except OSError:
+                print ("%s already exists" % path)
+            else:
+                print ("Successfully created the directory %s" % path)
         
         #labels for the plots
         if self.version==0:
@@ -466,22 +571,22 @@ class FFI_lc(object):
             * Text file with gaia id in column 1, and LOF in column 2 (lof-*.txt)
             * Log histogram of LOF (lof-histogram.png)
             * light curves with highest and lowest LOF
-        modified [lcg 0862020 - fixed histogram plotting]
+        modified [lcg 08312020 - fixed histogram plotting]
         """
         # -- calculate LOF -------------------------------------------------------
-        saveoriginalpath = self.path
         
-        self.path = self.path + "LOF/"
+        
+        self.lofpath = self.path + "LOF/"
         
         try:
-            os.makedirs(self.path)
+            os.makedirs(self.lofpath)
         except OSError:
-            print ("Creation of the directory %s failed" % self.path)
+            print ("Creation of the directory %s failed" % self.lofpath)
             print("New folder created will have -new at the end. Please rename.")
-            folder_path = self.path + "-new"
-            os.makedirs(self.path)
+            folder_path = self.lofpath + "-new"
+            os.makedirs(self.lofpath)
         else:
-            print ("Successfully created the directory %s" % self.path)
+            print ("Successfully created the directory %s" % self.lofpath)
             
         print('Calculating LOF')
         clf = LocalOutlierFactor(n_neighbors=n_neighbors)
@@ -495,7 +600,7 @@ class FFI_lc(object):
         
         # >> save LOF values in txt file
         print('Saving LOF values')
-        with open(self.path+'lof.txt', 'w') as f:
+        with open(self.lofpath+'lof.txt', 'w') as f:
             for i in range(len(self.gaia_ids)):
                 f.write('{} {}\n'.format(int(self.gaia_ids[i]), lof[i]))
           
@@ -545,7 +650,7 @@ class FFI_lc(object):
                     
                     fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
                                  y=0.95)
-                    fig.savefig(self.path + 'lof-kneigh' + \
+                    fig.savefig(self.lofpath + 'lof-kneigh' + \
                                 str(n_neighbors) + '-largest_' + str(j*n) + 'to' +\
                                 str(j*n + n) + '.png',
                                 bbox_inches='tight')
@@ -553,13 +658,12 @@ class FFI_lc(object):
                 elif i == 1:
                     fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
                                  y=0.95)
-                    fig.savefig(self.path + 'lof-kneigh' + \
+                    fig.savefig(self.lofpath + 'lof-kneigh' + \
                                 str(n_neighbors) + '-smallest' + str(j*n) + 'to' +\
                                 str(j*n + n) + '.png',
                                 bbox_inches='tight')
                     plt.close(fig)
-            #rest self.path
-            self.path = saveoriginalpath
+            
             
     def plot_histogram(self, data, bins, x_label, insets=True, log=True):
         """ plot a histogram with one light curve from each bin plotted on top
@@ -864,7 +968,7 @@ class FFI_lc(object):
                         ax[m, 0].set_ylabel('Relative flux')
                         
             fig.tight_layout()
-            fig.savefig(self.path + prefix + '-' + str(i) + '.pdf')
+            fig.savefig(self.dbpath + prefix + '-' + str(i) + '.pdf')
             plt.close(fig)
             
     def dbscan_param_search(self, eps=list(np.arange(0.5,10,0.4)),
@@ -892,22 +996,22 @@ class FFI_lc(object):
         accuracy = []
         param_num = 0
         
-        saveoriginalpath = self.path
         
-        self.path = self.path + "/dbscan-paramscan/"
+        
+        self.dbpath = self.path + "/dbscan-paramscan/"
         
         try:
-            os.makedirs(self.path)
+            os.makedirs(self.dbpath)
         except OSError:
-            print ("Creation of the directory %s failed" % self.path)
+            print ("Creation of the directory %s failed" % self.dbpath)
             print("New folder created will have -new at the end. Please rename.")
-            folder_path = self.path + "-new"
-            os.makedirs(self.path)
+            self.dbpath = self.path + "/dbscan-paramscan-new/"
+            os.makedirs(self.dbpath)
         else:
-            print ("Successfully created the directory %s" % self.path)
+            print ("Successfully created the directory %s" % self.dbpath)
         
     
-        with open(self.path + 'dbscan_param_search.txt', 'a') as f:
+        with open(self.dbpath + 'dbscan_param_search.txt', 'a') as f:
             f.write('{} {} {} {} {} {} {} {} {} {} {}\n'.format("eps", "samp", "metric", 
                                                              "alg", "leaf", "p",
                                                              "#classes", "# noise",
@@ -948,7 +1052,7 @@ class FFI_lc(object):
                                 if confusion_matrix:
                                     acc = pf.plot_confusion_matrix(self.gaia_ids, db.labels_,
                                                                    database_dir=database_dir,
-                                                                   output_dir=self.path,
+                                                                   output_dir=self.dbpath,
                                                                    prefix=prefix)
                                 else:
                                     acc = np.nan
@@ -980,7 +1084,7 @@ class FFI_lc(object):
                                 else:
                                     silhouette, ch_score, dav_boul_score = np.nan, np.nan, np.nan
                                     
-                                with open(self.path + 'dbscan_param_search.txt', 'a') as f:
+                                with open(self.dbpath + 'dbscan_param_search.txt', 'a') as f:
                                     f.write('{} {} {} {} {} {} {} {} {} {} {} {}\n'.format(eps[i],
                                                                        min_samples[j],
                                                                        metric[k],
@@ -1001,29 +1105,222 @@ class FFI_lc(object):
                                     if pca:
                                         print('Plot PCA...')
                                         pf.plot_pca(self.features, db.labels_,
-                                                    output_dir=self.path,
+                                                    output_dir=self.dbpath,
                                                     prefix=prefix)
                                     
                                     if tsne:
                                         print('Plot t-SNE...')
                                         pf.plot_tsne(self.features, db.labels_,
-                                                     output_dir=self.path,
+                                                     output_dir=self.dbpath,
                                                      prefix=prefix)
                                 plt.close('all')
                                 param_num +=1
         print("Plot paramscan metrics...")
-        pf.plot_paramscan_metrics(self.path, parameter_sets, 
+        pf.plot_paramscan_metrics(self.dbpath, parameter_sets, 
                                   silhouette_scores, db_scores, ch_scores)
     
-        pf.plot_paramscan_classes(self.path, parameter_sets, 
+        pf.plot_paramscan_classes(self.dbpath, parameter_sets, 
                                       np.asarray(num_classes), np.asarray(num_noisy))
     
-        self.path = saveoriginalpath
         return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, accuracy        
                 
-                
+    def features_insets(self):
+        """ Plots 2 features against each other with the extrema points' associated
+        light curves plotted as insets along the top and bottom of the plot. 
+        
+        time is the time axis for the group
+        intensity is the full list of intensities
+        feature_vectors is the complete list of feature vectors
+        targets is the complete list of targets
+        folder is the folder into which you wish to save the folder of plots. it 
+        should be formatted as a string, ending with a /
+        modified [lcg 08262020 - adapted to FFI]
+        """   
+        folderpath = self.path + "2DFeatures-insets"
+        
+        try:
+            os.makedirs(folderpath)
+        except OSError:
+            print ("Creation of the directory %s failed" % folderpath)
+            print("New folder created will have -new at the end. Please rename.")
+            folderpath = folderpath + "-new"
+            os.makedirs(folderpath)
+        else:
+            print ("Successfully created the directory %s" % folderpath) 
             
-#%%
+        folderpath = folderpath + "/" 
+        
+        if self.version==0:
+            graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                                "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                                "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                                "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)", 
+                                "TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
+                                "TLS Best fit Power"]
+            fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                                "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                                "P0", "P1", "P2", "Period0to0_1", "TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+        elif self.version == 1: 
+                
+            graph_labels = ["TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
+                                "TLS Best fit Power"]
+            fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+            
+        for n in range(len(self.features[0])):
+            graph_label1 = graph_labels[n]
+            fname_label1 = fname_labels[n]
+            for m in range(len(self.features[0])):
+                if m == n:
+                    continue
+                graph_label2 = graph_labels[m]
+                fname_label2 = fname_labels[m]  
+    
+                filename = folderpath + fname_label1 + "-vs-" + fname_label2 + ".png"     
+                
+                inset_indexes = self.get_extrema(n, m)
+                
+                self.inset_plotting(self.features[:,n], self.features[:,m], graph_label1, 
+                               graph_label2, inset_indexes, filename)
+                
+    
+    def inset_plotting(self, datax, datay, label1, label2, inset_indexes, filename):
+        """ Plots the extrema of a 2D feature plot as insets on the top and bottom border
+        datax and datay are the features being plotted as a scatter plot beneath it
+        label1 and label2 are the x and y labels
+        insetx is the time axis for the insets
+        insety is the complete list of intensities 
+        inset_indexes are the identified extrema to be plotted
+        filename is the exact path that the plot is to be saved to.
+        modified [lcg 08262020 - ffi variant]"""
+        
+        x_range = datax.max() - datax.min()
+        y_range = datay.max() - datay.min()
+        y_offset = 0.2 * y_range
+        x_offset = 0.01 * x_range
+        
+        fig, ax1 = plt.subplots()
+    
+        ax1.scatter(datax, datay, s=2)
+        ax1.set_xlim(datax.min() - x_offset, datax.max() + x_offset)
+        ax1.set_ylim(datay.min() - y_offset,  datay.max() + y_offset)
+        ax1.set_xlabel(label1)
+        ax1.set_ylabel(label2)
+        
+        i_height = y_offset / 2
+        i_width = x_range/4.5
+        
+        x_init = datax.min() 
+        y_init = datay.max() + (0.4*y_offset)
+        n = 0
+        inset_indexes = inset_indexes[0:8]
+        while n < (len(inset_indexes)):
+            axis_name = "axins" + str(n)
+            
+        
+            axis_name = ax1.inset_axes([x_init, y_init, i_width, i_height], transform = ax1.transData) #x pos, y pos, width, height
+            axis_name.scatter(self.times[inset_indexes[n]], self.intensities[inset_indexes[n]], c='black', s = 0.1, rasterized=True)
+            
+            #this sets where the pointer goes to
+            x1, x2 = datax[inset_indexes[n]], datax[inset_indexes[n]] + 0.001*x_range
+            y1, y2 =  datay[inset_indexes[n]], datay[inset_indexes[n]] + 0.001*y_range
+            axis_name.set_xlim(x1, x2)
+            axis_name.set_ylim(y1, y2)
+            ax1.indicate_inset_zoom(axis_name)
+                  
+            #this sets the actual axes limits    
+            axis_name.set_xlim(self.times[inset_indexes[n]].min(), self.times[inset_indexes[n]].max())
+            axis_name.set_ylim(self.intensities[inset_indexes[n]].min(), self.intensities[inset_indexes[n]].max())
+            axis_name.set_title("GAIA ID " + str(int(self.gaia_ids[inset_indexes[n]])), fontsize=8)
+            axis_name.set_xticklabels([])
+            axis_name.set_yticklabels([])
+            
+            x_init += 1.1* i_width
+            n = n + 1
+            
+            if n == 4: 
+                y_init = datay.min() - (0.8*y_offset)
+                x_init = datax.min()
+                
+        plt.savefig(filename)   
+        plt.close()
+    
+    def get_extrema(self, feat1, feat2):
+        """ Identifies the extrema in each direction for the pair of features given. 
+        Eliminates any duplicate extrema (ie, the xmax that is also the ymax)
+        Returns array of unique indexes of the extrema
+        modified [lcg 08262020 - ffi version]"""
+        indexes = []
+        index_feat1 = np.argsort(self.features[:,feat1])
+        index_feat2 = np.argsort(self.features[:,feat2])
+        
+        indexes.append(index_feat1[0]) #xmin
+        indexes.append(index_feat2[-1]) #ymax
+        indexes.append(index_feat2[-2]) #second ymax
+        indexes.append(index_feat1[-2]) #second xmax
+        
+        indexes.append(index_feat1[1]) #second xmin
+        indexes.append(index_feat2[1]) #second ymin
+        indexes.append(index_feat2[0]) #ymin
+        indexes.append(index_feat1[-1]) #xmax
+        
+        indexes.append(index_feat1[-3]) #third xmax
+        indexes.append(index_feat2[-3]) #third ymax
+        indexes.append(index_feat1[2]) #third xmin
+        indexes.append(index_feat2[2]) #third ymin
+    
+        indexes_unique, ind_order = np.unique(np.asarray(indexes), return_index=True)
+        #fixes the ordering of stuff
+        indexes_unique = [np.asarray(indexes)[index] for index in sorted(ind_order)]
+        
+        return indexes_unique
+    def KNN_plotting(self, k_values):
+        """ This is based on a metric for finding the best possible eps/minsamp
+        value from the original DBSCAN paper (Ester et al 1996). Essentially,
+        by calculating the average distances to the k-nearest neighbors and plotting
+        those values sorted, you can determine by eye (heuristically) the best eps 
+        value. It should be eps value = yaxis value of first valley, and minsamp = k.
+        
+        ** currently uses default values (minkowski p=2) for the n-neighbor search **
+        
+        inputs: 
+            * path to where you want to save the plots
+            * features (should have any significant outliers clipped out)
+            * k_values: array of integers, ie [2,3,5,10] for the k values
+            
+        output: 
+            * plots the KNN curves into the path
+        modified [lcg 08312020 - ffi version]"""
+        self.knnpath = self.path + "knn_plots/"
+        
+        try:
+            os.makedirs(self.knnpath)
+        except OSError:
+            print ("Creation of the directory %s failed" % self.knnpath)
+            print("New folder created will have -new at the end. Please rename.")
+            self.knnpath = self.path + "knn_plots-new/"
+            os.makedirs(self.knnpath)
+        else:
+            print ("Successfully created the directory %s" % self.knnpath)
+            
+        from sklearn.neighbors import NearestNeighbors
+        for n in range(len(k_values)):
+            neigh = NearestNeighbors(n_neighbors=k_values[n])
+            neigh.fit(self.features)
+        
+            k_dist, k_ind = neigh.kneighbors(self.features, return_distance=True)
+            
+            avg_kdist = np.mean(k_dist, axis=1)
+            avg_kdist_sorted = np.sort(avg_kdist)[::-1]
+            
+            plt.scatter(np.arange(len(self.features)), avg_kdist_sorted)
+            plt.xlabel("Points")
+            plt.ylabel("Average K-Neighbor Distance")
+            plt.ylim((0, 20))
+            plt.title("K-Neighbor plot for k=" + str(k_values[n]))
+            plt.savefig(self.knnpath + "kneighbors-" +str(k_values[n]) +"-plot-sorted.png")
+            plt.close()                   
+                
+#%% all the generic versions of the functions - NOT updated.
 def eleanor_lc(path, ra_declist, plotting = False):
     """ 
     retrieves + produces eleanor light curves from FFI files
