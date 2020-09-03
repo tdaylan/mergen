@@ -39,9 +39,7 @@ import keras.backend as K
 from keras.layers import Lambda, Activation, Conv2DTranspose
 import tensorflow as tf
 from tensorflow import keras
-from sklearn.cluster import KMeans
-
-
+from sklearn.cluster import KMeans         
 
 def autoencoder_preprocessing(flux, ticid, time, target_info, p, 
                               validation_targets=[219107776],
@@ -225,13 +223,14 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
             target_info_train, target_info_test, rms_train, rms_test, time
 
 def bottleneck_preprocessing(sector, flux, ticid, target_info,
+                             rms=None,
                              output_dir='./SectorX/',
                              data_dir='./',
                              use_learned_features=False,
                              use_engineered_features=True,
                              use_tess_features=True,
                              use_tls_features=True,
-                             cams=[1,2,3,4], ccds=[1,2,3,4]):
+                             cams=[1,2,3,4], ccds=[1,2,3,4], log=False):
     '''Concatenates features (assumes features are already calculated and
     saved).
     
@@ -295,6 +294,12 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
                                                  bottleneck_test], axis=0)
         # if not use_engineered_features and not use_tess_features:
         #     features = learned_feature_vector
+        
+        if log:
+            learned_feature_vector = learned_feature_vector[:,:-1]
+            rms = np.log(rms)
+            learned_feature_vector = np.concatenate([learned_feature_vector,
+                                                    rms.reshape(-1, 1)], axis=1)
         features.append(learned_feature_vector)
         
     if use_tls_features:
@@ -366,7 +371,11 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
         for i in range(len(ticid)):
             ind = np.nonzero(tess_features[:,0] == ticid[i])[0][0]
             tmp.append(tess_features[ind][1:])
-        tess_features = np.array(tmp)            
+        tess_features = np.array(tmp)      
+        
+        if log:
+            tess_features = np.log(tess_features)
+        
         features.append(tess_features)
  
     # >> concatenate features
@@ -438,7 +447,10 @@ def model_summary_txt(output_dir, model):
 def conv_autoencoder(x_train, y_train, x_test, y_test, params, 
                      val=True, split=False, input_features=False,
                      features=None, input_psd=False, reshape=False,
-                     model_init=None):
+                     model_init=None, save_model=True, save_bottleneck=True,
+                     predict=True, output_dir='./',
+                     input_rms=False, rms_train=None, rms_test=None,
+                     ticid_train=None, ticid_test=None):
     from keras.models import Model
     
     # -- making swish activation function -------------------------------------
@@ -499,6 +511,37 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     else:
         history = model.fit(x_train, x_train, epochs=params['epochs'],
                     batch_size=params['batch_size'], shuffle=True)
+        
+    if save_model:
+        model.save(output_dir + 'model')      
+        
+    if save_bottleneck:
+        bottleneck_train = get_bottleneck(model, x_train, params,
+                                          input_rms=input_rms, rms=rms_train)
+        
+        # >> save bottleneck_test, bottleneck_train
+        bottleneck = get_bottleneck(model, x_test, params, input_rms=input_rms,
+                                    rms=rms_test)    
+        hdr = fits.Header()
+        hdu = fits.PrimaryHDU(bottleneck, header=hdr)
+        hdu.writeto(output_dir + 'bottleneck_test.fits')    
+        fits.append(output_dir + 'bottleneck_test.fits', ticid_test)    
+        
+        hdr = fits.Header()
+        hdu = fits.PrimaryHDU(bottleneck_train, header=hdr)
+        hdu.writeto(output_dir + 'bottleneck_train.fits')    
+        fits.append(output_dir + 'bottleneck_train.fits', ticid_train)       
+        
+    if predict:
+        x_predict = model.predict(x_test)      
+        hdr = fits.Header()
+        hdu = fits.PrimaryHDU(x_predict, header=hdr)
+        hdu.writeto(output_dir + 'x_predict.fits')
+        fits.append(output_dir + 'x_predict.fits', ticid_test)  
+        param_summary(history, x_test, x_predict, params, output_dir, 0, '')
+        model_summary_txt(output_dir, model)               
+    
+        return history, model, x_predict
     
     return history, model
 
@@ -965,12 +1008,12 @@ def encoder(x_train, params, reshape=False):
             #     x = Add()([x, feature_maps[-2]])
             #     x = Activation(params['activation'])(x)                
             
-            if not params['batchnorm']:
+            if not params['batchnorm_before_act']:
                 activation=params['activation']
             
             x = BatchNormalization()(x)     
             
-            if params['batchnorm']:
+            if params['batchnorm_before_act']:
                 activation=params['activation']
             
             
