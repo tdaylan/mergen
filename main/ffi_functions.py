@@ -105,7 +105,7 @@ class FFI_lc(object):
                 each class in big 50 curve plots. 
         * features_insets with helpers inset_plotting and get_extrema
     
-    modified [lcg 08262020 - plotting]
+    modified [lcg 09022020 - plotting]
     """
 
     def __init__(self, path=None, folderlabel="Vmag19", simbadquery="Vmag <=19",
@@ -113,7 +113,7 @@ class FFI_lc(object):
                  momentumdumpcsv = "/users/conta/urop/Table_of_momentum_dumps.csv",
                  customlist = False):
 
-        if simbadquery is None:
+        if simbadquery is None and not customList:
             print('Please pass a simbad query')
             return
         if path is None:
@@ -123,7 +123,7 @@ class FFI_lc(object):
         if len(folderlabel) == 1:
             print("Only one folder label passed.")
             self.simbadquery = simbadquery
-            self.folderlabel = folderlabel
+            self.folderlabel = folderlabel[0]
             self.path = path + 'ffi_{}/'.format(self.folderlabel)
             self.catalog = self.path + "simbad_catalog.txt"
             self.lightcurvefilepath = self.path + "{}_lightcurves.fits".format(self.folderlabel)
@@ -161,7 +161,7 @@ class FFI_lc(object):
                     self.radecall = np.column_stack((self.ralist, self.declist))
                     self.gaia_ids = self.eleanor_lc()
                     print("Producing v0 feature vectors")
-                    self.gaia_ids, self.times, self.intensities = self.open_eleanor_lc_files()
+                    self.gaia_ids, self.times, self.intensities, self.corrected_intensities = self.open_eleanor_lc_files()
                     self.version = 0
                     self.savetrue = True
                     self.features = self.create_save_featvec_different_timeaxes()
@@ -172,7 +172,7 @@ class FFI_lc(object):
                         self.features = np.column_stack((self.features, self.features0))
             else: 
                 print("Not downloading anything. Attempting to access LC and Features")
-                self.gaia_ids, self.times, self.intensities = self.open_eleanor_lc_files()
+                self.gaia_ids, self.times, self.intensities, self.corrected_intensities = self.open_eleanor_lc_files()
                 self.features = self.open_eleanor_features()[0]
                 print(self.features[0])
                 if len(self.features[0]) == 16 or len(self.features[0]) == 20:
@@ -196,7 +196,7 @@ class FFI_lc(object):
             self.features0path = self.path + "{}_features_v0.fits".format(self.folderlabel)
             self.features1path = self.path + "{}_features_v1.fits".format(self.folderlabel)
             
-            self.gaia_ids, self.times, self.intensities = self.open_eleanor_lc_files()
+            self.gaia_ids, self.times, self.intensities, self.corrected_intensities = self.open_eleanor_lc_files()
             self.features = self.open_eleanor_features()[0]
             print(self.features[0])
             if len(self.features[0]) == 16 or len(self.features[0]) == 20:
@@ -211,19 +211,18 @@ class FFI_lc(object):
             for i in range(len(folderlabel) - 1):
                 n = i + 1
                 self.folderlabel = self.labels_all[n]
-                #self.folderlabel = folderlabel[n]
                 self.path = path + 'ffi_{}/'.format(self.folderlabel)
-                print(self.path)
                 self.lightcurvefilepath = self.path + "{}_lightcurves.fits".format(self.folderlabel)
                 self.features0path = self.path + "{}_features_v0.fits".format(self.folderlabel)
                 self.features1path = self.path + "{}_features_v1.fits".format(self.folderlabel)
                 
-                gaias, ts, ints = self.open_eleanor_lc_files()
+                gaias, ts, ints, Icorr = self.open_eleanor_lc_files()
                 feats = self.open_eleanor_features()[0]
                 
                 self.gaia_ids = np.concatenate((self.gaia_ids, gaias))
                 self.times = np.concatenate((self.times, ts))
                 self.intensities = np.concatenate((self.intensities, ints))
+                self.corrected_intensities = np.concatenate((self.corrected_intensities, Icorr))
                 self.features = np.concatenate((self.features, feats))
                 
                 print("loaded in next folder,", len(self.intensities), " light curves")
@@ -238,7 +237,24 @@ class FFI_lc(object):
             except OSError:
                 print('Directory exists already!')
                 
-            
+    def build_tess_database(self):
+        #do not use
+        from astroquery.mast import Catalogs
+
+        catalog_data = Catalogs.query_criteria(catalog="Tic", Tmag=[0,18], d=[20000,100000000])
+        print(len(catalog_data))
+        
+        import numpy as np
+        for i in range(len(catalog_data)):
+                    # >> decode bytes object to convert to string
+                    obj = str(catalog_data["GAIA"][i])
+                    ra = str(catalog_data["ra"][i])
+                    dec = str(catalog_data["dec"][i])
+                   
+                    with open("/users/conta/urop/d20kpc_tmag_18_targets.txt", 'a') as f:
+                            f.write(obj + ',' + ra + ',' + dec + "," + '\n')
+
+         
     
     def build_simbad_extragalactic_database(self):
         '''Object type follows format in:
@@ -265,7 +281,7 @@ class FFI_lc(object):
             dec = decs[i]
            
             with open(self.catalog, 'a') as f:
-                    f.write(obj + ',' + ra + ',' + dec + ',' + '\n')
+                    f.write(obj + ',' + ra + ',' + dec + "," + '\n')
         return
     
     def get_radecfromtext(self):
@@ -301,12 +317,15 @@ class FFI_lc(object):
         print(download_dir_tesscut, download_dir_mastdownload)
         gaia_ids = []
         
-        
+        print(self.radecall[:10])
         for n in range(len(self.radecall)):
+        #for n in range(10):
             try:
+                
                 coords = SkyCoord(ra=self.radecall[n][0], dec=self.radecall[n][1], unit=(u.deg, u.deg))
                     #try:
                 files = eleanor.multi_sectors(coords=coords, tic=0, sectors='all') #by not providing a sector argument, will ONLY retrieve most recent sector
+                print(len(files))
                 print('Found TIC {0} (Gaia {1}), with TESS magnitude {2}, RA {3}, and Dec {4}'
                       .format(files[0].tic, files[0].gaia, files[0].tess_mag, files[0].coords[0], files[0].coords[1]))
                 #data = eleanor.TargetData(files)
@@ -314,7 +333,8 @@ class FFI_lc(object):
                 for file in files:
                     data = eleanor.TargetData(file)
                     q = data.quality == 0
-                    fluxandtime = [data.time[q], data.raw_flux[q]]
+
+                    fluxandtime = [data.time[q], data.raw_flux[q], data.corr_flux[q]]
                     lightcurve = np.asarray(fluxandtime)
                     
                     if plot: 
@@ -327,7 +347,7 @@ class FFI_lc(object):
                         ax2.set_title('2D interpolated background');
                         ax3.imshow(data.aperture)
                         ax3.set_title('Aperture')
-                        plt.savefig("/users/conta/urop/ffi_Vmag7.5/tpf-aperture-" + str(files[0].gaia) + ".png")
+                        plt.savefig("/users/conta/urop/ffi_Vmag7.5/tpf-aperture-" + str(file.gaia) + ".png")
                    
                     if not os.path.isfile(self.lightcurvefilepath):
                         #setting up fits file + save first one            
@@ -379,13 +399,15 @@ class FFI_lc(object):
         target_nums = len(f) - 1
         all_timeindexes = []
         all_intensities = []
+        all_i_corrected = []
         for n in range(target_nums):
             all_timeindexes.append(f[n].data[0])
             all_intensities.append(f[n].data[1])
+            all_i_corrected.append(f[n].data[2])
                 
         f.close()
             
-        return gaia_ids, np.asarray(all_timeindexes), np.asarray(all_intensities)
+        return gaia_ids, np.asarray(all_timeindexes), np.asarray(all_intensities), np.asarray(all_i_corrected)
     
     def create_save_featvec_different_timeaxes(self):
         """Produces the feature vectors for each light curve and saves them all
@@ -409,14 +431,14 @@ class FFI_lc(object):
             fname_features = self.features0path
             #median normalize for the v0 features
             for n in range(len(self.intensities)):
-                self.intensities[n] = normalize(self.intensities[n], axis=0)
+                self.intensities[n] = df.normalize(self.intensities[n], axis=0)
         elif self.version == 1: 
             fname_features = self.features1path
             import transitleastsquares
             from transitleastsquares import transitleastsquares
             #mean normalize the intensity so goes to 1
             for n in range(len(self.intensities)):
-                self.intensities[n] = mean_norm(self.intensities[n], axis=0)
+                self.intensities[n] = df.mean_norm(self.intensities[n], axis=0)
     
         print("Begining Feature Vector Creation Now")
         for n in range(len(self.intensities)):
@@ -1319,20 +1341,45 @@ class FFI_lc(object):
             plt.title("K-Neighbor plot for k=" + str(k_values[n]))
             plt.savefig(self.knnpath + "kneighbors-" +str(k_values[n]) +"-plot-sorted.png")
             plt.close() 
+     
+    
+    def sigmaclip(self):
+        print("Sigma clipping")
+        self.sctimes = []
+        self.scintensities = []
+        for i in range(len(self.intensities)):
 
+            sigclip = SigmaClip(sigma=5, maxiters=None, cenfunc='median')
+            clipped_inds = np.nonzero(np.ma.getmask(sigclip(self.intensities[i])))
+            self.intensities[i][clipped_inds] = np.nan
+            delete_index = np.argwhere(np.isnan(self.intensities[i]))
+            sctime = np.delete(self.times[i], delete_index)
+            self.sctimes.append(sctime)
+            scflux = np.delete(self.intensities[i], delete_index)  
+            self.scintensities.append(scflux)
+            
+        self.sctimes = np.asarray(self.sctimes)
+        self.scintensities = np.asarray(self.scintensities)
+        
     def cae_truncate(self):
         """ truncates arrays into homogenous cube of data
         modified [lcg 08312020 - created]"""
         lengths = []
-        for n in range(len(self.times)):
-            lengths.append(len(self.times[n]))
+        for n in range(len(self.sctimes)):
+            lengths.append(len(self.sctimes[n]))
+        
         
         crop = np.asarray(lengths).min()
         print(crop)
         
-        for n in range(len(self.times)):
-            self.times[n] = self.times[n][:crop]
-            self.intensities[n] = self.intensities[n][:crop]                  
+        self.cropped_times = self.times[n][:crop]
+        self.cropped_intensities = np.zeros((len(self.scintensities), crop))
+        
+        for n in range(len(self.scintensities)):
+            self.cropped_intensities[n] = self.scintensities[n][:crop]
+            
+        
+            
                 
 #%% all the generic versions of the functions - NOT updated.
 def eleanor_lc(path, ra_declist, plotting = False):
