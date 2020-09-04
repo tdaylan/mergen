@@ -83,7 +83,7 @@ from astroquery.simbad import Simbad
 from astroquery.mast import Catalogs
 from astroquery.mast import Observations
 from astroquery import exceptions
-from astroquery.exceptions import RemoteServiceError
+from astroquery.exceptions import RemoteServiceError, ResolverError
 import astropy.coordinates as coord
 import astropy.units as u
 from astroquery.vizier import Vizier
@@ -224,8 +224,10 @@ def representation_learning(flux, x, ticid, target_info,
         
     print('Novelty detection')
     pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
+                momentum_dump_csv = mom_dump, n_neighbors = 20,
                 n_tot=40, target_info=info_feat, prefix='',
-                cross_check_txt=database_dir, debug=False, addend=0.)        
+                cross_check_txt=database_dir, debug=False, addend=0.)
+      
     
     print('DBSCAN parameter search')
     parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
@@ -252,7 +254,8 @@ def representation_learning(flux, x, ticid, target_info,
                             min_samples=[best_param_set[1]],
                             metric=[best_param_set[2]], p=[best_param_set[5]],
                             database_dir=database_dir,
-                            eps=[best_param_set[0]])      
+                            eps=[best_param_set[0]], confusion_matrix = False, 
+                            pca=True, tsne=True, tsne_clustering=False)      
 
     
 def lc_by_camera_ccd(sectorfile, camera, ccd):
@@ -1496,20 +1499,24 @@ def feature_gen_from_lc_fits(path, sector, feature_version=0):
 def get_tess_features(ticid):
     '''Query catalog data https://arxiv.org/pdf/1905.10694.pdf'''
     
-
-    target = 'TIC '+str(int(ticid))
-    catalog_data = Catalogs.query_object(target, radius=0.02, catalog='TIC')
-    Teff = catalog_data[0]["Teff"]
-
-    rad = catalog_data[0]["rad"]
-    mass = catalog_data[0]["mass"]
-    GAIAmag = catalog_data[0]["GAIAmag"]
-    d = catalog_data[0]["d"]
-    # Bmag = catalog_data[0]["Bmag"]
-    # Vmag = catalog_data[0]["Vmag"]
-    objType = catalog_data[0]["objType"]
-    Tmag = catalog_data[0]["Tmag"]
-    # lum = catalog_data[0]["lum"]
+    try: 
+        target = 'TIC '+str(int(ticid))
+        catalog_data = Catalogs.query_object(target, radius=0.02, catalog='TIC')
+        Teff = catalog_data[0]["Teff"]
+        rad = catalog_data[0]["rad"]
+        mass = catalog_data[0]["mass"]
+        GAIAmag = catalog_data[0]["GAIAmag"]
+        d = catalog_data[0]["d"]
+        # Bmag = catalog_data[0]["Bmag"]
+        # Vmag = catalog_data[0]["Vmag"]
+        objType = catalog_data[0]["objType"]
+        Tmag = catalog_data[0]["Tmag"]
+        # lum = catalog_data[0]["lum"]
+    except ResolverError:
+        print("Could not resolve, probably using a GAIA ID")
+        Teff = rad = mass = GAIAmag = d = objType = Tmag = np.nan
+    
+    
 
     return target, Teff, rad, mass, GAIAmag, d, objType, Tmag
 
@@ -1840,10 +1847,11 @@ def get_true_classifications(ticid_list,
         fnames = ['']
     else:
         fnames = fm.filter(os.listdir(database_dir), '*.txt')
+        print(fnames)
     
     for fname in fnames:
         # >> read text file
-        with open(database_dir + fname, 'r') as f:
+        with open(os.path.join(database_dir, fname), 'r') as f:
             lines = f.readlines()
             for line in lines:
                 ticid, otype, bibcode = line[:-1].split(',')

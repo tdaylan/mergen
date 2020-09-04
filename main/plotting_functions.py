@@ -1589,7 +1589,8 @@ def plot_lof(time, intensity, targets, features, n, path,
                                                  database_dir=cross_check_txt,
                                                  useless_classes=[])        
         ticid_classified = class_info[:,0].astype('int')
-
+    else:
+        ticid_classified = []
     # -- plot smallest and largest LOF light curves --------------------------
     print('Plot highest LOF and lowest LOF light curves')
     num_figs = int(n_tot/n) # >> number of figures to generate
@@ -1923,10 +1924,14 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
     colors = get_colors()
     
     # class_info = df.get_simbad_classifications(targets, simbad_database_txt)
-    # ticid_classified = np.array(simbad_info)[:,0].astype('int')    
-    class_info = df.get_true_classifications(targets,
-                                             database_dir=database_dir,
-                                             single_file=single_file)
+    # ticid_classified = np.array(simbad_info)[:,0].astype('int')   
+    if database_dir is not None: 
+        class_info = df.get_true_classifications(targets,
+                                                 database_dir=database_dir,
+                                                 single_file=single_file)
+    else: 
+        class_info = np.zeros((len(targets), 2))
+        
     ticid_classified = class_info[:,0].astype('int')
     
     num_figs = int(np.ceil(len(classes) / ncols))

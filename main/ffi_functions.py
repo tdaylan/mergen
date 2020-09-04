@@ -113,12 +113,20 @@ class FFI_lc(object):
                  momentumdumpcsv = "/users/conta/urop/Table_of_momentum_dumps.csv",
                  customlist = False):
 
-        if simbadquery is None and not customList:
-            print('Please pass a simbad query')
-            return
+        """ okay bud you need to overhaul this whole deal
+        - they need to give a path to save everything into
+        a momentum dump csv file
+        and a folder label to save things into
+        and that's it for init'
+        
+        
+        """
         if path is None:
             print('Please pass a path to save into')
             return
+        
+        
+        
 
         if len(folderlabel) == 1:
             print("Only one folder label passed.")
@@ -162,6 +170,7 @@ class FFI_lc(object):
                     self.gaia_ids = self.eleanor_lc()
                     print("Producing v0 feature vectors")
                     self.gaia_ids, self.times, self.intensities, self.corrected_intensities = self.open_eleanor_lc_files()
+                    self.sigmaclip()
                     self.version = 0
                     self.savetrue = True
                     self.features = self.create_save_featvec_different_timeaxes()
@@ -237,6 +246,22 @@ class FFI_lc(object):
             except OSError:
                 print('Directory exists already!')
                 
+                
+    def simbad_database_lc_gen(self, simbadquery="Vmag > 18"):
+        
+        self.simbadquery = simbadquery
+        print("Producing RA and DEC list")
+        self.build_simbad_extragalactic_database()
+        print("Accessing RA and DEC list") #go grab everythign from the list
+        self.ralist, self.declist = self.get_radecfromtext()
+        print("Getting and saving eleanor light curves into a fits file")
+        self.radecall = np.column_stack((self.ralist, self.declist))
+        self.gaia_ids = self.eleanor_lc()
+        print("Producing v0 feature vectors")
+        self.gaia_ids, self.times, self.intensities, self.corrected_intensities = self.open_eleanor_lc_files()
+        self.sigmaclip()
+        
+                
     def build_tess_database(self):
         #do not use
         from astroquery.mast import Catalogs
@@ -253,6 +278,7 @@ class FFI_lc(object):
                    
                     with open("/users/conta/urop/d20kpc_tmag_18_targets.txt", 'a') as f:
                             f.write(obj + ',' + ra + ',' + dec + "," + '\n')
+        return
 
          
     
@@ -932,7 +958,7 @@ class FFI_lc(object):
             plt.close(fig)
         return classes, counts
     
-    def column_plot_classification(self, labels, prefix='prefix', title='title'):
+    def column_plot_classification(self, output_dir, labels, prefix='prefix', title='title'):
         '''
         plots first five light curves in each class in vertical columns
         '''
@@ -990,7 +1016,7 @@ class FFI_lc(object):
                         ax[m, 0].set_ylabel('Relative flux')
                         
             fig.tight_layout()
-            fig.savefig(self.dbpath + prefix + '-' + str(i) + '.pdf')
+            fig.savefig(output_dir + prefix + '-' + str(i) + '.pdf')
             plt.close(fig)
             
     def dbscan_param_search(self, eps=list(np.arange(0.5,10,0.4)),
@@ -1122,7 +1148,7 @@ class FFI_lc(object):
                                     
                                 if plotting and len(classes_1) > 1:
     
-                                    self.column_plot_classification(db.labels_, prefix = prefix,title=title)
+                                    self.column_plot_classification(self.dbpath, db.labels_, prefix = prefix,title=title)
                                     
                                     if pca:
                                         print('Plot PCA...')
@@ -1145,7 +1171,151 @@ class FFI_lc(object):
                                       np.asarray(num_classes), np.asarray(num_noisy))
     
         return parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, accuracy        
-                
+     
+    def hdbscan_param_search(self,min_cluster_size=list(np.arange(5,30,2)),
+                             min_samples = [5,10,15],
+                             metric=['euclidean', 'manhattan', 'minkowski'],
+                             p0 = [1,2,3,4], DEBUG=True,
+                             simbad_database_txt='./simbad_database.txt',
+                             database_dir='./databases/',
+                             pca=True, tsne=True, confusion_matrix=False,
+                             single_file=False):
+        '''Performs a grid serach across parameter space for HDBSCAN. 
+        
+        Parameters:
+            * features
+            * time/flux/ticids/target information
+            * min cluster size, metric, p (only for minkowski)
+            * output_dir : output directory, ending with '/'
+            * DEBUG : if DEBUG, plots first 5 light curves in each class
+            * optional to plot pca & tsne coloring for it
+            
+        '''
+        import hdbscan 
+        from sklearn.metrics import silhouette_score, calinski_harabasz_score
+        from sklearn.metrics import davies_bouldin_score
+        target_info = np.zeros((len(self.times), 5))  
+        output_dir = self.path + "/hdbscan-paramscan/"
+        try:
+            os.makedirs(output_dir)
+        except OSError:
+            print ("Creation of the directory %s failed" % output_dir)
+            print("New folder created will have -new at the end. Please rename.")
+            output_dir = self.path + "/hdbscan-paramscan-new/"
+            os.makedirs(output_dir)
+        else:
+            print ("Successfully created the directory %s" % output_dir)
+            
+        classes = []
+        num_classes = []
+        counts = []
+        num_noisy= []
+        parameter_sets=[]
+        silhouette_scores=[]
+        ch_scores = []
+        db_scores = []    
+        param_num = 0
+        accuracy = []
+        
+        if metric[0] == 'all':
+            metric = list(hdbscan.dist_metrics.METRIC_MAPPING.keys())
+            metric.remove('seuclidean')
+            metric.remove('mahalanobis')
+            metric.remove('wminkowski')
+            metric.remove('haversine')
+            metric.remove('cosine')
+            metric.remove('arccos')
+            metric.remove('pyfunc')    
+    
+        with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+            f.write('{} {} {} {}\n'.format("min_cluster_size", "min_samples",
+                                           "metric", "p", 'num_classes', 
+                                           'silhouette', 'db', 'ch', 'acc'))
+    
+        for i in range(len(min_cluster_size)):
+            for j in range(len(metric)):
+                if metric[j] == 'minkowski':
+                    p = p0
+                else:
+                    p = [None]
+                for n in range(len(p)):
+                    for k in range(len(min_samples)):
+                        clusterer = hdbscan.HDBSCAN(min_cluster_size=int(min_cluster_size[i]),
+                                                    metric=metric[j], min_samples=min_samples[k],
+                                                    p=p[n], algorithm='best')
+                        clusterer.fit(self.features)
+                        labels = clusterer.labels_
+                        print(np.unique(labels, return_counts=True))
+                        classes_1, counts_1 = np.unique(labels, return_counts=True)
+                                
+                                        
+                        
+                        title='Parameter Set '+str(param_num)+': '+'{} {} {} {}'.format(min_cluster_size[i],
+                                                                                     min_samples[k],
+                                                                                     metric[j],p[n])
+                                    
+                        prefix='hdbscan-p'+str(param_num)                            
+                                        
+                        if len(classes_1) > 1:
+                            classes.append(classes_1)
+                            num_classes.append(len(classes_1))
+                            counts.append(counts_1)
+                            num_noisy.append(counts_1[0])
+                            parameter_sets.append([min_cluster_size[i],metric[j],p[n]])
+                            print('Computing silhouette score')
+                            silhouette = silhouette_score(self.features, labels)
+                            silhouette_scores.append(silhouette)
+                            
+                            # >> compute calinski harabasz score
+                            print('Computing calinski harabasz score')
+                            ch_score = calinski_harabasz_score(self.features, labels)
+                            ch_scores.append(ch_score)
+                            
+                            # >> compute davies-bouldin score
+                            print('Computing davies-bouldin score')
+                            dav_boul_score = davies_bouldin_score(self.features, labels)
+                            db_scores.append(dav_boul_score)                        
+                                        
+                            if confusion_matrix:
+                                print('Computing accuracy')
+                                acc = pf.plot_confusion_matrix(self.gaia_ids, labels,
+                                                               database_dir=database_dir,
+                                                               single_file=single_file,
+                                                               output_dir=output_dir,
+                                                               prefix=prefix)       
+                            else:
+                                acc=None
+                            accuracy.append(acc)
+                                      
+                                        
+                        with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+                            f.write(' \t'.join(map(str, [min_cluster_size[i],
+                                                         min_samples[k],
+                                                         metric[j], p[n],
+                                                         len(classes_1),
+                                                         silhouette, ch_score,
+                                                         dav_boul_score, acc])) + '\n')
+                                        
+                        if DEBUG and len(classes_1) > 1:
+                            self.column_plot_classification(output_dir, labels, prefix = prefix,title=title)
+                        
+                            if pca:
+                                print('Plot PCA...')
+                                pf.plot_pca(self.features, labels,
+                                            output_dir=output_dir,
+                                            prefix=prefix)
+                                        
+                            if tsne:
+                                print('Plot t-SNE...')
+                                pf.plot_tsne(self.features,labels,
+                                             output_dir=output_dir,
+                                             prefix=prefix)                
+                        plt.close('all')
+                        param_num +=1
+    
+            
+        return parameter_sets, num_classes, acc   
+               
     def features_insets(self):
         """ Plots 2 features against each other with the extrema points' associated
         light curves plotted as insets along the top and bottom of the plot. 
@@ -1252,7 +1422,7 @@ class FFI_lc(object):
             #this sets the actual axes limits    
             axis_name.set_xlim(self.times[inset_indexes[n]].min(), self.times[inset_indexes[n]].max())
             axis_name.set_ylim(self.intensities[inset_indexes[n]].min(), self.intensities[inset_indexes[n]].max())
-            axis_name.set_title("GAIA ID " + str(int(self.gaia_ids[inset_indexes[n]])), fontsize=8)
+            axis_name.set_title("GAIA ID " + str(int(self.gaia_ids[inset_indexes[n]])), fontsize=6)
             axis_name.set_xticklabels([])
             axis_name.set_yticklabels([])
             
@@ -1347,6 +1517,7 @@ class FFI_lc(object):
         print("Sigma clipping")
         self.sctimes = []
         self.scintensities = []
+        self.scintcorr = []
         for i in range(len(self.intensities)):
 
             sigclip = SigmaClip(sigma=5, maxiters=None, cenfunc='median')
@@ -1357,9 +1528,12 @@ class FFI_lc(object):
             self.sctimes.append(sctime)
             scflux = np.delete(self.intensities[i], delete_index)  
             self.scintensities.append(scflux)
+            sccorrint = np.delete(self.corrected_intensities[i], delete_index)
+            self.scintcorr.append(sccorrint)
             
-        self.sctimes = np.asarray(self.sctimes)
-        self.scintensities = np.asarray(self.scintensities)
+        self.times = np.asarray(self.sctimes)
+        self.intensities = np.asarray(self.scintensities)
+        self.corrected_intensities = np.asarray(self.scintcorr)
         
     def cae_truncate(self):
         """ truncates arrays into homogenous cube of data
