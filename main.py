@@ -332,15 +332,16 @@ def init( \
     
     gdat.listsect = np.arange(26)
 
-    gdat.listensetype = 'sect'
-    if gdat.listensetype == 'sect':
-        gdat.numbense = len(gdat.listsect)
+    gdat.listensetype = ['sect']
     
+    gdat.numbense = len(gdat.listensetype)
     gdat.indxense = np.arange(gdat.numbense)
     for l in gdat.indxense:
+        if gdat.listensetype == 'sect':
+            gdat.numbense = len(gdat.listsect)
         
         # get light curve for ensemble
-        lcur = retr_lcurense(gdat)
+        lcur = retr_lcurense(gdat, gdat.listensetype[l])
 
         # preprocess light curves
         prep_lcur(gdat)
@@ -369,6 +370,42 @@ def init( \
         os.system(cmnd)
 
 
+
+
+#Download data
+#Process
+#
+#Interpolate data
+#
+#Save weights and biases
+#Store features
+#
+#Generate features
+#Write features
+#
+#CAE
+#Per sector
+#
+#Cost Function
+#
+#Custom features
+#Per target
+#Per sector
+#
+#Lof hist
+#Top 100
+#Lof huprerparaneter
+#
+#
+#Supernova catalog
+#Flare catalog
+#
+#
+#Classify
+#Hupterpsrsnete
+
+
+
 def lear_usup():
     
     # classficiation using features
@@ -393,12 +430,13 @@ def retr_lcurense(gdat, ensetype):
     if ensetype == 'sect':
         gdat.numbsect = len(gdat.listisec)
         gdat.indxsect = np.arange(gdat.numbsect)
-        strgsecc = '%02d%d%d' % (gdat.listisec[o], gdat.listicam[o], gdat.listiccd[o])
-        print('Sector: %d' % gdat.listisec[o])
-        print('Camera: %d' % gdat.listicam[o])
-        print('CCD: %d' % gdat.listiccd[o])
-        print('strgsecc')
-        print(strgsecc)
+        for o in gdat.indxsect:
+            strgsecc = '%02d%d%d' % (gdat.listisec[o], gdat.listicam[o], gdat.listiccd[o])
+            print('Sector: %d' % gdat.listisec[o])
+            print('Camera: %d' % gdat.listicam[o])
+            print('CCD: %d' % gdat.listiccd[o])
+            print('strgsecc')
+            print(strgsecc)
 
         if gdat.datatype == 'obsd':
             print('Reading files...')
@@ -411,7 +449,8 @@ def retr_lcurense(gdat, ensetype):
             if numbfile == 0:
                 raise Exception('')
             liststrgfile = np.array(liststrgfile)
-    
+        
+
         numbchun = np.round(numbfile / 2000.).astype(int)
         numbfilechun = np.empty(numbchun, dtype=int)
         numbfilechun[:-1] = numbfile / numbchun
