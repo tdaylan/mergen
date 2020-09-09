@@ -1,3 +1,3 @@
-# CTLC
+# mergen
 
-CTLC is a unsupersived learning framework. It allows you to find novelties in and classify time-series data (e.g., light curves) in astrophysics.
+mergen is an unsupersived learning framework for anomaly detection in and classification of time-series data (e.g., light curves) in astrophysics.
