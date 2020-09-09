@@ -1348,7 +1348,7 @@ def featvec(x_axis, sampledata, ticid=None, v=0):
         index_of_max_power = np.argmax(powers)
         index_of_f_max = rel_maxes[0][index_of_max_power]
         f_max_power = f[index_of_f_max]
-        period_max_power = 2*np.pi / f_max_power
+        period_max_power = 2*np.pi / f_max_power #!!!re-evaluate this??
 
         featvec.append(max_power)
         featvec.append(np.log(np.abs(max_power)))
