@@ -1785,7 +1785,7 @@ def plot_paramscan_metrics(output_dir, parameter_sets, silhouette_scores, db_sco
     # Second, show the right spine.
     par2.spines["right"].set_visible(True)
     
-    host.scatter(x_axis, db_scores, c='red', label="DB Scores")
+    host.plot(x_axis, db_scores, c='red', label="DB Scores")
     host.grid(True)
     par1.scatter(x_axis, silhouette_scores, c = 'green', label="Silhouette Scores")
     par2.scatter(x_axis, ch_scores, c='blue', label="CH Scores")
