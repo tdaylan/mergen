@@ -62,13 +62,49 @@ class hyperleda_ffi(object):
     
     def __init__(self, datapath = "./", savepath = "./", ensemblename = "ensemble",
                  momentum_dump_csv = '/users/conta/urop/Table_of_momentum_dumps.csv',
-                 makefeats = True, plot = True, CAE = True):
+                 makefeats = True, plot = True, ENF = True, CAE = True):
         print("Initialized hyperleda ffi processing object")
         self.datapath = datapath
         self.savepath = savepath
         self.ensemblename = ensemblename
         self.momdumpcsv = momentum_dump_csv
         
+        print("Making all folders")
+        self.folder_initiate()
+            
+        print("Loading in data from LEDA light curve files in ", self.datapath)
+        self.load_lc_from_files()
+        
+        
+        if ENF: 
+            if makefeats:
+                print("Producing v0 features")
+                self.create_save_featvec(version=0, save=True)
+                
+                #print("Producing v1 features")
+                #self.create_save_featvec(version = 1, save=True)
+            
+            print("Opening all features together")
+            self.load_features()
+            
+            if plot: 
+                self.plot_everything(list(np.arange(0.5,10,0.5)), [3,5,10])
+            
+        if CAE:
+            print("CAE not set up yet")
+            self.path = self.CAEpath
+            
+            self.median_normalize()
+            self.cleanedflux, comp = self.pca_linregress()
+            target_info = np.zeros((len(self.cleanedflux), 5))
+            self.index_for_CAE()
+            self.representation_learning(target_info)
+        
+        return
+     
+        
+    def folder_initiate(self):
+        """Makes all the big folders"""
         self.ensemblefolder = self.savepath + self.ensemblename + "/"
         
         print("Setting Up Ensemble Folder")
@@ -78,11 +114,11 @@ class hyperleda_ffi(object):
             print ("Directory %s already exists" % self.ensemblefolder) 
             
         print("Setting up CAE folder")
-        self.caefolder = self.ensemblefolder + "CAE/"
+        self.CAEpath = self.ensemblefolder + "CAE/"
         try:
-            os.makedirs(self.caefolder)
+            os.makedirs(self.CAEpath)
         except OSError:
-            print ("Directory %s already exists" % self.caefolder)
+            print ("Directory %s already exists" % self.CAEpath)
             
         print("Setting up ENF folder")
         self.enffolder = self.ensemblefolder + "ENF/"
@@ -90,28 +126,8 @@ class hyperleda_ffi(object):
             os.makedirs(self.enffolder)
         except OSError:
             print ("Directory %s already exists" % self.enffolder)
-            
-            
-        print("Loading in data from LEDA light curve files in ", self.datapath)
-        self.load_lc_from_files()
-        
-        if makefeats:
-            print("Producing v0 features")
-            self.create_save_featvec(version=0, save=True)
-            
-            #print("Producing v1 features")
-            #self.create_save_featvec(version = 1, save=True)
-        
-        print("Opening all features together")
-        self.load_features()
-        
-        if plot: 
-            self.plot_everything(list(np.arange(0.5,10,0.5)), [3,5,10])
-            
-        if CAE:
-            print("CAE not set up yet")
-        
         return
+        
         
     def plot_everything(self, dbscan_eps, min_samples):
         self.path = self.enffolder
@@ -628,30 +644,198 @@ class hyperleda_ffi(object):
         return
         
     def index_for_CAE(self):
-        self.indexing = np.arange(0, len(self.cleanedflux), 1)
+        """ Current CAE setup does not allow for non-number inputs as TICIDs
+        Therefore we index all of the fluxes and save the associated names and 
+        the indexes into a text file for later reference"""
+        self.CAE_index = np.arange(0, len(self.cleanedflux), 1)
+        filepath = self.CAEpath + "/indexed_names.txt"
+        for n in range(len(self.CAE_index)):
+            with open(filepath, 'a') as f:
+                f.write('{} {} \n'.format(self.CAE_index[n], self.identifiers[n]))
         return
+    
+    
+    def representation_learning(self, target_info, p=None,
+                                validation_targets=[],
+                                norm_type='minmax_normalization',
+                                input_rms=False, input_psd=False, load_psd=False,
+                                train_test_ratio=0.9, split=False):
+        '''
+        Parameters you have to change:
+            * flux : np.array, with shape (num_samples, num_data_points)
+            * x : np.array, with shape (num_data_points)
+            * ticid : np.array, with shape (num_samples)
+            * target_info : np.array, with shape (num_samples, 5)
+            * dat_dir : Dropbox directory with all of our metafiles
+            * mom_dump : path to momentum dump csv file
+            * data_base_dir : Dropbox directory with all of the database .txt files
+            
+        Parameters to ignore:
+            * p : dictionary of parameters        
+            * validation_targets
+            * 
+        '''
+        
+        # >> use default parameter set if not given
+        if type(p) == type(None):
+            p = {'kernel_size': 3,
+                  'latent_dim': 35,
+                  'strides': 1,
+                  'epochs': 10,
+                  'dropout': 0.,
+                  'num_filters': 16,
+                  'num_conv_layers': 12,
+                  'batch_size': 64,
+                  'activation': 'elu',
+                  'optimizer': 'adam',
+                  'last_activation': 'linear',
+                  'losses': 'mean_squared_error',
+                  'lr': 0.0001,
+                  'initializer': 'random_normal',
+                  'num_consecutive': 2,
+                  'pool_size': 2, 
+                  'pool_strides': 2,
+                  'kernel_regularizer': None,
+                  'bias_regularizer': None,
+                  'activity_regularizer': None,
+                  'fully_conv': False,
+                  'encoder_decoder_skip': False,
+                  'encoder_skip': False,
+                  'decoder_skip': False,
+                  'full_feed_forward_highway': False,
+                  'cvae': False,
+                  'share_pool_inds': False,
+                  'batchnorm_before_act': False} 
+            
+        print('Preprocessing')
+        x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
+            target_info_test, rms_train, rms_test, x = \
+            ml.autoencoder_preprocessing(self.cleanedflux, self.CAE_index, self.timeaxis, target_info, p,
+                                         validation_targets=validation_targets,
+                                         norm_type=norm_type,
+                                         input_rms=input_rms, input_psd=input_psd,
+                                         load_psd=load_psd,
+                                         train_test_ratio=train_test_ratio,
+                                         split=split,
+                                         output_dir=self.CAEpath)       
+            
+        print('Training CAE')
+        history, model, x_predict = \
+            ml.conv_autoencoder(x_train, y_train, x_test, y_test, p,
+                                input_rms=input_rms, rms_train=rms_train, rms_test=rms_test,
+                                ticid_train=ticid_train, ticid_test=ticid_test,
+                                output_dir=self.CAEpath)
+            
+        print('Diagnostic plots')
+        pf.diagnostic_plots(history, model, p, self.CAEpath, x, x_train,
+                            x_test, x_predict, mock_data=False, addend=0.,
+                            target_info_test=target_info_test,
+                            target_info_train=target_info_train,
+                            ticid_train=ticid_train,
+                            ticid_test=ticid_test, percentage=False,
+                            input_features=False,
+                            input_rms=input_rms, rms_test=rms_test,
+                            input_psd=input_psd,
+                            rms_train=rms_train, n_tot=40,
+                            plot_epoch = False,
+                            plot_in_out = True,
+                            plot_in_bottle_out=False,
+                            plot_latent_test = True,
+                            plot_latent_train = True,
+                            plot_kernel=False,
+                            plot_intermed_act=True,
+                            make_movie = False,
+                            plot_lof_test=False,
+                            plot_lof_train=False,
+                            plot_lof_all=False,
+                            plot_reconstruction_error_test=False,
+                            plot_reconstruction_error_all=True,
+                            load_bottleneck=True)            
+    
+        features, flux_feat, ticid_feat, info_feat = \
+            ml.bottleneck_preprocessing(None,
+                                        np.concatenate([x_train, x_test], axis=0),
+                                        np.concatenate([ticid_train, ticid_test]),
+                                        np.concatenate([target_info_train,
+                                                        target_info_test]),
+                                        data_dir=None,
+                                        output_dir=self.CAEpath,
+                                        use_learned_features=True,
+                                        use_tess_features=False,
+                                        use_engineered_features=False,
+                                        use_tls_features=False)         
+        print("Novelty detection")
+        self.features = features
+        self.plot_lof(20, n_neighbors=20, n_tot=100)
+        
+        
+        print('DBSCAN parameter search')
+        parameter_sets, num_classes, silhouettes, d_b, ch, acc = \
+            self.dbscan_param_search(eps=list(np.arange(0.5,10,0.2)),
+                            min_samples=[3,5,10],
+                            metric=['minkowski'],
+                            algorithm = ['auto'],
+                            leaf_size = [40],
+                            p = [2], plotting=True, appendix = "bigscan",
+                            database_dir=None, pca=True, tsne=True,
+                            confusion_matrix=False)
+        
+        best_ind_s = np.argmax(silhouettes)
+        best_ind_ch = np.argmax(ch)
+        best_ind_db = np.argmin(d_b)
+        
+        best_param_set = parameter_sets[best_ind_s] 
+        print("Best parameter set is {}".format(best_param_set))
+        print("Running DBSCAN with just this parameter set")
+        
+        parameter_sets, num_classes, silhouettes, d_b, ch, acc = \
+            self.dbscan_param_search(eps=[best_param_set[0]],
+                            min_samples=[best_param_set[1]],
+                            metric=[best_param_set[2]],
+                            algorithm = [best_param_set[3]],
+                            leaf_size = [best_param_set[4]],
+                            p = [best_param_set[5]], plotting=True, appendix="best-silhouette-params",
+                            database_dir=None, pca=True, tsne=True,
+                            confusion_matrix=False)  
+            
+        if best_ind_s != best_ind_ch:
+            best_param_set = parameter_sets[best_ind_ch] 
+            print("Best parameter set is {}".format(best_param_set))
+            print("Running DBSCAN with just this parameter set")
+            
+            parameter_sets, num_classes, silhouettes, d_b, ch, acc = \
+                self.dbscan_param_search(eps=[best_param_set[0]],
+                                min_samples=[best_param_set[1]],
+                                metric=[best_param_set[2]],
+                                algorithm = [best_param_set[3]],
+                                leaf_size = [best_param_set[4]],
+                                p = [best_param_set[5]], plotting=True, appendix="best-CH-params",
+                                database_dir=None, pca=True, tsne=True,
+                                confusion_matrix=False)
+        if best_ind_s != best_ind_db and best_ind_ch != best_ind_db:
+            best_param_set = parameter_sets[best_ind_db] 
+            print("Best parameter set is {}".format(best_param_set))
+            print("Running DBSCAN with just this parameter set")
+            
+            parameter_sets, num_classes, silhouettes, d_b, ch, acc = \
+                self.dbscan_param_search(eps=[best_param_set[0]],
+                                min_samples=[best_param_set[1]],
+                                metric=[best_param_set[2]],
+                                algorithm = [best_param_set[3]],
+                                leaf_size = [best_param_set[4]],
+                                p = [best_param_set[5]], plotting=True, appendix="best-DB-params",
+                                database_dir=None, pca=True, tsne=True,
+                                confusion_matrix=False)
+        
+        print("CAE completed")
+        return
+    
     
     def features_plotting(self, clustering = 'dbscan', eps=3, min_samples=10,
                              metric='minkowski', algorithm='auto', leaf_size=30,
                              p=2, kmeans_clusters=10):
         """plotting (n 2) features against each other
-        parameters: 
-            * feature_vectors - array of feature vectors
-            * path to where you want everythigns aved - ends in a backslash
-            * clustering - what you want to cluster as. options are 'dbscan', 'kmeans', or 
-            any other keyword which will do no clustering
-            * time axis
-            * intensities
-            *target ticids
-            * folder suffix
-            *feature_engineering - default is true
-            * version - what version of engineered features, irrelevant integer if feature_engienering is false
-            * eps, min_samples, metric, algorithm, leaf_size, p - dbscan parameters, comes with defaults
-            *momentum dumps - not sure entirely why it's needed here tbh
-            
-        returns: only returns labels for dbscan/kmeans clustering. otherwise the only
-        output is the files saved into the folder as given thru path
-        
+
         modified [lcg 09152020 - adapted to hyperleda]
         ** TO DO: make file and graph labels a property of self when you set the version
         """
