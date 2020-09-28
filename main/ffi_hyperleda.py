@@ -68,6 +68,7 @@ class hyperleda_ffi(object):
         self.savepath = savepath
         self.ensemblename = ensemblename
         self.momdumpcsv = momentum_dump_csv
+        self.makefeats = makefeats
         
         print("Making all folders")
         self.folder_initiate()
@@ -77,7 +78,7 @@ class hyperleda_ffi(object):
         
         
         if ENF: 
-            if makefeats:
+            if self.makefeats:
                 print("Producing v0 features")
                 self.create_save_featvec(version=0, save=True)
                 
@@ -88,14 +89,15 @@ class hyperleda_ffi(object):
             self.load_features()
             
             if plot: 
+                self.path = self.enffolder
                 self.plot_everything(list(np.arange(0.5,10,0.5)), [3,5,10])
             
         if CAE:
             print("CAE not set up yet")
             self.path = self.CAEpath
-            
-            self.median_normalize()
-            self.cleanedflux, comp = self.pca_linregress()
+            if not ENF:
+                self.median_normalize()
+                self.cleanedflux, comp = self.pca_linregress()
             target_info = np.zeros((len(self.cleanedflux), 5))
             self.index_for_CAE()
             self.representation_learning(target_info)
@@ -131,14 +133,16 @@ class hyperleda_ffi(object):
         
     def plot_everything(self, dbscan_eps, min_samples):
         self.path = self.enffolder
-        self.median_normalize()
-        self.cleanedflux, comp =self.pca_linregress()
+        if not self.makefeats: #means that cleaning has not happened yet
+            print("Cleaning data")
+            self.median_normalize()
+            self.cleanedflux, comp =self.pca_linregress()
         print("Removing and plotting outliers in the feature space")
         self.isolate_outlier_features(sigma = 10)
         print("Plotting LOF")
-        self.plot_lof(20)
+        #self.plot_lof(20)
         print("Plotting marginal distributions, no clustering")
-        self.features_plotting(clustering = 'nocluster')
+        #self.features_plotting(clustering = 'nocluster')
         #print("plotting marginal distributions, kmeans clustering")
         #self.features_plotting(clustering = 'kmeans',kmeans_clusters=10)
         
@@ -163,7 +167,7 @@ class hyperleda_ffi(object):
                             metric=[best_param_set[2]],
                             algorithm = [best_param_set[3]],
                             leaf_size = [best_param_set[4]],
-                            p = [best_param_set[5]], plotting=True, appendix="singleset",
+                            p = [best_param_set[5]], plotting=True, appendix="best-params",
                             database_dir=None, pca=True, tsne=True,
                             confusion_matrix=False)   
         
@@ -191,6 +195,7 @@ class hyperleda_ffi(object):
         output: 
             * plots the KNN curves into the path
         modified [lcg 08312020 - ffi version]"""
+        self.path = self.enffolder
         self.knnpath = self.path + "knn_plots/"
         
         try:
@@ -221,15 +226,19 @@ class hyperleda_ffi(object):
     def load_lc_from_files(self):
 
         #make sure they're all txt files
-        for filename in os.listdir(self.datapath):
-            file = os.path.join(self.datapath, filename)
-            if filename.startswith("lc_") and not filename.endswith(".txt"):
-                os.rename(file, file + ".txt")
+        for root, dirs, files in os.walk(self.datapath):
+            for filename in files:
+                file = os.path.join(root, filename)
+                if filename.startswith("lc_") and not filename.endswith(".txt"):
+                    os.rename(file, file + ".txt")
+                        
+            
         
         #get all file names
         intensities = []
         identifiers = []
         
+        #open all files
         for root, dirs, files in os.walk(self.datapath):
             
             for n in range(len(files)):
@@ -279,9 +288,9 @@ class hyperleda_ffi(object):
         return
     
     def pca_linregress(self, plot=False):
-        print("Beginning PCA Linear Regression Corrections for 2 components")
+        print("Beginning PCA Linear Regression Corrections for 3 components")
         from sklearn.linear_model import LinearRegression
-        pca = PCA(n_components=2)
+        pca = PCA(n_components=3)
     
         standardized_flux = df.standardize(self.cleanedflux)
         
@@ -301,7 +310,7 @@ class hyperleda_ffi(object):
         for n in range(len(self.cleanedflux)):
             reg = LinearRegression().fit(components.T, standardized_flux[n])
             
-            y = reg.coef_[0] * components[0] + reg.coef_[1] * components[1]
+            y = reg.coef_[0] * components[0] + reg.coef_[1] * components[1] + reg.coef_[2] * components[2]
             residual = standardized_flux[n] - y
             residuals[n] = residual
             if plot:
@@ -771,12 +780,12 @@ class hyperleda_ffi(object):
         
         print('DBSCAN parameter search')
         parameter_sets, num_classes, silhouettes, d_b, ch, acc = \
-            self.dbscan_param_search(eps=list(np.arange(0.5,10,0.2)),
+            self.dbscan_param_search(eps=list(np.arange(0.5,5,0.2)),
                             min_samples=[3,5,10],
                             metric=['minkowski'],
                             algorithm = ['auto'],
                             leaf_size = [40],
-                            p = [2], plotting=True, appendix = "bigscan",
+                            p = [2], plotting=True, appendix = "big-scan-cae",
                             database_dir=None, pca=True, tsne=True,
                             confusion_matrix=False)
         
@@ -794,7 +803,7 @@ class hyperleda_ffi(object):
                             metric=[best_param_set[2]],
                             algorithm = [best_param_set[3]],
                             leaf_size = [best_param_set[4]],
-                            p = [best_param_set[5]], plotting=True, appendix="best-silhouette-params",
+                            p = [best_param_set[5]], plotting=True, appendix="best-silhouette-params-cae",
                             database_dir=None, pca=True, tsne=True,
                             confusion_matrix=False)  
             
@@ -809,7 +818,7 @@ class hyperleda_ffi(object):
                                 metric=[best_param_set[2]],
                                 algorithm = [best_param_set[3]],
                                 leaf_size = [best_param_set[4]],
-                                p = [best_param_set[5]], plotting=True, appendix="best-CH-params",
+                                p = [best_param_set[5]], plotting=True, appendix="best-CH-params-cae",
                                 database_dir=None, pca=True, tsne=True,
                                 confusion_matrix=False)
         if best_ind_s != best_ind_db and best_ind_ch != best_ind_db:
@@ -823,7 +832,7 @@ class hyperleda_ffi(object):
                                 metric=[best_param_set[2]],
                                 algorithm = [best_param_set[3]],
                                 leaf_size = [best_param_set[4]],
-                                p = [best_param_set[5]], plotting=True, appendix="best-DB-params",
+                                p = [best_param_set[5]], plotting=True, appendix="best-DB-params-cae",
                                 database_dir=None, pca=True, tsne=True,
                                 confusion_matrix=False)
         
@@ -913,7 +922,7 @@ class hyperleda_ffi(object):
                     plt.xlabel(graph_label1)
                     plt.ylabel(graph_label2)
                     plt.savefig((folder_path + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
-                    plt.show()
+                    #plt.show()
                     plt.close()
                      
                 elif clustering == 'kmeans':
@@ -924,14 +933,14 @@ class hyperleda_ffi(object):
                     plt.xlabel(graph_label1)
                     plt.ylabel(graph_label2)
                     plt.savefig(folder_path + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
-                    plt.show()
+                    #plt.show()
                     plt.close()
                 else:
                     plt.scatter(feat1, feat2, s = 2, color = 'black')
                     plt.xlabel(graph_label1)
                     plt.ylabel(graph_label2)
                     plt.savefig(folder_path + fname_label1 + "-vs-" + fname_label2 + ".png")
-                    plt.show()
+                    #plt.show()
                     plt.close()
                     
         if clustering == 'dbscan':
@@ -1023,7 +1032,7 @@ class hyperleda_ffi(object):
         
         
         
-        self.dbpath = self.enffolder + "dbscan-paramscan{}/".format(appendix)
+        self.dbpath = self.path + "dbscan-paramscan{}/".format(appendix)
         
         try:
             os.makedirs(self.dbpath)
