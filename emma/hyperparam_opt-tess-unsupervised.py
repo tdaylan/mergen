@@ -3,7 +3,7 @@
 # 2020-07-14 - hyperparam_opt-tess-unsupervised.py
 # Runs a convolutional autoencoder on TESS data. Run with:
 # 1. First download data folders from Dropbox (named Sector*Cam*CCD*/) for all
-#    groups you want to run on. Move data folders to dat_dir
+#    groups you want to run on. Move data folders to data_dir
 # 2. Download Table_of_momentum_dumps.csv, and change path in mom_dump
 # 3. Run this script in the command line with 
 #    $ python hyperparam_opt-tess-unsupervised.py
@@ -12,19 +12,21 @@
 # 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-# dat_dir = '../../' # >> directory with input data (ending with /)
-dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/CAE-SegNet/' # >> directory to save diagnostic plots
+# data_dir = '../../' # >> directory with input data (ending with /)
+data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
+output_dir = '../../plots/CAE-Sector2_3/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
                      # >> and plotting_functions.py
 # database_dir = '../../databases/' # >> directory containing text files for
                                   # >> cross-checking classifications
-database_dir = output_dir + 'all_simbad_classifications.txt'
+single_file = False
+database_dir= '/Users/studentadmin/Dropbox/TESS_UROP/data/databases/'
+# database_dir = output_dir + 'all_simbad_classifications.txt'
 simbad_database_dir = ''
 # >> input data
-sectors = [20]
+sectors = [2,3]
 cams = [1,2,3,4]
 # cams = [1]
 ccds =  [1,2,3,4]
@@ -33,7 +35,6 @@ ccds =  [1,2,3,4]
 # weights init
 # model_init = output_dir + 'model'
 model_init = None
-
 
 # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
 train_test_ratio = 0.9
@@ -44,22 +45,27 @@ run_model = True # >> train autoencoder on a parameter set p
 diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 
+novelty_detection=True
 classification_param_search=False
-classification=False # >> runs DBSCAN on learned features
+classification=True # >> runs DBSCAN on learned features
 
 # >> normalization options:
 #    * standardization : sets mean to 0. and standard deviation to 1.
 #    * median_normalization : divides by median
 #    * minmax_normalization : sets range of values from 0. to 1.
 #    * none : no normalization
-norm_type = 'minmax_normalization'
+norm_type = 'standardization'
 
-input_rms=True # >> concatenate RMS to learned features
+input_rms=True# >> concatenate RMS to learned features
 input_psd=False # >> also train on PSD
+n_pgram = 1500
+
 load_psd=False # >> if psd_train.fits, psd_test.fits already exists
-use_tess_features = False
+use_tess_features = True
+use_tls_features = False
 input_features=False # >> this option cannot be used yet
 split_at_orbit_gap=False
+DAE = False
 
 # >> move targets out of training set and into testing set (integer)
 # !! TODO: print failure if target not in sector
@@ -67,9 +73,13 @@ split_at_orbit_gap=False
 validation_targets = []
 
 if sectors[0] == 1:
-    custom_mask = list(range(15800, 17400))
+    custom_mask = list(range(800)) + list(range(15800, 17400)) + list(range(19576, 20075))
+elif 4 in sectors:
+    custom_mask = list(range(7424, 9078))
 else:
     custom_mask = []
+
+custom_masks = [list(range(500)) + list(range(15800, 17400)), []]
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -121,10 +131,10 @@ else:
     p = {'kernel_size': 3,
           'latent_dim': 35,
           'strides': 1,
-          'epochs': 5,
-          'dropout': 0.,
-          'num_filters': [64, 128, 256, 512, 512],
-          'num_conv_layers': 10,
+          'epochs': 15,
+          'dropout': 0.2,
+          'num_filters': 16,
+          'num_conv_layers': 6,
           'batch_size': 64,
           'activation': 'elu',
           'optimizer': 'adam',
@@ -132,9 +142,10 @@ else:
           'losses': 'mean_squared_error',
           'lr': 0.0001,
           'initializer': 'random_normal',
-          'num_consecutive': [2, 2, 3, 3, 3],
-          'pool_size': 2, 
+          'num_consecutive': 3,
+          'pool_size': 4, 
           'pool_strides': 2,
+          'units': [1024, 512, 64, 16],
           'kernel_regularizer': None,
           'bias_regularizer': None,
           'activity_regularizer': None,
@@ -145,7 +156,8 @@ else:
           'full_feed_forward_highway': False,
           'cvae': False,
           'share_pool_inds': False,
-          'batchnorm_before_act': True}      
+          'batchnorm_before_act': True,
+          'concat_ext_feats': False}      
     
 # -- create output directory --------------------------------------------------
     
@@ -153,15 +165,26 @@ if os.path.isdir(output_dir) == False: # >> check if dir already exists
     os.mkdir(output_dir)
     
 # -- load data ----------------------------------------------------------------
-    
-# >> currently only handles one sector
-flux, x, ticid, target_info = \
-    df.load_data_from_metafiles(dat_dir, sectors[0], cams=cams, ccds=ccds,
-                                DEBUG=True,
-                                output_dir=output_dir, nan_mask_check=True,
-                                custom_mask=custom_mask)
+
+
+if len(sectors) > 1:
+    # flux, x, ticid, target_info = df.combine_sectors(sectors, data_dir,
+    #                                                  custom_masks=custom_masks)
+    flux, x, ticid, target_info = df.combine_sectors_by_lc(sectors, data_dir,
+                                                           custom_mask=custom_mask,
+                                                           output_dir=output_dir)
+else:
+    # >> currently only handles one sector
+    flux, x, ticid, target_info = \
+        df.load_data_from_metafiles(data_dir, sectors[0], cams=cams, ccds=ccds,
+                                    DEBUG=True,
+                                    output_dir=output_dir, nan_mask_check=True,
+                                    custom_mask=custom_mask)
     
 
+
+# df.representation_learning(flux, x, ticid, target_info, output_dir=output_dir,
+#                            p=p)
 
 # !! tmp
 # # >> train and test on high frequency only
@@ -194,17 +217,24 @@ flux, x, ticid, target_info = \
 
 x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
     target_info_test, rms_train, rms_test, x = \
-    ml.autoencoder_preprocessing(flux, ticid, x, target_info, p,
+    ml.autoencoder_preprocessing(flux, x, p, ticid, target_info,
+                                 mock_data=False,
+                                 sector=sectors[0],
                                  validation_targets=validation_targets,
                                  norm_type=norm_type,
                                  input_rms=input_rms, input_psd=input_psd,
-                                 load_psd=load_psd,
+                                 load_psd=load_psd, n_pgram=n_pgram,
                                  train_test_ratio=train_test_ratio,
                                  split=split_at_orbit_gap,
-                                 output_dir=output_dir)
+                                 output_dir=output_dir, 
+                                 data_dir=data_dir,
+                                 use_tess_features=use_tess_features,
+                                 use_tls_features=use_tls_features)
+    
+if input_psd:
+    p['concat_ext_feats'] = True
 
 title='TESS-unsupervised'
-
 
 # == talos experiment =========================================================
 if hyperparameter_optimization:
@@ -227,173 +257,197 @@ if hyperparameter_optimization:
 # == run model ================================================================
 if run_model:
     print('Training autoencoder...') 
-    history, model = ml.conv_autoencoder(x_train, x_train, x_test, x_test, p,
-                                         val=False, split=split_at_orbit_gap,
-                                         input_psd=input_psd, model_init=model_init,
+    history, model, x_predict = \
+        ml.conv_autoencoder(x_train, x_train, x_test, x_test, p, val=False, split=split_at_orbit_gap,
                                          save_model=True, predict=True,
-                                         save_bottleneck=True, output_dir=output_dir)
-    
-    x_predict = model.predict(x_test)
-    
-    
-    bottleneck_train = ml.get_bottleneck(model, x_train, p, input_rms=input_rms,
-                                         rms=rms_train)
-    
-    # >> save bottleneck_test, bottleneck_train
-    bottleneck = ml.get_bottleneck(model, x_test, p, input_rms=input_rms,
-                                   rms=rms_test)    
-    hdr = fits.Header()
-    hdu = fits.PrimaryHDU(bottleneck, header=hdr)
-    hdu.writeto(output_dir + 'bottleneck_test.fits')    
-    fits.append(output_dir + 'bottleneck_test.fits', ticid_test)    
-    
-    hdr = fits.Header()
-    hdu = fits.PrimaryHDU(bottleneck_train, header=hdr)
-    hdu.writeto(output_dir + 'bottleneck_train.fits')    
-    fits.append(output_dir + 'bottleneck_train.fits', ticid_train)    
-    
-
+                                         save_bottleneck=True,
+                                         output_dir=output_dir,
+                                         model_init=model_init) 
     
     if split_at_orbit_gap:
         x_train = np.concatenate(x_train, axis=1)
         x_test = np.concatenate(x_test, axis=1)
         x_predict = np.concatenate(x_predict, axis=1)
     
-    ml.param_summary(history, x_test, x_predict, p, output_dir, 0,
-                     title)
-    ml.model_summary_txt(output_dir, model)
-    
-    # >> only plot epoch
-    pf.epoch_plots(history, p, output_dir+'epoch-', supervised=False,
-                   input_psd=input_psd)
-    
-    # >> save x_predict
-    hdr = fits.Header()
-    hdu = fits.PrimaryHDU(x_predict, header=hdr)
-    hdu.writeto(output_dir + 'x_predict.fits')
-    fits.append(output_dir + 'x_predict.fits', ticid_test)    
-    
-    # >> saev weights
-    model.save(output_dir + 'model')
-
 # == Plots ====================================================================
 if diag_plots:
     print('Creating plots...')
-    if split_at_orbit_gap or input_psd or not run_model:
-
-        history = []
-            
-        with fits.open(output_dir + 'x_predict.fits') as hdul:
-            x_predict = hdul[0].data
-            
-        import keras
-        import tensorflow as tf
-        model = keras.models.load_model(output_dir+'model', custom_objects={'tf': tf}) 
-        
-        # !! re-arrange x_predict
-        
-        pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
-                            x_test, x_predict, mock_data=False,
-                            target_info_test=target_info_test,
-                            target_info_train=target_info_train,
-                            ticid_train=ticid_train, ticid_test=ticid_test,
-                            rms_test=rms_test, rms_train=rms_train,
-                            input_features=input_features, n_tot=40,
-                            input_rms=input_rms, input_psd=input_psd,
-                            percentage=False,
-                            plot_epoch = False,
-                            plot_in_out = True,
-                            plot_in_bottle_out=False,
-                            plot_latent_test = True,
-                            plot_latent_train = True,
-                            plot_kernel=False,
-                            plot_intermed_act=False,
-                            make_movie = False,
-                            plot_lof_test=True,
-                            plot_lof_train=True,
-                            plot_lof_all=True,
-                            plot_reconstruction_error_test=False,
-                            plot_reconstruction_error_all=True,
-                            load_bottleneck=True)
-    else: 
-        pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
-                            x_test, x_predict, mock_data=False, addend=0.,
-                            target_info_test=target_info_test,
-                            target_info_train=target_info_train,
-                            ticid_train=ticid_train,
-                            ticid_test=ticid_test, percentage=False,
-                            input_features=input_features,
-                            input_rms=input_rms, rms_test=rms_test,
-                            input_psd=input_psd,
-                            rms_train=rms_train, n_tot=40,
-                            plot_epoch = False,
-                            plot_in_out = True,
-                            plot_in_bottle_out=False,
-                            plot_latent_test = True,
-                            plot_latent_train = True,
-                            plot_kernel=False,
-                            plot_intermed_act=True,
-                            make_movie = False,
-                            plot_lof_test=False,
-                            plot_lof_train=False,
-                            plot_lof_all=False,
-                            plot_reconstruction_error_test=False,
-                            plot_reconstruction_error_all=True,
-                            load_bottleneck=True)                            
-
-
-
-
-
-if classification:
+    pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
+                        x_test, x_predict, mock_data=False,
+                        addend=0.,
+                        target_info_test=target_info_test,
+                        target_info_train=target_info_train,
+                        ticid_train=ticid_train,
+                        ticid_test=ticid_test, percentage=False,
+                        input_features=input_features,
+                        input_rms=input_rms, rms_test=rms_test,
+                        input_psd=input_psd,
+                        rms_train=rms_train, n_tot=40,
+                        plot_epoch = True,
+                        plot_in_out = True,
+                        plot_in_bottle_out=False,
+                        plot_latent_test = True,
+                        plot_latent_train = True,
+                        plot_kernel=False,
+                        plot_intermed_act=False,
+                        make_movie = False,
+                        plot_lof_test=False,
+                        plot_lof_train=False,
+                        plot_lof_all=False,
+                        plot_reconstruction_error_test=True,
+                        plot_reconstruction_error_all=False,
+                        load_bottleneck=True)          
     
-    for i in range(4):
-        if i == 0:
-            use_tess_features=False
-            use_tls_features=False
-            description='_0_learned'
-        elif i == 1:
-            use_tess_features=False
-            use_tls_features=False
-            description='_1_learned_RMS'
-        elif i == 2:
-            use_tess_features=True
-            use_tls_features=False
-            description='_2_learned_RMS_tls'
-        else:
-            use_tess_features=False
-            use_tls_features=True
-            cams=[1] # !!
-            description='_3_learned_RMS'
+ 
+if input_psd:
+    x = x[0]            
+for i in [0,1,2]:
+    if i == 0:
+        use_learned_features=True
+        use_tess_features=False
+        use_tls_features=False
+        use_engineered_features=False
+        use_rms=False
+        description='_0_learned'
+        DAE=False
+    elif i == 1:
+        use_learned_features=False
+        use_tess_features=True
+        use_tls_features=False
+        use_engineered_features=False        
+        use_rms=False
+        description='_1_ext'
+        DAE_hyperparam_opt=True
+        DAE=True
+        p_DAE = {'max_dim': [9, 11, 13, 15, 17, 19], 'step': [1,2,3,4,5,6],
+                  'latent_dim': [3,4,5],
+                  'activation': ['relu', 'elu'],
+                'last_activation': ['relu', 'elu'],
+                  'optimizer': ['adam'],
+                  'lr':[0.001, 0.005, 0.01], 'epochs': [20],
+                  'losses': ['mean_squared_error'],
+                  'batch_size':[128],
+                  'initializer': ['glorot_normal', 'glorot_uniform'],
+                  'fully_conv': [False]}             
+    elif i == 2:
+        use_learned_features=True
+        use_tess_features=True
+        use_tls_features=False
+        use_engineered_features=False        
+        use_rms=True
+        description='_2_learned_RMS_ext'        
+        DAE_hyperparam_opt=True
+        DAE=True
+        p_DAE = {'max_dim': list(np.arange(40, 70, 5)), 'step': [1,2,3,4,5,6],
+                  'latent_dim': list(np.arange(12, 50, 5)),
+                  'activation': ['relu', 'elu'],
+                'last_activation': ['relu', 'elu'],
+                  'optimizer': ['adam'],
+                  'lr':[0.001, 0.005, 0.01], 'epochs': [20],
+                  'losses': ['mean_squared_error'],
+                  'batch_size':[128],
+                  'initializer': ['glorot_normal', 'glorot_uniform'],
+                  'fully_conv': [False]}                
         
-        print('Creating feature space')
+    print('Creating feature space')
+    
+    if p['concat_ext_feats'] or input_psd:
+        features, flux_feat, ticid_feat, info_feat = \
+            ml.bottleneck_preprocessing(sectors[0],
+                                        np.concatenate([x_train[0], x_test[0]], axis=0),
+                                        np.concatenate([ticid_train, ticid_test]),
+                                        np.concatenate([target_info_train,
+                                                        target_info_test]),
+                                        rms=np.concatenate([rms_train, rms_test]),
+                                        data_dir=data_dir, bottleneck_dir=output_dir,
+                                        output_dir=output_dir,
+                                        use_learned_features=use_learned_features,
+                                        use_tess_features=use_tess_features,
+                                        use_engineered_features=use_engineered_features,
+                                        use_tls_features=use_tls_features,
+                                        use_rms=use_rms, norm=True,
+                                        cams=cams, ccds=ccds, log=True)    
+    else:
         features, flux_feat, ticid_feat, info_feat = \
             ml.bottleneck_preprocessing(sectors[0],
                                         np.concatenate([x_train, x_test], axis=0),
                                         np.concatenate([ticid_train, ticid_test]),
                                         np.concatenate([target_info_train,
                                                         target_info_test]),
-                                        data_dir=dat_dir,
+                                        rms=np.concatenate([rms_train, rms_test]),
+                                        data_dir=data_dir,
                                         output_dir=output_dir,
                                         use_learned_features=True,
                                         use_tess_features=use_tess_features,
                                         use_engineered_features=False,
                                         use_tls_features=use_tls_features,
-                                        cams=cams, ccds=ccds)
+                                        use_rms=True, norm=True,
+                                        cams=cams, ccds=ccds, log=True)  
             
-        if i == 0:
-            # >> test without RMS
-            features = features[:,:p['latent_dim']]
+    print('Plotting feature space')
+    pf.latent_space_plot(features, output_dir + 'feature_space.png')    
+    
+    if DAE:
+        if DAE_hyperparam_opt:
+
+      
+            t = talos.Scan(x=features,
+                            y=features,
+                            params=p_DAE,
+                            model=ml.simple_autoencoder,
+                            experiment_name='DAE', 
+                            reduction_metric = 'val_loss',
+                            minimize_loss=True,
+                            reduction_method='correlation',
+                            fraction_limit = 0.1)            
+            analyze_object = talos.Analyze(t)
+            data_frame, best_param_ind,p_best = pf.hyperparam_opt_diagnosis(analyze_object,
+                                                                output_dir,
+                                                                supervised=False) 
+            p_DAE=p_best
+            p_DAE['epochs'] = 100
+            
+        else:
+                
+            p_DAE = {'max_dim': 50, 'step': 4, 'latent_dim': 42,
+                     'activation': 'elu', 'last_activation': 'elu',
+                     'optimizer': 'adam',
+                     'lr':0.001, 'epochs': 100, 'losses': 'mean_squared_error',
+                     'batch_size': 128, 'initializer': 'glorot_uniform',
+                     'fully_conv': False}    
+            
+            # p_DAE = {'max_dim': 9, 'step': 5, 'latent_dim': 4,
+            #          'activation': 'elu', 'last_activation': 'elu',
+            #          'optimizer': 'adam',
+            #          'lr':0.01, 'epochs': 100, 'losses': 'mean_squared_error',
+            #          'batch_size': 128, 'initializer': 'glorot_normal',
+            #          'fully_conv': False}               
+            
+        history_DAE, model_DAE = ml.simple_autoencoder(features, features,
+                                                       features, features,
+                                                       p_DAE, resize=False,
+                                                       batch_norm=True)
+        new_features = ml.get_bottleneck(model_DAE, features, p_DAE, DAE=True)
+        features=new_features
+        
+        pf.epoch_plots(history_DAE, p_DAE, output_dir)
         
         print('Plotting feature space')
         pf.latent_space_plot(features, output_dir + 'feature_space' + \
-                             description+'.png')
+                             ''+'_DAE.png')        
+
         
+    
+
+    if novelty_detection:
         print('Novelty detection')
         pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
                     n_tot=40, target_info=info_feat, prefix=str(i),
-                    cross_check_txt=database_dir, debug=True, addend=0.)
+                    cross_check_txt=database_dir, debug=True, addend=0.,
+                    single_file=single_file, log=True, n_pgram=n_pgram,
+                    plot_psd=True)
 
+    if classification:
         if classification_param_search:
             df.KNN_plotting(output_dir +'str(i)-', features, [10, 20, 100])
     
@@ -401,7 +455,7 @@ if classification:
             parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
             df.dbscan_param_search(features, x, flux_feat, ticid_feat,
                                     info_feat, DEBUG=False, 
-                                    output_dir=output_dir, 
+                                    output_dir=output_dir+str(i), 
                                     simbad_database_txt=simbad_database_dir,
                                     leaf_size=[30], algorithm=['auto'],
                                     min_samples=[5],
@@ -417,36 +471,30 @@ if classification:
             
         else:
             best_param_set=[2.0, 3, 'minkowski', 'auto', 30, 4]    
-        
-        parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
-        df.dbscan_param_search(features, x, flux_feat, ticid_feat,
-                                info_feat, DEBUG=True, 
-                                output_dir=output_dir+str(i), single_file=True,
-                                simbad_database_txt=simbad_database_dir,
-                                leaf_size=[best_param_set[4]],
-                                algorithm=[best_param_set[3]],
-                                min_samples=[best_param_set[1]],
-                                metric=[best_param_set[2]], p=[best_param_set[5]],
-                                database_dir=database_dir,
-                                eps=[best_param_set[0]])      
+      
     
         
         if classification_param_search:
             print('HDBSCAN parameter search')
             acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
                                           info_feat, output_dir=output_dir,
-                                          p0=[3,4], single_file=True,
-                                          database_dir=database_dir, metric=['all'])
+                                          p0=[3,4], single_file=single_file,
+                                          database_dir=database_dir, metric=['all'],
+                                          min_samples=[3], min_cluster_size=[3],
+                                          data_dir=data_dir)
         else:
-            best_param_set = [5, 5, 'manhattan', None]
-            print('HDBSCAN parameter search')
-            acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
+            # best_param_set = [3, 3, 'manhattan', None]
+            best_param_set = [3, 3, 'canberra', None]
+            print('Run HDBSCAN')
+            _, _, acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
                                           info_feat, output_dir=output_dir,
-                                          p0=[best_param_set[3]], single_file=True,
+                                          p0=[best_param_set[3]], single_file=single_file,
                                           database_dir=database_dir,
                                           metric=[best_param_set[2]],
                                           min_cluster_size=[best_param_set[0]],
-                                          min_samples=[best_param_set[1]])            
+                                          min_samples=[best_param_set[1]],
+                                          DEBUG=True, pca=True, tsne=True,
+                                          data_dir=data_dir, save=True)  
         
         with open(output_dir + 'param_summary.txt', 'a') as f:
             f.write('accuracy: ' + str(np.max(acc)))    
@@ -565,7 +613,7 @@ if classification:
     
     
 # if input_rms:
-#     rms = np.loadtxt(dat_dir + fname_rms[i])
+#     rms = np.loadtxt(data_dir + fname_rms[i])
 #     rms_list.append(rms)
     
     
@@ -591,9 +639,9 @@ if classification:
 # # fname_ticid=['Sector20Cam1CCD1-ticid.txt']
 # # fname_rms=['Sector20Cam1CCD1-rms.txt']
     
-# x     = np.loadtxt(dat_dir+fname_time[i])
-# flux  = np.loadtxt(dat_dir+fname_flux[i], delimiter=',')
-# ticid = np.loadtxt(dat_dir+fname_ticid[i])
+# x     = np.loadtxt(data_dir+fname_time[i])
+# flux  = np.loadtxt(data_dir+fname_flux[i], delimiter=',')
+# ticid = np.loadtxt(data_dir+fname_ticid[i])
 
 
     # !!
@@ -744,7 +792,7 @@ if classification:
 # target_info = np.empty((0, 3))
 # for i in range(len(fnames)):
 #     print('Loading ' + fnames[i] + '...')
-#     with fits.open(dat_dir + fnames[i]) as hdul:
+#     with fits.open(data_dir + fnames[i]) as hdul:
 #         x = hdul[0].data
 #         flux = hdul[1].data
 #         ticid_list = hdul[2].data
@@ -871,4 +919,137 @@ if classification:
           #                        tf.keras.regularizers.l1_l2(l1=0.01, l2=0.),
           #                        tf.keras.regularizers.l1_l2(l1=0.001, l2=0.),
           #                        tf.keras.regularizers.l1_l2(l1=0.1, l2=0.),
-          #                        None],            
+          #                        None],       
+            
+    # if split_at_orbit_gap or input_psd or not run_model:
+
+    #     history = []
+            
+    #     with fits.open(output_dir + 'x_predict.fits') as hdul:
+    #         x_predict = hdul[0].data
+            
+    #     import keras
+    #     import tensorflow as tf
+    #     model = keras.models.load_model(output_dir+'model', custom_objects={'tf': tf}) 
+        
+    #     # !! re-arrange x_predict
+        
+    #     pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
+    #                         x_test, x_predict, mock_data=False,
+    #                         target_info_test=target_info_test,
+    #                         target_info_train=target_info_train,
+    #                         ticid_train=ticid_train, ticid_test=ticid_test,
+    #                         rms_test=rms_test, rms_train=rms_train,
+    #                         input_features=input_features, n_tot=40,
+    #                         input_rms=input_rms, input_psd=input_psd,
+    #                         percentage=False,
+    #                         plot_epoch = False,
+    #                         plot_in_out = True,
+    #                         plot_in_bottle_out=False,
+    #                         plot_latent_test = True,
+    #                         plot_latent_train = True,
+    #                         plot_kernel=False,
+    #                         plot_intermed_act=False,
+    #                         make_movie = False,
+    #                         plot_lof_test=True,
+    #                         plot_lof_train=True,
+    #                         plot_lof_all=True,
+    #                         plot_reconstruction_error_test=False,
+    #                         plot_reconstruction_error_all=True,
+    #                         load_bottleneck=True)
+    # else: 
+    #     if p['concat_ext_feats'] and not input_psd:
+    #         pf.diagnostic_plots(history, model, p, output_dir, x, x_train[0],
+    #                             x_test[0], x_predict[0], mock_data=False,
+    #                             addend=0.,
+    #                             target_info_test=target_info_test,
+    #                             target_info_train=target_info_train,
+    #                             ticid_train=ticid_train,
+    #                             ticid_test=ticid_test, percentage=False,
+    #                             input_features=input_features,
+    #                             input_rms=input_rms, rms_test=rms_test,
+    #                             input_psd=input_psd,
+    #                             rms_train=rms_train, n_tot=40,
+    #                             plot_epoch = False,
+    #                             plot_in_out = True,
+    #                             plot_in_bottle_out=False,
+    #                             plot_latent_test = True,
+    #                             plot_latent_train = True,
+    #                             plot_kernel=False,
+    #                             plot_intermed_act=False,
+    #                             make_movie = False,
+    #                             plot_lof_test=False,
+    #                             plot_lof_train=False,
+    #                             plot_lof_all=False,
+    #                             plot_reconstruction_error_test=True,
+    #                             plot_reconstruction_error_all=False,
+    #                             load_bottleneck=True)         
+    #     elif input_psd:
+    #         pf.diagnostic_plots(history, model, p, output_dir, x[0], x_train[0],
+    #                             x_test[0], x_predict[0], mock_data=False,
+    #                             addend=0.,
+    #                             target_info_test=target_info_test,
+    #                             target_info_train=target_info_train,
+    #                             ticid_train=ticid_train,
+    #                             ticid_test=ticid_test, percentage=False,
+    #                             input_features=input_features,
+    #                             input_rms=input_rms, rms_test=rms_test,
+    #                             input_psd=False,
+    #                             rms_train=rms_train, n_tot=40,
+    #                             plot_epoch = False,
+    #                             plot_in_out = True,
+    #                             plot_in_bottle_out=False,
+    #                             plot_latent_test = True,
+    #                             plot_latent_train = True,
+    #                             plot_kernel=False,
+    #                             plot_intermed_act=False,
+    #                             make_movie = False,
+    #                             plot_lof_test=False,
+    #                             plot_lof_train=False,
+    #                             plot_lof_all=False,
+    #                             plot_reconstruction_error_test=True,
+    #                             plot_reconstruction_error_all=False,
+    #                             load_bottleneck=True)                
+    #         fig, axes = pf.input_output_plot(x[1], x_test[1], x_predict[1],
+    #                                       output_dir+'input_output_PSD.png',
+    #                                       ticid_test=ticid_test,
+    #                                       target_info=target_info_test)             
+    #     else:
+    #         pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
+    #                             x_test, x_predict, mock_data=False, addend=0.,
+    #                             target_info_test=target_info_test,
+    #                             target_info_train=target_info_train,
+    #                             ticid_train=ticid_train,
+    #                             ticid_test=ticid_test, percentage=False,
+    #                             input_features=input_features,
+    #                             input_rms=input_rms, rms_test=rms_test,
+    #                             input_psd=input_psd,
+    #                             rms_train=rms_train, n_tot=40,
+    #                             plot_epoch = False,
+    #                             plot_in_out = True,
+    #                             plot_in_bottle_out=False,
+    #                             plot_latent_test = True,
+    #                             plot_latent_train = True,
+    #                             plot_kernel=False,
+    #                             plot_intermed_act=True,
+    #                             make_movie = False,
+    #                             plot_lof_test=False,
+    #                             plot_lof_train=False,
+    #                             plot_lof_all=False,
+    #                             plot_reconstruction_error_test=False,
+    #                             plot_reconstruction_error_all=True,
+    #                             load_bottleneck=True)                            
+
+# for i in range(4):               
+            
+        # parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
+        # df.dbscan_param_search(features, x, flux_feat, ticid_feat,
+        #                         info_feat, DEBUG=True, 
+        #                         output_dir=output_dir+str(i), single_file=single_file,
+        #                         simbad_database_txt=simbad_database_dir,
+        #                         leaf_size=[best_param_set[4]],
+        #                         algorithm=[best_param_set[3]],
+        #                         min_samples=[best_param_set[1]],
+        #                         metric=[best_param_set[2]], p=[best_param_set[5]],
+        #                         database_dir=database_dir,
+        #                         eps=[best_param_set[0]])                

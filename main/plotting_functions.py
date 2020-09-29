@@ -50,6 +50,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)                
 import pdb # >> debugging tool
 import model as ml
+from astropy.timeseries import LombScargle
 
 
 import scipy.signal as signal
@@ -268,6 +269,16 @@ def features_plotting_2D(feature_vectors, path, clustering,
         x = Kmean.fit(feature_vectors)
         classes_kmeans = x.labels_
         folder_label = "kmeans-colored"
+        
+    elif clustering == 'hdbscan': 
+        import hdbscan
+        clusterer = hdbscan.HDBSCAN(metric=metric, min_samples=3,
+                                    min_cluster_size=3)
+        clusterer.fit(feature_vectors)
+        classes_hdbscan = clusterer.labels_
+        print(np.unique(classes_hdbscan, return_counts=True))
+        folder_label = "hdbscan-colored"        
+        
     else: 
         print("no clustering chosen")
         folder_label = "2DFeatures"
@@ -343,6 +354,7 @@ def features_plotting_2D(feature_vectors, path, clustering,
             fname_label2 = fname_labels[m]                
             feat2 = feature_vectors[:,m]
  
+            # >> fix all this repeated code
             if clustering == 'dbscan':
                 plt.figure() # >> [etc 060520]
                 plt.clf()
@@ -351,7 +363,7 @@ def features_plotting_2D(feature_vectors, path, clustering,
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
                 plt.savefig((folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
-                plt.show()
+                # plt.show()
                 plt.close()
                  
             elif clustering == 'kmeans':
@@ -362,14 +374,26 @@ def features_plotting_2D(feature_vectors, path, clustering,
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
                 plt.savefig(folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
-                plt.show()
+                # plt.show()
                 plt.close()
+                 
+            elif clustering == 'hdbscan':
+                plt.figure() # >> [etc 060520]
+                plt.clf()
+                for n in range(len(feature_vectors)):
+                    plt.scatter(feat1[n], feat2[n], c=colors[classes_hdbscan[n]], s=2)
+                plt.xlabel(graph_label1)
+                plt.ylabel(graph_label2)
+                plt.savefig(folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-hdbscan.png")
+                # plt.show()
+                plt.close()            
+                
             elif clustering == 'none':
                 plt.scatter(feat1, feat2, s = 2, color = 'black')
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
                 plt.savefig(folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + ".png")
-                plt.show()
+                # plt.show()
                 plt.close()
                 
     if clustering == 'dbscan':
@@ -377,6 +401,9 @@ def features_plotting_2D(feature_vectors, path, clustering,
         return classes_dbscan
     if clustering == 'kmeans':
         return classes_kmeans
+    if clustering == 'hdbscan':
+        np.savetxt(folder_path+"/hdbscan-classes.txt", classes_hdbscan)
+        return classes_hdbscan
                           
 def astroquery_pull_data(target, breaks=True):
     """Give a TIC ID - ID /only/, any format is fine, it'll get converted to str
@@ -773,9 +800,9 @@ def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
 
 def diagnostic_plots(history, model, p, output_dir, 
                      x, x_train, x_test, x_predict, 
-                     target_info_test=False, target_info_train=False,
-                     sharey=False, prefix='',
-                     mock_data=False, ticid_train=False, ticid_test=False,
+                     mock_data=False, target_info_test=False,
+                     target_info_train=False, ticid_train=False,
+                     ticid_test=False, sharey=False, prefix='',
                      supervised=False, y_true=False, y_predict=False,
                      y_train=False, y_test=False,
                      flux_test=False, flux_train=False, time=False,
@@ -861,14 +888,7 @@ def diagnostic_plots(history, model, p, output_dir,
     # >> plot some decoded light curves
     if plot_in_out and not supervised:
         print('Plotting input, output and residual')
-        fig, axes = input_output_plot(x, x_test, x_predict,
-                                      output_dir+prefix+'input_output.png',
-                                      ticid_test=ticid_test,
-                                      inds=inds, target_info=target_info_test,
-                                      addend=addend, sharey=sharey,
-                                      mock_data=mock_data,
-                                      feature_vector=feature_vector,
-                                      percentage=percentage)
+        
         if input_psd:
             fig, axes = input_output_plot(f, psd_test, psd_predict,
                                           output_dir+prefix+\
@@ -878,7 +898,17 @@ def diagnostic_plots(history, model, p, output_dir,
                                           addend=addend, sharey=sharey,
                                           mock_data=mock_data,
                                           feature_vector=feature_vector,
-                                          percentage=percentage)            
+                                          percentage=percentage) 
+                
+        fig, axes = input_output_plot(x, x_test, x_predict,
+                                      output_dir+prefix+'input_output.png',
+                                      ticid_test=ticid_test,
+                                      inds=inds, target_info=target_info_test,
+                                      addend=addend, sharey=sharey,
+                                      mock_data=mock_data,
+                                      feature_vector=feature_vector,
+                                      percentage=percentage)
+          
         
     # -- supervised -----------------------------------------------------------
     if supervised:
@@ -1484,10 +1514,12 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
 
 def plot_lof(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
-             n_neighbors=20, target_info=False, p=2,
+             n_neighbors=20, target_info=False, p=2, metric='minkowski',
+             contamination=0.1, algorithm='auto',
              prefix='', mock_data=False, addend=1., feature_vector=False,
              n_tot=100, log=False, debug=False, feature_lof=None,
-             bins=50, cross_check_txt=None):
+             bins=50, cross_check_txt=None, single_file=False,
+             fontsize='xx-small', title=True, plot_psd=True, n_pgram=1500):
     """ Plots the 20 most and least interesting light curves based on LOF.
     Parameters:
         * time : array with shape 
@@ -1509,7 +1541,8 @@ def plot_lof(time, intensity, targets, features, n, path,
     """
     # -- calculate LOF -------------------------------------------------------
     print('Calculating LOF')
-    clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p)
+    clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p, metric=metric,
+                             contamination=contamination, algorithm=algorithm)
     fit_predictor = clf.fit_predict(features)
     negative_factor = clf.negative_outlier_factor_
     
@@ -1531,10 +1564,15 @@ def plot_lof(time, intensity, targets, features, n, path,
                 clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p)
                 fit_predictor = clf.fit_predict(features[:,i].reshape(-1,1))
                 negative_factor = clf.negative_outlier_factor_
-                lof = -1 * negative_factor    
-                feature_lof.append(lof) 
+                lof_tmp = -1 * negative_factor    
+                feature_lof.append(lof_tmp) 
             feature_lof=np.array(feature_lof)
             # >> has shape (num_features, num_light_curves)
+            
+        if plot_psd:
+            ncols=3
+            freq, tmp = LombScargle(time, intensity[0]).autopower()
+            freq = np.linspace(np.min(freq), np.max(freq), n_pgram)            
     
     # >> save LOF values in txt file
     print('Saving LOF values')
@@ -1585,12 +1623,11 @@ def plot_lof(time, intensity, targets, features, n, path,
         
     # -- plot cross-identifications -------------------------------------------
     if type(cross_check_txt) != type(None):
-        class_info = df.get_true_classifications(targets, single_file=True,
+        class_info = df.get_true_classifications(targets, single_file=single_file,
                                                  database_dir=cross_check_txt,
                                                  useless_classes=[])        
         ticid_classified = class_info[:,0].astype('int')
-    else:
-        ticid_classified = []
+
     # -- plot smallest and largest LOF light curves --------------------------
     print('Plot highest LOF and lowest LOF light curves')
     num_figs = int(n_tot/n) # >> number of figures to generate
@@ -1621,7 +1658,7 @@ def plot_lof(time, intensity, targets, features, n, path,
                            transform=axis.transAxes,
                            horizontalalignment='right',
                            verticalalignment='bottom',
-                           fontsize='xx-small')
+                           fontsize=fontsize)
                 format_axes(axis, ylabel=True)
                 if not mock_data:
                     ticid_label(axis, targets[ind], target_info[ind],
@@ -1645,20 +1682,30 @@ def plot_lof(time, intensity, targets, features, n, path,
                     ax[k,1].set_xlabel('\u03C6' + str(feature_ranked[-1]))
                     ax[k,1].set_ylabel('\u03C6' + str(feature_ranked[-2])) 
                     # ax[k,1].set_adjustable("box")
-                    # ax[k,1].set_aspect(1)                              
+                    # ax[k,1].set_aspect(1)    
+
+                if plot_psd:
+                    power = LombScargle(time, intensity[ind]).power(freq)
+                    ax[k,2].plot(freq, power, '-k')
+                    ax[k,2].set_ylabel('Power')
+                    # ax[k,2].set_xscale('log')
+                    ax[k,2].set_yscale('log')
+                    
                     
     
             # >> label axes
             if debug:
                 ax[n-1,0].set_xlabel('time [BJD - 2457000]')
+                if plot_psd:
+                    ax[n-1,2].set_xlabel('Frequency [days^-1]')
             else:
                 ax[n-1].set_xlabel('time [BJD - 2457000]')
                 
             # >> save figures
             if i == 0:
-                
-                fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
-                             y=0.9)
+                if title:
+                    fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
+                                 y=0.9)
                 fig.tight_layout()
                 fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
                             str(n_neighbors) + '-largest_' + str(j*n) + 'to' +\
@@ -1666,8 +1713,9 @@ def plot_lof(time, intensity, targets, features, n, path,
                             bbox_inches='tight')
                 plt.close(fig)
             elif i == 1:
-                fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
-                             y=0.9)
+                if title:
+                    fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
+                                 y=0.9)
                 fig.tight_layout()
                 fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
                             str(n_neighbors) + '-smallest' + str(j*n) + 'to' +\
@@ -1675,7 +1723,8 @@ def plot_lof(time, intensity, targets, features, n, path,
                             bbox_inches='tight')
                 plt.close(fig)
             else:
-                fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
+                if title:
+                    fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
                 
                 # >> save figure
                 fig.tight_layout()
@@ -1785,7 +1834,7 @@ def plot_paramscan_metrics(output_dir, parameter_sets, silhouette_scores, db_sco
     # Second, show the right spine.
     par2.spines["right"].set_visible(True)
     
-    host.plot(x_axis, db_scores, c='red', label="DB Scores")
+    host.scatter(x_axis, db_scores, c='red', label="DB Scores")
     host.grid(True)
     par1.scatter(x_axis, silhouette_scores, c = 'green', label="Silhouette Scores")
     par2.scatter(x_axis, ch_scores, c='blue', label="CH Scores")
@@ -1909,6 +1958,54 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
                         bbox_inches='tight')            
         plt.close(fig)
     
+def classification_diagnosis(features, labels_feat, output_dir, prefix='',
+                             figsize=(15,15)):
+
+    labels = np.unique(labels_feat)
+    latentDim = np.shape(features)[1]       
+    ax_label = '\u03C6'
+    
+    fig, ax = plt.subplots(nrows = latentDim, ncols = latentDim,
+                             figsize = figsize)  
+    for i in range(1, latentDim):
+        for j in range(i):
+            print(i, j)
+            ax[i,j].plot(features[:,j], features[:,i], '.', ms=1, alpha=0.3)
+            
+    # >> remove axis frame of empty plots            
+    for i in range(latentDim):
+        for j in range(i):
+            ax[latentDim-1-i, latentDim-1-j].axis('off')   
+        # >> x and y labels
+        ax[i,0].set_ylabel(ax_label + str(i), fontsize='xx-small')
+        ax[latentDim-1,i].set_xlabel(ax_label + str(i), fontsize='xx-small')    
+        
+    for a in ax.flatten():
+        # a.set_aspect(aspect=1)
+        a.set_xticks([])
+        a.set_yticks([])
+        a.set_yticklabels([])
+        a.set_xticklabels([])
+    plt.subplots_adjust(hspace=0, wspace=0)        
+    
+    for k in range(len(labels)):
+
+        label=labels[k]
+        label_inds = np.nonzero(labels_feat == label)
+                
+        for i in range(1, latentDim):
+            for j in range(i):
+                X = features[label_inds,j].reshape(-1)
+                Y = features[label_inds,i].reshape(-1)
+                ax[i,j].plot(X, Y, 'Xr', ms=2)        
+                
+        fig.savefig(output_dir+prefix+'latent_space-'+str(labels[k])+'.png')
+        
+        for i in range(1, latentDim):
+            for j in range(i):
+                for l in range(len(label_inds[0])):
+                    ax[i,j].lines.remove(ax[i,j].get_lines()[-1]) 
+    
 def quick_plot_classification(time, intensity, targets, target_info, features, labels,
                               path='./', prefix='', addend=1.,
                               simbad_database_txt='./simbad_database.txt',
@@ -1924,14 +2021,10 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
     colors = get_colors()
     
     # class_info = df.get_simbad_classifications(targets, simbad_database_txt)
-    # ticid_classified = np.array(simbad_info)[:,0].astype('int')   
-    if database_dir is not None: 
-        class_info = df.get_true_classifications(targets,
-                                                 database_dir=database_dir,
-                                                 single_file=single_file)
-    else: 
-        class_info = np.zeros((len(targets), 2))
-        
+    # ticid_classified = np.array(simbad_info)[:,0].astype('int')    
+    class_info = df.get_true_classifications(targets,
+                                             database_dir=database_dir,
+                                             single_file=single_file)
     ticid_classified = class_info[:,0].astype('int')
     
     num_figs = int(np.ceil(len(classes) / ncols))
@@ -2013,7 +2106,8 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
                     ax[m, 0].set_ylabel('Relative flux')
                     
         fig.tight_layout()
-        fig.savefig(path + prefix + '-' + str(i) + '.pdf')
+        fig.savefig(path + prefix + '-' + str(i) + '.png')
+        # fig.savefig(path + prefix + '-' + str(i) + '.pdf')
         plt.close(fig)
                 
 def get_colors():
@@ -2045,6 +2139,7 @@ def get_colors():
         
     # >> now shuffle
     random.Random(4).shuffle(sorted_names)
+    sorted_names = sorted_names*20
     
     sorted_names.append('black')
     return sorted_names
@@ -2217,11 +2312,11 @@ def simbad_label(ax, ticid, simbad_info):
             transform=ax.transAxes, fontsize='xx-small',
             horizontalalignment='right', verticalalignment='top')
     
-def classification_label(ax, ticid, classification_info):
-    '''classification_info = [ticid, otype, bibcode]'''
+def classification_label(ax, ticid, classification_info, fontsize='xx-small'):
+    '''classification_info = [ticid, otype, main id]'''
     ticid, otype, bibcode = classification_info
-    ax.text(0.98, 0.98, 'otype: '+otype+'\nbibcode: '+bibcode,
-            transform=ax.transAxes, fontsize='xx-small',
+    ax.text(0.98, 0.98, 'otype: '+otype+'\nmaind_id: '+bibcode,
+            transform=ax.transAxes, fontsize=fontsize,
             horizontalalignment='right', verticalalignment='top')
     
 def format_axes(ax, xlabel=False, ylabel=False):
@@ -2244,8 +2339,9 @@ def format_axes(ax, xlabel=False, ylabel=False):
     if ylabel:
         ax.set_ylabel('Relative flux')
     
-def latent_space_plot(activation, out, n_bins = 50, log = True,
-                      units='phi'):
+def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
+                      log = True, save=True,
+                      units='phi', figsize=(10,10), fontsize='x-small'):
     '''Creates corner plot of latent space.
         Parameters:
         * bottleneck : bottleneck layer, shape=(num light curves, num features)
@@ -2261,7 +2357,7 @@ def latent_space_plot(activation, out, n_bins = 50, log = True,
     latentDim = np.shape(activation)[1]
 
     fig, axes = plt.subplots(nrows = latentDim, ncols = latentDim,
-                             figsize = (10, 10))
+                             figsize = figsize)
 
     if units == 'phi':
         ax_label = '\u03C6'
@@ -2288,8 +2384,9 @@ def latent_space_plot(activation, out, n_bins = 50, log = True,
                 axes[latentDim-1-i, latentDim-1-j].axis('off')
 
             # >> x and y labels
-            axes[i,0].set_ylabel(ax_label + str(i))
-            axes[latentDim-1,i].set_xlabel(ax_label + str(i))
+            axes[i,0].set_ylabel(ax_label + str(i), fontsize=fontsize)
+            axes[latentDim-1,i].set_xlabel(ax_label + str(i),
+                                           fontsize=fontsize)
 
         # >> removing axis
         for ax in axes.flatten():
@@ -2299,8 +2396,11 @@ def latent_space_plot(activation, out, n_bins = 50, log = True,
             ax.set_xticklabels([])
         plt.subplots_adjust(hspace=0, wspace=0)
         
-    plt.savefig(out)
-    plt.close(fig)
+    if save:
+        plt.savefig(out)
+        plt.close(fig)
+    
+    return fig, axes
     # return fig, axes
     
     
@@ -2334,13 +2434,32 @@ def get_tsne(bottleneck, n_components=2):
     X = TSNE(n_components=n_components).fit_transform(bottleneck)
     return X
     
+def make_parent_dict():
+    d = {'EB': ['Al', 'bL', 'WU', 'EP', 'SB'],
+         'ACV': ['ACVO'],
+         'D': ['DM', 'DS', 'DW'],
+         'K': ['KE', 'KW'],
+         'Ir': ['Or', 'RI', 'IA', 'IB', 'INA', 'INB'],
+         'Pu': ['RR', 'Ce', 'dS', 'RV', 'WV', 'bC', 'cC', 'gD', 'SX'],
+         'sg': ['s*r', 's*y', 's*b'],
+         'Er': ['Fl', 'FU', 'RC'],
+         'Ro': ['a2', 'Psr', 'BY', 'RS'],
+         'Em': ['Be']
+         }
+    return d
     
 def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
-                          output_dir='./', prefix='', single_file=False):
+                          output_dir='./', prefix='', single_file=False,
+                          labels = [], merge_classes=False, class_info=None,
+                          parents=['EB'],
+                          parent_dict = None, figsize=(30,30)):
     from sklearn.metrics import confusion_matrix
     from scipy.optimize import linear_sum_assignment
     import seaborn as sn
     from itertools import permutations
+    
+    if type(parent_dict) == type(None):
+        parent_dict= make_parent_dict()
     
     # >> get clusterer classes
     inds = np.nonzero(y_pred > -1)
@@ -2348,34 +2467,56 @@ def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
     y_pred = y_pred[inds]
     
     # >> get 'ground truth' classifications
-    class_info = df.get_true_classifications(ticid_pred,
-                                             database_dir=database_dir,
-                                             single_file=single_file)
+    if type(class_info) == type(None):
+        class_info = df.get_true_classifications(ticid_pred,
+                                                 database_dir=database_dir,
+                                                 single_file=single_file)
     ticid_true = class_info[:,0].astype('int')
-    y_true_labels = np.unique(class_info[:,1])
-    y_true = []
-    for i in range(len(ticid_true)):
-        class_num = np.nonzero(y_true_labels == class_info[i][1])[0][0]
-        y_true.append(class_num)
-    y_true = np.array(y_true)
+
+    if merge_classes:
+        class_info = df.get_parents_only(class_info, parents=parents,
+                                         parent_dict=parent_dict)
+        
     
+    if len(labels) > 0:
+        ticid_new = []
+        class_info_new = []
+        for i in range(len(ticid_true)):
+            for j in range(len(labels)):
+                if labels[j] in class_info[i][1] and \
+                    ticid_true[i] not in ticid_new:
+                    class_info_new.append([ticid_true[i], labels[j], class_info[i][2]])
+                    ticid_new.append(ticid_true[i])
+                    
+        class_info = np.array(class_info_new)
+        ticid_true = np.array(ticid_new)
+     
+
     # >> find intersection
     intersection, comm1, comm2 = np.intersect1d(ticid_pred, ticid_true,
                                                 return_indices=True)
     ticid_pred = ticid_pred[comm1]
     y_pred = y_pred[comm1]
     ticid_true = ticid_true[comm2]
-    y_true = y_true[comm2]
-
-    # -- make confusion matrix ------------------------------------------------
+    class_info = class_info[comm2]           
+        
     columns = np.unique(y_pred).astype('str')
-    while len(columns) < len(y_true_labels):
-        columns = np.append(columns, 'X')
-    while len(y_true_labels) < len(columns):
-        y_true_labels = np.append(y_true_labels, 'X')        
+    y_true_labels = np.unique(class_info[:,1])
+
+    y_true = []
+    for i in range(len(ticid_true)):
+        class_num = np.nonzero(y_true_labels == class_info[i][1])[0][0]
+        y_true.append(class_num)
+    y_true = np.array(y_true).astype('int')
+    
+    # -- make confusion matrix ------------------------------------------------       
     cm = confusion_matrix(y_true, y_pred)
+    while len(columns) < len(cm):
+        columns = np.append(columns, 'X')       
+    while len(y_true_labels) < len(cm):
+        y_true_labels = np.append(y_true_labels, 'X')     
     df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=figsize)
     sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
     ax.set_aspect(1)
     fig.savefig(output_dir+prefix+'confusion_matrix_raw.png')
@@ -2392,7 +2533,7 @@ def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
     # !! TODO need to reorder columns label
     
     df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=figsize)
     sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
     ax.set_aspect(1)
     fig.savefig(output_dir+prefix+'confusion_matrix_ordered.png')
@@ -2407,10 +2548,11 @@ def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
     
     # >> plot
     df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
-    fig, ax = plt.subplots()
-    sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
-    ax.set_aspect(1)
+    fig, ax = plt.subplots(figsize=figsize)
+    sn.heatmap(df_cm, annot=True, annot_kws={'size':6}, square=True, ax=ax)
+
     fig.savefig(output_dir+prefix+'confusion_matrix.png')
+    fig.tight_layout()
     plt.close()
     
     return accuracy
@@ -2606,6 +2748,12 @@ def plot_lc(time, flux, target_info, ticid, ind, output_dir='./',
     
     return fig, ax
     
+def presentation_act(activations, filter_nums=[3,9,15]):
+    fig, ax = plt.subplots(3, figsize=(4,8))
+    for i in range(len(filter_nums)):
+        ax[i].plot(activations[1][0][:,filter_nums[i]], '.k')
+    return fig, ax
+    
 
 def presentation_kernel_plots(model, x_test, x_predict, ind, output_dir='./'):
     from keras.models import Model
@@ -2640,7 +2788,8 @@ def presentation_kernel_plots(model, x_test, x_predict, ind, output_dir='./'):
     
     fig, ax = plt.subplots(8, 8)
     act = activations[conv_inds[conv_ind] + 1][0]
-    for k in range(8):
+    lim = int(np.shape(act)[1]/8.)
+    for k in range(lim):
         for j in range(8):
             ax[k,j].plot(act[:,8*k + j], '.k', markersize=1)
             ax[k,j].set_xticklabels([])
@@ -2715,7 +2864,7 @@ def presentation_validation(model, p, ind):
     
 def presentation_plot_classifications(x, flux, ticid, target_info, output_dir,
                                       ticid_list, classnum, addend=1.,
-                                      plot_psd=False,
+                                      plot_psd=False, plot_mom_dump=False,
                                       momentum_dump_csv = '../../Table_of_momentum_dumps.csv'):  
     from astropy.timeseries import LombScargle
     
@@ -2724,22 +2873,24 @@ def presentation_plot_classifications(x, flux, ticid, target_info, output_dir,
     
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
-    print('Loading momentum dump times')
-    with open(momentum_dump_csv, 'r') as f:
-        lines = f.readlines()
-        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
-        inds = np.nonzero((mom_dumps >= np.min(x)) * \
-                          (mom_dumps <= np.max(x)))
-        mom_dumps = np.array(mom_dumps)[inds]
+    if plot_mom_dump:
+        print('Loading momentum dump times')
+        with open(momentum_dump_csv, 'r') as f:
+            lines = f.readlines()
+            mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+            inds = np.nonzero((mom_dumps >= np.min(x)) * \
+                              (mom_dumps <= np.max(x)))
+            mom_dumps = np.array(mom_dumps)[inds]
     
     
     if not plot_psd:
         fig, ax = plt.subplots(len(ticid_list), figsize=(8, 3*len(ticid_list)))
         for i in range(len(ticid_list)):
-            
-            # >> plot momentum dumps
-            for t in mom_dumps:
-                ax[i].axvline(t, color='g', linestyle='--')                  
+
+            if plot_mom_dump:            
+                # >> plot momentum dumps
+                for t in mom_dumps:
+                    ax[i].axvline(t, color='g', linestyle='--')                  
             
             ind = np.nonzero(ticid == ticid_list[i])
             ax[i].plot(x, flux[ind].reshape(-1)+addend, '.k')
@@ -2755,9 +2906,10 @@ def presentation_plot_classifications(x, flux, ticid, target_info, output_dir,
         fig, ax = plt.subplots(len(ticid_list), 2, figsize=(8, 3*len(ticid_list)))
         for i in range(len(ticid_list)):
         
-            # >> plot momentum dumps
-            for t in mom_dumps:
-                ax[i,0].axvline(t, color='g', linestyle='--')            
+            if plot_mom_dump:
+                # >> plot momentum dumps
+                for t in mom_dumps:
+                    ax[i,0].axvline(t, color='g', linestyle='--')            
             
             ind = np.nonzero(ticid == ticid_list[i])
             ax[i,0].plot(x, flux[ind].reshape(-1)+addend, '.k')
@@ -2886,7 +3038,115 @@ def plot_lof_2col(time, intensity, targets, features, n, path,
                             bbox_inches='tight')
         plt.close(fig)
 
+
+
         
+    
+def plot_cross_identifications(time, intensity, targets, target_info, features,
+                               labels, path='./', prefix='', addend=0.,
+                               database_dir='./databases/', ncols=10,
+                               nrows=10, data_dir='./'):
+    colors = get_colors()
+       
+    class_info = df.get_true_classifications(targets,
+                                             database_dir=database_dir,
+                                             single_file=False)
+    d = df.get_otype_dict(data_dir=data_dir)
+    
+    classes = []
+    for otype in class_info[:,1]:
+        otype_list = otype.split('|')
+        for o in otype_list:
+            if o not in classes:
+                classes.append(o)
+    print('Num classes: '+str(len(classes)))
+    print(classes)
+    # classes, counts = np.unique(class_info[:,1], return_counts=True)
+    num_figs = int(np.ceil(len(classes) / ncols))
+    for i in range(num_figs): #
+        print('Making figure '+str(i)+'/'+str(num_figs))
+        fig, ax = plt.subplots(nrows, ncols, sharex=True,
+                               figsize=(8*ncols*0.75, 3*nrows)) 
+        if i == num_figs - 1 and len(classes) % ncols != 0:
+            num_classes = len(classes) % ncols
+        else:
+            num_classes = ncols        
+            
+        for j in range(num_classes): # >> loop through columns
+            class_label = classes[ncols*i + j]
+            class_inds = np.nonzero([class_label in x for x in class_info[:,1]])[0]
+            print('Plotting class '+class_label)
+            
+            for k in range(min(nrows, len(class_inds))):
+                ind = class_inds[k]
+                ticid = float(class_info[ind][0])
+                flux_ind = np.nonzero(targets == ticid)[0][0]
+                class_num = labels[flux_ind]
+                if class_num < len(colors) - 1 and class_num != -1:
+                    color = colors[class_num]
+                else:
+                    color='black'                
+                ax[k, j].plot(time, intensity[flux_ind]+addend, '.k')
+                classification_label(ax[k,j], ticid, class_info[ind])
+                ticid_label(ax[k,j], ticid, target_info[flux_ind], title=True,
+                            color=color)
+                format_axes(ax[k,j], ylabel=True)
+                ax[k,j].set_title('Class ' + str(class_num) + '\n' + \
+                                  ax[k,j].get_title())
+                if k == 0:
+                    title = ax[k,j].get_title()
+                    if class_label in list(d.keys()):
+                        class_label = d[class_label]
+                    ax[k,j].set_title(class_label+'\n'+title)
+                    
+        
+        fig.tight_layout()
+        fig.savefig(path + 'hdbscan-underlying-class-'+prefix + '-' + str(i) + '.png')
+        # fig.savefig(path + prefix + '-' + str(i) + '.pdf')
+        plt.close(fig)                
+   
+def sector_dists(data_dir, sector, output_dir='./', figsize=(3,3)):
+    tess_features = np.loadtxt(data_dir + 'Sector'+str(sector)+\
+                               '/tess_features_sector'+str(sector)+'.txt',
+                               delimiter=' ', usecols=[1,2,3,4,5,6])
+    
+    fig1, ax1 = plt.subplots(2,3)
+    for i in range(5):
+        fig, ax = plt.subplots(figsize=figsize)
+        if i == 0:
+            # ax.set_xlabel('log $T_{eff}$ [K]')
+            ax.set_xlabel('$T_{eff}$ [K]')
+            suffix='-Teff'
+        elif i == 1:
+            ax.set_xlabel('Radius [$R_{\odot}$]')
+            suffix='-rad'
+        elif i == 2:
+            ax.set_xlabel('Mass [$M_{\odot}$]')
+            suffix='-mass'
+        elif i == 3:
+            ax.set_xlabel('GAIA Mag')
+            suffix='-GAIAmag'
+        else:
+            ax.set_xlabel('Distance [kpc]')
+            suffix='-d'
+        feat=tess_features[:,i+1]
+        feat=feat[np.nonzero(~np.isnan(feat))]
+        # feat=np.log(feat)
+        ax.hist(feat, bins=30)
+        ax.set_ylabel('Number of light curves')
+        a = ax1[int(i/3),i//3]
+        a.hist(feat, bins=30)
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        a.set_xscale('log')
+        a.set_yscale('log')
+        fig.tight_layout()
+        fig.savefig(output_dir+'Sector'+str(sector)+suffix+'.png')
+    fig1.tight_layout()
+    fig.savefig(output_dir+'Sector_dists.png')
+        
+        
+
     
     # cm = cm[:len(labels)]
     # cm = cm[:, list(range(len(columns)))]

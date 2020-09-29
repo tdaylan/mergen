@@ -25,11 +25,12 @@
 #
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: 
 
+from sklearn.manifold import TSNE
 import os
 import pdb
 import matplotlib.pyplot as plt
 import numpy as np
-import plotting_functions as pl
+import plotting_functions as pf
 import data_functions as df
 from astropy.io import fits
 from astropy.timeseries import LombScargle
@@ -39,15 +40,79 @@ import keras.backend as K
 from keras.layers import Lambda, Activation, Conv2DTranspose
 import tensorflow as tf
 from tensorflow import keras
-from sklearn.cluster import KMeans         
+from sklearn.cluster import KMeans    
+from sklearn.manifold import TSNE     
+from keras.models import Model
 
-def autoencoder_preprocessing(flux, ticid, time, target_info, p, 
+
+def sector_mask_diag(sectors=[1,2,3,17,18,19,20], data_dir='./',
+                      output_dir='./', custom_masks=None):
+    
+    num_sectors = len(sectors)
+    all_flux = []
+    all_ticid = []
+    all_target_info = []
+    all_x = []
+    if type(custom_masks) == type(None):
+        custom_masks = [[]]*num_sectors
+    for i in range(num_sectors):
+        flux, x, ticid, target_info = \
+            df.load_data_from_metafiles(data_dir, sectors[i],
+                                        nan_mask_check=True,
+                                        custom_mask=custom_masks[i])       
+        all_flux.append(flux)
+        all_ticid.append(ticid)
+        all_target_info.append(target_info)
+        all_x.append(x)
+        
+    fig, ax  = plt.subplots(num_sectors)
+    for i in range(num_sectors):
+        ax[i].plot(all_x[i], all_flux[i][0], '.k', ms=2)
+        pf.ticid_label(ax[i], all_ticid[i][0], all_target_info[i][0],
+                       title=True)
+        ax[i].set_title('Sector '+str(sectors[i])+'\n'+ax[i].get_title(),
+                        fontsize='small')
+    
+    fig.tight_layout()
+    fig.savefig(output_dir+'sector_masks.png')
+    
+def merge_sector_diag(data_dir, sectors=list(range(1, 29)), output_dir='./',
+                      ncols=3):
+    
+    num_sectors = len(sectors)
+    fig, ax = plt.subplots(num_sectors, ncols,
+                           figsize=(5*ncols, 1.43*num_sectors))
+    for i in range(num_sectors):
+        sectorfile=np.loadtxt(data_dir+'Sector'+str(sectors[i])+\
+                              '/all_targets_S'+'%03d'%sectors[i]+'_v1.txt')
+        for j in range(ncols):
+            if ncols == 1:
+                a = ax[i]
+            else:
+                a = ax[i,j]
+            ticid = sectorfile[j][0]
+            time, flux, ticid = df.get_lc_file_and_data(output_dir, ticid)
+            a.plot(time, flux, '.k', ms=2)
+            # pf.ticid_label(ax[i], ticid, all_target_info[i][0],
+            #                title=True)
+            a.set_title('Sector '+str(sectors[i]), fontsize='small')
+        
+    fig.tight_layout()
+    fig.savefig(output_dir + 'sector_lightcurves.png')
+    
+    
+
+def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
+                              sector=1, mock_data=False,
                               validation_targets=[219107776],
                               DAE=False, features=False,
                               norm_type='standardization', input_rms=True,
-                              input_psd = True, load_psd=False, n_pgram=500,
-                              train_test_ratio=0.9,
-                              split=False, output_dir='./'):
+                              input_psd = True, load_psd=False, n_pgram=1000,
+                              train_test_ratio=0.9, data_dir='./',
+                              split=False, output_dir='./',
+                              use_tess_features=True,
+                              use_tls_features=True,
+                              use_rms=True):
     '''Preprocesses output from df.load_data_from_metafiles
     Shuffles array.
     Parameters:
@@ -217,19 +282,45 @@ def autoencoder_preprocessing(flux, ticid, time, target_info, p,
             orbit_gap = np.argmax(np.diff(time))
             # >> split x_train and x_test at orbit gap
             x_train = np.split(x_train, [orbit_gap], axis=1)
-            x_test = np.split(x_test, [orbit_gap], axis=1)            
-                
+            x_test = np.split(x_test, [orbit_gap], axis=1)
+            
+        if p['concat_ext_feats']:
+            external_features_train, flux_train, ticid_train, target_info_train = \
+                bottleneck_preprocessing(sector, x_train, ticid_train,
+                                         target_info_train, rms_train,
+                                         data_dir=data_dir,
+                                         output_dir=output_dir,
+                                         use_learned_features=False,
+                                         use_tess_features=use_tess_features,
+                                         use_engineered_features=False,
+                                         use_tls_features=use_tls_features,
+                                         log=False)  
+            x_train = [flux_train, external_features_train]
+            external_features_test, flux_test, ticid_test, target_info_test = \
+                bottleneck_preprocessing(sector, x_test, ticid_test,
+                                         target_info_test, rms_test,
+                                         data_dir=data_dir,
+                                         output_dir=output_dir,
+                                         use_learned_features=False,
+                                         use_tess_features=use_tess_features,
+                                         use_engineered_features=False,
+                                         use_tls_features=use_tls_features,
+                                         use_rms=use_rms,
+                                         log=False)  
+            x_test = [flux_test, external_features_test]
+                        
         return x_train, x_test, y_train, y_test, ticid_train, ticid_test, \
             target_info_train, target_info_test, rms_train, rms_test, time
 
 def bottleneck_preprocessing(sector, flux, ticid, target_info,
                              rms=None,
                              output_dir='./SectorX/',
-                             data_dir='./',
+                             data_dir='./', bottleneck_dir='./',
                              use_learned_features=False,
                              use_engineered_features=True,
                              use_tess_features=True,
                              use_tls_features=True,
+                             use_rms=True, norm=False,
                              cams=[1,2,3,4], ccds=[1,2,3,4], log=False):
     '''Concatenates features (assumes features are already calculated and
     saved).
@@ -286,20 +377,18 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
         features.append(engineered_feature_vector)
             
     if use_learned_features:
-        with fits.open(output_dir + 'bottleneck_train.fits') as hdul:
+        with fits.open(bottleneck_dir + 'bottleneck_train.fits') as hdul:
             bottleneck_train = hdul[0].data        
-        with fits.open(output_dir + 'bottleneck_test.fits') as hdul:
+        with fits.open(bottleneck_dir + 'bottleneck_test.fits') as hdul:
             bottleneck_test = hdul[0].data
         learned_feature_vector = np.concatenate([bottleneck_train,
                                                  bottleneck_test], axis=0)
         # if not use_engineered_features and not use_tess_features:
         #     features = learned_feature_vector
         
-        if log:
-            learned_feature_vector = learned_feature_vector[:,:-1]
-            rms = np.log(rms)
-            learned_feature_vector = np.concatenate([learned_feature_vector,
-                                                    rms.reshape(-1, 1)], axis=1)
+        # if log:
+        #     learned_feature_vector = learned_feature_vector[:,:-1]
+
         features.append(learned_feature_vector)
         
     if use_tls_features:
@@ -343,46 +432,55 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
         # >> tess_features[0] = [ticid, Teff, mass, rad, GAIAmag, d, objType]
         tess_features = np.loadtxt(data_dir + 'Sector'+str(sector)+\
                                    '/tess_features_sector'+str(sector)+'.txt',
-                                   delimiter=' ', usecols=[1,2,3,4,5,6])
+                                   delimiter=' ', usecols=[1,2,3,4,5,6,8])
         # >> take out any light curves with nans
         inds = np.nonzero(np.prod(~np.isnan(tess_features), axis=1))
         tess_features = tess_features[inds]
-        features.append(tess_features)
+        
         
         intersection, comm1, comm2 = np.intersect1d(tess_features[:,0], ticid,
                                                     return_indices=True)
+        # >> take intersection, and get rid of TICID column
+        tess_features = tess_features[:,1:][comm1]
+        if log:
+            tess_features = np.log(tess_features)        
+        features = []
+        features.append(tess_features)
+        
         target_info = target_info[comm2]
         flux = flux[comm2]
         ticid = intersection
         
-        features = []
         if use_engineered_features:
-            engineered_feature_vector = engineered_feature_vector[comm1]
+            engineered_feature_vector = engineered_feature_vector[comm2]
             features.append(engineered_feature_vector)
         if use_learned_features:
-            learned_feature_vector = learned_feature_vector[comm1]
+            learned_feature_vector = learned_feature_vector[comm2]
             features.append(learned_feature_vector)
+        if use_rms:
+            rms = rms.reshape(-1, 1)
+            rms = rms[comm2]
+            if log:
+                rms = np.log(rms)            
+            features.append(rms)
         if use_tls_features:
-            engineered_features_v1 = engineered_features_v1[comm1]
+            engineered_features_v1 = engineered_features_v1[comm2]
             features.append(engineered_features_v1)
-            
-        # >> re-arrange TESS features
-        tmp = []
-        for i in range(len(ticid)):
-            ind = np.nonzero(tess_features[:,0] == ticid[i])[0][0]
-            tmp.append(tess_features[ind][1:])
-        tess_features = np.array(tmp)      
         
-        if log:
-            tess_features = np.log(tess_features)
-        
-        features.append(tess_features)
+
  
+    if use_rms and not use_tess_features:
+        if log:
+            rms = np.log(rms)
+        rms = rms.reshape(-1, 1)
+        features.append(rms)
+    
     # >> concatenate features
     features = np.concatenate(features, axis=1)
         
     # >> standardize each feature
-    features = df.standardize(features, ax=0)
+    if norm:
+        features = df.standardize(features, ax=0)
             
     return features, flux, ticid, target_info
 
@@ -444,6 +542,42 @@ def model_summary_txt(output_dir, model):
 
 # :: autoencoder ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+def pretrain(p, output_dir, input_dim=18688, input_psd=True, input_rms=False,
+             dataset_size=10000, f_mean=2., truncate=True, reshape=False,
+             hyperparam_opt=False):
+    
+    # >> make some mock data
+    x, x_train, x_test = \
+        get_high_freq_mock_data(p=p, dataset_size=dataset_size,
+                                input_dim=input_dim, f_mean=f_mean,
+                                truncate=truncate, reshape=reshape,
+                                hyperparam_opt=hyperparam_opt)    
+
+
+# def run_VAEGAN(x_train, p, kernel=5, columns=18688,
+#                rows=1, channel=3):
+#     from keras import optimizers
+#     from VAEGAN import decgen
+    
+#     # noise = np.random.normal(0, 1, (p['batch_size'], 256))
+#     # optimizers
+#     if p['optimizer'] == 'adam':
+#         opt = optimizers.adam(lr = p['lr'],  decay=p['lr']/p['epochs'])    
+#     # SGDop = SGD(lr=0.0003)
+#     # ADAMop = Adam(lr=0.0002)
+    
+#     G = decgen(p['kernel_size'], p['num_filters'], rows, columns, channel)
+#     G.compile(optimizer=p['optimizer'], loss='mse')
+#     G.summary()
+    
+#     # >> training model
+#     history = G.fit()
+    
+#     # G.load_weights('generator.h5')
+#     # image = G.predict(noise)
+#     # image = np.uint8(image * 127.5 +127.5)
+#     # plt.imshow(image[0]), plt.show()    
+
 def conv_autoencoder(x_train, y_train, x_test, y_test, params, 
                      val=True, split=False, input_features=False,
                      features=None, input_psd=False, reshape=False,
@@ -462,15 +596,17 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     if split:
         encoded = encoder_split(x_train, params) # >> shared weights
     elif input_psd:
-        encoded = encoder_split_diff_weights(x_train, params)
+        params['concat_ext_feats'] = True
+        # encoded = encoder_split_diff_weights(x_train, params)
+        encoded, feature_maps, pool_masks = encoder(x_train, params, reshape=reshape)  
     else:
         encoded, feature_maps, pool_masks = encoder(x_train, params, reshape=reshape)        
 
     # -- decoding -------------------------------------------------------------
     if split:
         decoded = decoder_split(x_train, encoded.output, params)
-    elif input_psd:
-        decoded = decoder_split_diff_weights(x_train, encoded.output, params)
+    # elif input_psd:
+    #     decoded = decoder_split_diff_weights(x_train, encoded.output, params)
     # elif params['cvae']:
     #     z_mean, z_log_var, z = encoded.output
     #     decoded = decoder(x_train, z, params, feature_maps, reshape=reshape)
@@ -493,9 +629,12 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
         model1 = keras.models.load_model(model_init, custom_objects={'tf': tf}) 
         conv_inds1 = np.nonzero(['conv' in x.name for x in model1.layers])[0]
         conv_inds2 = np.nonzero(['conv' in x.name for x in model.layers])[0]
+        dense_inds1 = np.nonzero(['dense' in x.name for x in model1.layers])[0]
+        dense_inds2 = np.nonzero(['dense' in x.name for x in model.layers])[0]        
         for i in range(len(conv_inds1)):
             model.layers[conv_inds2[i]].set_weights(model1.layers[conv_inds1[i]].get_weights())
-    
+        for i in range(len(dense_inds1)):
+            model.layers[conv_inds2[i]].set_weights(model1.layers[conv_inds1[i]].get_weights())
         
     
     # -- compile model --------------------------------------------------------
@@ -516,29 +655,28 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
         model.save(output_dir + 'model')      
         
     if save_bottleneck:
-        bottleneck_train = get_bottleneck(model, x_train, params,
-                                          input_rms=input_rms, rms=rms_train)
-        
-        # >> save bottleneck_test, bottleneck_train
-        bottleneck = get_bottleneck(model, x_test, params, input_rms=input_rms,
-                                    rms=rms_test)    
-        hdr = fits.Header()
-        hdu = fits.PrimaryHDU(bottleneck, header=hdr)
-        hdu.writeto(output_dir + 'bottleneck_test.fits')    
-        fits.append(output_dir + 'bottleneck_test.fits', ticid_test)    
-        
-        hdr = fits.Header()
-        hdu = fits.PrimaryHDU(bottleneck_train, header=hdr)
-        hdu.writeto(output_dir + 'bottleneck_train.fits')    
-        fits.append(output_dir + 'bottleneck_train.fits', ticid_train)       
+        bottleneck_train = \
+            get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
+                           out=output_dir+'bottleneck_train.fits')
+        bottleneck = get_bottleneck(model, x_test, params, save=True,
+                                    ticid=ticid_test,
+                                    out=output_dir+'bottleneck_test.fits')    
         
     if predict:
         x_predict = model.predict(x_test)      
         hdr = fits.Header()
-        hdu = fits.PrimaryHDU(x_predict, header=hdr)
+        if params['concat_ext_feats']:
+            hdu = fits.PrimaryHDU(x_predict[0], header=hdr)
+        else:
+            hdu = fits.PrimaryHDU(x_predict, header=hdr)
         hdu.writeto(output_dir + 'x_predict.fits')
-        fits.append(output_dir + 'x_predict.fits', ticid_test)  
-        param_summary(history, x_test, x_predict, params, output_dir, 0, '')
+        fits.append(output_dir + 'x_predict.fits', ticid_test)
+        
+        if params['concat_ext_feats']:
+            param_summary(history, x_test[0], x_predict[0], params, output_dir, 
+                          0,'')
+        else:
+            param_summary(history, x_test, x_predict, params, output_dir, 0,'')            
         model_summary_txt(output_dir, model)               
     
         return history, model, x_predict
@@ -626,6 +764,122 @@ def unpool_with_with_argmax(x, ind, params):
 def unpool_layer(x, params):
     ksize = params['pool_size']
     strides = params['pool_strides']
+
+def PSNR(y_true, y_pred):
+    '''https://stackoverflow.com/questions/55844618/how-to-calculate-psnr-metric-in-keras'''
+    max_pixel = 1.0
+    return (10.0 * K.log((max_pixel ** 2) / (K.mean(K.square(y_pred - y_true), axis=-1))))
+
+def ssim_loss(y_true, y_pred):
+  return tf.reduce_mean(tf.image.ssim(y_true, y_pred, 1.0))
+
+def custom_loss_tsne(y_true, y_pred):
+    '''https://github.com/kylemcdonald/Parametric-t-SNE/blob/master/Parametric%20t-SNE%20%28Keras%29.ipynb'''
+    import keras.backend as K  
+    
+    # >> compute TSNE
+    P_input = compute_joint_probabilities(y_true)
+    P_output = compute_joint_probabilities(y_pred)
+    
+    # >> now compute MSE
+    loss = K.mean(K.square(P_output - P_input))
+    
+    return loss
+
+
+def Hbeta(D, beta):
+    P = np.exp(-D * beta)
+    sumP = np.sum(P)
+    H = np.log(sumP) + beta * np.sum(np.multiply(D, P)) / sumP
+    P = P / sumP
+    return H, P
+
+def x2p(X, u=15, tol=1e-4, print_iter=500, max_tries=50, verbose=0):
+    # Initialize some variables
+    # n = X.shape[0]                     # number of instances
+    n = 14394
+    P = np.zeros((n, n))               # empty probability matrix
+    beta = np.ones(n)                  # empty precision vector
+    logU = np.log(u)                   # log of perplexity (= entropy)
+    
+    # Compute pairwise distances
+    if verbose > 0: print('Computing pairwise distances...')
+    sum_X = np.sum(np.square(X), axis=1)
+    # note: translating sum_X' from matlab to numpy means using reshape to add a dimension
+    D = sum_X + sum_X[:,None] + -2 * X.dot(X.T)
+
+    # Run over all datapoints
+    if verbose > 0: print('Computing P-values...')
+    for i in range(n):
+        
+        if verbose > 1 and print_iter and i % print_iter == 0:
+            print('Computed P-values {} of {} datapoints...'.format(i, n))
+        
+        # Set minimum and maximum values for precision
+        betamin = float('-inf')
+        betamax = float('+inf')
+        
+        # Compute the Gaussian kernel and entropy for the current precision
+        indices = np.concatenate((np.arange(0, i), np.arange(i + 1, n)))
+        Di = D[i, indices]
+        H, thisP = Hbeta(Di, beta[i])
+        
+        # Evaluate whether the perplexity is within tolerance
+        Hdiff = H - logU
+        tries = 0
+        while abs(Hdiff) > tol and tries < max_tries:
+            
+            # If not, increase or decrease precision
+            if Hdiff > 0:
+                betamin = beta[i]
+                if np.isinf(betamax):
+                    beta[i] *= 2
+                else:
+                    beta[i] = (beta[i] + betamax) / 2
+            else:
+                betamax = beta[i]
+                if np.isinf(betamin):
+                    beta[i] /= 2
+                else:
+                    beta[i] = (beta[i] + betamin) / 2
+            
+            # Recompute the values
+            H, thisP = Hbeta(Di, beta[i])
+            Hdiff = H - logU
+            tries += 1
+        
+        # Set the final row of P
+        P[i, indices] = thisP
+        
+    if verbose > 0: 
+        print('Mean value of sigma: {}'.format(np.mean(np.sqrt(1 / beta))))
+        print('Minimum value of sigma: {}'.format(np.min(np.sqrt(1 / beta))))
+        print('Maximum value of sigma: {}'.format(np.max(np.sqrt(1 / beta))))
+    
+    return P, beta
+
+def compute_joint_probabilities(samples, batch_size=5000, d=2, perplexity=30, tol=1e-5, verbose=0):
+    v = d - 1
+    
+    # Initialize some variables
+    # n = samples.shape[0] # !! hard code
+    n = 14394
+    batch_size = min(batch_size, n)
+    
+    # Precompute joint probabilities for all batches
+    if verbose > 0: print('Precomputing P-values...')
+    # batch_count = int(n / batch_size)
+    batch_count = n // batch_size
+    P = np.zeros((batch_count, batch_size, batch_size))
+    for i, start in enumerate(range(0, n - batch_size + 1, batch_size)):   
+        curX = samples[start:start+batch_size]                   # select batch
+        P[i], beta = x2p(curX, perplexity, tol, verbose=verbose) # compute affinities using fixed perplexity
+        P[i][np.isnan(P[i])] = 0                                 # make sure we don't have NaN's
+        P[i] = (P[i] + P[i].T) # / 2                             # make symmetric
+        P[i] = P[i] / P[i].sum()                                 # obtain estimation of joint probabilities
+        P[i] = np.maximum(P[i], np.finfo(P[i].dtype).eps)
+
+    return P
 
 def custom_loss_function(y_true, y_pred):
     '''Might be useful for testing:
@@ -764,7 +1018,137 @@ def custom_loss_function1(y_true, y_pred):
     return l2_loss + rms
     
     
+def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train, 
+                  ticid_test, target_info_train, target_info_test, num_split=2,
+                  output_dir='./', split=False, input_psd=False):
+    import keras
     
+    # >> load model
+    model = keras.models.load_model(output_dir+'model')
+    
+    # >> get training set of highest reconstruction error
+    x_train_predict = model.predict(x_train)
+    x_test_predict = model.predict(x_test)
+    if p['concat_ext_feats'] or input_psd:
+        err_train = (x_train[0] - x_train_predict[0])**2
+        err_test = (x_test[0] - x_test_predict[0])**2
+    else:
+        err_train = (x_train - x_train_predict)**2
+        err_test = (x_test - x_test_predict)**2
+    err_train = np.mean(err_train, axis=1)
+    err_train = err_train.reshape(np.shape(err_train)[0])
+    ranked_train = np.argsort(err_train)
+    err_test = np.mean(err_test, axis=1)
+    err_test = err_test.reshape(np.shape(err_test)[0])
+    ranked_test = np.argsort(err_test)    
+    
+    # >> re-order arrays
+    new_ticid_train = ticid_train[ranked_train]
+    new_info_train = target_info_train[ranked_train]
+    new_ticid_test = ticid_test[ranked_test]
+    new_info_test = target_info_test[ranked_test]
+    if p['concat_ext_feats'] or input_psd:
+        new_x_train = x_train[0][ranked_train]
+        new_x_train_1 = x_train[1][ranked_train]
+        new_x_test = x_test[0][ranked_test]
+        new_x_test_1 = x_test[1][ranked_test]
+    else:
+        new_x_train = x_train[ranked_train]
+        new_x_test = x_test[ranked_test]
+        
+    # >> now split
+    train_len = len(new_x_train)
+    test_len = len(new_x_test)
+    new_x_train = np.split(new_x_train, [int(train_len/num_split)])
+    new_x_test = np.split(new_x_test, [int(test_len/num_split)])
+    if p['concat_ext_feats'] or input_psd:
+        new_x_train_1 = np.split(new_x_train_1, [int(train_len/num_split)])
+        new_x_train[0] = np.concatenate([new_x_train[0], new_x_train_1[0]], axis=0)
+        new_x_train[1] = np.concatenate([new_x_train[1], new_x_train_1[1]], axis=0)        
+        new_x_test_1 = np.split(new_x_test_1, [int(test_len)/num_split])
+
+    new_ticid_train = np.split(new_ticid_train, [int(train_len/num_split)])
+    new_info_train = np.split(new_info_train, [int(train_len/num_split)])
+    new_ticid_test = np.split(new_ticid_test, [int(test_len/num_split)])
+    new_info_test = np.split(new_info_test, [int(test_len/num_split)])    
+    
+    history_list = []
+    model_list = []
+    for i in [1]:
+        # model_init = output_dir+'model'
+        model_init = None
+        history_new, model_new = \
+            conv_autoencoder(new_x_train[i], new_x_train[i], new_x_test[i],
+                             new_x_test[i], p,
+                             val=False, split=split, predict=False,
+                             save_bottleneck=False, output_dir=output_dir,
+                             save_model=False, model_init=model_init)
+        history_list.append(history_new)
+        model_list.append(model_new)
+        
+        bottleneck_train = \
+            get_bottleneck(model, x_train, p, save=True, ticid=ticid_train,
+                           out=output_dir+'bottleneck_train_iter'+str(i)+'.fits')
+        bottleneck = \
+            get_bottleneck(model, x_test, p, save=True, ticid=ticid_test,
+                           out=output_dir+'bottleneck_test_iter'+str(i)+'.fits')          
+        x_predict = model_new.predict(new_x_test[i])
+        features = bottleneck_train
+        pf.diagnostic_plots(history_new, model_new, p, output_dir, x,
+                            new_x_train[i], new_x_test[i],
+                            x_predict, mock_data=False,
+                            addend=0.,
+                            target_info_test=new_info_test[i],
+                            target_info_train=new_info_train[i],
+                            ticid_train=new_ticid_train[i],
+                            ticid_test=new_ticid_test[i], percentage=False,
+                            input_features=False,
+                            input_rms=False, 
+                            input_psd=input_psd, n_tot=40,
+                            plot_epoch = True,
+                            plot_in_out = True,
+                            plot_in_bottle_out=False,
+                            plot_latent_test = True,
+                            plot_latent_train = True,
+                            plot_kernel=False,
+                            plot_intermed_act=False,
+                            make_movie = False,
+                            plot_lof_test=False,
+                            plot_lof_train=False,
+                            plot_lof_all=False,
+                            plot_reconstruction_error_test=True,
+                            plot_reconstruction_error_all=False,
+                            load_bottleneck=True)           
+        if p['concat_ext_feats']:
+            
+            
+            x_predict = model_new.predict(new_x_train)
+            pf.diagnostic_plots(history_new, model_new, p, output_dir, x,
+                                new_x_train,
+                                new_x_train, x_predict, mock_data=False,
+                                addend=0.,
+                                target_info_test=new_info_test[i],
+                                target_info_train=new_info_train[i],
+                                ticid_train=new_ticid_train[i],
+                                ticid_test=new_ticid_test[i], percentage=False,
+                                input_features=False,
+                                input_rms=False, 
+                                input_psd=True, n_tot=40,
+                                plot_epoch = True,
+                                plot_in_out = True,
+                                plot_in_bottle_out=False,
+                                plot_latent_test = False,
+                                plot_latent_train = False,
+                                plot_kernel=False,
+                                plot_intermed_act=False,
+                                make_movie = False,
+                                plot_lof_test=False,
+                                plot_lof_train=False,
+                                plot_lof_all=False,
+                                plot_reconstruction_error_test=True,
+                                plot_reconstruction_error_all=False,
+                                load_bottleneck=True)             
+    return history_list, model_list
 
 def cnn(x_train, y_train, x_test, y_test, params, num_classes=4):
     from keras.models import Model
@@ -943,6 +1327,9 @@ def sampling(args):
     epsilon = K.random_normal(shape=(batch, dim))
     return z_mean + K.exp(0.5 * z_log_var) * epsilon
 
+# def lossModel():
+#     from keras.layers import 
+
 def encoder(x_train, params, reshape=False):
     '''x_train is an array with shape (num light curves, num data points, 1).
     params is a dictionary with keys:
@@ -965,10 +1352,16 @@ def encoder(x_train, params, reshape=False):
         * initializer: 'random_normal', 'random_uniform', ...
     '''
     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten, \
-        Dense, BatchNormalization, Reshape, Add, Activation
+        Dense, BatchNormalization, Reshape, Add, Activation, concatenate
     from keras.models import Model
     
-    input_dim = np.shape(x_train)[1]
+    if params['concat_ext_feats']:
+        input_dim = np.shape(x_train[0])[1]
+        input_dim1 = np.shape(x_train[1])[1]
+        input_img1 = Input(shape = (input_dim1,))
+        x1 = input_img1
+    else:
+        input_dim = np.shape(x_train)[1]
     num_iter = int(params['num_conv_layers']/2)
     
     if type(params['num_filters']) == np.int:
@@ -1062,6 +1455,29 @@ def encoder(x_train, params, reshape=False):
                 bias_regularizer=params['bias_regularizer'],
                 activity_regularizer=params['activity_regularizer'])(x)
         
+    elif params['concat_ext_feats']:
+        for i in range(len(params['units'])):
+            x1 = Dense(params['units'][i], activation=params['activation'],
+                       kernel_initializer=params['initializer'],
+                       kernel_regularizer=params['kernel_regularizer'],
+                       bias_regularizer=params['bias_regularizer'],
+                       activity_regularizer=params['activity_regularizer'])(x1)
+            
+        x = Flatten()(x)      
+        x = Dense(params['latent_dim'], activation=params['activation'],
+                  kernel_initializer=params['initializer'],
+                  kernel_regularizer=params['kernel_regularizer'],
+                  bias_regularizer=params['bias_regularizer'],
+                  activity_regularizer=params['activity_regularizer'])(x)
+        x = concatenate([x, x1])
+        encoded = Dense(params['latent_dim']+params['units'][-1],
+                  activation=params['activation'],
+                  kernel_initializer=params['initializer'],
+                  kernel_regularizer=params['kernel_regularizer'],
+                  bias_regularizer=params['bias_regularizer'],
+                  activity_regularizer=params['activity_regularizer'])(x)     
+        
+        
     elif params['cvae']:
         x = Flatten()(x)
         z_mean = Dense(params['latent_dim'], activation=params['activation'],
@@ -1096,7 +1512,10 @@ def encoder(x_train, params, reshape=False):
         encoder = Model(input_img, [z_mean, z_log_var, z])
         
     else:
-        encoder = Model(input_img, encoded)
+        if params['concat_ext_feats']:
+            encoder = Model([input_img, input_img1], encoded)
+        else:
+            encoder = Model(input_img, encoded)
 
     return encoder, feature_maps, pool_masks
 
@@ -1153,7 +1572,13 @@ def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False
     from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout, \
         Lambda, BatchNormalization, Add
     import tensorflow as tf
-    input_dim = np.shape(x_train)[1]
+    
+    if params['concat_ext_feats']:
+        input_dim = np.shape(x_train[0])[1]
+        input_dim1 = np.shape(x_train[1])[1]
+    else:
+        input_dim = np.shape(x_train)[1]
+        
     num_iter = int(params['num_conv_layers']/2)
       
     
@@ -1163,12 +1588,19 @@ def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False
     if type(params['num_consecutive']) == np.int:
         params['num_consecutive'] = list(np.repeat(params['num_consecutive'], num_iter))
         
-    
+
     if params['fully_conv']:
         x = bottleneck    
     else:
         if params['cvae']:
             z_mean, z_log_var, x = bottleneck
+        elif params['concat_ext_feats']:
+            x = bottleneck
+            x1 = Dense(params['units'][-1],
+                      kernel_initializer=params['initializer'],
+                      kernel_regularizer=params['kernel_regularizer'],
+                      bias_regularizer=params['bias_regularizer'],
+                      activity_regularizer=params['activity_regularizer'])(bottleneck)            
         else:
             x = bottleneck
         
@@ -1191,6 +1623,7 @@ def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False
         #           kernel_initializer=params['initializer'])(x)    
         x = Reshape((int(input_dim/tot_reduction_factor),
                       params['num_filters'][-1]))(x)
+
         
     feature_maps_decoder = []
     for i in range(num_iter):
@@ -1237,6 +1670,23 @@ def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False
                 
                 if not reshape:
                     decoded = Reshape((input_dim,))(decoded)
+                    
+                if params['concat_ext_feats']:
+                    for i in range(len(params['units'])):
+                        x1 = Dense(params['units'][-1*i-1],
+                                   activation=params['activation'],
+                                   kernel_initializer=params['initializer'],
+                                   kernel_regularizer=params['kernel_regularizer'],
+                                   bias_regularizer=params['bias_regularizer'],
+                                   activity_regularizer=params['activity_regularizer'])(x1)
+                        
+                    x1 = Dense(input_dim1,
+                               activation=params['activation'],
+                               kernel_initializer=params['initializer'],
+                               kernel_regularizer=params['kernel_regularizer'],
+                               bias_regularizer=params['bias_regularizer'],
+                               activity_regularizer=params['activity_regularizer'])(x1)                        
+                    decoded = [decoded, x1]
                     
             else:
                 if j == 0:
@@ -1465,6 +1915,62 @@ def encoder_split_diff_weights(x, params):
     encoded = concatenate(x)
     encoder = Model(inputs=input_imgs, outputs=encoded)
     return encoder
+
+# def encoder_external_features(x, params):
+#     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
+#     from keras.layers import Dense, concatenate, BatchNormalization
+#     from keras.models import Model
+
+#     input_imgs = [Input(shape=(np.shape(x[0])[1], 1)),
+#                   Input(shape=(np.shape(x[1])[0]))]
+#     num_iter = int((params['num_conv_layers'])/2)    
+
+#     for i in range(num_iter):
+
+#         if i == 0:
+#             x[0] = Conv1D(params['num_filters'],
+#                               int(params['kernel_size']),
+#                               activation=params['activation'], padding='same',
+#                               kernel_initializer=params['initializer'])(x[0])
+#             if params['num_consecutive']==2:
+#                 x[0] = Conv1D(params['num_filters'],
+#                                 int(params['kernel_size']),
+#                                 activation=params['activation'],
+#                                 padding='same',
+#                                 kernel_initializer=params['initializer'])(x[0])
+#         else:
+#             x[0] = Conv1D(params['num_filters'],
+#                               int(params['kernel_size']),
+#                               activation=params['activation'], padding='same',
+#                               kernel_initializer=params['initializer'])(x[0])
+
+#             if params['num_consecutive']==2:
+#                 x[0] = Conv1D(params['num_filters'],
+#                                 int(params['kernel_size']),
+#                                 activation=params['activation'],
+#                                 padding='same',
+#                                 kernel_initializer=params['initializer'])(x[0])
+                  
+            
+#         x[0] = BatchNormalization()(x[0])
+            
+#         maxpool_1 = MaxPooling1D(2, padding='same')
+#         x = [maxpool_1(a) for a in x]
+        
+#         dropout_1 = Dropout(params['dropout'])
+#         x = [dropout_1(a) for a in x]
+
+#     x = [Flatten()(a) for a in x]
+    
+#     dense_0 = Dense(int(params['latent_dim']/2),
+#                     activation=params['activation'])
+#     dense_1 = Dense(int(params['latent_dim']/2),
+#                     activation=params['activation'])    
+#     x = [dense_0(x[0]), dense_1(x[1])]
+    
+#     encoded = concatenate(x)
+#     encoder = Model(inputs=input_imgs, outputs=encoded)
+#     return encoder
 
 def decoder_split(x, bottleneck, params):
     from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout
@@ -1777,20 +2283,11 @@ def get_activations(model, x_test, input_rms = False, rms_test = False,
             activations = activation_model.predict(x_test[ind].reshape(1,-1))
     return activations
 
-def get_bottleneck(model, x_test, p, input_features=False, features=False,
-                   input_rms=False, rms=False, DAE=True):
-    from keras.models import Model
-    # >> first find all Dense layers
+def get_bottleneck(model, x_test, p, DAE=True, save=False, ticid=None,
+                   out=None):
     if p['fully_conv']:
         inds = np.nonzero(['conv1d' in x.name for x in model.layers])[0]
-        bottleneck_ind = inds[-1]
-        # inds = np.nonzero(['conv' in x.name for x in model.layers])[0]
-        
-        # if p['encoder_skip']:
-        #     bottleneck_ind = inds[int(p['num_conv_layers'] / 2 * (p['num_consecutive'] + 1))+1]
-        # else:
-        #     bottleneck_ind = inds[int(p['num_conv_layers'] / 2 * p['num_consecutive'])]
-        
+        bottleneck_ind = inds[-1]        
     else:
         inds = np.nonzero(['dense' in x.name for x in model.layers])[0]
         
@@ -1799,26 +2296,22 @@ def get_bottleneck(model, x_test, p, input_features=False, features=False,
             bottleneck_ind = inds[int(len(inds)/2)-1]
         else:
             bottleneck_ind = inds[0]
-            
-            
+                        
     activation_model = Model(inputs=model.input,
                              outputs=model.layers[bottleneck_ind].output)
     bottleneck = activation_model.predict(x_test)    
     
     if p['fully_conv']:
         bottleneck = np.squeeze(bottleneck, axis=-1)
-        
-    
-    if input_features: # >> concatenate features to bottleneck
-        bottleneck = np.concatenate([bottleneck, features], axis=1)
-    if input_rms:
-        # bottleneck = np.concatenate([bottleneck,
-        #                               np.reshape(rms, (np.shape(rms)[0],1))],
-        #                                 axis=1)    
-        bottleneck = np.concatenate([bottleneck, rms.reshape(-1, 1)],
-                                        axis=1)          
     
     bottleneck = df.standardize(bottleneck, ax=0)
+    
+    if save:
+        hdr = fits.Header()
+        hdu = fits.PrimaryHDU(bottleneck, header=hdr)
+        hdu.writeto(out)    
+        fits.append(out, ticid)          
+    
     return bottleneck
 
 def get_bottleneck_from_activations(model, activations, p, input_features=False, 
@@ -2990,4 +3483,9 @@ def get_target_list(sector_num, output_dir='./'):
 
     # x = Lambda(lambda x: K.squeeze(x, axis=2))(x)
     # x = tf.layers.conv2d_transpose(x, filters, 1, strides, padding='same')
-
+        # # >> re-arrange TESS features
+        # tmp = []
+        # for i in range(len(ticid)):
+        #     ind = np.nonzero(tess_features[:,0] == ticid[i])[0][0]
+        #     tmp.append(tess_features[ind][1:])
+        # tess_features = np.array(tmp)    
