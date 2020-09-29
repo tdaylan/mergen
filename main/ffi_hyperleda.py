@@ -62,13 +62,51 @@ class hyperleda_ffi(object):
     
     def __init__(self, datapath = "./", savepath = "./", ensemblename = "ensemble",
                  momentum_dump_csv = '/users/conta/urop/Table_of_momentum_dumps.csv',
-                 makefeats = True, plot = True):
+                 makefeats = True, plot = True, ENF = True, CAE = True):
         print("Initialized hyperleda ffi processing object")
         self.datapath = datapath
         self.savepath = savepath
         self.ensemblename = ensemblename
         self.momdumpcsv = momentum_dump_csv
+        self.makefeats = makefeats
         
+        print("Making all folders")
+        self.folder_initiate()
+            
+        print("Loading in data from LEDA light curve files in ", self.datapath)
+        self.load_lc_from_files()
+        
+        
+        if ENF: 
+            if self.makefeats:
+                print("Producing v0 features")
+                self.create_save_featvec(version=0, save=True)
+                
+                #print("Producing v1 features")
+                #self.create_save_featvec(version = 1, save=True)
+            
+            print("Opening all features together")
+            self.load_features()
+            
+            if plot: 
+                self.path = self.enffolder
+                self.plot_everything(list(np.arange(0.5,10,0.5)), [3,5,10])
+            
+        if CAE:
+            print("CAE not set up yet")
+            self.path = self.CAEpath
+            if not ENF:
+                self.median_normalize()
+                self.cleanedflux, comp = self.pca_linregress()
+            target_info = np.zeros((len(self.cleanedflux), 5))
+            self.index_for_CAE()
+            self.representation_learning(target_info)
+        
+        return
+     
+        
+    def folder_initiate(self):
+        """Makes all the big folders"""
         self.ensemblefolder = self.savepath + self.ensemblename + "/"
         
         print("Setting Up Ensemble Folder")
@@ -78,11 +116,11 @@ class hyperleda_ffi(object):
             print ("Directory %s already exists" % self.ensemblefolder) 
             
         print("Setting up CAE folder")
-        self.caefolder = self.ensemblefolder + "CAE/"
+        self.CAEpath = self.ensemblefolder + "CAE/"
         try:
-            os.makedirs(self.caefolder)
+            os.makedirs(self.CAEpath)
         except OSError:
-            print ("Directory %s already exists" % self.caefolder)
+            print ("Directory %s already exists" % self.CAEpath)
             
         print("Setting up ENF folder")
         self.enffolder = self.ensemblefolder + "ENF/"
@@ -90,45 +128,31 @@ class hyperleda_ffi(object):
             os.makedirs(self.enffolder)
         except OSError:
             print ("Directory %s already exists" % self.enffolder)
-            
-            
-        print("Loading in data from LEDA light curve files in ", self.datapath)
-        self.load_lc_from_files()
-        
-        if makefeats:
-            print("Producing v0 features")
-            self.create_save_featvec(version=0, save=True)
-            
-            print("Producing v1 features")
-            self.create_save_featvec(version = 1, save=True)
-        
-        print("Opening all features together")
-        self.load_features()
-        
-        if plot: 
-            self.plot_everything()
-        
         return
         
-    def plot_everything(self):
-        self.path = self.enffolder
-        self.median_normalize()
-        print("Plotting LOF")
-        self.plot_lof(20)
-        print("Plotting marginal distributions, no clustering")
-        self.features_plotting(clustering = 'nocluster')
-        print("plotting marginal distributions, kmeans clustering")
-        self.features_plotting(clustering = 'kmeans',kmeans_clusters=10)
         
-        print("Running DBSCAN param scan")
+    def plot_everything(self, dbscan_eps, min_samples):
+        self.path = self.enffolder
+        if not self.makefeats: #means that cleaning has not happened yet
+            print("Cleaning data")
+            self.median_normalize()
+            self.cleanedflux, comp =self.pca_linregress()
+        print("Removing and plotting outliers in the feature space")
+        self.isolate_outlier_features(sigma = 10)
+        print("Plotting LOF")
+        #self.plot_lof(20)
+        print("Plotting marginal distributions, no clustering")
+        #self.features_plotting(clustering = 'nocluster')
+        #print("plotting marginal distributions, kmeans clustering")
+        #self.features_plotting(clustering = 'kmeans',kmeans_clusters=10)
         
         parameter_sets, num_classes, silhouettes, d_b, ch, acc = \
-        self.dbscan_param_search(eps=list(np.arange(0.5,10,0.5)),
-                            min_samples=[2,5,10],
+            self.dbscan_param_search(eps=dbscan_eps,
+                            min_samples=min_samples,
                             metric=['minkowski'],
                             algorithm = ['auto'],
                             leaf_size = [40],
-                            p = [2,3,4], plotting=True, appendix = "bigscan",
+                            p = [2], plotting=True, appendix = "bigscan",
                             database_dir=None, pca=True, tsne=True,
                             confusion_matrix=False)
         
@@ -143,7 +167,7 @@ class hyperleda_ffi(object):
                             metric=[best_param_set[2]],
                             algorithm = [best_param_set[3]],
                             leaf_size = [best_param_set[4]],
-                            p = [best_param_set[5]], plotting=True, appendix="singleset",
+                            p = [best_param_set[5]], plotting=True, appendix="best-params",
                             database_dir=None, pca=True, tsne=True,
                             confusion_matrix=False)   
         
@@ -153,18 +177,68 @@ class hyperleda_ffi(object):
                              p=best_param_set[5])
         return
     
+    
+    def KNN_plotting(self, k_values):
+        """ This is based on a metric for finding the best possible eps/minsamp
+        value from the original DBSCAN paper (Ester et al 1996). Essentially,
+        by calculating the average distances to the k-nearest neighbors and plotting
+        those values sorted, you can determine by eye (heuristically) the best eps 
+        value. It should be eps value = yaxis value of first valley, and minsamp = k.
+        
+        ** currently uses default values (minkowski p=2) for the n-neighbor search **
+        
+        inputs: 
+            * path to where you want to save the plots
+            * features (should have any significant outliers clipped out)
+            * k_values: array of integers, ie [2,3,5,10] for the k values
+            
+        output: 
+            * plots the KNN curves into the path
+        modified [lcg 08312020 - ffi version]"""
+        self.path = self.enffolder
+        self.knnpath = self.path + "knn_plots/"
+        
+        try:
+            os.makedirs(self.knnpath)
+        except OSError:
+            print ("Creation of the directory %s failed" % self.knnpath)
+        else:
+            print ("Successfully created the directory %s" % self.knnpath)
+            
+        from sklearn.neighbors import NearestNeighbors
+        for n in range(len(k_values)):
+            neigh = NearestNeighbors(n_neighbors=k_values[n])
+            neigh.fit(self.features)
+        
+            k_dist, k_ind = neigh.kneighbors(self.features, return_distance=True)
+            
+            avg_kdist = np.mean(k_dist, axis=1)
+            avg_kdist_sorted = np.sort(avg_kdist)[::-1]
+            
+            plt.scatter(np.arange(len(self.features)), avg_kdist_sorted)
+            plt.xlabel("Points")
+            plt.ylabel("Average K-Neighbor Distance")
+            plt.ylim((0, 30))
+            plt.title("K-Neighbor plot for k=" + str(k_values[n]))
+            plt.savefig(self.knnpath + "kneighbors-" +str(k_values[n]) +"-plot-sorted.png")
+            plt.close() 
+    
     def load_lc_from_files(self):
 
         #make sure they're all txt files
-        for filename in os.listdir(self.datapath):
-            file = os.path.join(self.datapath, filename)
-            if filename.startswith("lc_") and not filename.endswith(".txt"):
-                os.rename(file, file + ".txt")
+        for root, dirs, files in os.walk(self.datapath):
+            for filename in files:
+                file = os.path.join(root, filename)
+                if filename.startswith("lc_") and not filename.endswith(".txt"):
+                    os.rename(file, file + ".txt")
+                        
+            
         
         #get all file names
         intensities = []
         identifiers = []
         
+        #open all files
         for root, dirs, files in os.walk(self.datapath):
             
             for n in range(len(files)):
@@ -188,6 +262,17 @@ class hyperleda_ffi(object):
         self.identifiers = identifiers
         return
     
+    def save_lc_metafile(self):
+        
+        self.metafilepath = self.datapath + self.ensemblename + "_lc_metafile.fits"
+        hdr = fits.Header() # >> make the header
+        hdu = fits.PrimaryHDU(self.timeaxis, header=hdr)
+        hdu.writeto(self.metafilepath)
+        fits.append(self.metafilepath, self.intensities)
+        fits.append(self.metafilepath, self.identifiers)
+        return
+        
+    
     def median_normalize(self):
         '''Dividing by median.
         !!Current method blows points out of proportion if the median is too close to 0?'''
@@ -202,6 +287,122 @@ class hyperleda_ffi(object):
         self.cleanedflux = self.intensities / means
         return
     
+    def pca_linregress(self, plot=False):
+        print("Beginning PCA Linear Regression Corrections for 3 components")
+        from sklearn.linear_model import LinearRegression
+        pca = PCA(n_components=3)
+    
+        standardized_flux = df.standardize(self.cleanedflux)
+        
+        #x should have shape(num samples, num features) (rows, columns)
+        # ie each COLUMN is a light curve, so you get principal component of
+        p = pca.fit_transform(standardized_flux.T) #take transpose - input is COLUMNS of light curves
+        
+        components = p.T #now have n_component rows of reduced curves??
+        #print(components)
+        
+        for n in range(len(components)):
+            plt.scatter(self.timeaxis, components[n])
+            plt.title("Principal Component " + str(n))
+            plt.savefig(self.path + "standardized-pc-" + str(n)+'.png')
+            plt.show()
+        residuals = np.zeros_like(self.cleanedflux)
+        for n in range(len(self.cleanedflux)):
+            reg = LinearRegression().fit(components.T, standardized_flux[n])
+            
+            y = reg.coef_[0] * components[0] + reg.coef_[1] * components[1] + reg.coef_[2] * components[2]
+            residual = standardized_flux[n] - y
+            residuals[n] = residual
+            if plot:
+                score = reg.score(components.T, standardized_flux[n])
+                print(reg.coef_, reg.score(components.T, standardized_flux[n]), reg.intercept_)
+            
+                plt.scatter(self.timeaxis, y, label ="lin regress")
+                
+                plt.scatter(self.timeaxis, standardized_flux[n], label = "original data")
+                plt.title("Raw data versus linear regression fit. Fit score: " + str(score))
+                plt.legend()
+                plt.savefig(self.path + "origversuslinregress-" + str(n) + ".png")
+                plt.show()
+                
+                plt.scatter(self.timeaxis, residual)
+                plt.title("Residual")
+                plt.savefig(self.path + "residual-" + str(n) + ".png")
+                plt.show()
+            
+        return residuals, components
+    
+    
+    def isolate_outlier_features(self, sigma = 5):
+        
+        self.outlierfeaturepath = self.path + "clipped-feature-outliers/"
+        try:
+            os.makedirs(self.outlierfeaturepath)
+        except OSError:
+            print("%s already exists" % self.outlierfeaturepath)
+        else:
+            print("Successfully created the directory %s" % self.outlierfeaturepath)
+        
+        features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
+                      "E", r'$\epsilon$', "Z", "H", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$', "M", r'$\mu$'
+                      ,"N", r'$\nu$']
+
+        #identifying the outlier indexes
+        outlier_indexes = []
+        for i in range(len(self.features[0])):
+            column = self.features[:,i] #get each column
+            column_std = np.std(column) #find std
+            column_top = np.mean(column) + column_std * sigma #find max limit
+            column_bottom = np.mean(column) - (column_std * sigma) #min limit
+            for n in range(len(column)):
+                #find and note the position of any outliers
+                if column[n] < column_bottom or column[n] > column_top or np.isnan(column[n]) ==True: 
+                    outlier_indexes.append((int(n), int(i))) #(pos of outlier, which feature)
+                    
+        outlier_indexes = np.asarray(outlier_indexes)
+        self.outlier_indexes = outlier_indexes
+        
+        #plotting everything 
+        target_indexes = outlier_indexes[:,0] #is the index of the target on the lists
+        print(target_indexes)
+        feature_indexes = outlier_indexes[:,1] #is the index of the feature that it triggered on
+        
+        #plotting outlier light curves
+        for i in range(len(outlier_indexes)):
+            target_index = target_indexes[i]
+            feature_index = feature_indexes[i]
+            plt.figure(figsize=(8,3))
+            plt.scatter(self.timeaxis, self.cleanedflux[target_index], s=0.5)
+            target = self.identifiers[target_index]
+            
+            if np.isnan(self.features[target_index][feature_index]) == True:
+                feature_title = features_greek[feature_index] + "=nan"
+            else: 
+                feature_value = '%s' % float('%.2g' % self.features[target_index][feature_index])
+                feature_title = features_greek[feature_index] + "=" + feature_value
+            #print(feature_title)
+            
+            plt.title(str(target) + " " + feature_title, fontsize=8)
+            plt.tight_layout()
+            plt.savefig((self.outlierfeaturepath + "featureoutlier-" + str(target) + ".png"))
+            plt.show()
+            
+            
+        self.feature_outliers = []
+        self.identifiers_outliers = []
+        for ind in target_indexes:
+            self.feature_outliers.append(self.features[ind])
+            self.identifiers_outliers.append(self.identifiers[ind])
+  
+        self.features = np.delete(self.features, target_indexes, axis=0)
+        
+        self.flux_outliers = self.cleanedflux[target_indexes]
+        self.cleanedflux = np.delete(self.cleanedflux, target_indexes, axis=0)
+        
+        #self.identifiers_outliers = self.identifiers[target_indexes]
+        self.identifiers = np.delete(self.identifiers, target_indexes)
+        
+        return
     
     #i think i'm going to have to just sigma clip each light curve as i go through the feature generation
                     
@@ -212,9 +413,13 @@ class hyperleda_ffi(object):
         feature_list = []
         if version == 0:
             self.median_normalize()
+            self.path = self.enffolder
+            self.cleanedflux, comp = self.pca_linregress()
         elif version == 1: 
             from transitleastsquares import transitleastsquares
             self.mean_normalize()
+            self.path = self.enffolder
+            self.cleanedflux, comp =self.pca_linregress()
     
         print("Begining Feature Vector Creation Now")
         #sigma clip each time you calculate - unsure how better to do this??
@@ -230,8 +435,10 @@ class hyperleda_ffi(object):
             times = np.delete(times, delete_index)
             ints = np.delete(ints, delete_index)
             
-            
-            feature_vector = df.featvec(times, ints, v=version)
+            try:
+                feature_vector = df.featvec(times, ints, v=version)
+            except ValueError:
+                print("it did the stupid thing where it freaked out about one light curve and idk why")
             if version == 1:
                 feature_vector = np.nan_to_num(feature_vector, nan=0)
             feature_list.append(feature_vector)
@@ -249,6 +456,7 @@ class hyperleda_ffi(object):
             print("Not saving feature vectors to fits")
         
         return   
+      
     
     def load_features(self):
         filepaths = []
@@ -417,7 +625,7 @@ class hyperleda_ffi(object):
                 if i == 0:
                     
                     fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
-                                 y=0.9)
+                                 y=0.95)
                     fig.tight_layout()
                     fig.savefig(self.lofpath + 'lof-' + prefix + 'kneigh' + \
                                 str(n_neighbors) + '-largest_' + str(j*n) + 'to' +\
@@ -445,30 +653,198 @@ class hyperleda_ffi(object):
         return
         
     def index_for_CAE(self):
-        self.indexing = np.arange(0, len(self.cleanedflux), 1)
+        """ Current CAE setup does not allow for non-number inputs as TICIDs
+        Therefore we index all of the fluxes and save the associated names and 
+        the indexes into a text file for later reference"""
+        self.CAE_index = np.arange(0, len(self.cleanedflux), 1)
+        filepath = self.CAEpath + "/indexed_names.txt"
+        for n in range(len(self.CAE_index)):
+            with open(filepath, 'a') as f:
+                f.write('{} {} \n'.format(self.CAE_index[n], self.identifiers[n]))
         return
+    
+    
+    def representation_learning(self, target_info, p=None,
+                                validation_targets=[],
+                                norm_type='minmax_normalization',
+                                input_rms=False, input_psd=False, load_psd=False,
+                                train_test_ratio=0.9, split=False):
+        '''
+        Parameters you have to change:
+            * flux : np.array, with shape (num_samples, num_data_points)
+            * x : np.array, with shape (num_data_points)
+            * ticid : np.array, with shape (num_samples)
+            * target_info : np.array, with shape (num_samples, 5)
+            * dat_dir : Dropbox directory with all of our metafiles
+            * mom_dump : path to momentum dump csv file
+            * data_base_dir : Dropbox directory with all of the database .txt files
+            
+        Parameters to ignore:
+            * p : dictionary of parameters        
+            * validation_targets
+            * 
+        '''
+        
+        # >> use default parameter set if not given
+        if type(p) == type(None):
+            p = {'kernel_size': 3,
+                  'latent_dim': 35,
+                  'strides': 1,
+                  'epochs': 10,
+                  'dropout': 0.,
+                  'num_filters': 16,
+                  'num_conv_layers': 12,
+                  'batch_size': 64,
+                  'activation': 'elu',
+                  'optimizer': 'adam',
+                  'last_activation': 'linear',
+                  'losses': 'mean_squared_error',
+                  'lr': 0.0001,
+                  'initializer': 'random_normal',
+                  'num_consecutive': 2,
+                  'pool_size': 2, 
+                  'pool_strides': 2,
+                  'kernel_regularizer': None,
+                  'bias_regularizer': None,
+                  'activity_regularizer': None,
+                  'fully_conv': False,
+                  'encoder_decoder_skip': False,
+                  'encoder_skip': False,
+                  'decoder_skip': False,
+                  'full_feed_forward_highway': False,
+                  'cvae': False,
+                  'share_pool_inds': False,
+                  'batchnorm_before_act': False} 
+            
+        print('Preprocessing')
+        x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
+            target_info_test, rms_train, rms_test, x = \
+            ml.autoencoder_preprocessing(self.cleanedflux, self.CAE_index, self.timeaxis, target_info, p,
+                                         validation_targets=validation_targets,
+                                         norm_type=norm_type,
+                                         input_rms=input_rms, input_psd=input_psd,
+                                         load_psd=load_psd,
+                                         train_test_ratio=train_test_ratio,
+                                         split=split,
+                                         output_dir=self.CAEpath)       
+            
+        print('Training CAE')
+        history, model, x_predict = \
+            ml.conv_autoencoder(x_train, y_train, x_test, y_test, p,
+                                input_rms=input_rms, rms_train=rms_train, rms_test=rms_test,
+                                ticid_train=ticid_train, ticid_test=ticid_test,
+                                output_dir=self.CAEpath)
+            
+        print('Diagnostic plots')
+        pf.diagnostic_plots(history, model, p, self.CAEpath, x, x_train,
+                            x_test, x_predict, mock_data=False, addend=0.,
+                            target_info_test=target_info_test,
+                            target_info_train=target_info_train,
+                            ticid_train=ticid_train,
+                            ticid_test=ticid_test, percentage=False,
+                            input_features=False,
+                            input_rms=input_rms, rms_test=rms_test,
+                            input_psd=input_psd,
+                            rms_train=rms_train, n_tot=40,
+                            plot_epoch = False,
+                            plot_in_out = True,
+                            plot_in_bottle_out=False,
+                            plot_latent_test = True,
+                            plot_latent_train = True,
+                            plot_kernel=False,
+                            plot_intermed_act=True,
+                            make_movie = False,
+                            plot_lof_test=False,
+                            plot_lof_train=False,
+                            plot_lof_all=False,
+                            plot_reconstruction_error_test=False,
+                            plot_reconstruction_error_all=True,
+                            load_bottleneck=True)            
+    
+        features, flux_feat, ticid_feat, info_feat = \
+            ml.bottleneck_preprocessing(None,
+                                        np.concatenate([x_train, x_test], axis=0),
+                                        np.concatenate([ticid_train, ticid_test]),
+                                        np.concatenate([target_info_train,
+                                                        target_info_test]),
+                                        data_dir=None,
+                                        output_dir=self.CAEpath,
+                                        use_learned_features=True,
+                                        use_tess_features=False,
+                                        use_engineered_features=False,
+                                        use_tls_features=False)         
+        print("Novelty detection")
+        self.features = features
+        self.plot_lof(20, n_neighbors=20, n_tot=100)
+        
+        
+        print('DBSCAN parameter search')
+        parameter_sets, num_classes, silhouettes, d_b, ch, acc = \
+            self.dbscan_param_search(eps=list(np.arange(0.5,5,0.2)),
+                            min_samples=[3,5,10],
+                            metric=['minkowski'],
+                            algorithm = ['auto'],
+                            leaf_size = [40],
+                            p = [2], plotting=True, appendix = "big-scan-cae",
+                            database_dir=None, pca=True, tsne=True,
+                            confusion_matrix=False)
+        
+        best_ind_s = np.argmax(silhouettes)
+        best_ind_ch = np.argmax(ch)
+        best_ind_db = np.argmin(d_b)
+        
+        best_param_set = parameter_sets[best_ind_s] 
+        print("Best parameter set is {}".format(best_param_set))
+        print("Running DBSCAN with just this parameter set")
+        
+        parameter_sets, num_classes, silhouettes, d_b, ch, acc = \
+            self.dbscan_param_search(eps=[best_param_set[0]],
+                            min_samples=[best_param_set[1]],
+                            metric=[best_param_set[2]],
+                            algorithm = [best_param_set[3]],
+                            leaf_size = [best_param_set[4]],
+                            p = [best_param_set[5]], plotting=True, appendix="best-silhouette-params-cae",
+                            database_dir=None, pca=True, tsne=True,
+                            confusion_matrix=False)  
+            
+        if best_ind_s != best_ind_ch:
+            best_param_set = parameter_sets[best_ind_ch] 
+            print("Best parameter set is {}".format(best_param_set))
+            print("Running DBSCAN with just this parameter set")
+            
+            parameter_sets, num_classes, silhouettes, d_b, ch, acc = \
+                self.dbscan_param_search(eps=[best_param_set[0]],
+                                min_samples=[best_param_set[1]],
+                                metric=[best_param_set[2]],
+                                algorithm = [best_param_set[3]],
+                                leaf_size = [best_param_set[4]],
+                                p = [best_param_set[5]], plotting=True, appendix="best-CH-params-cae",
+                                database_dir=None, pca=True, tsne=True,
+                                confusion_matrix=False)
+        if best_ind_s != best_ind_db and best_ind_ch != best_ind_db:
+            best_param_set = parameter_sets[best_ind_db] 
+            print("Best parameter set is {}".format(best_param_set))
+            print("Running DBSCAN with just this parameter set")
+            
+            parameter_sets, num_classes, silhouettes, d_b, ch, acc = \
+                self.dbscan_param_search(eps=[best_param_set[0]],
+                                min_samples=[best_param_set[1]],
+                                metric=[best_param_set[2]],
+                                algorithm = [best_param_set[3]],
+                                leaf_size = [best_param_set[4]],
+                                p = [best_param_set[5]], plotting=True, appendix="best-DB-params-cae",
+                                database_dir=None, pca=True, tsne=True,
+                                confusion_matrix=False)
+        
+        print("CAE completed")
+        return
+    
     
     def features_plotting(self, clustering = 'dbscan', eps=3, min_samples=10,
                              metric='minkowski', algorithm='auto', leaf_size=30,
                              p=2, kmeans_clusters=10):
         """plotting (n 2) features against each other
-        parameters: 
-            * feature_vectors - array of feature vectors
-            * path to where you want everythigns aved - ends in a backslash
-            * clustering - what you want to cluster as. options are 'dbscan', 'kmeans', or 
-            any other keyword which will do no clustering
-            * time axis
-            * intensities
-            *target ticids
-            * folder suffix
-            *feature_engineering - default is true
-            * version - what version of engineered features, irrelevant integer if feature_engienering is false
-            * eps, min_samples, metric, algorithm, leaf_size, p - dbscan parameters, comes with defaults
-            *momentum dumps - not sure entirely why it's needed here tbh
-            
-        returns: only returns labels for dbscan/kmeans clustering. otherwise the only
-        output is the files saved into the folder as given thru path
-        
+
         modified [lcg 09152020 - adapted to hyperleda]
         ** TO DO: make file and graph labels a property of self when you set the version
         """
@@ -532,7 +908,7 @@ class hyperleda_ffi(object):
             graph_label1 = graph_labels[n]
             fname_label1 = fname_labels[n]
             for m in range(num_features):
-                if m == n:
+                if m == n or m < n:
                     continue
                 graph_label2 = graph_labels[m]
                 fname_label2 = fname_labels[m]                
@@ -546,7 +922,7 @@ class hyperleda_ffi(object):
                     plt.xlabel(graph_label1)
                     plt.ylabel(graph_label2)
                     plt.savefig((folder_path + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
-                    plt.show()
+                    #plt.show()
                     plt.close()
                      
                 elif clustering == 'kmeans':
@@ -557,14 +933,14 @@ class hyperleda_ffi(object):
                     plt.xlabel(graph_label1)
                     plt.ylabel(graph_label2)
                     plt.savefig(folder_path + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
-                    plt.show()
+                    #plt.show()
                     plt.close()
                 else:
                     plt.scatter(feat1, feat2, s = 2, color = 'black')
                     plt.xlabel(graph_label1)
                     plt.ylabel(graph_label2)
                     plt.savefig(folder_path + fname_label1 + "-vs-" + fname_label2 + ".png")
-                    plt.show()
+                    #plt.show()
                     plt.close()
                     
         if clustering == 'dbscan':
@@ -601,8 +977,8 @@ class hyperleda_ffi(object):
                 with open(self.momdumpcsv, 'r') as f:
                     lines = f.readlines()
                     mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
-                    inds = np.nonzero((mom_dumps >= np.min(self.timeaxis[ind])) * \
-                                      (mom_dumps <= np.max(self.timeaxis[ind])))
+                    inds = np.nonzero((mom_dumps >= np.min(self.timeaxis)) * \
+                                      (mom_dumps <= np.max(self.timeaxis)))
                     mom_dumps = np.array(mom_dumps)[inds]
                 # >> plot momentum dumps
                 for t in mom_dumps:
@@ -656,7 +1032,7 @@ class hyperleda_ffi(object):
         
         
         
-        self.dbpath = self.enffolder + "dbscan-paramscan{}/".format(appendix)
+        self.dbpath = self.path + "dbscan-paramscan{}/".format(appendix)
         
         try:
             os.makedirs(self.dbpath)

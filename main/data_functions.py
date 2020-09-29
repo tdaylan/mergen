@@ -789,7 +789,48 @@ def standardize(x, ax=1):
     x = x / stdevs
     return x
 
+def pca_linregress(time, flux, path):
+    """ does pca and then linear regresses to subtract off the first
+    two PC's and return the residuals """
+    pca = PCA(n_components=2)
 
+    standardized_flux = df.standardize(flux)
+    
+    #x should have shape(num samples, num features) (rows, columns)
+    # ie each COLUMN is a light curve, so you get principal component of
+    p = pca.fit_transform(standardized_flux.T) #take transpose - input is COLUMNS of light curves
+    
+    components = p.T #now have n_component rows of reduced curves??
+    #print(components)
+    
+    for n in range(len(components)):
+        plt.scatter(time, components[n])
+        plt.title("Principal Component " + str(n))
+        plt.savefig(path + "standardized-pc-" + str(n)+'.png')
+        plt.show()
+    residuals = np.zeros_like(flux)
+    for n in range(len(flux)):
+        reg = LinearRegression().fit(components.T, standardized_flux[n])
+        score = reg.score(components.T, standardized_flux[n])
+        print(reg.coef_, reg.score(components.T, standardized_flux[n]), reg.intercept_)
+        
+        y = reg.coef_[0] * components[0] + reg.coef_[1] * components[1] 
+        
+        plt.scatter(time, y, label ="lin regress")
+        
+        plt.scatter(time, standardized_flux[n], label = "original data")
+        plt.title("Raw data versus linear regression fit. Fit score: " + str(score))
+        plt.legend()
+        plt.savefig(path + "origversuslinregress-" + str(n) + ".png")
+        plt.show()
+        
+        residual = standardized_flux[n] - y
+        plt.scatter(time, residual)
+        plt.title("Residual")
+        plt.savefig(path + "residual-" + str(n) + ".png")
+        plt.show()
+        residuals[n] = residual
+    return residuals, components
 
 #interpolate and sigma clip
 def interpolate_all(flux, time, ticid, flux_err=False, interp_tol=20./(24*60),
@@ -1243,6 +1284,7 @@ def featvec(x_axis, sampledata, ticid=None, v=0):
     elif v == 1: 
         from transitleastsquares import transitleastsquares, period_grid, catalog_info
         model = transitleastsquares(x_axis, sampledata)
+        #model.transit_depth_min = 1 * 10 ** -6  # 1 ppm
         
         if type(ticid) != type(None):
             dt = np.max(x_axis) - np.min(x_axis)            
@@ -1267,7 +1309,7 @@ def featvec(x_axis, sampledata, ticid=None, v=0):
         else:
             R_star, M_star = 1,1
         
-        results = model.power(show_progress_bar=True, R_star=R_star,
+        results = model.power(show_progress_bar=False, R_star=R_star,
                               M_star=M_star)
         featvec.append(results.period)
         featvec.append(results.duration)
