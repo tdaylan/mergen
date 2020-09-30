@@ -14,7 +14,7 @@
 
 # data_dir = '../../' # >> directory with input data (ending with /)
 data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/CAE-Sector2_3/' # >> directory to save diagnostic plots
+output_dir = '../../plots/Ensemble-Sectors_2_3/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -57,8 +57,9 @@ classification=True # >> runs DBSCAN on learned features
 norm_type = 'standardization'
 
 input_rms=True# >> concatenate RMS to learned features
-input_psd=False # >> also train on PSD
-n_pgram = 1500
+input_psd=True # >> also train on PSD
+# n_pgram = 1500
+n_pgram = 5000
 
 load_psd=False # >> if psd_train.fits, psd_test.fits already exists
 use_tess_features = True
@@ -89,6 +90,7 @@ import pdb
 import os
 from astropy.io import fits
 import tensorflow as tf
+# tf.enable_eager_execution()
 
 import sys
 sys.path.insert(0, lib_dir)     # >> needed if scripts not in current dir
@@ -256,6 +258,8 @@ if hyperparameter_optimization:
 
 # == run model ================================================================
 if run_model:
+    
+    pdb.set_trace()
     print('Training autoencoder...') 
     history, model, x_predict = \
         ml.conv_autoencoder(x_train, x_train, x_test, x_test, p, val=False, split=split_at_orbit_gap,
@@ -394,7 +398,7 @@ for i in [0,1,2]:
             t = talos.Scan(x=features,
                             y=features,
                             params=p_DAE,
-                            model=ml.simple_autoencoder,
+                            model=ml.deep_autoencoder,
                             experiment_name='DAE', 
                             reduction_metric = 'val_loss',
                             minimize_loss=True,
@@ -423,7 +427,7 @@ for i in [0,1,2]:
             #          'batch_size': 128, 'initializer': 'glorot_normal',
             #          'fully_conv': False}               
             
-        history_DAE, model_DAE = ml.simple_autoencoder(features, features,
+        history_DAE, model_DAE = ml.deep_autoencoder(features, features,
                                                        features, features,
                                                        p_DAE, resize=False,
                                                        batch_norm=True)

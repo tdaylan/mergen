@@ -4,25 +4,6 @@
 # Keras novelty detection in TESS dataset
 # / Emma Chickles
 # 
-# TODO: finish these function summaries
-# Preprocessing
-# * bottleneck_preprocessing
-# * 
-#
-# Model
-# * run_model
-# * model_summary_txt
-# * param_summary_txt
-# * conv_autoencoder
-# * cnn
-# * cnn_mock
-# * mlp
-# * simple autoencoder: fully-connected layers
-# * compile_model
-# 
-# Helper functions
-# * ticid_label
-#
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: 
 
 from sklearn.manifold import TSNE
@@ -42,7 +23,12 @@ import tensorflow as tf
 from tensorflow import keras
 from sklearn.cluster import KMeans    
 from sklearn.manifold import TSNE     
+import keras
 from keras.models import Model
+from keras.layers import *
+from keras import optimizers
+import keras.metrics
+from keras import metrics
 
 
 def sector_mask_diag(sectors=[1,2,3,17,18,19,20], data_dir='./',
@@ -93,13 +79,10 @@ def merge_sector_diag(data_dir, sectors=list(range(1, 29)), output_dir='./',
             ticid = sectorfile[j][0]
             time, flux, ticid = df.get_lc_file_and_data(output_dir, ticid)
             a.plot(time, flux, '.k', ms=2)
-            # pf.ticid_label(ax[i], ticid, all_target_info[i][0],
-            #                title=True)
             a.set_title('Sector '+str(sectors[i]), fontsize='small')
         
     fig.tight_layout()
     fig.savefig(output_dir + 'sector_lightcurves.png')
-    
     
 
 def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
@@ -198,8 +181,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                     psd.append(tmp)
                 psd = np.array(psd)
                 
-                # >> truncate (must be a multiple of 2**num_conv_layers)
-                # !! update
+                # >> truncate
                 if not p['fully_conv']:
                     new_length=int(np.shape(psd)[1] / \
                                    (2**(np.max(p['num_conv_layers'])/2)))*\
@@ -210,7 +192,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                                 int((2**(np.max(p['num_conv_layers']+1)/2)))                    
                 psd = np.delete(psd,np.arange(new_length,np.shape(psd)[1]),1)
                 f = f[:new_length]
-                # psd = np.reshape(psd, (psd.shape[0], psd.shape[1], 1))
+
             else:
                 # >> load data
                 with fits.open(output_dir + 'psd_train.fits') as hdul:
@@ -346,21 +328,6 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
     features = []
     
     if use_engineered_features:
-        # with fits.open(data_dir + 'Sector'+str(sector)+'_v0_features/Sector'+\
-        #                str(sector)+'_features_v0_all.fits') as hdul:
-        
-        # if use_tls:
-        #     for cam in cams:
-        #         for ccd in ccds:
-        #             fname = data_dir+'Sector'+str(sector)+'Cam'+str(cam)+'CCD'+\
-        #                 str(ccd)+ '/'+'Sector'+str(sector)+'Cam'+str(cam)+'CCD' + str(ccd) +\
-        #                     '_features_v1.fits'
-        #             with fits.open(fname) as hdul:        
-        #                 engineered_feature_vector = hdul[0].data
-        #                 engineered_feature_ticid = hdul[1].data              
-                        
-        #             # !! TODO concatenate all of these
-        # else:
         fname = data_dir + 'Sector'+str(sector)+'_features_v0_all.fits'
         with fits.open(fname) as hdul:        
             engineered_feature_vector = hdul[0].data
@@ -370,10 +337,7 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
         for i in range(len(ticid)):
             ind = np.nonzero(engineered_feature_ticid == ticid[i])
             tmp.append(engineered_feature_vector[ind])
-        engineered_feature_vector = \
-            np.array(tmp).reshape((len(ticid), 16))
-        # if not use_learned_features and not use_tess_features:
-        #     features = engineered_feature_vector
+        engineered_feature_vector = np.array(tmp).reshape((len(ticid), 16))
         features.append(engineered_feature_vector)
             
     if use_learned_features:
@@ -383,12 +347,6 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
             bottleneck_test = hdul[0].data
         learned_feature_vector = np.concatenate([bottleneck_train,
                                                  bottleneck_test], axis=0)
-        # if not use_engineered_features and not use_tess_features:
-        #     features = learned_feature_vector
-        
-        # if log:
-        #     learned_feature_vector = learned_feature_vector[:,:-1]
-
         features.append(learned_feature_vector)
         
     if use_tls_features:
@@ -429,7 +387,6 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
         
         
     if use_tess_features:
-        # >> tess_features[0] = [ticid, Teff, mass, rad, GAIAmag, d, objType]
         tess_features = np.loadtxt(data_dir + 'Sector'+str(sector)+\
                                    '/tess_features_sector'+str(sector)+'.txt',
                                    delimiter=' ', usecols=[1,2,3,4,5,6,8])
@@ -467,8 +424,6 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
             engineered_features_v1 = engineered_features_v1[comm2]
             features.append(engineered_features_v1)
         
-
- 
     if use_rms and not use_tess_features:
         if log:
             rms = np.log(rms)
@@ -528,11 +483,8 @@ def param_summary(history, x_test, x_predict, p, output_dir, param_set_num,
             f.write('y_predict\n')
             f.write(str(y_predict)+'\n')
         else:
-            # >> assuming uncertainty of 0.02
-            
-            # f.write('chi_squared ' + str(chi_2) + '\n')
             mse = np.average((x_predict - x_test)**2)
-            # f.write('mse '+ str(mse) + '\n')
+            f.write('mse '+ str(mse) + '\n')
         f.write('\n')
     
         
@@ -554,29 +506,96 @@ def pretrain(p, output_dir, input_dim=18688, input_psd=True, input_rms=False,
                                 hyperparam_opt=hyperparam_opt)    
 
 
-# def run_VAEGAN(x_train, p, kernel=5, columns=18688,
-#                rows=1, channel=3):
-#     from keras import optimizers
-#     from VAEGAN import decgen
+def vae_gan(x_train, y_train, x_test, y_test, params, 
+            save_model=True, save_bottleneck=True,
+            predict=True, output_dir='./',
+            input_rms=False, rms_train=None, rms_test=None,
+            ticid_train=None, ticid_test=None):
+    # >> encoder
+    E, feature_maps, pool_masks = encoder(x_train, params)
+    compile_model(E, params)
+    E.summary()
+    model_summary_txt(output_dir+'VAEGAN_encoder_', E)  
+
+    z_mean, z_log_var, z = E.output    
     
-#     # noise = np.random.normal(0, 1, (p['batch_size'], 256))
-#     # optimizers
-#     if p['optimizer'] == 'adam':
-#         opt = optimizers.adam(lr = p['lr'],  decay=p['lr']/p['epochs'])    
-#     # SGDop = SGD(lr=0.0003)
-#     # ADAMop = Adam(lr=0.0002)
+    # >> generator / decoder
+    G = decgen(x_train, params)
+    compile_model(G, params)
+    G.summary()
+    model_summary_txt(output_dir+'VAEGAN_generator_', G)
     
-#     G = decgen(p['kernel_size'], p['num_filters'], rows, columns, channel)
-#     G.compile(optimizer=p['optimizer'], loss='mse')
-#     G.summary()
+    # >> discriminator
+    D = discriminator(x_train, params)
+    compile_model(D, params)
+    D.summary()
+    model_summary_txt(output_dir+'VAEGAN_discriminator_', D)
+    D_fixed = discriminator(E.input, params)
+    compile_model(D_fixed, params)
     
-#     # >> training model
-#     history = G.fit()
+    # >> VAE
+    input_dim = np.shape(x_train)[1]
+    X = Input(shape = (input_dim,))
+    E_mean, E_logsigma, Z = E(X)
+    output = G(Z)
+    G_dec = G(E_mean + E_logsigma)
+    D_fake, F_fake = D(output)
+    D_fromGen, F_fromGen = D(G_dec)
+    D_true, F_true = D(X)
     
-#     # G.load_weights('generator.h5')
-#     # image = G.predict(noise)
-#     # image = np.uint8(image * 127.5 +127.5)
-#     # plt.imshow(image[0]), plt.show()    
+    VAE = Model(X, output)
+    kl = - 0.5 * K.sum(1 + E_logsigma - K.square(E_mean) - K.exp(E_logsigma),
+                       axis=-1)
+    crossent = 64 * metrics.mse(K.flatten(X), K.flatten(output))
+    VAEloss = K.mean(crossent + kl)
+    VAE.add_loss(VAEloss)
+    opt = optimizers.adam(lr = params['lr'])        
+    VAE.compile(optimizer=opt)
+    VAE.summary()
+    model_summary_txt(output_dir+'VAEGAN_', VAE)
+    
+    batch_size = params['batch_size']
+    noise = np.random.normal(0, 1, (batch_size, params['latent_dim']))
+    for epoch in range(params['epochs']):
+        print('Epoch : '+str(epoch))
+        latent_vect = E.predict(x_train)[0]
+        encImg = G.predict(latent_vect)
+        fakeImg = G.predict(noise)
+    
+        DlossTrue = D_true.train_on_batch(x_train, np.ones((batch_size, 1)))
+        DlossEnc = D_fromGen.train_on_batch(encImg, np.ones((batch_size, 1)))
+        DlossFake = D_fake.train_on_batch(fakeImg, np.zeros((batch_size, 1)))
+    
+        cnt = epoch
+        while cnt > 3:
+            cnt = cnt - 4
+    
+        if cnt == 0:
+            GlossEnc = G.train_on_batch(latent_vect, np.ones((batch_size, 1)))
+            GlossGen = G.train_on_batch(noise, np.ones((batch_size, 1)))
+            Eloss = VAE.train_on_batch(x_train, None)
+    
+        chk = epoch
+    
+        while chk > 50:
+            chk = chk - 51
+    
+        if chk == 0:
+            D.save_weights('discriminator.h5')
+            G.save_weights('generator.h5')
+            E.save_weights('encoder.h5')
+    
+        print("epoch number", epoch + 1)
+        print("loss:")
+        print("D:", DlossTrue, DlossEnc, DlossFake)
+        print("G:", GlossEnc, GlossGen)
+        print("VAE:", Eloss)
+    
+    print('Training done,saving weights')
+    D.save_weights('discriminator.h5')
+    G.save_weights('generator.h5')
+    E.save_weights('encoder.h5')
+    print('end')    
 
 def conv_autoencoder(x_train, y_train, x_test, y_test, params, 
                      val=True, split=False, input_features=False,
@@ -594,27 +613,25 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
 
     # -- encoding -------------------------------------------------------------
     if split:
-        encoded = encoder_split(x_train, params) # >> shared weights
+        encoded = encoder_split(x_train, params) # >> shared weights        
+        
     elif input_psd:
         params['concat_ext_feats'] = True
         # encoded = encoder_split_diff_weights(x_train, params)
-        encoded, feature_maps, pool_masks = encoder(x_train, params, reshape=reshape)  
+        encoded, feature_maps, pool_masks = encoder(x_train, params, reshape=reshape)   
+        
     else:
-        encoded, feature_maps, pool_masks = encoder(x_train, params, reshape=reshape)        
+        encoded, feature_maps, pool_masks = encoder(x_train, params, reshape=reshape)
 
     # -- decoding -------------------------------------------------------------
     if split:
         decoded = decoder_split(x_train, encoded.output, params)
     # elif input_psd:
     #     decoded = decoder_split_diff_weights(x_train, encoded.output, params)
-    # elif params['cvae']:
-    #     z_mean, z_log_var, z = encoded.output
-    #     decoded = decoder(x_train, z, params, feature_maps, reshape=reshape)
-    #     G_dec = decoder(x_train, z_mean+z_log_var, params, feature_maps,
-    #                     reshape=reshape)
-    #     discriminator = create_discriminator(x_train, params, reshape=reshape)
-    #     D_fake, F_fake = discriminator(decoded, params, reshape=reshape)
-    #     D_fromGen, F_fromGen = D()
+
+    elif params['cvae']:
+        z_mean, z_log_var, z = encoded.output
+        decoded = decoder(x_train, z, params, feature_maps, reshape=reshape)
         
     else:
         decoded = decoder(x_train, encoded.output, params, feature_maps,
@@ -724,6 +741,8 @@ def unpool_with_with_argmax(x, ind, params):
     """
     Modified From:
     https://github.com/sangeet259/tensorflow_unpooling/blob/master/unpool.py
+    Currently buggy [2020-09-28]
+    
       To unpool the tensor after  max_pool_with_argmax.
       Argumnets:
           pooled:    the max pooled output tensor
@@ -1029,10 +1048,10 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
     # >> get training set of highest reconstruction error
     x_train_predict = model.predict(x_train)
     x_test_predict = model.predict(x_test)
-    if p['concat_ext_feats'] or input_psd:
+    if p['concat_ext_feats'] or input_psd: 
         err_train = (x_train[0] - x_train_predict[0])**2
         err_test = (x_test[0] - x_test_predict[0])**2
-    else:
+    else:      
         err_train = (x_train - x_train_predict)**2
         err_test = (x_test - x_test_predict)**2
     err_train = np.mean(err_train, axis=1)
@@ -1065,7 +1084,7 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
         new_x_train_1 = np.split(new_x_train_1, [int(train_len/num_split)])
         new_x_train[0] = np.concatenate([new_x_train[0], new_x_train_1[0]], axis=0)
         new_x_train[1] = np.concatenate([new_x_train[1], new_x_train_1[1]], axis=0)        
-        new_x_test_1 = np.split(new_x_test_1, [int(test_len)/num_split])
+        new_x_test_1 = np.split(new_x_test_1, [int(test_len/num_split)])
 
     new_ticid_train = np.split(new_ticid_train, [int(train_len/num_split)])
     new_info_train = np.split(new_info_train, [int(train_len/num_split)])
@@ -1087,11 +1106,14 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
         model_list.append(model_new)
         
         bottleneck_train = \
-            get_bottleneck(model, x_train, p, save=True, ticid=ticid_train,
+            get_bottleneck(model_new, new_x_train[i], p, save=True,
+                           ticid=new_ticid_train[i],
                            out=output_dir+'bottleneck_train_iter'+str(i)+'.fits')
         bottleneck = \
-            get_bottleneck(model, x_test, p, save=True, ticid=ticid_test,
-                           out=output_dir+'bottleneck_test_iter'+str(i)+'.fits')          
+            get_bottleneck(model_new, new_x_test[i], p, save=True,
+                           ticid=new_ticid_test[i],
+                           out=output_dir+'bottleneck_test_iter'+str(i)+'.fits')
+            
         x_predict = model_new.predict(new_x_test[i])
         features = bottleneck_train
         pf.diagnostic_plots(history_new, model_new, p, output_dir, x,
@@ -1225,9 +1247,9 @@ def mlp(x_train, y_train, x_test, y_test, params, resize=True):
         
     return history, model
 
-def simple_autoencoder(x_train, y_train, x_test, y_test, params, resize = False,
+def deep_autoencoder(x_train, y_train, x_test, y_test, params, resize = False,
                        batch_norm=True):
-    '''a simple autoencoder based on a fully-connected layer'''
+    '''No convolutional layers!'''
     from keras.models import Model
     from keras.layers import Input, Dense, Flatten, Reshape, BatchNormalization
 
@@ -1285,31 +1307,15 @@ def encoder_DAE(x_train, params):
     
     input_dim = np.shape(x_train)[1]
 
-# def deep_autoencoder(x_trian, y_train, x_test, y_test, params, resize)
+def compile_model(model, params):
 
-def compile_model(model, params, mlp=False):
-    from keras import optimizers
-    import keras.metrics
     if params['optimizer'] == 'adam':
         opt = optimizers.adam(lr = params['lr'], 
                               decay=params['lr']/params['epochs'])
     elif params['optimizer'] == 'adadelta':
         opt = optimizers.adadelta(lr = params['lr'])
         
-    # model.compile(optimizer=opt, loss=params['losses'],
-    #               metrics=['accuracy'])
-    if mlp:
-        model.compile(optimizer=opt, loss=params['losses'])
-        import tensorflow as tf
-        
-        # model.compile(optimizer=opt, loss=tf.keras.losses.CategoricalCrossentropy(),
-        #               metrics = ['accuracy', keras.metrics.Precision(),
-        #           keras.metrics.Recall()])        
-    else:
-        model.compile(optimizer=opt, loss=params['losses'])        
-        # model.compile(optimizer=opt, loss=params['losses'],
-        #               metrics=['accuracy', keras.metrics.Precision(),
-        #               keras.metrics.Recall()])
+    model.compile(optimizer=opt, loss=params['losses'])
 
 def sampling(args):
     """
@@ -1326,9 +1332,6 @@ def sampling(args):
     # by default, random_normal has mean=0 and std=1.0
     epsilon = K.random_normal(shape=(batch, dim))
     return z_mean + K.exp(0.5 * z_log_var) * epsilon
-
-# def lossModel():
-#     from keras.layers import 
 
 def encoder(x_train, params, reshape=False):
     '''x_train is an array with shape (num light curves, num data points, 1).
@@ -1569,8 +1572,6 @@ def Conv1DTranspose(input_tensor, filters, kernel_size, strides=2, padding='same
     # return x
 
 def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False):
-    from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout, \
-        Lambda, BatchNormalization, Add
     import tensorflow as tf
     
     if params['concat_ext_feats']:
@@ -1754,34 +1755,157 @@ def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False
         #     x = tf.keras.layers.Activation(params['activation'])(x)    
     return decoded
 
+def decgen(x_train, params):
+    import tensorflow as tf
+    
+    if params['concat_ext_feats']:
+        input_dim = np.shape(x_train[0])[1]
+        input_dim1 = np.shape(x_train[1])[1]
+    else:
+        input_dim = np.shape(x_train)[1]
+        
+    num_iter = int(params['num_conv_layers']/2)
+      
+    input_img = Input(shape=(params['latent_dim'],))
 
-def create_discriminator(input_img, params, reshape=False):
-    from keras.layers import Input, Conv1D, Reshape, Dense, BatchNormalization,\
-        Flatten
-    from keras.models import Model
+    reduction_factor = params['pool_size'] * params['strides']
+    tot_reduction_factor = reduction_factor**num_iter
+    x = Dense(int(input_dim*params['num_filters'][-1]/tot_reduction_factor),
+              kernel_initializer=params['initializer'],
+              kernel_regularizer=params['kernel_regularizer'],
+              bias_regularizer=params['bias_regularizer'],
+              activity_regularizer=params['activity_regularizer'])(input_img)
+    x = Reshape((int(input_dim/tot_reduction_factor),
+                  params['num_filters'][-1]))(x)
 
+
+    for i in range(num_iter):
+        if params['dropout'] > 0:
+            x = Dropout(params['dropout'])(x)
+            
+        if params['pool_size'] > 1:
+            x = UpSampling1D(params['pool_size'])(x)            
+        
+        for j in range(params['num_consecutive'][-1*i - 1]):
+            x = BatchNormalization()(x)
+            if i == num_iter-1 and j == params['num_consecutive'][-1*i - 1]-1 \
+                and not params['fully_conv']:
+                
+                if params['strides'] == 1: # >> faster than Conv1Dtranspose
+                    x = Conv1D(1, int(params['kernel_size']),
+                                      activation=params['last_activation'],
+                                      padding='same', strides=params['strides'],
+                                      kernel_initializer=params['initializer'],
+                                      kernel_regularizer=params['kernel_regularizer'],
+                                      bias_regularizer=params['bias_regularizer'],
+                                      activity_regularizer=params['activity_regularizer'])(x)  
+                
+                else:
+                    x = Conv1DTranspose(x, 1, int(params['kernel_size']),
+                               activation=params['activation'], padding='same',
+                               strides=1,
+                               kernel_initializer=params['initializer'],
+                               kernel_regularizer=params['kernel_regularizer'],
+                               bias_regularizer=params['bias_regularizer'],
+                          activity_regularizer=params['activity_regularizer'])
+                    
+                
+                x = Reshape((input_dim,))(x)
+                    
+                if params['concat_ext_feats']:
+                    for i in range(len(params['units'])):
+                        x1 = Dense(params['units'][-1*i-1],
+                                   activation=params['activation'],
+                                   kernel_initializer=params['initializer'],
+                                   kernel_regularizer=params['kernel_regularizer'],
+                                   bias_regularizer=params['bias_regularizer'],
+                                   activity_regularizer=params['activity_regularizer'])(x1)
+                        
+                    x1 = Dense(input_dim1,
+                               activation=params['activation'],
+                               kernel_initializer=params['initializer'],
+                               kernel_regularizer=params['kernel_regularizer'],
+                               bias_regularizer=params['bias_regularizer'],
+                               activity_regularizer=params['activity_regularizer'])(x1)                        
+                    x = [decoded, x1]
+                    
+            else:
+                if j == 0:
+                    stride = params['strides']
+                else:
+                    stride = 1
+                
+                if params['strides'] == 1:
+                    x = Conv1D(params['num_filters'][-1*i - 1],
+                                int(params['kernel_size']),
+                                activation=params['activation'], padding='same',
+                                strides=params['strides'],
+                                kernel_initializer=params['initializer'],
+                                kernel_regularizer=params['kernel_regularizer'],
+                                bias_regularizer=params['bias_regularizer'],
+                                activity_regularizer=params['activity_regularizer'])(x)   
+                else:
+                    x = Conv1DTranspose(x, params['num_filters'][-1*i - 1],
+                               int(params['kernel_size']),
+                               activation=params['activation'], padding='same',
+                               strides=stride,
+                               kernel_initializer=params['initializer'],
+                               kernel_regularizer=params['kernel_regularizer'],
+                               bias_regularizer=params['bias_regularizer'],
+                               activity_regularizer=params['activity_regularizer'])
+                
+                if params['encoder_decoder_skip']:
+                    connect_ind=len(feature_maps)-1-i*params['num_consecutive'][-1*i - 1]-j
+                    x = Add()([x, feature_maps[connect_ind]])
+                    x = Activation(params['activation'])(x)
+                              
+
+    if params['fully_conv']:
+        x = Conv1DTranspose(x, 1, int(params['kernel_size']),
+                   activation=params['activation'], padding='same',
+                   strides=params['strides'],
+                   kernel_initializer=params['initializer'],
+                   kernel_regularizer=params['kernel_regularizer'],
+                   bias_regularizer=params['bias_regularizer'],
+              activity_regularizer=params['activity_regularizer'])       
+        x = Reshape((input_dim,))(x)        
+
+    # x = Reshape((input_dim,1))(x)  
+    decoded = Model(input_img, x)
+    return decoded
+
+
+
+def discriminator(x_train, params, reshape=False):
+    input_dim = np.shape(x_train)[-1]
+    input_img = Input(shape=(input_dim,))
+    x = Reshape((input_dim, 1))(input_img)
     x = Conv1D(8, kernel_size=int(params['kernel_size']),
                activation=params['activation'],
-               strides=params['strides'], padding='same')(input_img)
+               strides=params['strides'], padding='same')(x)
+    x = BatchNormalization()(x)
     
     x = Conv1D(16, kernel_size=int(params['kernel_size']),
                activation=params['activation'],
                strides=params['strides'], padding='same')(x)    
+    x = BatchNormalization()(x)
 
     x = Conv1D(32, kernel_size=int(params['kernel_size']),
                activation=params['activation'],
                strides=params['strides'], padding='same')(x)
+    x = BatchNormalization()(x)
     
     x = Conv1D(32, kernel_size=int(params['kernel_size']),
                activation=params['activation'],
                strides=params['strides'], padding='same')(x)    
 
-    model = BatchNormalization()(x)
+    x = BatchNormalization()(x)
 
-    x = Flatten()(model)
+    dec = Flatten()(x)
     dec = Dense(1, activation='sigmoid')(x)
 
-    return Model([input_img], [dec, model])
+    return Model([input_img], [dec, x])
+
 
 def encoder_split(x, params):
     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
@@ -1915,62 +2039,6 @@ def encoder_split_diff_weights(x, params):
     encoded = concatenate(x)
     encoder = Model(inputs=input_imgs, outputs=encoded)
     return encoder
-
-# def encoder_external_features(x, params):
-#     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
-#     from keras.layers import Dense, concatenate, BatchNormalization
-#     from keras.models import Model
-
-#     input_imgs = [Input(shape=(np.shape(x[0])[1], 1)),
-#                   Input(shape=(np.shape(x[1])[0]))]
-#     num_iter = int((params['num_conv_layers'])/2)    
-
-#     for i in range(num_iter):
-
-#         if i == 0:
-#             x[0] = Conv1D(params['num_filters'],
-#                               int(params['kernel_size']),
-#                               activation=params['activation'], padding='same',
-#                               kernel_initializer=params['initializer'])(x[0])
-#             if params['num_consecutive']==2:
-#                 x[0] = Conv1D(params['num_filters'],
-#                                 int(params['kernel_size']),
-#                                 activation=params['activation'],
-#                                 padding='same',
-#                                 kernel_initializer=params['initializer'])(x[0])
-#         else:
-#             x[0] = Conv1D(params['num_filters'],
-#                               int(params['kernel_size']),
-#                               activation=params['activation'], padding='same',
-#                               kernel_initializer=params['initializer'])(x[0])
-
-#             if params['num_consecutive']==2:
-#                 x[0] = Conv1D(params['num_filters'],
-#                                 int(params['kernel_size']),
-#                                 activation=params['activation'],
-#                                 padding='same',
-#                                 kernel_initializer=params['initializer'])(x[0])
-                  
-            
-#         x[0] = BatchNormalization()(x[0])
-            
-#         maxpool_1 = MaxPooling1D(2, padding='same')
-#         x = [maxpool_1(a) for a in x]
-        
-#         dropout_1 = Dropout(params['dropout'])
-#         x = [dropout_1(a) for a in x]
-
-#     x = [Flatten()(a) for a in x]
-    
-#     dense_0 = Dense(int(params['latent_dim']/2),
-#                     activation=params['activation'])
-#     dense_1 = Dense(int(params['latent_dim']/2),
-#                     activation=params['activation'])    
-#     x = [dense_0(x[0]), dense_1(x[1])]
-    
-#     encoded = concatenate(x)
-#     encoder = Model(inputs=input_imgs, outputs=encoded)
-#     return encoder
 
 def decoder_split(x, bottleneck, params):
     from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout
@@ -2192,14 +2260,6 @@ def split_data(flux, ticid, target_info, time, p, train_test_ratio = 0.9,
                supervised=False, classes=False, interpolate=False,
                resize_arr=False, truncate=True):
     '''need to update, might not work'''
-
-    # >> truncate (must be a multiple of 2**num_conv_layers)
-    # if truncate:
-    #     new_length = int(np.shape(flux)[1] / \
-    #                  (2**(np.max(p['num_conv_layers'])/2)))*\
-    #                  int((2**(np.max(p['num_conv_layers'])/2)))
-    #     flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
-    #     time = time[:new_length]
         
     if truncate:
         # >> dim reduced each iteration
@@ -2254,11 +2314,6 @@ def split_data(flux, ticid, target_info, time, p, train_test_ratio = 0.9,
         target_info_test = np.copy(target_info[split_ind:])        
         y_test, y_train = [False, False]
         
-    # if interpolate:
-    #     train_data, time = interpolate_lc(np.concatenate([x_train, x_test]), time)
-    #     x_train = train_data[:len(x_train)]
-    #     x_test = train_data[len(x_train):]
-        
     if resize_arr:
         x_train =  np.resize(x_train, (np.shape(x_train)[0],
                                        np.shape(x_train)[1], 1))
@@ -2312,42 +2367,6 @@ def get_bottleneck(model, x_test, p, DAE=True, save=False, ticid=None,
         hdu.writeto(out)    
         fits.append(out, ticid)          
     
-    return bottleneck
-
-def get_bottleneck_from_activations(model, activations, p, input_features=False, 
-                   features=False, input_rms=False, rms=False):
-    '''[deprecated 070320]
-    Get bottleneck layer, with shape (num light curves, latent dimension)
-    Parameters:
-        * model : Keras Model()
-        * activations : from get_activations()
-        * p : parameter set, with p['latent_dim'] = dimension of latent space
-        * input_features : bool
-        * features : array of features to concatenate with bottleneck, must be
-                     given if input_features=True
-        * rms : list of RMS must be given if input_rms=True
-    '''
-
-    # >> first find all Dense layers
-    inds = np.nonzero(['dense' in x.name for x in model.layers])[0]
-    
-    # >> now check which Dense layers has number of units = latent_dim
-    for ind in inds:
-        ind = ind - 1 # >> len(activations) = len(model.layers) - 1, since
-                      #    activations doesn't incluthe Input layer
-        num_units = np.shape(activations[ind])[1]
-        if num_units == p['latent_dim']:
-            bottleneck_ind = ind
-    
-    bottleneck = activations[bottleneck_ind]
-    
-    if input_features: # >> concatenate features to bottleneck
-        bottleneck = np.concatenate([bottleneck, input_features], axis=1)
-    if input_rms:
-        bottleneck = np.concatenate([bottleneck,
-                                      np.reshape(rms, (np.shape(rms)[0],1))],
-                                    axis=1)
-        
     return bottleneck
 
 # :: mock data ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -2412,6 +2431,7 @@ def signal_data(training_size = 10000, test_size = 100, input_dim = 100,
 
 def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
                    noise_level = 0., min0max1=True, reshape=False):
+    '''Generating flat light curves with some noise.'''
     import numpy as np
 
     x = np.empty((training_size + test_size, input_dim))
@@ -2445,74 +2465,7 @@ def no_signal_data(training_size = 10000, test_size = 100, input_dim = 100,
                                      np.shape(x_test)[1], 1))
     
     return x_train, y_train, x_test, y_test
-        
-# :: pull files with astroquery :::::::::::::::::::::::::::::::::::::::::::::::
-# adapted from pipeline.py
 
-def get_lc(ticid, out='./', DEBUG_INTERP=False, download_fits=True,
-           prefix=''):
-    '''input a ticid, returns light curve'''
-    from astroquery.mast import Observations
-    from astropy.io import fits
-    import fnmatch
-    
-    # >> download fits file
-    targ = 'TIC ' + str(int(ticid))
-    
-    if download_fits:
-        try: 
-            obs_table = Observations.query_object(targ, radius=".02 deg")
-            
-            # >> find all data products for ticid
-            data_products_by_obs = Observations.get_product_list(obs_table[0:2])
-            
-            filter_products = \
-                Observations.filter_products(data_products_by_obs,
-                                             dataproduct_type = 'timeseries',
-                                             description = 'Light curves',
-                                             extension='fits')
-                
-            # >> download fits file
-            manifest = \
-                Observations.download_products(filter_products,
-                                               download_dir = out)
-        except (ConnectionError, OSError, TimeoutError):
-            print(targ + "could not be accessed due to an error")
-        
-    # >> find fits file
-    fnames_all = os.listdir(out)
-    fname = fnmatch.filter(fnames_all, '*'+str(int(ticid))+'*fits*')[0]
-    
-    # >> read fits file
-    f = fits.open(out+fname)
-    time = f[1].data['TIME']
-    flux = f[1].data['PDCSAP_FLUX']
-    # time = fits.getdata(out+fname, 1)['TIME']
-    # flux = fits.getdata(out+fname, 1)['PDCSAP_FLUX']
-    # flux = interpolate_lc(flux, time, DEBUG_INTERP=DEBUG_INTERP,
-    #                       output_dir=out, prefix=prefix)
-    return time, flux
-    
-
-def get_fits_files(mypath, target_list):
-    '''target_list from tess.txt generated in get_target_list'''
-    from astroquery.mast import Observations
-    for ticid in target_list:
-        targ = 'TIC ' + str(int(ticid))
-        try: 
-            obs_table = Observations.query_object(targ, radius=".02 deg")
-            data_products_by_obs = Observations.get_product_list(obs_table[0:2])
-            
-            filter_products = \
-                Observations.filter_products(data_products_by_obs,
-                                             dataproduct_type = 'timeseries',
-                                             description = 'Light curves',
-                                             extension='fits')
-            manifest = \
-                Observations.download_products(filter_products,
-                                               download_dir = mypath)
-        except (ConnectionError, OSError, TimeoutError):
-            print(targ + "could not be accessed due to an error")
        
         
 def get_high_freq_mock_data(p=None, dataset_size=10000, train_test_ratio=0.9,
@@ -2568,924 +2521,234 @@ def get_high_freq_mock_data(p=None, dataset_size=10000, train_test_ratio=0.9,
                                      np.shape(x_test)[1], 1))
 
     return x, x_train, x_test     
-        
-def get_target_list(sector_num, output_dir='./'):
-    '''Get TICID from sector_num (given as int)'''
-    from astroquery.mast import Observations
-    from astroquery.mast import Tesscut
-    obs_table = Observations.query_criteria(obs_collection='TESS',
-                                            dataproduct_type='TIMESERIES',
-                                            sequence_number=sector_num)
-    
-    print(obs_table)
-    target_list = np.copy(obs_table['target_name'])
-    
-    cam_list = []
-    ccd_list = []
-    for target in target_list:
-        obj_name = 'TIC ' + target
-        try:
-            obj_table = Tesscut.get_sectors(obj_name)
-            ind = np.nonzero(obj_table['sector']==sector_num)
-            cam_list.append(obj_table['camera'][ind][0])
-            ccd_list.append(obj_table['ccd'][ind][0])
-            
-            with open(output_dir+'tess-s00'+str(sector_num)+'.txt', 'a') as f:
-                f.write(obj_name + ' {} {} {}\n'.format(obj_table['sector'][ind][0],
-                                                        obj_table['camera'][ind][0],
-                                                        obj_table['ccd'][ind][0]))
-        except:
-            print('failed! '+target)
-            with open(output_dir+'tess-s00'+str(sector_num)+'skip.txt', 'a') as f:
-                f.write(obj_name+'\n')
-                        
-    # >> also save .txt files for each camera and ccd
-    cam_list = np.array(cam_list)
-    ccd_list = np.array(ccd_list)
-    print(np.unique(cam_list))
-    print(np.unique(ccd_list))
-    for cam in range(4):
-        for ccd in range(4):
-            inds = np.nonzero( (cam_list==cam) * (cam_list==ccd) )[0]
-            with open(output_dir+'tess-s00'+str(sector_num)+'-'+str(cam)+'-'+\
-                      str(ccd)+'.txt', 'a') as f:
-                for i in inds:
-                    f.write(target_list[i]+'\n')
-        
-    return target_list
-    
-            
-
-# move all fits files into one folder?
-
-            
-
-# def get_lc_file_and_data(temp_path, target_list):
-#     from astroquery.mast import Observations
-#     prefix = 'tess2019357164649-s0020-'
-#     suffix = '-0165-s_lc.fits'
-#     for ticid in target_list:
-#         try:
-#             targ = ticid.zfill(16)
-#             fname = prefix+ targ + suffix
-#             os.system('curl -C - -L -o ' + temp_path + fname +\
-#                       ' https://mast.stsci.edu/api/v0.1/Download/file/'+\
-#                           '?uri=mast:TESS/product/' + fname) 
-
-                  
-#         #then delete all downloads in the folder, no matter what type
-
-#         except (ConnectionError, OSError, TimeoutError):
-#             print(targ + "could not be accessed due to an error")
-#             i1 = 0
-#             time1 = 0
-    
-#     return time1, i1
-
-
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     
-# def autoencoder_dual_input1(x_train, x_test, rms_train, rms_test, params,
-#                             supervised=False, y_train = False, y_test=False,
-#                             num_classes = False):
-#     '''Adapted from: https://www.pyimagesearch.com/2019/02/04/keras-multiple-
-#     inputs-and-mixed-data/'''
-#     from keras.layers import concatenate
-#     from keras.layers import Conv1D, Dense, Reshape
-#     from keras.models import Model
-#     from keras import optimizers
-#     import keras.metrics
-#     input_dim = np.shape(x_train)[1]
-#     # >> create the MLP and autoencoder models
-#     mlp = create_mlp(np.shape(rms_train)[1])
-#     encoded = encoder1(x_train, params)
-#     # autoencoder = create_conv_layers(x_train, params)
-
-#     # x = Reshape((1,1))(mlp.output)
-#     # x = concatenate([autoencoder.output, Reshape((1,1))(mlp.output)], axis = 1)
-#     # x = Reshape((input_dim,))(autoencoder.output)
-#     x = concatenate([mlp.output,
-#                      Reshape((input_dim,))(encoded.output)], axis = 1)
-#     # x = Reshape((input_dim+1,))(x)
+# def get_target_list(sector_num, output_dir='./'):
+#     '''Get TICID from sector_num (given as int)'''
+#     from astroquery.mast import Observations
+#     from astroquery.mast import Tesscut
+#     obs_table = Observations.query_criteria(obs_collection='TESS',
+#                                             dataproduct_type='TIMESERIES',
+#                                             sequence_number=sector_num)
     
+#     print(obs_table)
+#     target_list = np.copy(obs_table['target_name'])
     
-#     # x = Dense(4, activation='relu')(combinedInput)
-#     # x = Dense(1, activation='linear')(x)
-#     x = Dense(input_dim, activation='relu')(x)
-#     x = Reshape((input_dim,1))(x)
-#     # x = Conv1D(1, params['kernel_size'], activation=params['last_activation'],
-#     #            padding='same')(combinedInput)
-#     if supervised:
-#         x = Dense(num_classes,activation='softmax')(encoded.output)
-#         model = Model(inputs=[encoded.input, mlp.input], output=x)
-#         print(model.summary())
-#     else:
-#         model = Model(inputs=[encoded.input, mlp.input], outputs=x)
-#         print(model.summary())
-    
-#     # !! find a better way to do this
-#     if params['optimizer'] == 'adam':
-#         opt = optimizers.adam(lr = params['lr'], 
-#                               decay=params['lr']/params['epochs'])
-#     elif params['optimizer'] == 'adadelta':
-#         opt = optimizers.adadelta(lr = params['lr'])
+#     cam_list = []
+#     ccd_list = []
+#     for target in target_list:
+#         obj_name = 'TIC ' + target
+#         try:
+#             obj_table = Tesscut.get_sectors(obj_name)
+#             ind = np.nonzero(obj_table['sector']==sector_num)
+#             cam_list.append(obj_table['camera'][ind][0])
+#             ccd_list.append(obj_table['ccd'][ind][0])
+            
+#             with open(output_dir+'tess-s00'+str(sector_num)+'.txt', 'a') as f:
+#                 f.write(obj_name + ' {} {} {}\n'.format(obj_table['sector'][ind][0],
+#                                                         obj_table['camera'][ind][0],
+#                                                         obj_table['ccd'][ind][0]))
+#         except:
+#             print('failed! '+target)
+#             with open(output_dir+'tess-s00'+str(sector_num)+'skip.txt', 'a') as f:
+#                 f.write(obj_name+'\n')
+                        
+#     # >> also save .txt files for each camera and ccd
+#     cam_list = np.array(cam_list)
+#     ccd_list = np.array(ccd_list)
+#     print(np.unique(cam_list))
+#     print(np.unique(ccd_list))
+#     for cam in range(4):
+#         for ccd in range(4):
+#             inds = np.nonzero( (cam_list==cam) * (cam_list==ccd) )[0]
+#             with open(output_dir+'tess-s00'+str(sector_num)+'-'+str(cam)+'-'+\
+#                       str(ccd)+'.txt', 'a') as f:
+#                 for i in inds:
+#                     f.write(target_list[i]+'\n')
         
-#     model.compile(optimizer=opt, loss=params['losses'],
-#                   metrics=['accuracy', keras.metrics.Precision(),
-#                            keras.metrics.Recall()])
-#     history = model.fit([x_train, rms_train], x_train, epochs=params['epochs'],
-#                         batch_size=params['batch_size'], shuffle=True,
-#                         validation_data=([x_test, rms_test], x_test))
-#     return history, model
-
-# def autoencoder_dual_input2(x_train, x_test, rms_train, rms_test, params,
-#                             supervised=False, y_train=False, y_test=False,
-#                             num_classes=False):
-#     '''Adapted from: https://stackoverflow.com/questions/52435274/how-to-use-
-#     keras-merge-layer-for-autoencoder-with-two-ouput'''
-#     from keras.layers import concatenate
-#     from keras.layers import Dense
-#     from keras import optimizers
-#     import keras.metrics
-#     from keras.models import Model
+#     return target_list
     
-#     # >> create the MLP and encoder models
-#     mlp = create_mlp(np.shape(rms_train)[1])
-#     encoded = encoder(x_train, params)
-
-#     # >> shared representation layer
-#     shared_input = concatenate([mlp.output,encoded.output])
-#     shared_output = Dense(params['latent_dim'], activation='relu')(shared_input)
-#     if supervised:
-#         x = Dense(num_classes,activation='softmax')(shared_output)
-#         model = Model(inputs=[encoded.input, mlp.input], output=x)
-#         print(model.summary())
-#     else:
-#         decoded = decoder(x_train, shared_output, params)
-#         model = Model(inputs=[encoded.input, mlp.input], outputs=decoded)
-    
-#     # >> get model
-#     # model = Model(inputs=[encoded.input, mlp.input], outputs=decoded.output)
-    
-    
-#     # !! find a better way to do this
-#     if params['optimizer'] == 'adam':
-#         opt = optimizers.adam(lr = params['lr'], 
-#                               decay=params['lr']/params['epochs'])
-#     elif params['optimizer'] == 'adadelta':
-#         opt = optimizers.adadelta(lr = params['lr'])
         
-#     model.compile(optimizer=opt, loss=params['losses'],
-#                   metrics=['accuracy', keras.metrics.Precision(),
-#                            keras.metrics.Recall()])
-#     history = model.fit([x_train, rms_train], x_train, epochs=params['epochs'],
-#                         batch_size=params['batch_size'], shuffle=True,
-#                         validation_data=([x_test, rms_test], x_test))
-#     return history, model
-    
-    
-    
-    # def encoder2(x_train, params):
-#     '''https://towardsdatascience.com/applied-deep-learning-part-4
-#     -convolutional-neural-networks-584bc134c1e2
-#     stacked'''
-#     from keras.layers import Input,Conv1D,MaxPooling1D,Dropout,Flatten,Dense
-#     from keras.models import Model
-    
-#     input_dim = np.shape(x_train)[1]
-#     num_iter = int((params['num_conv_layers'] - 1)/2)
-    
-#     input_img = Input(shape = (input_dim, 1))
-#     x = Conv1D(params['num_filters'][0], params['kernel_size'],
-#                activation=params['activation'], padding='same')(input_img)
-#     for i in range(num_iter):
-#         x = MaxPooling1D(2, padding='same')(x)
-#         x = Dropout(params['dropout'])(x)
-#         x = Conv1D(1, 1, activation='relu')(x)
-#         # x = MaxPooling1D([params['num_filters'][i]],
-#         #                  data_format='channels_first')(x)
-#         x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
-#                    activation=params['activation'], padding='same')(x)
-#         x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
-#                    activation=params['activation'], padding='same')(x)
-#     x = MaxPooling1D([params['num_filters'][i]], 
-#                      data_format='channels_first')(x)
-#     x = Flatten()(x)
-#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
-#     # return encoded
-#     encoder = Model(input_img, encoded)
-#     return encoder
-    
-    
-    # def create_conv_layers(x_train, params, supervised = False):
-#     from keras.layers import Input, Conv1D, MaxPooling1D, UpSampling1D
-#     from keras.layers import Reshape, Dense, Flatten, Dropout
-#     from keras.models import Model
+# # :: pull files with astroquery :::::::::::::::::::::::::::::::::::::::::::::::
+# # adapted from pipeline.py
 
-#     input_dim = np.shape(x_train)[1]
-#     num_iter = int((params['num_conv_layers'] - 1)/2)
+# def get_lc(ticid, out='./', DEBUG_INTERP=False, download_fits=True,
+#            prefix=''):
+#     '''input a ticid, returns light curve'''
+#     from astroquery.mast import Observations
+#     from astropy.io import fits
+#     import fnmatch
     
-#     input_img = Input(shape = (input_dim, 1))
-#     x = Conv1D(params['num_filters'][0], params['kernel_size'],
-#                 activation=params['activation'], padding='same')(input_img)
-#     for i in range(num_iter):
-#         x = MaxPooling1D(2, padding='same')(x)
-#         x = Dropout(params['dropout'])(x)
-#         x = MaxPooling1D([params['num_filters'][i]],
-#                           data_format='channels_first')(x)
-#         x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
-#                     activation=params['activation'], padding='same')(x)
-#     x = MaxPooling1D([params['num_filters'][i]], 
-#                       data_format='channels_first')(x)
-#     x = Flatten()(x)
-#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
+#     # >> download fits file
+#     targ = 'TIC ' + str(int(ticid))
+    
+#     if download_fits:
+#         try: 
+#             obs_table = Observations.query_object(targ, radius=".02 deg")
+            
+#             # >> find all data products for ticid
+#             data_products_by_obs = Observations.get_product_list(obs_table[0:2])
+            
+#             filter_products = \
+#                 Observations.filter_products(data_products_by_obs,
+#                                              dataproduct_type = 'timeseries',
+#                                              description = 'Light curves',
+#                                              extension='fits')
+                
+#             # >> download fits file
+#             manifest = \
+#                 Observations.download_products(filter_products,
+#                                                download_dir = out)
+#         except (ConnectionError, OSError, TimeoutError):
+#             print(targ + "could not be accessed due to an error")
+        
+#     # >> find fits file
+#     fnames_all = os.listdir(out)
+#     fname = fnmatch.filter(fnames_all, '*'+str(int(ticid))+'*fits*')[0]
+    
+#     # >> read fits file
+#     f = fits.open(out+fname)
+#     time = f[1].data['TIME']
+#     flux = f[1].data['PDCSAP_FLUX']
+#     return time, flux
+    
 
-#     x = Dense(int(input_dim/(2**(i+1))))(encoded)
-#     x = Reshape((int(input_dim/(2**(i+1))), 1))(x)
-#     for i in range(num_iter):
-#         x = Conv1D(params['num_filters'][num_iter+1], params['kernel_size'],
-#                     activation=params['activation'], padding='same')(x)
-#         x = UpSampling1D(2)(x)
-#         x = Dropout(params['dropout'])(x)
-#         x = MaxPooling1D([params['num_filters'][num_iter+1]],
-#                           data_format='channels_first')(x)
-#     decoded = Conv1D(1, params['kernel_size'],
-#                       activation=params['last_activation'], padding='same')(x)
-    
-#     if supervised:
-#         model = Model(input_img, encoded)
-#         print(model.summary())
-          
-#     else:
-#         model = Model(input_img, decoded)
-#         print(model.summary())
-    
-#     return model
-    
-    # if inputs_before_after:
-    #     orbit_gap_start = np.nonzero(time < orbit_gap[0])[0][-1]
-    #     orbit_gap_end = np.nonzero(time > orbit_gap[1])[0][0]
-    #     x_train_0 = x_train[:,:orbit_gap_start]
-    #     x_train_1 = x_train[:,orbit_gap_end:]
-    #     x_test_0 = x_test[:,:orbit_gap_start]
-    #     x_test_1 = x_test[:,orbit_gap_end:]
-    #     y_train_0, y_train_1 = [np.copy(y_train), np.copy(y_train)]
-    #     y_test_0, y_test_1 = [np.copy(y_test), np.copy(y_test)]
-    #     # x_train_0 = x_train[]
-    #     return x_train_0, x_train_1, x_test_0, x_test_1, y_train_0, y_train_1,\
-    #         y_test_0, y_test_1
-    # else:
-    
-# def decoder(x_train, bottleneck, params):
-#     '''042820
-#     https://github.com/julienr/ipynb_playground/blob/master/keras/convmnist/keras_conv_autoencoder_mnist.ipynb
+# def get_fits_files(mypath, target_list):
+#     '''target_list from tess.txt generated in get_target_list'''
+#     from astroquery.mast import Observations
+#     for ticid in target_list:
+#         targ = 'TIC ' + str(int(ticid))
+#         try: 
+#             obs_table = Observations.query_object(targ, radius=".02 deg")
+#             data_products_by_obs = Observations.get_product_list(obs_table[0:2])
+            
+#             filter_products = \
+#                 Observations.filter_products(data_products_by_obs,
+#                                              dataproduct_type = 'timeseries',
+#                                              description = 'Light curves',
+#                                              extension='fits')
+#             manifest = \
+#                 Observations.download_products(filter_products,
+#                                                download_dir = mypath)
+#         except (ConnectionError, OSError, TimeoutError):
+#             print(targ + "could not be accessed due to an error")  
+
+# def get_bottleneck_from_activations(model, activations, p, input_features=False, 
+#                    features=False, input_rms=False, rms=False):
+#     '''[deprecated 070320]
+#     Get bottleneck layer, with shape (num light curves, latent dimension)
+#     Parameters:
+#         * model : Keras Model()
+#         * activations : from get_activations()
+#         * p : parameter set, with p['latent_dim'] = dimension of latent space
+#         * input_features : bool
+#         * features : array of features to concatenate with bottleneck, must be
+#                      given if input_features=True
+#         * rms : list of RMS must be given if input_rms=True
 #     '''
-#     from keras.layers import Dense  ,Reshape, Conv1D, UpSampling1D, Dropout
-#     from keras.layers import MaxPooling1D
-#     input_dim = np.shape(x_train)[1]
-#     num_iter = int(params['num_conv_layers']/2)
-    
-#     # x = Dense(int(input_dim/(2**(num_iter))))(bottleneck)
-#     x = Dense(int(input_dim/(2**num_iter) * \
-#                   params['num_filters'][num_iter-1]))(bottleneck)
-#     x = Reshape((int(input_dim/(2**(num_iter))),
-#                  params['num_filters'][num_iter-1]))(x)
-#     for i in range(num_iter):
-#         x = UpSampling1D(2)(x)
-#         # !!
-#         x = Conv1D(params['num_filters'][num_iter+i],
-#                    params['kernel_size'][num_iter+i],
-#                    activation=params['activation'], padding='same')(x)
-#     decoded = Conv1D(1, params['kernel_size'][num_iter+i],
-#                      activation=params['last_activation'], padding='same')(x)
-#     return decoded
-    
-    
-# def encoder(x_train,params):
-#     '''https://github.com/gabrieleilertsen/hdrcnn/blob/master/network.py'''
-#     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
-#     from keras.layers import Dense
-#     from keras.models import Model
-    
-#     input_dim = np.shape(x_train)[1]
-#     # num_iter = int((params['num_conv_layers'] - 1)/2)
-#     # num_iter = int(params['num_conv_layers']/2)
-#     num_iter = int(params['num_conv_layers']/2)
-    
-#     input_img = Input(shape = (input_dim, 1))
-#     for i in range(num_iter):
-#         if i == 0:
-#             x = Conv1D(params['num_filters'][i], params['kernel_size'][i],
-#                    activation=params['activation'], padding='same')(input_img)
-#         else:
-#             x = Conv1D(params['num_filters'][i], params['kernel_size'][i],
-#                        activation=params['activation'], padding='same')(x)
-#         x = MaxPooling1D(2, padding='same')(x)
-#     x = Flatten()(x)
-#     # x = Dense(int(input_dim/(2**num_iter) * params['num_filters'][i]),
-#     #           activation=params['activation'])(x)
-#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
-#     encoder = Model(input_img, encoded)
 
-#     return encoder
-
-# def encoder(x_train,params):
-#     '''https://github.com/gabrieleilertsen/hdrcnn/blob/master/network.py'''
-#     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
-#     from keras.layers import Dense
-#     from keras.models import Model
+#     # >> first find all Dense layers
+#     inds = np.nonzero(['dense' in x.name for x in model.layers])[0]
     
-#     input_dim = np.shape(x_train)[1]
-#     # num_iter = int((params['num_conv_layers'] - 1)/2)
-#     # num_iter = int(params['num_conv_layers']/2)
-#     num_iter = int(params['num_conv_layers']/2)
+#     # >> now check which Dense layers has number of units = latent_dim
+#     for ind in inds:
+#         ind = ind - 1 # >> len(activations) = len(model.layers) - 1, since
+#                       #    activations doesn't incluthe Input layer
+#         num_units = np.shape(activations[ind])[1]
+#         if num_units == p['latent_dim']:
+#             bottleneck_ind = ind
     
-#     input_img = Input(shape = (input_dim, 1))
-#     for i in range(num_iter):
-#         if i == 0:
-#             x = Conv1D(params['num_filters'][i], params['kernel_size'][i],
-#                    activation=params['activation'], padding='same')(input_img)
-#         else:
-#             x = Conv1D(params['num_filters'][i], params['kernel_size'][i],
-#                        activation=params['activation'], padding='same')(x)
-#         x = Conv1D(params['num_filters'][i], params['kernel_size'][i],
-#                    activation=params['activation'], padding='same')(x)
-#         x = MaxPooling1D(2, padding='same')(x)
-#     x = Flatten()(x)
-#     # x = Dense(int(input_dim/(2**num_iter) * params['num_filters'][i]),
-#     #           activation=params['activation'])(x)
-#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
-#     encoder = Model(input_img, encoded)
-
-#     return encoder
-
-
-# def encoder(x_train, params):
-#     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
-#     from keras.layers import Dense
-#     from keras.models import Model
+#     bottleneck = activations[bottleneck_ind]
     
-#     input_dim = np.shape(x_train)[1]
-#     # num_iter = int((params['num_conv_layers'] - 1)/2)
-#     # num_iter = int(params['num_conv_layers']/2)
-#     num_iter = int(params['num_conv_layers']/2)
-    
-#     input_img = Input(shape = (input_dim, 1))
-#     # x = Conv1D(params['num_filters'][0], params['kernel_size'][0],
-#     #            activation=params['activation'], padding='same')(input_img)
-#     for i in range(num_iter):
-#         if i == 0:
-#             x = Conv1D(params['num_filters'][i], params['kernel_size'][i],
-#                    activation=params['activation'], padding='same')(input_img)
-#         else:
-#             x = Conv1D(params['num_filters'][i], params['kernel_size'][i],
-#                        activation=params['activation'], padding='same')(x)
-#         x = MaxPooling1D(2, padding='same')(x)
-#     x = Flatten()(x)
-#     # x = Dense(int(input_dim/(2**num_iter) * params['num_filters'][i]),
-#     #           activation=params['activation'])(x)
-#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
-#     encoder = Model(input_img, encoded)
-
-#     return encoder  
-    
-# def decoder(x_train, bottleneck, params):
-#     from keras.layers import Dense, Reshape, Conv1D, UpSampling1D, Dropout
-#     from keras.layers import MaxPooling1D, Lambda
-#     from keras import backend as K
-#     input_dim = np.shape(x_train)[1]
-#     num_iter = int(params['num_conv_layers']/2)
-    
-#     x = Dense(int(input_dim/(2**(num_iter))))(bottleneck)
-#     x = Reshape((int(input_dim/(2**(num_iter))), 1))(x)
-#     for i in range(num_iter):
-#         x = Conv1D(params['num_filters'][num_iter+i],
-#                     params['kernel_size'][num_iter+i],
-#                     activation=params['activation'], padding='same')(x)
-#         x = UpSampling1D(2)(x)
-#         x = Dropout(params['dropout'])(x)
-#         x = MaxPooling1D([params['num_filters'][num_iter+i]],
-#                           data_format='channels_first')(x)
-
-
-#     decoded = Conv1D(1, params['kernel_size'][num_iter+1],
-#                       activation=params['last_activation'], padding='same')(x)
-#     return decoded
-    
-    
-# def encoder1(x_train, params):
-#     '''https://machinelearningmastery.com/introduction-to-1x1-convolutions-to
-#     -reduce-the-complexity-of-convolutional-neural-networks/
-#     Using convolutions over channels to downsample feature maps'''
-#     from keras.layers import Input,Conv1D,MaxPooling1D,Dropout,Flatten,Dense
-#     from keras.models import Model
-    
-#     input_dim = np.shape(x_train)[1]
-#     num_iter = int((params['num_conv_layers'] - 1)/2)
-    
-#     input_img = Input(shape = (input_dim, 1))
-#     x = Conv1D(params['num_filters'][0], params['kernel_size'],
-#                activation=params['activation'], padding='same')(input_img)
-#     for i in range(num_iter):
-#         x = MaxPooling1D(2, padding='same')(x)
-#         x = Dropout(params['dropout'])(x)
-#         x = Conv1D(1, 1, activation='relu')(x)
-#         # x = MaxPooling1D([params['num_filters'][i]],
-#         #                  data_format='channels_first')(x)
-#         x = Conv1D(params['num_filters'][1+i], params['kernel_size'],
-#                    activation=params['activation'], padding='same')(x)
-#     x = MaxPooling1D([params['num_filters'][i]], 
-#                      data_format='channels_first')(x)
-#     x = Flatten()(x)
-#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
-#     # return encoded
-#     encoder = Model(input_img, encoded)
-#     return encoder
-    
-    # def normalize1(x):
-#     xmin = np.min(x, axis=1, keepdims=True)
-#     x = x - xmin
-#     xmax = np.max(x, axis=1, keepdims=True)
-#     x = x * 2 / xmax
-#     x = x - 1.
-#     # scale = 2/(xmax-xmin)
-#     # offset = (xmin - xmax)/(xmax-xmin)
-#     # x = x*scale + offset
-#     return x
-    
-    
-# def conv_autoencoder(x_train, y_train, x_test, y_test, params, input_rms=False,
-#                 rms_train=False,
-#                 rms_test=False, supervised = False, num_classes=False, 
-#                 split_lc=False,
-#                 orbit_gap=[8794, 8795]):
-#     '''If supervised = True, must provide y_train, y_test, num_classes'''
-#     from keras.models import Model
-#     from keras.layers import Dense, concatenate
-
-#     # -- encoding -------------------------------------------------------------
-#     if split_lc:
-#         x_train_0,x_train_1 = x_train[:,:orbit_gap[0]],x_train[:,orbit_gap[1]:]
-#         x_test_0,x_test_1 = x_test[:,:orbit_gap[0]],x_test[:,orbit_gap[1]:]
-#         encoded = encoder_split([x_train_0, x_train_1], params)
-#     else:
-#         encoded = encoder(x_train, params)
-    
+#     if input_features: # >> concatenate features to bottleneck
+#         bottleneck = np.concatenate([bottleneck, input_features], axis=1)
 #     if input_rms:
-#         mlp = create_mlp(np.shape(rms_train)[1])
-#         shared_input = concatenate([mlp.output,encoded.output])
-#         shared_output = Dense(params['latent_dim'],
-#                               activation='relu')(shared_input)
+#         bottleneck = np.concatenate([bottleneck,
+#                                       np.reshape(rms, (np.shape(rms)[0],1))],
+#                                     axis=1)
+        
+#     return bottleneck     
 
-#     # -- supervised mode: softmax --------------------------------------------------
-#     if supervised:
-#         if input_rms:
-#             x = Dense(num_classes, activation='softmax')(shared_output)
-#             model = Model(inputs=[encoded.input,mlp.input], outputs=x)
-#         else:
-#             x = Dense(int(num_classes),
-#                   activation='softmax')(encoded.output)
-#             model = Model(encoded.input, x)
-#         model.summary()
-        
-        
-#     else: # -- decoding -------------------------------------------------------
-#         if split_lc:
-#             decoded = decoder_split(x_train, encoded.output, params)
-#         else:
-#             decoded = decoder(x_train, encoded.output, params)
-#         model = Model(encoded.input, decoded)
-#         print(model.summary())
-        
-#     # -- compile model --------------------------------------------------------
-#     compile_model(model, params)
 
-#     # -- train model ----------------------------------------------------------
-    
-#     if supervised and input_rms:
-#         history = model.fit([x_train, rms_train], y_train,
-#                             epochs=params['epochs'],
-#                             batch_size=params['batch_size'], shuffle=True)
-#     elif supervised and not input_rms:
-#         history = model.fit(x_train, y_train, epochs=params['epochs'],
-#                             batch_size=params['batch_size'], shuffle=True)
-#     elif input_rms and not supervised:
-#         history = model.fit([x_train, rms_train], x_train,
-#                             epochs=params['epochs'],
-#                             batch_size=params['batch_size'], shuffle=True)
-#     else:
-#         history = model.fit(x_train, x_train, epochs=params['epochs'],
-#                             batch_size=params['batch_size'], shuffle=True,
-#                             validation_data=(x_test, x_test))
-        
-#     return history, model
-
-# def autoencoder1(x_train, y_train, x_test, y_test, params):
+# def encoder_external_features(x, params):
+#     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten
+#     from keras.layers import Dense, concatenate, BatchNormalization
 #     from keras.models import Model
-#     encoded = encoder(x_train, params)
-#     decoded = decoder(x_train, encoded.output, params)
-#     model = Model(encoded.input, decoded)
-#     model.summary()
-    
-#     compile_model(model, params)
-    
-#     history = model.fit(x_train, x_train, epochs=params['epochs'],
-#                         batch_size=params['batch_size'], shuffle=True,
-#                         validation_data=(x_test,x_test))
-#     return history, model
-    
-# def simple_encoder(x_train, params):
-#     from keras.layers import Input, Dense, Flatten
-#     from keras.models import Model
-#     input_dim = np.shape(x_train)[1]
-#     input_img = Input(shape = (input_dim,1))
-#     x = Flatten()(input_img)
-#     encoded = Dense(params['latent_dim'], activation=params['activation'])(x)
-#     encoder = Model(input_img, encoded)
-#     return encoder
 
-# def simple_decoder(x_train, bottleneck, params):
-#     from keras.layers import Dense, Reshape
-#     input_dim = np.shape(x_train)[1]
-#     x = Dense(input_dim, activation='sigmoid')(bottleneck)
-#     decoded = Reshape((input_dim, 1))(x)
-#     return decoded
-    # def normalize(flux, ax=1):
-# #     medians = np.median(flux, axis = ax, keepdims=True)
-# #     flux = flux / medians - 1.
-# #     return flux
+#     input_imgs = [Input(shape=(np.shape(x[0])[1], 1)),
+#                   Input(shape=(np.shape(x[1])[0]))]
+#     num_iter = int((params['num_conv_layers'])/2)    
 
-        
-# def interpolate_all(flux, time, flux_err=False, interp_tol=20./(24*60),
-#                     num_sigma=10, DEBUG_INTERP=False, output_dir='./',
-#                     prefix=''):
-#     '''Interpolates each light curves in flux array.'''
-    
-#     flux_interp = []
-#     for i in flux:
-#         i_interp = interpolate_lc(i, time, flux_err=flux_err,
-#                                   interp_tol=interp_tol,
-#                                   num_sigma=num_sigma,
-#                                   DEBUG_INTERP=DEBUG_INTERP,
-#                                   output_dir=output_dir, prefix=prefix)
-#         flux_interp.append(i_interp)
-    
-#     return np.array(flux_interp)
-
-# def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
-#                    num_sigma=10, DEBUG_INTERP=False,
-#                    output_dir='./', prefix=''):
-#     '''Interpolation for one light curve. Linearly interpolates nan gaps less
-#     than 20 minutes long. Spline interpolates nan gaps more than 20 minutes
-#     long (and shorter than orbit gap)'''
-#     from astropy.stats import SigmaClip
-#     from scipy import interpolate
-    
-#     # >> plot original light curve
-#     if DEBUG_INTERP:
-#         fig, ax = plt.subplots(5, 1, figsize=(8, 3*5))
-#         ax[0].plot(time, i, '.k', markersize=2)
-#         ax[0].set_title('original')
-    
-#     # -- sigma clip ----------------------------------------------------------
-#     sigclip = SigmaClip(sigma=num_sigma, maxiters=None, cenfunc='median')
-#     clipped_inds = np.nonzero(np.ma.getmask(sigclip(i, masked=True)))
-#     if np.shape(clipped_inds)[1] != 0:
-#         i[clipped_inds] = np.nan
-#     if DEBUG_INTERP:
-#         ax[1].plot(time, i, '.k', markersize=2)
-#         ax[1].set_title('clipped')
-    
-#     # >> find nan windows
-#     n = np.shape(i)[0]
-#     loc_run_start = np.empty(n, dtype=bool)
-#     loc_run_start[0] = True
-#     np.not_equal(np.isnan(i)[:-1], np.isnan(i)[1:], out=loc_run_start[1:])
-#     run_starts = np.nonzero(loc_run_start)[0]
-
-#     # >> find nan window lengths
-#     run_lengths = np.diff(np.append(run_starts, n))
-#     tdim = time[1]-time[0]
-    
-#     # -- interpolate small nan gaps ------------------------------------------
-#     interp_gaps = np.nonzero((run_lengths * tdim <= interp_tol) * \
-#                              np.isnan(i[run_starts]))
-#     interp_inds = run_starts[interp_gaps]
-#     interp_lens = run_lengths[interp_gaps]
-
-#     i_interp = np.copy(i)
-#     for a in range(np.shape(interp_inds)[0]):
-#         start_ind = interp_inds[a]
-#         end_ind = interp_inds[a] + interp_lens[a]
-#         i_interp[start_ind:end_ind] = np.interp(time[start_ind:end_ind],
-#                                                 time[np.nonzero(~np.isnan(i))],
-#                                                 i[np.nonzero(~np.isnan(i))])
-#     i = i_interp
-#     if DEBUG_INTERP:
-#         ax[2].plot(time, i, '.k', markersize=2)
-#         ax[2].set_title('interpolated')
-    
-#     # -- spline interpolate large nan gaps -----------------------------------
-#     # >> fit spline to non-nan points
-#     num_inds = np.nonzero( (~np.isnan(i)) * (~np.isnan(time)) )[0]
-#     ius = interpolate.InterpolatedUnivariateSpline(time[num_inds], i[num_inds])
-    
-#     # >> new time array (take out orbit gap)
-#     orbit_gap_start = num_inds[ np.argmax(np.diff(time[num_inds])) ]
-#     orbit_gap_end = num_inds[ orbit_gap_start+1 ]
-#     orbit_gap_len = orbit_gap_end - orbit_gap_start
-#     # orbit_gap_len = (time[num_inds][orbit_gap_ind]-\
-#     #                  time[num_inds][orbit_gap_ind+1]) * tdim
-#     t_spl = np.copy(time)
-#     t_spl = np.delete(t_spl, range(num_inds[-1], len(t_spl)))
-#     t_spl = np.delete(t_spl, range(orbit_gap_start, orbit_gap_end))
-#     t_spl = np.delete(t_spl, range(num_inds[0]))
-#     # t_spl = np.copy(time[ np.nonzero(~np.isnan(time)) ])
-#     # orbit_gap_inds = np.nonzero((t_spl > time[num_inds][orbit_gap_ind]) *\
-#     #                             (t_spl < time[num_inds][orbit_gap_ind+1]))
-#     # t_spl = np.delete(t_spl, orbit_gap_inds)
-#     # t_spl = np.delete(t_spl, range(-num_inds[0][-1], ))
-#     # t_spl = np.delete(t_spl, range(num_inds[0][0]))
-    
-    
-#     # t1 = np.concatenate([np.linspace(np.nanmin(time[num_inds]),
-#     #                                  time[num_inds][orbit_gap_ind],
-#     #                                  num_inds[0][orbit_gap_ind]),
-#     #                      np.linspace(time[num_inds][orbit_gap_ind+1],
-#     #                                  np.nanmax(time[num_inds]),
-#     #                                  len(time)-num_inds[0][orbit_gap_ind+1])],
-#     #                     axis=0)
-    
-#     # >> spline fit for new time array
-#     i_spl = ius(t_spl)
-    
-#     if DEBUG_INTERP:
-#         ax[3].plot(t_spl, i_spl, '.')
-#         ax[3].set_title('spline') 
-    
-#     # >> find nan gaps to spline interpolate over
-#     interp_gaps = np.nonzero((run_lengths * tdim > interp_tol) * \
-#                               np.isnan(i[run_starts]) * \
-#                               (((run_starts > orbit_gap_start) * \
-#                                 (run_starts < orbit_gap_end)) == False))       
-#     interp_inds = run_starts[interp_gaps]
-#     interp_lens = run_lengths[interp_gaps]  
-    
-#     # >> spline interpolate nan gaps
-#     i_interp = np.copy(i)
-#     for a in range(np.shape(interp_inds)[0]):
-#         start_ind = interp_inds[a]
-#         end_ind   = interp_inds[a] + interp_lens[a] - 1
-
-#         if not np.isnan(time[start_ind]):
-#             start_ind_spl = np.argmin(np.abs(t_spl - time[start_ind]))
-#             end_ind_spl = start_ind_spl + (end_ind-start_ind)
-#         else:
-#             end_ind_spl = np.argmin(np.abs(t_spl - time[end_ind]))
-#             start_ind_spl = end_ind_spl - (end_ind-start_ind)
-#         i_interp[start_ind:end_ind] = i_spl[start_ind_spl:end_ind_spl]
-        
-#     if DEBUG_INTERP:
-#         ax[4].plot(time, i_interp, '.k', markersize=2)
-#         ax[4].set_title('spline interpolate')
-#         fig.tight_layout()
-#         fig.savefig(output_dir + prefix + 'interpolate_debug.png',
-#                     bbox_inches='tight')
-#         plt.close(fig)
-        
-#     return i_interp
-    
-# def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
-#              ticid=False, output_dir='./', prefix='', tol1=0.05, tol2=0.1):
-#     '''Apply nan mask to flux and time array.
-#     Returns masked, homogenous flux and time array.
-#     If there are only a few (less than tol1 % light curves) light curves that
-#     contribute (more than tol2 % data points are NaNs) to NaN mask, then will
-#     remove those light curves.'''
-
-#     mask = np.nonzero(np.prod(~np.isnan(flux), axis = 0) == False)
-    
-#     # >> plot histogram of number of data points thrown out
-#     num_masked = []
-#     num_nan = []
-#     for lc in flux:
-#         num_inds = np.nonzero( ~np.isnan(lc) )
-#         num_masked.append( len( np.intersect1d(num_inds, mask) ) )
-#         num_nan.append( len(num_inds) )
-#     plt.figure()
-#     plt.hist(num_masked, bins=50)
-#     plt.ylabel('number of light curves')
-#     plt.xlabel('number of data points masked')
-#     plt.savefig(output_dir + 'nan_mask.png')
-#     plt.close()
-    
-#     # >> debugging plots
-#     if DEBUG:
-#         fig, ax = plt.subplots()
-#         ax.plot(time, flux[debug_ind], '.k', markersize=2)
-#         ax.set_title('removed orbit gap')
-#         fig.tight_layout()
-#         fig.savefig(output_dir + prefix + 'nanmask_debug.png',
-#                     bbox_inches='tight')
-#         plt.close(fig) 
-        
-#         # >> plot nan-y light curves
-#         sorted_inds = np.argsort(num_masked)
-#         for k in range(2): # >> plot top and lowest
-#             fig, ax = plt.subplots(nrows=10, figsize=(8, 3*10))
-#             for i in range(10):
-#                 if k == 0:
-#                     ind = sorted_inds[i]
-#                 else:
-#                     ind = sorted_inds[-i-1]
-#                 ax[i].plot(time, flux[ind], '.k', markersize=2)
-#                 pl.ticid_label(ax[i], ticid[ind], title=True)
-#                 num_nans = np.count_nonzero(np.isnan(flux[ind]))
-#                 ax[i].text(0.98, 0.98, 'Num NaNs: '+str(num_nans)+\
-#                            '\nNum masked: '+str(num_masked[ind]),
-#                            transform=ax[i].transAxes,
-#                            horizontalalignment='right',
-#                            verticalalignment='top', fontsize='xx-small')
-#             if k == 0:
-#                 fig.savefig(output_dir + prefix + 'nanmask_top.png',
-#                             bbox_inches='tight')
-#             else:
-#                 fig.savefig(output_dir + prefix + 'nanmask_low.png',
-#                             bbox_inches='tight')
-       
-#     # >> check if only a few light curves contribute to NaN mask
-#     num_nan = np.array(num_nan)
-#     worst_inds = np.nonzero( num_nan > tol2 )
-#     if len(worst_inds[0]) < tol1 * len(flux): # >> only a few bad light curves
-#         np.delete(flux, worst_inds, 0)
-        
-#         # >> and calculate new mask
-#         mask = np.nonzero(np.prod(~np.isnan(flux), axis = 0) == False)    
-        
-#         # >> make new histogram
-#         num_masked = []
-#         for lc in flux:
-#             num_inds = np.nonzero( ~np.isnan(lc) )
-#             num_masked.append( len( np.intersect1d(num_inds, mask) ) )
-#         plt.figure()
-#         plt.hist(num_masked, bins=50)
-#         plt.ylabel('number of light curves')
-#         plt.xlabel('number of data points masked')
-#         plt.savefig(output_dir + 'nan_mask_new.png')
-#         plt.close()
-        
-#     # >> apply NaN mask
-#     time = np.delete(time, mask)
-#     flux = np.delete(flux, mask, 1)
-    
-#     if type(flux_err) != bool:
-#         flux_err = np.delete(flux_err, mask, 1)
-#         return flux, time, flux_err
-#     else:
-#         return flux, time
-    
-            
-            # x = Conv1D(params['num_filters'], int(params['kernel_size']),
-            #             activation=params['activation'], padding='same')(x)
-        # maxchannel_1 = MaxPooling1D([params['num_filters'][i]],
-        #                             data_format='channels_first')
-        # x = [maxchannel_1(a) for a in x]
-
-        # upsampling_channels = Lambda(lambda x: \
-        #             K.repeat_elements(x,params['num_filters'][num_iter+i],2))
-
-            # from scipy.signal import welch
-            # f, psd = welch(flux) 
-            # psd = df.standardize(psd, ax=1)
-            
-            # f = np.linspace(0.2, 1000, 5000) # >> 1/period
-            # f = np.linspace(0.2, 1000, 500) # >> 1/period
-            # angular_f = 2*np.pi*f # >> convert to angular frequencies
-            # psd = []
-            # for i in range(len(flux)):
-            #     tmp = lombscargle(time, flux[i], angular_f, normalize=True)
-            #     psd.append(tmp)
-            # psd=np.array(psd)
-            
-# def encoder(x_train, params):
-#     '''x_train is an array with shape (num light curves, num data points, 1).
-#     params is a dictionary with keys:
-#         * kernel_size : 3, 5
-#         * latent_dim : dimension of bottleneck/latent space
-#         * strides : 1
-#         * epochs
-#         * dropout
-#         * num_filters : 8, 16, 32, 64...
-#         * num_conv_layers : number of convolutional layers in entire
-#           autoencoder (number of conv layers in encoder is num_conv_layers/2)
-#         * num_consecutive : number of consecutive convolutional layers (can
-#           currently only handle 1 or 2)
-#         * batch_size : 128
-#         * activation : 'elu'
-#         * last_activation : 'linear'        
-#         * optimizer : 'adam'
-#         * losses : 'mean_squared_error', 'custom'
-#         * lr : learning rate (e.g. 0.01)
-#         * initializer: 'random_normal', 'random_uniform', ...
-#     '''
-#     from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten, \
-#         Dense, BatchNormalization, Reshape
-#     from keras.models import Model
-    
-#     input_dim = np.shape(x_train)[1]
-#     num_iter = int(params['num_conv_layers']/2)
-#     # num_iter = int(len(params['num_filters'])/2)
-    
-#     # input_img = Input(shape = (input_dim, 1))
-#     input_img = Input(shape = (input_dim,))
-#     x = Reshape((input_dim, 1))(input_img)
 #     for i in range(num_iter):
+
 #         if i == 0:
-#             # x = Conv1D(params['num_filters'], int(params['kernel_size']),
-#             #         activation=params['activation'], padding='same',
-#             #         kernel_initializer=params['initializer'])(input_img)
-#             x = Conv1D(params['num_filters'], int(params['kernel_size']),
-#                     activation=params['activation'], padding='same',
-#                     kernel_initializer=params['initializer'])(x)            
-#             if params['num_consecutive'] == 2:
-#                 x = Conv1D(params['num_filters'], int(params['kernel_size']),
-#                             activation=params['activation'], padding='same')(x)
+#             x[0] = Conv1D(params['num_filters'],
+#                               int(params['kernel_size']),
+#                               activation=params['activation'], padding='same',
+#                               kernel_initializer=params['initializer'])(x[0])
+#             if params['num_consecutive']==2:
+#                 x[0] = Conv1D(params['num_filters'],
+#                                 int(params['kernel_size']),
+#                                 activation=params['activation'],
+#                                 padding='same',
+#                                 kernel_initializer=params['initializer'])(x[0])
 #         else:
-#             x = Conv1D(params['num_filters'], int(params['kernel_size']),
-#                         activation=params['activation'], padding='same',
-#                         kernel_initializer=params['initializer'])(x)
-#             if params['num_consecutive'] == 2:
-#                 x = Conv1D(params['num_filters'], int(params['kernel_size']),
-#                             activation=params['activation'], padding='same')(x)            
+#             x[0] = Conv1D(params['num_filters'],
+#                               int(params['kernel_size']),
+#                               activation=params['activation'], padding='same',
+#                               kernel_initializer=params['initializer'])(x[0])
+
+#             if params['num_consecutive']==2:
+#                 x[0] = Conv1D(params['num_filters'],
+#                                 int(params['kernel_size']),
+#                                 activation=params['activation'],
+#                                 padding='same',
+#                                 kernel_initializer=params['initializer'])(x[0])
+                  
             
-#         x = BatchNormalization()(x)            
-#         x = MaxPooling1D(2, padding='same')(x)
-#         x = Dropout(params['dropout'])(x)
-    
-#     x = Flatten()(x)
-#     encoded = Dense(params['latent_dim'], activation=params['activation'],
-#                     kernel_initializer=params['initializer'])(x)
-    
-#     encoder = Model(input_img, encoded)
-
-#     return encoder
-
-        # if i == num_iter-1:
-        #     x = BatchNormalization()(x)
-        #     if params['num_consecutive'] == 2:
-        #         x = Conv1D(params['num_filters'], int(params['kernel_size']),
-        #                     activation=params['activation'], padding='same',
-        #                     strides=params['strides'], 
-        #                     kernel_initializer=params['initializer'])(x)            
-        #     decoded = Conv1D(1, int(params['kernel_size']),
-        #                       activation=params['last_activation'],
-        #                       padding='same', strides=params['strides'],
-        #                       kernel_initializer=params['initializer'])(x)  
+#         x[0] = BatchNormalization()(x[0])
             
-        #     if not reshape:
-        #         decoded = Reshape((input_dim,))(decoded) # !!
-        #     # decoded = Conv1D(1, int(params['kernel_size'][num_iter]),
-        #     #                  activation=params['last_activation'],
-        #     #                  padding='same')(x)
-        # else:
+#         maxpool_1 = MaxPooling1D(2, padding='same')
+#         x = [maxpool_1(a) for a in x]
+        
+#         dropout_1 = Dropout(params['dropout'])
+#         x = [dropout_1(a) for a in x]
 
-
-    # def repeat_elts(x):
-    #     '''helper function for lambda layer'''
-    #     import tensorflow as tf
-    #     return tf.keras.backend.repeat_elements(x,params['num_filters'],2)
-        # return tf.keras.backend.repeat_elements(x,params['num_filters'][num_iter+i],2)
+#     x = [Flatten()(a) for a in x]
     
-    # x = Dense(int(input_dim/(2**(num_iter))))(bottleneck)
-    # x = Reshape((int(input_dim/(2**(num_iter))), 1))(x)
-    # x = Lambda(repeat_elts)(x)
+#     dense_0 = Dense(int(params['latent_dim']/2),
+#                     activation=params['activation'])
+#     dense_1 = Dense(int(params['latent_dim']/2),
+#                     activation=params['activation'])    
+#     x = [dense_0(x[0]), dense_1(x[1])]
+    
+#     encoded = concatenate(x)
+#     encoder = Model(inputs=input_imgs, outputs=encoded)
+#     return encoder     
+    
 
-        # x = Conv1D(1, int(params['kernel_size']),
-        #            activation=params['activation'], padding='same')(x)
-        # x = Conv1D(1, int(params['kernel_size'][num_iter+i]),
-        #            activation=params['activation'], padding='same')(x)
-        # if params['num_consecutive'] == 2:
-        #     x = Conv1D(params['num_filters'], int(params['kernel_size']),
-        #                 activation=params['activation'], padding='same',
-        #                 strides=params['strides'])(x)  
+# def run_VAEGAN(x_train, p, kernel=5, columns=18688,
+#                rows=1, channel=3):
+#     from keras import optimizers
+#     from VAEGAN import decgen
+    
+#     # noise = np.random.normal(0, 1, (p['batch_size'], 256))
+#     # optimizers
+#     if p['optimizer'] == 'adam':
+#         opt = optimizers.adam(lr = p['lr'],  decay=p['lr']/p['epochs'])    
+#     # SGDop = SGD(lr=0.0003)
+#     # ADAMop = Adam(lr=0.0002)
+    
+#     G = decgen(p['kernel_size'], p['num_filters'], rows, columns, channel)
+#     G.compile(optimizer=p['optimizer'], loss='mse')
+#     G.summary()
+    
+#     # >> training model
+#     history = G.fit()
+    
+#     # G.load_weights('generator.h5')
+#     # image = G.predict(noise)
+#     # image = np.uint8(image * 127.5 +127.5)
+#     # plt.imshow(image[0]), plt.show()    
 
-            # output_shape = x.shape
-            # output_shape[1] = output_shape[1] * params['strides']
-            # x = tf.nn.conv1d_transpose(x, int(params['kernel_size']),
-            #                            output_shape, params['strides'],
-            #                            padding='same')
-            # x = tf.keras.layers.Activation(params['activation'])(x)   
-                # decoded = tf.nn.conv1d_transpose(1,int(params['kernel_size']),
-                #            padding='same',
-                #            strides=params['strides'])(x)   
-                # decoded = tf.keras.layers.Activation(params['activation'])(decoded)   
-
-    # x = Lambda(lambda x: K.squeeze(x, axis=2))(x)
-    # x = tf.layers.conv2d_transpose(x, filters, 1, strides, padding='same')
-        # # >> re-arrange TESS features
-        # tmp = []
-        # for i in range(len(ticid)):
-        #     ind = np.nonzero(tess_features[:,0] == ticid[i])[0][0]
-        #     tmp.append(tess_features[ind][1:])
-        # tess_features = np.array(tmp)    
