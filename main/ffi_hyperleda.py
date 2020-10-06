@@ -62,20 +62,36 @@ class hyperleda_ffi(object):
     
     def __init__(self, datapath = "./", savepath = "./", ensemblename = "ensemble",
                  momentum_dump_csv = '/users/conta/urop/Table_of_momentum_dumps.csv',
-                 makefeats = True, plot = True, ENF = True, CAE = True):
+                 makefeats = True, ENF = True, CAE = True):
         print("Initialized hyperleda ffi processing object")
         self.datapath = datapath
         self.savepath = savepath
         self.ensemblename = ensemblename
+        self.ensemblefolder = self.savepath + self.ensemblename + "/"
         self.momdumpcsv = momentum_dump_csv
         self.makefeats = makefeats
         
         print("Making all folders")
         self.folder_initiate()
             
-        print("Loading in data from LEDA light curve files in ", self.datapath)
-        self.load_lc_from_files()
+        print("Loading in data")
+        try:
+            print("Attempting to load in a saved metafile")
+            self.fname_lightcurves = self.savepath + self.ensemblename + "/" + self.ensemblename + "_lightcurves.fits"
+            self.load_lc_metafile()
+            print("Succesfully loaded in light curves")
+            print("Opening all features together")
+            #self.load_features()
+        except:
+            print("Metafile does not exist, loading from raw text files")
+            self.load_lc_from_files()
+            self.save_lc_metafile()
+            print("Opening all features together")
         
+        try:
+            self.load_features()
+        except:
+            print("Features do not exist yet")
         
         if ENF: 
             if self.makefeats:
@@ -88,9 +104,9 @@ class hyperleda_ffi(object):
             print("Opening all features together")
             self.load_features()
             
-            if plot: 
-                self.path = self.enffolder
-                self.plot_everything(list(np.arange(0.5,10,0.5)), [3,5,10])
+
+            self.path = self.enffolder
+            self.plot_everything(list(np.arange(0.5,5,0.5)), [3,5,10])
             
         if CAE:
             print("CAE not set up yet")
@@ -102,12 +118,17 @@ class hyperleda_ffi(object):
             self.index_for_CAE()
             self.representation_learning(target_info)
         
+        if not CAE and not ENF:
+            print("Cleaning data")
+            self.path = self.ensemblefolder
+            self.median_normalize()
+            self.cleanedflux, comp =self.pca_linregress()
         return
      
         
     def folder_initiate(self):
         """Makes all the big folders"""
-        self.ensemblefolder = self.savepath + self.ensemblename + "/"
+        
         
         print("Setting Up Ensemble Folder")
         try:
@@ -129,8 +150,35 @@ class hyperleda_ffi(object):
         except OSError:
             print ("Directory %s already exists" % self.enffolder)
         return
+    
+    def save_lc_metafile(self):
+        self.fname_lightcurves = self.savepath + self.ensemblename + "/" + self.ensemblename + "_lightcurves.fits"
+    
+        hdr = fits.Header()
+        hdu = fits.PrimaryHDU(self.timeaxis, header=hdr)
+        hdu.writeto(self.fname_lightcurves)
+        fits.append(self.fname_lightcurves, self.intensities)
         
+        fname_ids = self.savepath + self.ensemblename + "/" + self.ensemblename + "_lightcurve_ids.txt"
+
+
+
+        np.savetxt(fname_ids, np.asarray(self.identifiers), fmt = '%s')
+        return 
+    
+    def load_lc_metafile(self):
+        self.fname_lightcurves = self.savepath + self.ensemblename + "/" + self.ensemblename + "_lightcurves.fits"
         
+        f = fits.open(self.fname_lightcurves, memmap=False)
+        self.timeaxis = f[0].data
+        self.intensities = f[1].data
+        
+        fname_ids = self.savepath + self.ensemblename + "/" + self.ensemblename + "_lightcurve_ids.txt"
+        
+        self.identifiers = np.loadtxt(fname_ids, dtype='str')
+        
+        return
+
     def plot_everything(self, dbscan_eps, min_samples):
         self.path = self.enffolder
         if not self.makefeats: #means that cleaning has not happened yet
@@ -195,7 +243,7 @@ class hyperleda_ffi(object):
         output: 
             * plots the KNN curves into the path
         modified [lcg 08312020 - ffi version]"""
-        self.path = self.enffolder
+        #self.path = self.enffolder
         self.knnpath = self.path + "knn_plots/"
         
         try:
@@ -262,15 +310,6 @@ class hyperleda_ffi(object):
         self.identifiers = identifiers
         return
     
-    def save_lc_metafile(self):
-        
-        self.metafilepath = self.datapath + self.ensemblename + "_lc_metafile.fits"
-        hdr = fits.Header() # >> make the header
-        hdu = fits.PrimaryHDU(self.timeaxis, header=hdr)
-        hdu.writeto(self.metafilepath)
-        fits.append(self.metafilepath, self.intensities)
-        fits.append(self.metafilepath, self.identifiers)
-        return
         
     
     def median_normalize(self):
@@ -551,6 +590,7 @@ class hyperleda_ffi(object):
         negative_factor = clf.negative_outlier_factor_
         
         lof = -1 * negative_factor
+        self.lof = lof
         ranked = np.argsort(lof)
         largest_indices = ranked[::-1][:n_tot] # >> outliers
         smallest_indices = ranked[:n_tot] # >> inliers
@@ -608,11 +648,13 @@ class hyperleda_ffi(object):
                         
                     # >> plot light curve
                     axis.plot(self.timeaxis, self.cleanedflux[ind], '.k')
+                    axis.set_title(self.identifiers[ind])
+                    #print(self.identifiers[ind])
                     axis.text(0.98, 0.02, '%.3g'%lof[ind],
                                transform=axis.transAxes,
                                horizontalalignment='right',
                                verticalalignment='bottom',
-                               fontsize='xx-small')                        
+                               fontsize='x-small')                        
                         
                     if k != n - 1:
                         axis.set_xticklabels([])
@@ -759,7 +801,7 @@ class hyperleda_ffi(object):
                             plot_lof_all=False,
                             plot_reconstruction_error_test=False,
                             plot_reconstruction_error_all=True,
-                            load_bottleneck=True)            
+                            load_bottleneck=True, FFI = True)            
     
         features, flux_feat, ticid_feat, info_feat = \
             ml.bottleneck_preprocessing(None,
@@ -1069,8 +1111,14 @@ class hyperleda_ffi(object):
                                 print(np.unique(db.labels_, return_counts=True))
                                 classes_1, counts_1 = \
                                     np.unique(db.labels_, return_counts=True)
+                                
+                                #if db.labels_[24037] == -1 or db.labels_[24038] == -1:
+                                 #   print("did not classify them")
+                                  #  print(db.labels_[24037],db.labels_[24038] )
+                                    #continue
+                                
                                     
-                                #param_num = str(len(parameter_sets)-1)
+                                    #param_num = str(len(parameter_sets)-1)
                                 title='Parameter Set '+str(param_num)+': '+'{} {} {} {} {} {}'.format(eps[i],
                                                                                             min_samples[j],
                                                                                             metric[k],
@@ -1079,7 +1127,7 @@ class hyperleda_ffi(object):
                                                                                             p[n])
                                 
                                 prefix='dbscan-p'+str(param_num)                            
-                                    
+                                
                                 if confusion_matrix:
                                     acc = pf.plot_confusion_matrix(self.identifiers, db.labels_,
                                                                    database_dir=database_dir,
@@ -1088,7 +1136,7 @@ class hyperleda_ffi(object):
                                 else:
                                     acc = np.nan
                                 accuracy.append(acc)
-                                    
+                                        
                                 if len(classes_1) > 1:
                                     classes.append(classes_1)
                                     num_classes.append(len(classes_1))
@@ -1100,18 +1148,18 @@ class hyperleda_ffi(object):
                                                            leaf_size[m],
                                                            p[n]])
                                     
-                                    # >> compute silhouette
+                                        # >> compute silhouette
                                     silhouette = silhouette_score(self.features, db.labels_)
                                     silhouette_scores.append(silhouette)
-                                    
-                                    # >> compute calinski harabasz score
+                                        
+                                        # >> compute calinski harabasz score
                                     ch_score = calinski_harabasz_score(self.features, db.labels_)
                                     ch_scores.append(ch_score)
-                                    
-                                    # >> compute davies-bouldin score
+                                        
+                                        # >> compute davies-bouldin score
                                     dav_boul_score = davies_bouldin_score(self.features, db.labels_)
                                     db_scores.append(dav_boul_score)
-                                    
+                                        
                                 else:
                                     silhouette, ch_score, dav_boul_score = np.nan, np.nan, np.nan
                                     
@@ -1128,7 +1176,7 @@ class hyperleda_ffi(object):
                                                                        ch_score,
                                                                        dav_boul_score,
                                                                        acc))
-                                    
+                                        
                                 if plotting and len(classes_1) > 1:
     
                                     self.column_plot_classification(self.dbpath, db.labels_, prefix = prefix,title=title)
@@ -1196,8 +1244,12 @@ class hyperleda_ffi(object):
                 # >> first plot any Simbad classified light curves
                 for k in range(min(nrows, len(class_inds))): 
                     ind = class_inds[k] # >> to index targets
+                    if ind == 24038 or ind == 24037:
+                        colorplot = 'red'
+                    else: 
+                        colorplot = 'black'
                     ax[k, j].plot(self.timeaxis, self.cleanedflux[ind], '.k')
-                    ax[k,j].set_title(str(self.identifiers[ind]), color='black')
+                    ax[k,j].set_title(str(self.identifiers[ind]), color=colorplot)
                     pf.format_axes(ax[k, j], ylabel=True) 
                     
                 features_byclass = self.features[class_inds]
