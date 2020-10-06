@@ -1917,9 +1917,12 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
     
     # >> save in txt file
     if not mock_data:
-        with open(output_dir+'reconstruction_error.txt', 'w') as f:
-            for i in range(len(ticid_test)):
-                f.write('{} {}\n'.format(ticid_test[i], err[i]))
+        out = np.column_stack([ticid_test.astype('int'), err])
+        np.savetxt(output_dir+'reconstruction_error.txt', out, fmt='%-16s')
+        
+        # with open(output_dir+'reconstruction_error.txt', 'w') as f:
+        #     for i in range(len(ticid_test)):
+        #         f.write('{}\t\t{}\n'.format(ticid_test[i], err[i]))
     
     for i in range(3):
         fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))

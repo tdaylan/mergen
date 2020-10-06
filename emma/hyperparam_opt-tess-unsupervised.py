@@ -59,7 +59,7 @@ norm_type = 'standardization'
 input_rms=True# >> concatenate RMS to learned features
 input_psd=True # >> also train on PSD
 # n_pgram = 1500
-n_pgram = 5000
+n_pgram = 50
 
 load_psd=False # >> if psd_train.fits, psd_test.fits already exists
 use_tess_features = True
