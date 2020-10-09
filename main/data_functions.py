@@ -344,7 +344,7 @@ def combine_sectors_by_lc(sectors, data_dir, custom_mask=[],
     return flux, x, ticid, np.array(target_info)
 
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
-                             ccds=[1,2,3,4], data_type='SPOC',
+                             ccds=[[1,2,3,4]]*4, data_type='SPOC',
                              cadence='2-minute', DEBUG=False,
                              output_dir='./', debug_ind=0,
                              nan_mask_check=True,
@@ -376,8 +376,9 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     # >> get file names for each group
     fnames = []
     fname_info = []
-    for cam in cams:
-        for ccd in ccds:
+    for i in range(len(cams)):
+        cam = cams[i]
+        for ccd in ccds[i]:
             s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
                 'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
@@ -1976,7 +1977,6 @@ def get_parents_only(class_info, parents=['EB'],
                                     'Ir': ['Or', 'RI', 'IA', 'IB', 'INA', 'INB']}):
     '''Finds all the objects with same parent and combines them into the same
     class
-    '**': ['EB', 'Al', 'bL', 'WU', 'SB', 'EI', 'EP', 'CV', 'GS', 'SD']
     '''
     classes = []
     new_class_info = []
@@ -2364,6 +2364,46 @@ def load_paramscan_txt(path):
     metric_scores = np.asarray(cleaned_params[['silhouette', 'db', 'ch']].tolist())
     
     return cleaned_params, number_classes, metric_scores
+
+def quick_hdbscan_param_search(features, min_samples=[2,3,4,5,6,7,8,15,50],
+                               min_cluster_size=[2,3,5,15,50,100],
+                               metric=['all'], p0=[1,2,3,4], output_dir='./'):
+    
+    import hdbscan
+    with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+        f.write('{} {} {} {} {} {} {}\n'.format("min_cluster_size", "min_samples",
+                                       "metric", "p", 'num_classes', 
+                                       'num_noise', 'other_classes'))    
+    if metric[0] == 'all':
+        metric = list(hdbscan.dist_metrics.METRIC_MAPPING.keys())
+        metric.remove('seuclidean')
+        metric.remove('mahalanobis')
+        metric.remove('wminkowski')
+        metric.remove('haversine')
+        metric.remove('cosine')
+        metric.remove('arccos')
+        metric.remove('pyfunc')        
+        
+    for i in range(len(min_cluster_size)):
+        for j in range(len(metric)):
+            if metric[j] == 'minkowski':
+                p = p0
+            else:
+                p = [None]
+            for n in range(len(p)):
+                for k in range(len(min_samples)):    
+                    clusterer = hdbscan.HDBSCAN(min_cluster_size=int(min_cluster_size[i]),
+                                                metric=metric[j], min_samples=min_samples[k],
+                                                p=p[n], algorithm='best')
+                    clusterer.fit(features)
+                    classes, counts = np.unique(clusterer.labels_, return_counts=True)
+                    
+                    with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+                        f.write('{} {} {} {} {} {} {} {}\n'.format(min_cluster_size[i],
+                                                       min_samples[k],
+                                                       metric[j], p[n],
+                                                       len(np.unique(classes))-1, 
+                                                       counts[0], classes, counts))
 
 def hdbscan_param_search(features, time, flux, ticid, target_info,
                             min_cluster_size=list(np.arange(5,30,2)),
