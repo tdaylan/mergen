@@ -80,9 +80,11 @@ import scipy.signal as signal
 from astropy.stats import SigmaClip
 from astropy.utils import exceptions
 
-from sklearn.metrics import confusion_matrix
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.decomposition import PCA
+from sklearn.metrics import confusion_matrix
+from scipy.optimize import linear_sum_assignment
+import seaborn as sn
 
 import astroquery
 from astroquery.simbad import Simbad
@@ -2451,15 +2453,121 @@ def make_parent_dict():
          }
     return d
     
+def get_statistic(ticid_feat, labels, class_info, class_label='Al'):
+    class_ticid = []
+    for i in class_info:
+        if class_label in i[1]:
+            class_ticid.append(float(i[0]))
+            
+    inter, comm1, comm2 = np.intersect1d(ticid_feat, np.array(class_ticid),
+                                         return_indices=True)
+    print('Number of ' + class_label + 's: ' + str(len(class_ticid)))
+    
+    class_labels = labels[comm1]
+    print(class_labels)
+    
+    classes, counts = np.unique(class_labels, return_counts=True)
+    
+    ranked = np.argsort(counts)
+    if classes[ranked][-1] == -1:
+        c = -2
+    else:
+        c = -1
+    print('Number of ' + class_label + 's in class #' + str(classes[ranked][c])+\
+          ': ' + str(counts[ranked][c]))
+    
+    return class_labels
+
+def assign_classes(ticid_pred, y_pred, database_dir='./databases/',
+                   output_dir='./', prefix='', single_file=False,
+                   labels = [], merge_classes=False, class_info=None,
+                   parents=['EB'],
+                   parent_dict = None, figsize=(30,30)):
+    
+    if type(parent_dict) == type(None):
+        parent_dict= make_parent_dict()
+    
+    # >> get clusterer classes
+    inds = np.nonzero(y_pred > -1)
+    ticid_pred = ticid_pred[inds]
+    y_pred = y_pred[inds]
+    
+    # >> get 'ground truth' classifications
+    if type(class_info) == type(None):
+        class_info = df.get_true_classifications(ticid_pred,
+                                                 database_dir=database_dir,
+                                                 single_file=single_file)
+    ticid_true = class_info[:,0].astype('int')
+
+    if merge_classes:
+        class_info = df.get_parents_only(class_info, parents=parents,
+                                         parent_dict=parent_dict)
+        
+    
+    if len(labels) > 0:
+        ticid_new = []
+        class_info_new = []
+        for i in range(len(ticid_true)):
+            for j in range(len(labels)):
+                if labels[j] in class_info[i][1] and \
+                    ticid_true[i] not in ticid_new:
+                    class_info_new.append([ticid_true[i], labels[j], class_info[i][2]])
+                    ticid_new.append(ticid_true[i])
+                    
+        class_info = np.array(class_info_new)
+        ticid_true = np.array(ticid_new)
+     
+
+    # >> find intersection
+    intersection, comm1, comm2 = np.intersect1d(ticid_pred, ticid_true,
+                                                return_indices=True)
+    ticid_pred = ticid_pred[comm1]
+    y_pred = y_pred[comm1]
+    ticid_true = ticid_true[comm2]
+    class_info_new = class_info[comm2]           
+        
+    columns = np.unique(y_pred).astype('str')
+    y_true_labels = np.unique(class_info_new[:,1])
+
+    y_true = []
+    for i in range(len(ticid_true)):
+        class_num = np.nonzero(y_true_labels == class_info_new[i][1])[0][0]
+        y_true.append(class_num)
+    y_true = np.array(y_true).astype('int')
+    
+    cm = confusion_matrix(y_true, y_pred)
+    while len(columns) < len(cm):
+        columns = np.append(columns, 'X')     
+    while len(y_true_labels) < len(cm):
+        y_true_labels = np.append(y_true_labels, 'X')            
+        
+    row_ind, col_ind = linear_sum_assignment(-1*cm)
+    cm = cm[:,col_ind]
+    columns = columns[col_ind]
+    
+    assigned_labels = {}
+    recalls = []
+    for i in range(len(columns)):
+        if columns[i] != 'X' and y_true_labels[i] != 'X':
+            assigned_labels[y_true_labels[i]] = int(columns[i])
+            precision =cm[i,i] / np.sum(cm[:,i])
+            recall = cm[i,i] / np.sum(cm[i])
+            
+            if not np.isnan(recall):
+                recalls.append(recall)
+                
+    recalls = np.array(recalls)
+    avg_recall = np.mean(recalls)
+    print('Recall: ' + str(avg_recall))
+    
+    return assigned_labels, recalls
+
 def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
                           output_dir='./', prefix='', single_file=False,
                           labels = [], merge_classes=False, class_info=None,
                           parents=['EB'],
                           parent_dict = None, figsize=(30,30)):
-    from sklearn.metrics import confusion_matrix
-    from scipy.optimize import linear_sum_assignment
-    import seaborn as sn
-    from itertools import permutations
+
     
     if type(parent_dict) == type(None):
         parent_dict= make_parent_dict()
@@ -2518,22 +2626,19 @@ def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
         columns = np.append(columns, 'X')       
     while len(y_true_labels) < len(cm):
         y_true_labels = np.append(y_true_labels, 'X')     
-    df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
-    fig, ax = plt.subplots(figsize=figsize)
-    sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
-    ax.set_aspect(1)
-    fig.savefig(output_dir+prefix+'confusion_matrix_raw.png')
-    plt.close()    
+    # df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
+    # fig, ax = plt.subplots(figsize=figsize)
+    # sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
+    # ax.set_aspect(1)
+    # fig.savefig(output_dir+prefix+'confusion_matrix_raw.png')
+    # plt.close()    
     # index = np.insert(labels, -1, 'Outlier')
-    
-    
-
     
     # >> find order of columns that gives the best accuracy using the
     # >> Hungarian algorithm (tries to minimize the diagonal)
     row_ind, col_ind = linear_sum_assignment(-1*cm)
     cm = cm[:,col_ind]
-    # !! TODO need to reorder columns label
+    columns = columns[col_ind] # !! TODO need to reorder columns label
     
     df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
     fig, ax = plt.subplots(figsize=figsize)

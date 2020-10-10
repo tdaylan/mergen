@@ -630,8 +630,9 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     #     decoded = decoder_split_diff_weights(x_train, encoded.output, params)
 
     elif params['cvae']:
-        z_mean, z_log_var, z = encoded.output
-        decoded = decoder(x_train, z, params, feature_maps, reshape=reshape)
+        # z_mean, z_log_var, z = encoded.output
+        decoded = decoder(x_train, encoded.output, params, feature_maps, pool_masks,
+                          reshape=reshape)
         
     else:
         decoded = decoder(x_train, encoded.output, params, feature_maps,
@@ -1119,7 +1120,7 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
         pf.diagnostic_plots(history_new, model_new, p, output_dir, x,
                             new_x_train[i], new_x_test[i],
                             x_predict, mock_data=False,
-                            addend=0.,
+                            addend=0., prefix=str(i),
                             target_info_test=new_info_test[i],
                             target_info_train=new_info_train[i],
                             ticid_train=new_ticid_train[i],
@@ -1140,12 +1141,13 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
                             plot_lof_all=False,
                             plot_reconstruction_error_test=True,
                             plot_reconstruction_error_all=False,
-                            load_bottleneck=True)           
+                            load_bottleneck=True)  
+         
         if p['concat_ext_feats']:
             
             
             x_predict = model_new.predict(new_x_train)
-            pf.diagnostic_plots(history_new, model_new, p, output_dir, x,
+            pf.diagnostic_plots(history_new, model_new, p, output_dir+str(i), x,
                                 new_x_train,
                                 new_x_train, x_predict, mock_data=False,
                                 addend=0.,
@@ -1169,7 +1171,43 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
                                 plot_lof_all=False,
                                 plot_reconstruction_error_test=True,
                                 plot_reconstruction_error_all=False,
-                                load_bottleneck=True)             
+                                load_bottleneck=True)      
+            
+        pf.plot_lof(x, new_x_train[i], new_ticid_train[i], features, 20, output_dir+str(i),
+                    n_tot=100, target_info=new_info_train[i], prefix=str(i),
+                    cross_check_txt=database_dir, debug=True, addend=0.,
+                    single_file=single_file, log=True, n_pgram=n_pgram,
+                    plot_psd=True)       
+        
+        best_param_set = [3, 3, 'canberra', None]
+        print('Run HDBSCAN')
+        _, _, acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
+                                      info_feat, output_dir=output_dir+str(i),
+                                      p0=[best_param_set[3]], single_file=single_file,
+                                      database_dir=database_dir,
+                                      metric=[best_param_set[2]],
+                                      min_cluster_size=[best_param_set[0]],
+                                      min_samples=[best_param_set[1]],
+                                      DEBUG=True, pca=True, tsne=True,
+                                      data_dir=data_dir, save=True)   
+        
+        gmm = GaussianMixture(n_components=200)
+        labels = gmm.fit_predict(features)
+        acc = pf.plot_confusion_matrix(ticid_feat, labels,
+                                       database_dir=database_dir,
+                                       single_file=single_file,
+                                       output_dir=output_dir+str(i),
+                                       prefix='gmm-')          
+        pf.quick_plot_classification(x, flux_feat,ticid_feat,info_feat, 
+                                     features, labels,path=output_dir+str(i),
+                                     prefix='gmm-',
+                                     database_dir=database_dir,
+                                     single_file=single_file)
+        pf.plot_cross_identifications(x, flux_feat, ticid_feat,
+                                      info_feat, features,
+                                      labels, path=output_dir,
+                                      database_dir=database_dir,
+                                      data_dir=data_dir, prefix=str(i)+'gmm-')        
     return history_list, model_list
 
 def cnn(x_train, y_train, x_test, y_test, params, num_classes=4):

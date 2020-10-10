@@ -345,7 +345,7 @@ def combine_sectors_by_lc(sectors, data_dir, custom_mask=[],
 
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                              ccds=[[1,2,3,4]]*4, data_type='SPOC',
-                             cadence='2-minute', DEBUG=False,
+                             cadence='2-minute', DEBUG=False, fast=False,
                              output_dir='./', debug_ind=0,
                              nan_mask_check=True,
                              custom_mask=[]):
@@ -379,8 +379,12 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     for i in range(len(cams)):
         cam = cams[i]
         for ccd in ccds[i]:
-            s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
-                'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+            if fast:
+                s = 'Sector{sector}_20s/Sector{sector}Cam{cam}CCD{ccd}/' + \
+                    'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+            else:
+                s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
+                    'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
             fname_info.append([sector, cam, ccd, data_type, cadence])
                 
@@ -2567,7 +2571,46 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
 
         
     return parameter_sets, num_classes, acc         
-                  
+             
+
+def gmm_param_search(features, time, flux, ticid, target_info,
+                            num_components=[20, 100, 200, 500],
+                            output_dir='./', DEBUG=False,
+                            simbad_database_txt='./simbad_database.txt',
+                            database_dir='./databases/',
+                            pca=False, tsne=False, confusion_matrix=True,
+                            single_file=False,
+                            data_dir='./data/', save=False,
+                            parents=[], labels=[]):
+    from sklearn.mixture import GaussianMixture       
+    classes = []
+    num_classes = []
+    counts = []
+    accuracy = []  
+
+    with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
+        f.write('{} {} {}\n'.format('num_components', 'acc', 'recall'))
+
+    for i in range(len(num_components)):
+        clusterer = GaussianMixture(n_components=num_components[i])
+        labels = clusterer.fit_predict(features)
+                    
+        print(np.unique(labels, return_counts=True))
+        classes_1, counts_1 = np.unique(labels, return_counts=True)
+                
+                        
+        
+        title='Parameter Set '+str(i)+': '+'{}'.format(num_components[i])
+                    
+        prefix='gmm-p'+str(i)                            
+                                    
+        acc = pf.plot_confusion_matrix(ticid, labels,
+                                       database_dir=database_dir,
+                                       single_file=single_file,
+                                       output_dir=output_dir,
+                                       prefix=prefix)       
+        
+    return num_classes, acc          
 
 def get_class_objects(ticid_feat, class_info, label):    
     ticid_rare = []

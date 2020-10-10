@@ -14,7 +14,7 @@
 
 # data_dir = '../../' # >> directory with input data (ending with /)
 data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/Ensemble-Sectors_2_3/' # >> directory to save diagnostic plots
+output_dir = '../../plots/Ensemble-Sector_27_fast/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -26,15 +26,17 @@ database_dir= '/Users/studentadmin/Dropbox/TESS_UROP/data/databases/'
 # database_dir = output_dir + 'all_simbad_classifications.txt'
 simbad_database_dir = ''
 # >> input data
-sectors = [2,3]
+sectors = [27]
 cams = [1,2,3,4]
 # cams = [1]
-ccds =  [1,2,3,4]
-
+# ccds =  [[2,3,4], [2,3,4], [1,2,4], [1,2,4]]
+ccds = [[1,2,3,4]]*4
+fast=True
 
 # weights init
 # model_init = output_dir + 'model'
 model_init = None
+
 
 # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
 train_test_ratio = 0.9
@@ -42,6 +44,7 @@ train_test_ratio = 0.9
 # >> what this script will run:
 hyperparameter_optimization = False # >> run hyperparameter search
 run_model = True # >> train autoencoder on a parameter set p
+iterative=False
 diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 
@@ -57,7 +60,7 @@ classification=True # >> runs DBSCAN on learned features
 norm_type = 'standardization'
 
 input_rms=True# >> concatenate RMS to learned features
-input_psd=True # >> also train on PSD
+input_psd=False # >> also train on PSD
 # n_pgram = 1500
 n_pgram = 50
 
@@ -103,7 +106,7 @@ if hyperparameter_optimization:
     p = {'kernel_size': [3,5],
           'latent_dim': [25],
           'strides': [2],# 3
-          'epochs': [10],
+          'epochs': [5],
           'dropout': [0.1, 0.2, 0.3, 0.4, 0.5],
           'num_filters': [32,64,128],
           'num_conv_layers': [4,6,8,10],
@@ -133,10 +136,10 @@ else:
     p = {'kernel_size': 3,
           'latent_dim': 35,
           'strides': 1,
-          'epochs': 15,
+          'epochs': 5,
           'dropout': 0.2,
           'num_filters': 16,
-          'num_conv_layers': 6,
+          'num_conv_layers': 4,
           'batch_size': 64,
           'activation': 'elu',
           'optimizer': 'adam',
@@ -144,8 +147,8 @@ else:
           'losses': 'mean_squared_error',
           'lr': 0.0001,
           'initializer': 'random_normal',
-          'num_consecutive': 3,
-          'pool_size': 4, 
+          'num_consecutive': 2,
+          'pool_size': 2, 
           'pool_strides': 2,
           'units': [1024, 512, 64, 16],
           'kernel_regularizer': None,
@@ -179,43 +182,10 @@ else:
     # >> currently only handles one sector
     flux, x, ticid, target_info = \
         df.load_data_from_metafiles(data_dir, sectors[0], cams=cams, ccds=ccds,
-                                    DEBUG=True,
+                                    DEBUG=True, fast=fast,
                                     output_dir=output_dir, nan_mask_check=True,
                                     custom_mask=custom_mask)
     
-
-
-# df.representation_learning(flux, x, ticid, target_info, output_dir=output_dir,
-#                            p=p)
-
-# !! tmp
-# # >> train and test on high frequency only
-# import random
-# ticid_all = []
-# err = []
-# with open(output_dir+'reconstruction_error_all.txt', 'r') as f:
-#     lines = f.readlines()
-#     for i in range(len(lines)):
-#         line = lines[i].split()
-#         ticid_all.append(float(line[0]))
-#         err.append(float(line[1]))      
-# ticid_all=np.array(ticid_all)
-# err=np.array(err)
-# inds = np.nonzero(err > np.sort(err)[19800])
-# random.Random(4).shuffle(inds)
-# ticid_all = ticid_all[inds]
-# new_flux=[]
-# new_ticid=[]
-# new_target_info=[]
-# for i in range(len(ticid_all)):
-#     new_ind = np.nonzero(ticid == ticid_all[i])
-#     new_flux.append(flux[new_ind])
-#     new_ticid.append(ticid[new_ind])
-#     new_target_info.append(target_info[new_ind])
-# flux = np.array(new_flux).reshape(len(new_flux), np.shape(new_flux)[2])
-# ticid = np.array(new_ticid).reshape(len(new_ticid))
-# target_info = np.array(new_target_info).reshape(len(new_target_info), 5)
-# # !! tmp
 
 x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
     target_info_test, rms_train, rms_test, x = \
@@ -233,6 +203,7 @@ x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
                                  use_tess_features=use_tess_features,
                                  use_tls_features=use_tls_features)
     
+
 if input_psd:
     p['concat_ext_feats'] = True
 
@@ -258,20 +229,21 @@ if hyperparameter_optimization:
 
 # == run model ================================================================
 if run_model:
-    
-    pdb.set_trace()
     print('Training autoencoder...') 
     history, model, x_predict = \
-        ml.conv_autoencoder(x_train, x_train, x_test, x_test, p, val=False, split=split_at_orbit_gap,
-                                         save_model=True, predict=True,
-                                         save_bottleneck=True,
-                                         output_dir=output_dir,
-                                         model_init=model_init) 
+        ml.conv_autoencoder(x_train, x_train, x_test, x_test, p, val=False,
+                            split=split_at_orbit_gap,
+                            ticid_train=ticid_train, ticid_test=ticid_test,
+                            save_model=True, predict=True,
+                            save_bottleneck=True,
+                            output_dir=output_dir,
+                            model_init=model_init) 
     
     if split_at_orbit_gap:
         x_train = np.concatenate(x_train, axis=1)
         x_test = np.concatenate(x_test, axis=1)
         x_predict = np.concatenate(x_predict, axis=1)
+    
     
 # == Plots ====================================================================
 if diag_plots:
@@ -303,8 +275,8 @@ if diag_plots:
                         load_bottleneck=True)          
     
  
-if input_psd:
-    x = x[0]            
+# if input_psd:
+#     x = x[0]            
 for i in [0,1,2]:
     if i == 0:
         use_learned_features=True
@@ -371,6 +343,8 @@ for i in [0,1,2]:
                                         use_tls_features=use_tls_features,
                                         use_rms=use_rms, norm=True,
                                         cams=cams, ccds=ccds, log=True)    
+            
+    
     else:
         features, flux_feat, ticid_feat, info_feat = \
             ml.bottleneck_preprocessing(sectors[0],
@@ -380,12 +354,13 @@ for i in [0,1,2]:
                                                         target_info_test]),
                                         rms=np.concatenate([rms_train, rms_test]),
                                         data_dir=data_dir,
+                                        bottleneck_dir=output_dir,
                                         output_dir=output_dir,
                                         use_learned_features=True,
                                         use_tess_features=use_tess_features,
                                         use_engineered_features=False,
                                         use_tls_features=use_tls_features,
-                                        use_rms=True, norm=True,
+                                        use_rms=use_rms, norm=True,
                                         cams=cams, ccds=ccds, log=True)  
             
     print('Plotting feature space')
@@ -419,6 +394,7 @@ for i in [0,1,2]:
                      'lr':0.001, 'epochs': 100, 'losses': 'mean_squared_error',
                      'batch_size': 128, 'initializer': 'glorot_uniform',
                      'fully_conv': False}    
+        
             
             # p_DAE = {'max_dim': 9, 'step': 5, 'latent_dim': 4,
             #          'activation': 'elu', 'last_activation': 'elu',
@@ -446,7 +422,7 @@ for i in [0,1,2]:
     if novelty_detection:
         print('Novelty detection')
         pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
-                    n_tot=40, target_info=info_feat, prefix=str(i),
+                    n_tot=200, target_info=info_feat, prefix=str(i),
                     cross_check_txt=database_dir, debug=True, addend=0.,
                     single_file=single_file, log=True, n_pgram=n_pgram,
                     plot_psd=True)
@@ -501,9 +477,38 @@ for i in [0,1,2]:
                                           data_dir=data_dir, save=True)  
         
         with open(output_dir + 'param_summary.txt', 'a') as f:
-            f.write('accuracy: ' + str(np.max(acc)))    
+            f.write('accuracy: ' + str(np.max(acc)))   
+            
+        df.gmm_param_search(features, x, flux_feat, ticid_feat, info_feat,
+                         output_dir=output_dir, database_dir=database_dir, 
+                         data_dir=data_dir) 
 
+        from sklearn.mixture import GaussianMixture
+        gmm = GaussianMixture(n_components=200)
+        labels = gmm.fit_predict(features)
+        acc = pf.plot_confusion_matrix(ticid_feat, labels,
+                                       database_dir=database_dir,
+                                       single_file=single_file,
+                                       output_dir=output_dir,
+                                       prefix='gmm-')          
+        pf.quick_plot_classification(x, flux_feat,ticid_feat,info_feat, 
+                                     features, labels,path=output_dir,
+                                     prefix='gmm-',
+                                     database_dir=database_dir,
+                                     single_file=single_file)
+        pf.plot_cross_identifications(x, flux_feat, ticid_feat,
+                                      info_feat, features,
+                                      labels, path=output_dir,
+                                      database_dir=database_dir,
+                                      data_dir=data_dir, prefix='gmm-')
     
+        
+# == iterative training =======================================================
+        
+ml.iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train, 
+                  ticid_test, target_info_train, target_info_test, num_split=2,
+                  output_dir=output_dir, split=split_at_orbit_gap,
+                  input_psd=input_psd) 
         
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     
@@ -1056,4 +1061,37 @@ for i in [0,1,2]:
         #                         min_samples=[best_param_set[1]],
         #                         metric=[best_param_set[2]], p=[best_param_set[5]],
         #                         database_dir=database_dir,
-        #                         eps=[best_param_set[0]])                
+        #                         eps=[best_param_set[0]])  
+
+
+# df.representation_learning(flux, x, ticid, target_info, output_dir=output_dir,
+#                            p=p)
+
+# !! tmp
+# # >> train and test on high frequency only
+# import random
+# ticid_all = []
+# err = []
+# with open(output_dir+'reconstruction_error_all.txt', 'r') as f:
+#     lines = f.readlines()
+#     for i in range(len(lines)):
+#         line = lines[i].split()
+#         ticid_all.append(float(line[0]))
+#         err.append(float(line[1]))      
+# ticid_all=np.array(ticid_all)
+# err=np.array(err)
+# inds = np.nonzero(err > np.sort(err)[19800])
+# random.Random(4).shuffle(inds)
+# ticid_all = ticid_all[inds]
+# new_flux=[]
+# new_ticid=[]
+# new_target_info=[]
+# for i in range(len(ticid_all)):
+#     new_ind = np.nonzero(ticid == ticid_all[i])
+#     new_flux.append(flux[new_ind])
+#     new_ticid.append(ticid[new_ind])
+#     new_target_info.append(target_info[new_ind])
+# flux = np.array(new_flux).reshape(len(new_flux), np.shape(new_flux)[2])
+# ticid = np.array(new_ticid).reshape(len(new_ticid))
+# target_info = np.array(new_target_info).reshape(len(new_target_info), 5)
+# # !! tmp              
