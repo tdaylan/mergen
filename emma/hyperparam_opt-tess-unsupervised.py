@@ -14,7 +14,7 @@
 
 # data_dir = '../../' # >> directory with input data (ending with /)
 data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/Ensemble-Sector_27_fast/' # >> directory to save diagnostic plots
+output_dir = '../../plots/Ensemble-Sector_27_0/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -29,9 +29,9 @@ simbad_database_dir = ''
 sectors = [27]
 cams = [1,2,3,4]
 # cams = [1]
-# ccds =  [[2,3,4], [2,3,4], [1,2,4], [1,2,4]]
-ccds = [[1,2,3,4]]*4
-fast=True
+ccds =  [[2,3,4], [2,3,4], [1,2,4], [1,2,4]]
+# ccds = [[1,2,3,4]]*4
+fast=False
 
 # weights init
 # model_init = output_dir + 'model'
@@ -40,17 +40,18 @@ model_init = None
 
 # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
 train_test_ratio = 0.9
+# train_test_ratio = 1.
 
 # >> what this script will run:
 hyperparameter_optimization = False # >> run hyperparameter search
-run_model = True # >> train autoencoder on a parameter set p
-iterative=False
-diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
+run_model = False # >> train autoencoder on a parameter set p
+iterative=True
+diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 
-novelty_detection=True
+novelty_detection=False
 classification_param_search=False
-classification=True # >> runs DBSCAN on learned features
+classification=False # >> runs DBSCAN on learned features
 
 # >> normalization options:
 #    * standardization : sets mean to 0. and standard deviation to 1.
@@ -203,7 +204,6 @@ x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
                                  use_tess_features=use_tess_features,
                                  use_tls_features=use_tls_features)
     
-
 if input_psd:
     p['concat_ext_feats'] = True
 
@@ -276,239 +276,241 @@ if diag_plots:
     
  
 # if input_psd:
-#     x = x[0]            
-for i in [0,1,2]:
-    if i == 0:
-        use_learned_features=True
-        use_tess_features=False
-        use_tls_features=False
-        use_engineered_features=False
-        use_rms=False
-        description='_0_learned'
-        DAE=False
-    elif i == 1:
-        use_learned_features=False
-        use_tess_features=True
-        use_tls_features=False
-        use_engineered_features=False        
-        use_rms=False
-        description='_1_ext'
-        DAE_hyperparam_opt=True
-        DAE=True
-        p_DAE = {'max_dim': [9, 11, 13, 15, 17, 19], 'step': [1,2,3,4,5,6],
-                  'latent_dim': [3,4,5],
-                  'activation': ['relu', 'elu'],
-                'last_activation': ['relu', 'elu'],
-                  'optimizer': ['adam'],
-                  'lr':[0.001, 0.005, 0.01], 'epochs': [20],
-                  'losses': ['mean_squared_error'],
-                  'batch_size':[128],
-                  'initializer': ['glorot_normal', 'glorot_uniform'],
-                  'fully_conv': [False]}             
-    elif i == 2:
-        use_learned_features=True
-        use_tess_features=True
-        use_tls_features=False
-        use_engineered_features=False        
-        use_rms=True
-        description='_2_learned_RMS_ext'        
-        DAE_hyperparam_opt=True
-        DAE=True
-        p_DAE = {'max_dim': list(np.arange(40, 70, 5)), 'step': [1,2,3,4,5,6],
-                  'latent_dim': list(np.arange(12, 50, 5)),
-                  'activation': ['relu', 'elu'],
-                'last_activation': ['relu', 'elu'],
-                  'optimizer': ['adam'],
-                  'lr':[0.001, 0.005, 0.01], 'epochs': [20],
-                  'losses': ['mean_squared_error'],
-                  'batch_size':[128],
-                  'initializer': ['glorot_normal', 'glorot_uniform'],
-                  'fully_conv': [False]}                
+#     x = x[0]  
+if novelty_detection or classification:         
+    for i in [0,1,2]:
+        if i == 0:
+            use_learned_features=True
+            use_tess_features=False
+            use_tls_features=False
+            use_engineered_features=False
+            use_rms=False
+            description='_0_learned'
+            DAE=False
+        elif i == 1:
+            use_learned_features=False
+            use_tess_features=True
+            use_tls_features=False
+            use_engineered_features=False        
+            use_rms=False
+            description='_1_ext'
+            DAE_hyperparam_opt=True
+            DAE=True
+            p_DAE = {'max_dim': [9, 11, 13, 15, 17, 19], 'step': [1,2,3,4,5,6],
+                      'latent_dim': [3,4,5],
+                      'activation': ['relu', 'elu'],
+                    'last_activation': ['relu', 'elu'],
+                      'optimizer': ['adam'],
+                      'lr':[0.001, 0.005, 0.01], 'epochs': [20],
+                      'losses': ['mean_squared_error'],
+                      'batch_size':[128],
+                      'initializer': ['glorot_normal', 'glorot_uniform'],
+                      'fully_conv': [False]}             
+        elif i == 2:
+            use_learned_features=True
+            use_tess_features=True
+            use_tls_features=False
+            use_engineered_features=False        
+            use_rms=True
+            description='_2_learned_RMS_ext'        
+            DAE_hyperparam_opt=True
+            DAE=True
+            p_DAE = {'max_dim': list(np.arange(40, 70, 5)), 'step': [1,2,3,4,5,6],
+                      'latent_dim': list(np.arange(12, 50, 5)),
+                      'activation': ['relu', 'elu'],
+                    'last_activation': ['relu', 'elu'],
+                      'optimizer': ['adam'],
+                      'lr':[0.001, 0.005, 0.01], 'epochs': [20],
+                      'losses': ['mean_squared_error'],
+                      'batch_size':[128],
+                      'initializer': ['glorot_normal', 'glorot_uniform'],
+                      'fully_conv': [False]}                
+            
+        print('Creating feature space')
         
-    print('Creating feature space')
-    
-    if p['concat_ext_feats'] or input_psd:
-        features, flux_feat, ticid_feat, info_feat = \
-            ml.bottleneck_preprocessing(sectors[0],
-                                        np.concatenate([x_train[0], x_test[0]], axis=0),
-                                        np.concatenate([ticid_train, ticid_test]),
-                                        np.concatenate([target_info_train,
-                                                        target_info_test]),
-                                        rms=np.concatenate([rms_train, rms_test]),
-                                        data_dir=data_dir, bottleneck_dir=output_dir,
-                                        output_dir=output_dir,
-                                        use_learned_features=use_learned_features,
-                                        use_tess_features=use_tess_features,
-                                        use_engineered_features=use_engineered_features,
-                                        use_tls_features=use_tls_features,
-                                        use_rms=use_rms, norm=True,
-                                        cams=cams, ccds=ccds, log=True)    
-            
-    
-    else:
-        features, flux_feat, ticid_feat, info_feat = \
-            ml.bottleneck_preprocessing(sectors[0],
-                                        np.concatenate([x_train, x_test], axis=0),
-                                        np.concatenate([ticid_train, ticid_test]),
-                                        np.concatenate([target_info_train,
-                                                        target_info_test]),
-                                        rms=np.concatenate([rms_train, rms_test]),
-                                        data_dir=data_dir,
-                                        bottleneck_dir=output_dir,
-                                        output_dir=output_dir,
-                                        use_learned_features=True,
-                                        use_tess_features=use_tess_features,
-                                        use_engineered_features=False,
-                                        use_tls_features=use_tls_features,
-                                        use_rms=use_rms, norm=True,
-                                        cams=cams, ccds=ccds, log=True)  
-            
-    print('Plotting feature space')
-    pf.latent_space_plot(features, output_dir + 'feature_space.png')    
-    
-    if DAE:
-        if DAE_hyperparam_opt:
-
-      
-            t = talos.Scan(x=features,
-                            y=features,
-                            params=p_DAE,
-                            model=ml.deep_autoencoder,
-                            experiment_name='DAE', 
-                            reduction_metric = 'val_loss',
-                            minimize_loss=True,
-                            reduction_method='correlation',
-                            fraction_limit = 0.1)            
-            analyze_object = talos.Analyze(t)
-            data_frame, best_param_ind,p_best = pf.hyperparam_opt_diagnosis(analyze_object,
-                                                                output_dir,
-                                                                supervised=False) 
-            p_DAE=p_best
-            p_DAE['epochs'] = 100
-            
-        else:
+        if p['concat_ext_feats'] or input_psd:
+            features, flux_feat, ticid_feat, info_feat = \
+                ml.bottleneck_preprocessing(sectors[0],
+                                            np.concatenate([x_train[0], x_test[0]], axis=0),
+                                            np.concatenate([ticid_train, ticid_test]),
+                                            np.concatenate([target_info_train,
+                                                            target_info_test]),
+                                            rms=np.concatenate([rms_train, rms_test]),
+                                            data_dir=data_dir, bottleneck_dir=output_dir,
+                                            output_dir=output_dir,
+                                            use_learned_features=use_learned_features,
+                                            use_tess_features=use_tess_features,
+                                            use_engineered_features=use_engineered_features,
+                                            use_tls_features=use_tls_features,
+                                            use_rms=use_rms, norm=True,
+                                            cams=cams, ccds=ccds, log=True)    
                 
-            p_DAE = {'max_dim': 50, 'step': 4, 'latent_dim': 42,
-                     'activation': 'elu', 'last_activation': 'elu',
-                     'optimizer': 'adam',
-                     'lr':0.001, 'epochs': 100, 'losses': 'mean_squared_error',
-                     'batch_size': 128, 'initializer': 'glorot_uniform',
-                     'fully_conv': False}    
         
-            
-            # p_DAE = {'max_dim': 9, 'step': 5, 'latent_dim': 4,
-            #          'activation': 'elu', 'last_activation': 'elu',
-            #          'optimizer': 'adam',
-            #          'lr':0.01, 'epochs': 100, 'losses': 'mean_squared_error',
-            #          'batch_size': 128, 'initializer': 'glorot_normal',
-            #          'fully_conv': False}               
-            
-        history_DAE, model_DAE = ml.deep_autoencoder(features, features,
-                                                       features, features,
-                                                       p_DAE, resize=False,
-                                                       batch_norm=True)
-        new_features = ml.get_bottleneck(model_DAE, features, p_DAE, DAE=True)
-        features=new_features
-        
-        pf.epoch_plots(history_DAE, p_DAE, output_dir)
-        
+        else:
+            features, flux_feat, ticid_feat, info_feat = \
+                ml.bottleneck_preprocessing(sectors[0],
+                                            np.concatenate([x_train, x_test], axis=0),
+                                            np.concatenate([ticid_train, ticid_test]),
+                                            np.concatenate([target_info_train,
+                                                            target_info_test]),
+                                            rms=np.concatenate([rms_train, rms_test]),
+                                            data_dir=data_dir,
+                                            bottleneck_dir=output_dir,
+                                            output_dir=output_dir,
+                                            use_learned_features=True,
+                                            use_tess_features=use_tess_features,
+                                            use_engineered_features=False,
+                                            use_tls_features=use_tls_features,
+                                            use_rms=use_rms, norm=True,
+                                            cams=cams, ccds=ccds, log=True)  
+                
         print('Plotting feature space')
-        pf.latent_space_plot(features, output_dir + 'feature_space' + \
-                             ''+'_DAE.png')        
-
+        pf.latent_space_plot(features, output_dir + 'feature_space_'+str(i)+'.png')    
+        
+        if DAE:
+            if DAE_hyperparam_opt:
+    
+          
+                t = talos.Scan(x=features,
+                                y=features,
+                                params=p_DAE,
+                                model=ml.deep_autoencoder,
+                                experiment_name='DAE', 
+                                reduction_metric = 'val_loss',
+                                minimize_loss=True,
+                                reduction_method='correlation',
+                                fraction_limit = 0.1)            
+                analyze_object = talos.Analyze(t)
+                data_frame, best_param_ind,p_best = pf.hyperparam_opt_diagnosis(analyze_object,
+                                                                    output_dir,
+                                                                    supervised=False) 
+                p_DAE=p_best
+                p_DAE['epochs'] = 100
+                
+            else:
+                    
+                p_DAE = {'max_dim': 50, 'step': 4, 'latent_dim': 30,
+                         'activation': 'elu', 'last_activation': 'elu',
+                         'optimizer': 'adam',
+                         'lr':0.001, 'epochs': 100, 'losses': 'mean_squared_error',
+                         'batch_size': 128, 'initializer': 'glorot_uniform',
+                         'fully_conv': False}    
+            
+                
+                # p_DAE = {'max_dim': 9, 'step': 5, 'latent_dim': 4,
+                #          'activation': 'elu', 'last_activation': 'elu',
+                #          'optimizer': 'adam',
+                #          'lr':0.01, 'epochs': 100, 'losses': 'mean_squared_error',
+                #          'batch_size': 128, 'initializer': 'glorot_normal',
+                #          'fully_conv': False}               
+                
+            history_DAE, model_DAE = ml.deep_autoencoder(features, features,
+                                                           features, features,
+                                                           p_DAE, resize=False,
+                                                           batch_norm=True)
+            new_features = ml.get_bottleneck(model_DAE, features, p_DAE, DAE=True)
+            features=new_features
+            
+            pf.epoch_plots(history_DAE, p_DAE, output_dir)
+            
+            print('Plotting feature space')
+            pf.latent_space_plot(features, output_dir + 'feature_space' + \
+                                 ''+'_DAE_'+str(i)+'.png')        
+    
+            
         
     
-
-    if novelty_detection:
-        print('Novelty detection')
-        pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
-                    n_tot=200, target_info=info_feat, prefix=str(i),
-                    cross_check_txt=database_dir, debug=True, addend=0.,
-                    single_file=single_file, log=True, n_pgram=n_pgram,
-                    plot_psd=True)
-
-    if classification:
-        if classification_param_search:
-            df.KNN_plotting(output_dir +'str(i)-', features, [10, 20, 100])
+        if novelty_detection:
+            print('Novelty detection')
+            pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
+                        n_tot=200, target_info=info_feat, prefix=str(i),
+                        cross_check_txt=database_dir, debug=True, addend=0.,
+                        single_file=single_file, log=True, n_pgram=n_pgram,
+                        plot_psd=True)
     
-            print('DBSCAN parameter search')
-            parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
-            df.dbscan_param_search(features, x, flux_feat, ticid_feat,
-                                    info_feat, DEBUG=False, 
-                                    output_dir=output_dir+str(i), 
-                                    simbad_database_txt=simbad_database_dir,
-                                    leaf_size=[30], algorithm=['auto'],
-                                    min_samples=[5],
-                                    metric=['minkowski'], p=[3,4],
-                                    database_dir=database_dir,
-                                    eps=list(np.arange(1.5, 4., 0.1)),
-                                    confusion_matrix=False, pca=False, tsne=False,
-                                    tsne_clustering=False)      
-            
-            print('Classification with best parameter set')
-            best_ind = np.argmax(silhouette_scores)
-            best_param_set = parameter_sets[best_ind]
-            
-        else:
-            best_param_set=[2.0, 3, 'minkowski', 'auto', 30, 4]    
-      
-    
+        if classification:
+            if classification_param_search:
+                df.KNN_plotting(output_dir +'str(i)-', features, [10, 20, 100])
         
-        if classification_param_search:
-            print('HDBSCAN parameter search')
-            acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
-                                          info_feat, output_dir=output_dir,
-                                          p0=[3,4], single_file=single_file,
-                                          database_dir=database_dir, metric=['all'],
-                                          min_samples=[3], min_cluster_size=[3],
-                                          data_dir=data_dir)
-        else:
-            # best_param_set = [3, 3, 'manhattan', None]
-            best_param_set = [3, 3, 'canberra', None]
-            print('Run HDBSCAN')
-            _, _, acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
-                                          info_feat, output_dir=output_dir,
-                                          p0=[best_param_set[3]], single_file=single_file,
+                print('DBSCAN parameter search')
+                parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
+                df.dbscan_param_search(features, x, flux_feat, ticid_feat,
+                                        info_feat, DEBUG=False, 
+                                        output_dir=output_dir+str(i), 
+                                        simbad_database_txt=simbad_database_dir,
+                                        leaf_size=[30], algorithm=['auto'],
+                                        min_samples=[5],
+                                        metric=['minkowski'], p=[3,4],
+                                        database_dir=database_dir,
+                                        eps=list(np.arange(1.5, 4., 0.1)),
+                                        confusion_matrix=False, pca=False, tsne=False,
+                                        tsne_clustering=False)      
+                
+                print('Classification with best parameter set')
+                best_ind = np.argmax(silhouette_scores)
+                best_param_set = parameter_sets[best_ind]
+                
+            else:
+                best_param_set=[2.0, 3, 'minkowski', 'auto', 30, 4]    
+          
+        
+            
+            if classification_param_search:
+                print('HDBSCAN parameter search')
+                acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
+                                              info_feat, output_dir=output_dir,
+                                              p0=[3,4], single_file=single_file,
+                                              database_dir=database_dir, metric=['all'],
+                                              min_samples=[3], min_cluster_size=[3],
+                                              data_dir=data_dir)
+            else:
+                # best_param_set = [3, 3, 'manhattan', None]
+                best_param_set = [3, 3, 'canberra', None]
+                print('Run HDBSCAN')
+                _, _, acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
+                                              info_feat, output_dir=output_dir,
+                                              p0=[best_param_set[3]], single_file=single_file,
+                                              database_dir=database_dir,
+                                              metric=[best_param_set[2]],
+                                              min_cluster_size=[best_param_set[0]],
+                                              min_samples=[best_param_set[1]],
+                                              DEBUG=True, pca=True, tsne=True,
+                                              data_dir=data_dir, save=False)  
+            
+            with open(output_dir + 'param_summary.txt', 'a') as f:
+                f.write('accuracy: ' + str(np.max(acc)))   
+                
+            df.gmm_param_search(features, x, flux_feat, ticid_feat, info_feat,
+                             output_dir=output_dir+'gmm_'+str(i), database_dir=database_dir, 
+                             data_dir=data_dir) 
+    
+            from sklearn.mixture import GaussianMixture
+            gmm = GaussianMixture(n_components=200)
+            labels = gmm.fit_predict(features)
+            acc = pf.plot_confusion_matrix(ticid_feat, labels,
+                                           database_dir=database_dir,
+                                           single_file=single_file,
+                                           output_dir=output_dir,
+                                           prefix='gmm-'+str(i)+'_')          
+            pf.quick_plot_classification(x, flux_feat,ticid_feat,info_feat, 
+                                         features, labels,path=output_dir,
+                                         prefix='gmm-'+str(i)+'_',
+                                         database_dir=database_dir)
+            pf.plot_cross_identifications(x, flux_feat, ticid_feat,
+                                          info_feat, features,
+                                          labels, path=output_dir,
                                           database_dir=database_dir,
-                                          metric=[best_param_set[2]],
-                                          min_cluster_size=[best_param_set[0]],
-                                          min_samples=[best_param_set[1]],
-                                          DEBUG=True, pca=True, tsne=True,
-                                          data_dir=data_dir, save=True)  
-        
-        with open(output_dir + 'param_summary.txt', 'a') as f:
-            f.write('accuracy: ' + str(np.max(acc)))   
-            
-        df.gmm_param_search(features, x, flux_feat, ticid_feat, info_feat,
-                         output_dir=output_dir, database_dir=database_dir, 
-                         data_dir=data_dir) 
-
-        from sklearn.mixture import GaussianMixture
-        gmm = GaussianMixture(n_components=200)
-        labels = gmm.fit_predict(features)
-        acc = pf.plot_confusion_matrix(ticid_feat, labels,
-                                       database_dir=database_dir,
-                                       single_file=single_file,
-                                       output_dir=output_dir,
-                                       prefix='gmm-')          
-        pf.quick_plot_classification(x, flux_feat,ticid_feat,info_feat, 
-                                     features, labels,path=output_dir,
-                                     prefix='gmm-',
-                                     database_dir=database_dir,
-                                     single_file=single_file)
-        pf.plot_cross_identifications(x, flux_feat, ticid_feat,
-                                      info_feat, features,
-                                      labels, path=output_dir,
-                                      database_dir=database_dir,
-                                      data_dir=data_dir, prefix='gmm-')
+                                          data_dir=data_dir, prefix='gmm-'+str(i)+'_')
     
         
 # == iterative training =======================================================
         
-ml.iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train, 
-                  ticid_test, target_info_train, target_info_test, num_split=2,
-                  output_dir=output_dir, split=split_at_orbit_gap,
-                  input_psd=input_psd) 
+if iterative:
+    ml.iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train, 
+                      ticid_test, target_info_train, target_info_test, num_split=2,
+                      output_dir=output_dir, split=split_at_orbit_gap,
+                      input_psd=input_psd, database_dir=database_dir,
+                      data_dir=data_dir) 
         
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     

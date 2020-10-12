@@ -1010,6 +1010,7 @@ def custom_loss_function1(y_true, y_pred):
     import keras.backend as K
     from scipy import signal
     import tensorflow as tf
+    from sklearn.mixture import GaussianMixture
     
     # sess = tf.Session()
     # with sess.as_default():
@@ -1040,8 +1041,10 @@ def custom_loss_function1(y_true, y_pred):
     
 def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train, 
                   ticid_test, target_info_train, target_info_test, num_split=2,
-                  output_dir='./', split=False, input_psd=False):
+                  output_dir='./', split=False, input_psd=False,
+                  database_dir='./', data_dir='./'):
     import keras
+    from sklearn.mixture import GaussianMixture
     
     # >> load model
     model = keras.models.load_model(output_dir+'model')
@@ -1094,7 +1097,7 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
     
     history_list = []
     model_list = []
-    for i in [1]:
+    for i in range(2):
         # model_init = output_dir+'model'
         model_init = None
         history_new, model_new = \
@@ -1176,14 +1179,14 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
         pf.plot_lof(x, new_x_train[i], new_ticid_train[i], features, 20, output_dir+str(i),
                     n_tot=100, target_info=new_info_train[i], prefix=str(i),
                     cross_check_txt=database_dir, debug=True, addend=0.,
-                    single_file=single_file, log=True, n_pgram=n_pgram,
-                    plot_psd=True)       
+                    single_file=False, log=True, n_pgram=1000,
+                    plot_psd=True )       
         
         best_param_set = [3, 3, 'canberra', None]
         print('Run HDBSCAN')
-        _, _, acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
-                                      info_feat, output_dir=output_dir+str(i),
-                                      p0=[best_param_set[3]], single_file=single_file,
+        _, _, acc = df.hdbscan_param_search(features, x, new_x_train[i], new_ticid_train[i],
+                                      new_info_train[i], output_dir=output_dir+str(i),
+                                      p0=[best_param_set[3]], single_file=False,
                                       database_dir=database_dir,
                                       metric=[best_param_set[2]],
                                       min_cluster_size=[best_param_set[0]],
@@ -1193,18 +1196,18 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
         
         gmm = GaussianMixture(n_components=200)
         labels = gmm.fit_predict(features)
-        acc = pf.plot_confusion_matrix(ticid_feat, labels,
+        acc = pf.plot_confusion_matrix(new_ticid_train[i], labels,
                                        database_dir=database_dir,
-                                       single_file=single_file,
+                                       single_file=False,
                                        output_dir=output_dir+str(i),
                                        prefix='gmm-')          
-        pf.quick_plot_classification(x, flux_feat,ticid_feat,info_feat, 
+        pf.quick_plot_classification(x, new_x_train[i], new_ticid_train[i],
+                                     new_info_train[i], 
                                      features, labels,path=output_dir+str(i),
                                      prefix='gmm-',
-                                     database_dir=database_dir,
-                                     single_file=single_file)
-        pf.plot_cross_identifications(x, flux_feat, ticid_feat,
-                                      info_feat, features,
+                                     database_dir=database_dir)
+        pf.plot_cross_identifications(x, new_x_train[i], new_ticid_train[i],
+                                      new_info_train[i], features,
                                       labels, path=output_dir,
                                       database_dir=database_dir,
                                       data_dir=data_dir, prefix=str(i)+'gmm-')        

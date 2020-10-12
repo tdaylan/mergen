@@ -1020,7 +1020,7 @@ def diagnostic_plots(history, model, p, output_dir,
     if plot_reconstruction_error_test:
         print('Plotting reconstruction error for testing set')
         plot_reconstruction_error(x, x_test, x_test, x_predict, ticid_test,
-                                  output_dir=output_dir,
+                                  output_dir=output_dir, prefix=prefix,
                                   target_info=target_info_test,
                                   mock_data=mock_data, addend=addend)
     
@@ -1037,7 +1037,7 @@ def diagnostic_plots(history, model, p, output_dir,
         
         plot_reconstruction_error(x, tmp, tmp, tmp_predict, 
                                   np.concatenate([ticid_test, ticid_train],
-                                                 axis=0),
+                                                 axis=0), prefix=prefix,
                                   output_dir=output_dir, addend=addend,
                                   target_info=\
                                       np.concatenate([target_info_test,
@@ -1903,7 +1903,8 @@ def plot_paramscan_classes(output_dir, parameter_sets, num_classes, noise_points
 
 def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
                               output_dir='./', addend=1., mock_data=False,
-                              feature_vector=False, n=20, target_info=False):
+                              feature_vector=False, n=20, target_info=False,
+                              prefix=''):
     '''For autoencoder, intensity = x_test'''
     # >> calculate reconstruction error (mean squared error)
     err = (x_test - x_predict)**2
@@ -1920,7 +1921,7 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
     # >> save in txt file
     if not mock_data:
         out = np.column_stack([ticid_test.astype('int'), err])
-        np.savetxt(output_dir+'reconstruction_error.txt', out, fmt='%-16s')
+        np.savetxt(output_dir+prefix+'reconstruction_error.txt', out, fmt='%-16s')
         
         # with open(output_dir+'reconstruction_error.txt', 'w') as f:
         #     for i in range(len(ticid_test)):
@@ -1951,15 +1952,15 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
             ax[n-1].set_xlabel('Time [BJD - 2457000]')
         if i == 0:
             fig.suptitle('largest reconstruction error', fontsize=16, y=0.9)
-            fig.savefig(output_dir + 'reconstruction_error-largest.png',
+            fig.savefig(output_dir+prefix+'reconstruction_error-largest.png',
                         bbox_inches='tight')
         elif i == 1:
             fig.suptitle('smallest reconstruction error', fontsize=16, y=0.9)
-            fig.savefig(output_dir + 'reconstruction_error-smallest.png',
+            fig.savefig(output_dir+prefix+'reconstruction_error-smallest.png',
                         bbox_inches='tight')
         else:
             fig.suptitle('random reconstruction error', fontsize=16, y=0.9)
-            fig.savefig(output_dir + 'reconstruction_error-random.png',
+            fig.savefig(output_dir+prefix+'reconstruction_error-random.png',
                         bbox_inches='tight')            
         plt.close(fig)
     
@@ -3209,7 +3210,7 @@ def plot_cross_identifications(time, intensity, targets, target_info, features,
                     
         
         fig.tight_layout()
-        fig.savefig(path + 'hdbscan-underlying-class-'+prefix + '-' + str(i) + '.png')
+        fig.savefig(path + prefix + '-underlying-class-'+ str(i) + '.png')
         # fig.savefig(path + prefix + '-' + str(i) + '.pdf')
         plt.close(fig)                
    
