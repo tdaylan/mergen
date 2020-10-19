@@ -2418,7 +2418,7 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                             simbad_database_txt='./simbad_database.txt',
                             database_dir='./databases/',
                             pca=False, tsne=False, confusion_matrix=True,
-                            single_file=False,
+                            single_file=False, prefix='',
                             data_dir='./data/', save=False,
                             parents=[], labels=[]):
     '''Performs a grid serach across parameter space for HDBSCAN. 
@@ -2546,6 +2546,7 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                         pf.plot_cross_identifications(time, flux, ticid,
                                                       target_info, features,
                                                       labels, path=output_dir,
+                                                      prefix=prefix,
                                                       database_dir=database_dir,
                                                       data_dir=data_dir)
                         pf.plot_confusion_matrix(ticid, labels,
