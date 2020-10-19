@@ -62,8 +62,8 @@ class mergen(object):
     
     def __init__(self, datapath, datatype, savepath, filelabel,
                  momentum_dump_csv = '/users/conta/urop/Table_of_momentum_dumps.csv',
-                 sector = 20, cams = [1,2,3,4], ccds = [[1,2,3,4],[1,2,3,4],[1,2,3,4],[1,2,3,4]], 
-                 cadence = "2minute", ENF_exists = False, create_ENF = False, version = 0):
+                 sector = [20], cams = [1,2,3,4], ccds = [[1,2,3,4],[1,2,3,4],[1,2,3,4],[1,2,3,4]], 
+                 cadence = "2minute", ENF_exists = False):
         """ Initializes mergen object and  loads in all data
         Data must already be in a metafile format"""
         self.datapath = datapath
@@ -76,35 +76,38 @@ class mergen(object):
         self.cadence = cadence
         self.filelabel = filelabel
         self.isfluxnormalized = False
+        self.target_info = None
+        
         
         self.folder_initiate()
         
         if self.datatype == "SPOC":
             #load in SPOC lc from the metafiles
-            #this function will interpolate them for you
             print("loading spoc")
-            self.spoc_load_lc_from_metafiles()
-            
+            if len(self.sector) > 1:
+                custom_masks = [list(range(500)) + list(range(15800, 17400)), []]
+                self.flux, self.time, self.identifiers, self.target_info = da.combine_sectors(self.sector, self.datapath,
+                                                             custom_masks=custom_masks)
+                self.flux, self.time, self.identifiers, self.target_info = da.combine_sectors_by_lc(self.sector, self.datapath,
+                                                                   custom_mask=custom_mask,
+                                                                   output_dir=self.savepath)
+            elif len(self.sector) == 1:
+                self.sector = self.sector[0]
+                self.spoc_load_lc_from_metafiles()
             
         elif self.datatype == "FFI":
             #load in FFI lc from the metafiles
+            #currently only works for one sector
+            print("loading FFIs")
             self.ffi_load_lc_metafiles_all()
             
         if ENF_exists:
             print("Loading in existing feature metafiles")
             self.features = enf.load_feature_metafile(self.datapath)
+            self.median_normalize()
+            self.isolate_outlier_features()
             
-        if create_ENF and version == 0:
-            print("Creating ENF v0 features, assuming uniform time axis")
-            enf.create_save_featvec_homogenous_time(self.ENFpath, 
-                                                    self.time, self.flux, self.filelabel, 
-                                                    version=0, save=True)
-            
-        if create_ENF and version == 1:
-            print("Creating ENF v0 features, assuming uniform time axis")
-            enf.create_save_featvec_homogenous_time(self.ENFpath, 
-                                                    self.time, self.flux, self.filelabel, 
-                                                    version=1, save=True)
+      
             
     
     def folder_initiate(self):
@@ -153,9 +156,24 @@ class mergen(object):
         return
     
 
+
     def spoc_load_lc_from_metafiles(self, DEBUG=False, debug_ind=0,
                                     nan_mask_check=True, custom_mask=[]):
     
+        
+        #if len(sectors) > 1:
+            # flux, x, ticid, target_info = df.combine_sectors(sectors, data_dir,
+            #                                                  custom_masks=custom_masks)
+         #   flux, x, ticid, target_info = df.combine_sectors_by_lc(sectors, data_dir,
+          #                                                         custom_mask=custom_mask,
+           #                                                        output_dir=output_dir)
+        #else:
+            # >> currently only handles one sector
+         #   flux, x, ticid, target_info = \
+          #      df.load_data_from_metafiles(data_dir, sectors[0], cams=cams, ccds=ccds,
+           #                                 DEBUG=True, fast=fast,
+            #                                output_dir=output_dir, nan_mask_check=True,
+             #                               custom_mask=custom_mask)
     # >> get file names for each group
         fnames = []
         print("Loading in SPOC light curves from folder")
@@ -207,7 +225,7 @@ class mergen(object):
         !!Current method blows points out of proportion if the median is too close to 0?'''
         print("Median Normalizing")
         medians = np.median(self.flux, axis = 1, keepdims=True)
-        self.flux = self.flux / medians - 1.
+        self.flux = self.flux / medians
         self.isfluxnormalized = True
         return 
     
@@ -216,7 +234,7 @@ class mergen(object):
         means = np.mean(self.flux, axis=1, keepdims = True)
         self.flux = self.flux / means
         self.isfluxnormalized = True
-        return cleanedflux
+        return 
     
     def pca_linregress(self, plot=False):
         
@@ -262,26 +280,28 @@ class mergen(object):
                 plt.show()
             
         return residuals, components
-        
-    
-    def create_save_featvec(self, version=0, save=True):
+     
+
+    def create_ENF_features(self, version=0, save=True):
         """ documentation """
         fname_features = self.ENFpath + "features_v"+str(version)+".fits"
         feature_list = []
         if version == 0:
             self.median_normalize()
-            self.cleanedflux, comp = self.pca_linregress()
+            if self.datatype == "FFI":
+                self.flux, comp = self.pca_linregress()
         elif version == 1: 
             from transitleastsquares import transitleastsquares
             self.mean_normalize()
-            self.cleanedflux, comp = self.pca_linregress()
+            if self.datatype == "FFI":
+                self.flux, comp = self.pca_linregress()
         print("Begining Feature Vector Creation Now")
         #sigma clip each time you calculate - unsure how better to do this??
         sigclip = SigmaClip(sigma=5, maxiters=None, cenfunc='median')
-        for n in range(len(self.cleanedflux)):
+        for n in range(len(self.flux)):
             
             times = self.time
-            ints = self.cleanedflux[n]
+            ints = self.flux[n]
             
             clipped_inds = np.nonzero(np.ma.getmask(sigclip(ints)))
             ints[clipped_inds] = np.nan
@@ -290,15 +310,21 @@ class mergen(object):
             ints = np.delete(ints, delete_index)
             
             try:
-                feature_vector = df.featvec(times, ints, v=version)
+                feature_vector = enf.featvec(times, ints, v=version)
             except ValueError:
                 print("it did the stupid thing where it freaked out about one light curve and idk why")
             
             if version == 1:
                 feature_vector = np.nan_to_num(feature_vector, nan=0)
+                with open(self.ENFpath + 'intermediate_v1_saving.txt', 'a') as f:
+                    f.write('{} {} \n'.format(self.identifiers[n], feature_vector))
             feature_list.append(feature_vector)
             
-            if n % 500 == 0: print(str(n) + " completed")
+            if version == 0:
+                if n % 500 == 0: 
+                    print(str(n) + " completed")
+            elif version == 1:
+                print(str(n))
         
         self.features = np.asarray(feature_list)
         
@@ -310,7 +336,82 @@ class mergen(object):
         else: 
             print("Not saving feature vectors to fits")
         return   
-    
+ 
+    def isolate_outlier_features(self, sigma = 10):
+        
+        self.outlierfeaturepath = self.ENFpath + "clipped-feature-outliers/"
+        try:
+            os.makedirs(self.outlierfeaturepath)
+        except OSError:
+            print("%s already exists" % self.outlierfeaturepath)
+        else:
+            print("Successfully created the directory %s" % self.outlierfeaturepath)
+        
+        features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
+                      "E", r'$\epsilon$', "Z", "H", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$', "M", r'$\mu$'
+                      ,"N", r'$\nu$']
+
+        #identifying the outlier indexes
+        outlier_indexes = []
+        for i in range(len(self.features[0])):
+            column = self.features[:,i] #get each column
+            column_std = np.std(column) #find std
+            column_top = np.mean(column) + column_std * sigma #find max limit
+            column_bottom = np.mean(column) - (column_std * sigma) #min limit
+            for n in range(len(column)):
+                #find and note the position of any outliers
+                if column[n] < column_bottom or column[n] > column_top or np.isnan(column[n]) ==True: 
+                    outlier_indexes.append((int(n), int(i))) #(pos of outlier, which feature)
+                    
+        outlier_indexes = np.asarray(outlier_indexes)
+        self.outlier_indexes = outlier_indexes
+        
+        #plotting everything 
+        target_indexes = outlier_indexes[:,0] #is the index of the target on the lists
+        print(target_indexes)
+        feature_indexes = outlier_indexes[:,1] #is the index of the feature that it triggered on
+        
+        #plotting outlier light curves
+        for i in range(len(outlier_indexes)):
+            target_index = target_indexes[i]
+            feature_index = feature_indexes[i]
+            plt.figure(figsize=(8,3))
+            plt.scatter(self.time, self.flux[target_index], s=0.5)
+            target = self.identifiers[target_index]
+            
+            if np.isnan(self.features[target_index][feature_index]) == True:
+                feature_title = features_greek[feature_index] + "=nan"
+            else: 
+                feature_value = '%s' % float('%.2g' % self.features[target_index][feature_index])
+                feature_title = features_greek[feature_index] + "=" + feature_value
+            #print(feature_title)
+            if self.target_info is not None:
+                plt.title("TIC " + str(target) + " " + feature_title, fontsize=8)
+            else:
+                plt.title(str(target) + " " + feature_title, fontsize=8)
+            plt.tight_layout()
+            plt.savefig((self.outlierfeaturepath + "featureoutlier-" + str(target) + ".png"))
+            plt.show()
+            
+            
+        self.feature_outliers = []
+        self.identifiers_outliers = []
+        for ind in target_indexes:
+            self.feature_outliers.append(self.features[ind])
+            self.identifiers_outliers.append(self.identifiers[ind])
+  
+        self.features = np.delete(self.features, target_indexes, axis=0)
+        
+        self.flux_outliers = self.flux[target_indexes]
+        self.flux = np.delete(self.flux, target_indexes, axis=0)
+        
+        self.identifiers_outliers = self.identifiers[target_indexes]
+        self.identifiers = np.delete(self.identifiers, target_indexes)
+        
+        if self.target_info is not None:
+            self.target_info = np.delete(self.target_info, target_indexes, axis = 0)
+        
+        return
     
     def plot_lof(self, featuretype = "ENF"):
         """ this is going to redirect you to the actual plot_lof function with 
@@ -320,6 +421,7 @@ class mergen(object):
         
             if not self.isfluxnormalized:
                 self.median_normalize()
+                
             pf.plot_lof(self.time, self.flux, self.identifiers, self.features, 20, self.ENFpath,
                  momentum_dump_csv = self.momdumpcsv,
                  n_neighbors=20, target_info=self.target_info, p=2, metric='minkowski',
@@ -331,14 +433,490 @@ class mergen(object):
             
         return
     
-    def features_plotting(self, featuretype = "ENF", clustering = "None"):
+    def features_plotting(self, featuretype = "ENF", clustering = "None", eps = 2.5, min_samples = 4, version = 0 ):
         
         if not self.isfluxnormalized:
             self.median_normalize()
         if featuretype == "ENF" and self.datatype == "SPOC":
             pf.features_plotting_2D(self.features, self.ENFpath, clustering,
                                  self.time, self.flux, self.identifiers, folder_suffix='',
-                                 feature_engineering=True, version=0, eps=0.5, min_samples=5,
+                                 feature_engineering=True, version=version, eps=eps, min_samples=min_samples,
                                  metric='minkowski', algorithm='auto', leaf_size=30,
                                  p=2, target_info=self.target_info, kmeans_clusters=4,
                                  momentum_dump_csv= self.momdumpcsv)
+        return
+            
+    def autoencoder(self, sectors = [27], fast = False,
+                    model_init = None, train_test_ratio = 0.9, hyperparameter_optimization = False,
+                    lib_dir = None, dataase_dir = None):
+        data_dir = self.datapath
+        output_dir = self.CAEpath
+        mom_dump = self.momdumpcsv
+       
+
+        #lib_dir = '../main/' # >> directory containing model.py, data_functions.py
+
+        single_file = False
+        #database_dir= '/Users/studentadmin/Dropbox/TESS_UROP/data/databases/'
+        # database_dir = output_dir + 'all_simbad_classifications.txt'
+        simbad_database_dir = ''
+        # >> input data
+        sectors = [self.sector]
+        cams = self.cams
+        ccds = self.ccds
+        fast=fast
+        
+        # weights init
+        # model_init = output_dir + 'model'
+        model_init = model_init
+
+
+        # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
+        train_test_ratio = train_test_ratio
+        
+        # >> what this script will run:
+        hyperparameter_optimization = hyperparameter_optimization # >> run hyperparameter search
+        run_model = True # >> train autoencoder on a parameter set p
+        iterative=False
+        diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
+                          # >> load bottleneck*.fits for plotting
+        
+        novelty_detection=True
+        classification_param_search=False
+        classification=True # >> runs DBSCAN on learned features
+        
+        # >> normalization options:
+        #    * standardization : sets mean to 0. and standard deviation to 1.
+        #    * median_normalization : divides by median
+        #    * minmax_normalization : sets range of values from 0. to 1.
+        #    * none : no normalization
+        norm_type = 'standardization'
+
+        input_rms=True# >> concatenate RMS to learned features
+        input_psd=False # >> also train on PSD
+        # n_pgram = 1500
+        n_pgram = 50
+        
+        load_psd=False # >> if psd_train.fits, psd_test.fits already exists
+        use_tess_features = True
+        use_tls_features = False
+        input_features=False # >> this option cannot be used yet
+        split_at_orbit_gap=False
+        DAE = False
+        
+        # >> move targets out of training set and into testing set (integer)
+        # !! TODO: print failure if target not in sector
+        # targets = [219107776] # >> EX DRA # !!
+        validation_targets = []
+        
+        if sectors[0] == 1:
+            custom_mask = list(range(800)) + list(range(15800, 17400)) + list(range(19576, 20075))
+        elif 4 in sectors:
+            custom_mask = list(range(7424, 9078))
+        else:
+            custom_mask = []
+        
+        custom_masks = [list(range(500)) + list(range(15800, 17400)), []]
+
+        # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+        
+        import talos                    # >> a hyperparameter optimization library
+        import pdb
+        import tensorflow as tf
+        # tf.enable_eager_execution()
+        
+        import sys
+        if lib_dir is not None:
+            sys.path.insert(0, lib_dir)     # >> needed if scripts not in current dir
+
+        # >> hyperparameters
+        if hyperparameter_optimization:
+            p = {'kernel_size': [3,5],
+                  'latent_dim': [25],
+                  'strides': [2],# 3
+                  'epochs': [5],
+                  'dropout': [0.1, 0.2, 0.3, 0.4, 0.5],
+                  'num_filters': [32,64,128],
+                  'num_conv_layers': [4,6,8,10],
+                  'batch_size': [128],
+                  'activation': [tf.keras.activations.softplus,
+                                 tf.keras.activations.selu,
+                                 tf.keras.activations.relu,
+                                 'swish',
+                                 tf.keras.activations.exponential,
+                                 tf.keras.activations.elu, 'linear'],
+                  'optimizer': ['adam', 'adadelta'],
+                  'last_activation': ['linear'],
+                  'losses': ['mean_squared_error'],
+                  'lr': [0.001],
+                  'initializer': ['random_normal'],
+                  'num_consecutive': [2],
+                   'kernel_regularizer': [None],
+                  
+                   'bias_regularizer': [None],
+                  
+                   'activity_regularizer': [None],
+                 
+                  'pool_size': [1]}     
+        
+        else:
+            # >> strides: list, len = num_consecutive
+            p = {'kernel_size': 3,
+                  'latent_dim': 35,
+                  'strides': 1,
+                  'epochs': 5,
+                  'dropout': 0.2,
+                  'num_filters': 16,
+                  'num_conv_layers': 4,
+                  'batch_size': 64,
+                  'activation': 'elu',
+                  'optimizer': 'adam',
+                  'last_activation': 'linear',
+                  'losses': 'mean_squared_error',
+                  'lr': 0.0001,
+                  'initializer': 'random_normal',
+                  'num_consecutive': 2,
+                  'pool_size': 2, 
+                  'pool_strides': 2,
+                  'units': [1024, 512, 64, 16],
+                  'kernel_regularizer': None,
+                  'bias_regularizer': None,
+                  'activity_regularizer': None,
+                  'fully_conv': False,
+                  'encoder_decoder_skip': False,
+                  'encoder_skip': False,
+                  'decoder_skip': False,
+                  'full_feed_forward_highway': False,
+                  'cvae': False,
+                  'share_pool_inds': False,
+                  'batchnorm_before_act': True,
+                  'concat_ext_feats': False}      
+    
+        # -- create output directory --------------------------------------------------
+            
+        if os.path.isdir(output_dir) == False: # >> check if dir already exists
+            os.mkdir(output_dir)
+            
+            
+        
+        x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
+            target_info_test, rms_train, rms_test, x = \
+            ml.autoencoder_preprocessing(self.flux, self.time, p, self.identifiers, 
+                                         self.target_info, mock_data=False,
+                                         sector=sectors[0],
+                                         validation_targets=validation_targets,
+                                         norm_type=norm_type,
+                                         input_rms=input_rms, input_psd=input_psd,
+                                         load_psd=load_psd, n_pgram=n_pgram,
+                                         train_test_ratio=train_test_ratio,
+                                         split=split_at_orbit_gap,
+                                         output_dir=output_dir, 
+                                         data_dir=data_dir,
+                                         use_tess_features=use_tess_features,
+                                         use_tls_features=use_tls_features)
+            
+
+        if input_psd:
+            p['concat_ext_feats'] = True
+        
+        title='TESS-unsupervised'
+        
+        # == talos experiment =========================================================
+        if hyperparameter_optimization:
+            print('Starting hyperparameter optimization...')
+            t = talos.Scan(x=x_test,
+                            y=x_test,
+                            params=p,
+                            model=ml.conv_autoencoder,
+                            experiment_name=title, 
+                            reduction_metric = 'val_loss',
+                            minimize_loss=True,
+                            reduction_method='correlation',
+                            fraction_limit = 0.001)      
+            # fraction_limit = 0.001
+            analyze_object = talos.Analyze(t)
+            data_frame, best_param_ind,p = pf.hyperparam_opt_diagnosis(analyze_object,
+                                                               output_dir,
+                                                               supervised=False)
+        
+        # == run model ================================================================
+        if run_model:
+            print('Training autoencoder...') 
+            history, model, x_predict = \
+                ml.conv_autoencoder(x_train, x_train, x_test, x_test, p, val=False,
+                                    split=split_at_orbit_gap,
+                                    ticid_train=ticid_train, ticid_test=ticid_test,
+                                    save_model=True, predict=True,
+                                    save_bottleneck=True,
+                                    output_dir=output_dir,
+                                    model_init=model_init) 
+            
+            if split_at_orbit_gap:
+                x_train = np.concatenate(x_train, axis=1)
+                x_test = np.concatenate(x_test, axis=1)
+                x_predict = np.concatenate(x_predict, axis=1)
+            
+            
+        # == Plots ====================================================================
+        if diag_plots:
+            print('Creating plots...')
+            pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
+                                x_test, x_predict, mock_data=False,
+                                addend=0.,
+                                target_info_test=target_info_test,
+                                target_info_train=target_info_train,
+                                ticid_train=ticid_train,
+                                ticid_test=ticid_test, percentage=False,
+                                input_features=input_features,
+                                input_rms=input_rms, rms_test=rms_test,
+                                input_psd=input_psd,
+                                rms_train=rms_train, n_tot=40,
+                                plot_epoch = True,
+                                plot_in_out = True,
+                                plot_in_bottle_out=False,
+                                plot_latent_test = True,
+                                plot_latent_train = True,
+                                plot_kernel=False,
+                                plot_intermed_act=False,
+                                make_movie = False,
+                                plot_lof_test=False,
+                                plot_lof_train=False,
+                                plot_lof_all=False,
+                                plot_reconstruction_error_test=True,
+                                plot_reconstruction_error_all=False,
+                                load_bottleneck=True)          
+            
+         
+        # if input_psd:
+        #     x = x[0]            
+        for i in [0,1,2]:
+            if i == 0:
+                use_learned_features=True
+                use_tess_features=False
+                use_tls_features=False
+                use_engineered_features=False
+                use_rms=False
+                description='_0_learned'
+                DAE=False
+            elif i == 1:
+                use_learned_features=False
+                use_tess_features=True
+                use_tls_features=False
+                use_engineered_features=False        
+                use_rms=False
+                description='_1_ext'
+                DAE_hyperparam_opt=True
+                DAE=True
+                p_DAE = {'max_dim': [9, 11, 13, 15, 17, 19], 'step': [1,2,3,4,5,6],
+                          'latent_dim': [3,4,5],
+                          'activation': ['relu', 'elu'],
+                        'last_activation': ['relu', 'elu'],
+                          'optimizer': ['adam'],
+                          'lr':[0.001, 0.005, 0.01], 'epochs': [20],
+                          'losses': ['mean_squared_error'],
+                          'batch_size':[128],
+                          'initializer': ['glorot_normal', 'glorot_uniform'],
+                          'fully_conv': [False]}             
+            elif i == 2:
+                use_learned_features=True
+                use_tess_features=True
+                use_tls_features=False
+                use_engineered_features=False        
+                use_rms=True
+                description='_2_learned_RMS_ext'        
+                DAE_hyperparam_opt=True
+                DAE=True
+                p_DAE = {'max_dim': list(np.arange(40, 70, 5)), 'step': [1,2,3,4,5,6],
+                          'latent_dim': list(np.arange(12, 50, 5)),
+                          'activation': ['relu', 'elu'],
+                        'last_activation': ['relu', 'elu'],
+                          'optimizer': ['adam'],
+                          'lr':[0.001, 0.005, 0.01], 'epochs': [20],
+                          'losses': ['mean_squared_error'],
+                          'batch_size':[128],
+                          'initializer': ['glorot_normal', 'glorot_uniform'],
+                          'fully_conv': [False]}                
+                
+            print('Creating feature space')
+            
+            if p['concat_ext_feats'] or input_psd:
+                features, flux_feat, ticid_feat, info_feat = \
+                    ml.bottleneck_preprocessing(sectors[0],
+                                                np.concatenate([x_train[0], x_test[0]], axis=0),
+                                                np.concatenate([ticid_train, ticid_test]),
+                                                np.concatenate([target_info_train,
+                                                                target_info_test]),
+                                                rms=np.concatenate([rms_train, rms_test]),
+                                                data_dir=data_dir, bottleneck_dir=output_dir,
+                                                output_dir=output_dir,
+                                                use_learned_features=use_learned_features,
+                                                use_tess_features=use_tess_features,
+                                                use_engineered_features=use_engineered_features,
+                                                use_tls_features=use_tls_features,
+                                                use_rms=use_rms, norm=True,
+                                                cams=cams, ccds=ccds, log=True)    
+                    
+            
+            else:
+                features, flux_feat, ticid_feat, info_feat = \
+                    ml.bottleneck_preprocessing(sectors[0],
+                                                np.concatenate([x_train, x_test], axis=0),
+                                                np.concatenate([ticid_train, ticid_test]),
+                                                np.concatenate([target_info_train,
+                                                                target_info_test]),
+                                                rms=np.concatenate([rms_train, rms_test]),
+                                                data_dir=data_dir,
+                                                bottleneck_dir=output_dir,
+                                                output_dir=output_dir,
+                                                use_learned_features=True,
+                                                use_tess_features=use_tess_features,
+                                                use_engineered_features=False,
+                                                use_tls_features=use_tls_features,
+                                                use_rms=use_rms, norm=True,
+                                                cams=cams, ccds=ccds, log=True)  
+                    
+            print('Plotting feature space')
+            pf.latent_space_plot(features, output_dir + 'feature_space.png')    
+            
+            if DAE:
+                if DAE_hyperparam_opt:
+        
+              
+                    t = talos.Scan(x=features,
+                                    y=features,
+                                    params=p_DAE,
+                                    model=ml.deep_autoencoder,
+                                    experiment_name='DAE', 
+                                    reduction_metric = 'val_loss',
+                                    minimize_loss=True,
+                                    reduction_method='correlation',
+                                    fraction_limit = 0.1)            
+                    analyze_object = talos.Analyze(t)
+                    data_frame, best_param_ind,p_best = pf.hyperparam_opt_diagnosis(analyze_object,
+                                                                        output_dir,
+                                                                        supervised=False) 
+                    p_DAE=p_best
+                    p_DAE['epochs'] = 100
+                    
+                else:
+                        
+                    p_DAE = {'max_dim': 50, 'step': 4, 'latent_dim': 42,
+                             'activation': 'elu', 'last_activation': 'elu',
+                             'optimizer': 'adam',
+                             'lr':0.001, 'epochs': 100, 'losses': 'mean_squared_error',
+                             'batch_size': 128, 'initializer': 'glorot_uniform',
+                             'fully_conv': False}    
+                
+                    
+                    # p_DAE = {'max_dim': 9, 'step': 5, 'latent_dim': 4,
+                    #          'activation': 'elu', 'last_activation': 'elu',
+                    #          'optimizer': 'adam',
+                    #          'lr':0.01, 'epochs': 100, 'losses': 'mean_squared_error',
+                    #          'batch_size': 128, 'initializer': 'glorot_normal',
+                    #          'fully_conv': False}               
+                    
+                history_DAE, model_DAE = ml.deep_autoencoder(features, features,
+                                                               features, features,
+                                                               p_DAE, resize=False,
+                                                               batch_norm=True)
+                new_features = ml.get_bottleneck(model_DAE, features, p_DAE, DAE=True)
+                features=new_features
+                
+                pf.epoch_plots(history_DAE, p_DAE, output_dir)
+                
+                print('Plotting feature space')
+                pf.latent_space_plot(features, output_dir + 'feature_space' + \
+                                     ''+'_DAE.png')        
+        
+                
+            if novelty_detection:
+                print('Novelty detection')
+                pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
+                            momentum_dump_csv = self.momdumpcsv,
+                            n_tot=200, target_info=info_feat, prefix=str(i),
+                            cross_check_txt=database_dir, debug=True, addend=0.,
+                            single_file=single_file, log=True, n_pgram=n_pgram,
+                            plot_psd=True)
+        
+            if classification:
+                if classification_param_search:
+                    df.KNN_plotting(output_dir +'str(i)-', features, [10, 20, 100])
+            
+                    print('DBSCAN parameter search')
+                    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
+                    df.dbscan_param_search(features, x, flux_feat, ticid_feat,
+                                            info_feat, DEBUG=False, 
+                                            output_dir=output_dir+str(i), 
+                                            simbad_database_txt=simbad_database_dir,
+                                            leaf_size=[30], algorithm=['auto'],
+                                            min_samples=[5],
+                                            metric=['minkowski'], p=[3,4],
+                                            database_dir=database_dir,
+                                            eps=list(np.arange(1.5, 4., 0.1)),
+                                            confusion_matrix=False, pca=False, tsne=False,
+                                            tsne_clustering=False)      
+                    
+                    print('Classification with best parameter set')
+                    best_ind = np.argmax(silhouette_scores)
+                    best_param_set = parameter_sets[best_ind]
+                    
+                else:
+                    best_param_set=[2.0, 3, 'minkowski', 'auto', 30, 4]    
+              
+            
+                
+                if classification_param_search:
+                    print('HDBSCAN parameter search')
+                    acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
+                                                  info_feat, output_dir=output_dir,
+                                                  p0=[3,4], single_file=single_file,
+                                                  database_dir=database_dir, metric=['all'],
+                                                  min_samples=[3], min_cluster_size=[3],
+                                                  data_dir=data_dir)
+                else:
+                    # best_param_set = [3, 3, 'manhattan', None]
+                    best_param_set = [3, 3, 'canberra', None]
+                    print('Run HDBSCAN')
+                    _, _, acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
+                                                  info_feat, output_dir=output_dir,
+                                                  p0=[best_param_set[3]], single_file=single_file,
+                                                  database_dir=database_dir,
+                                                  metric=[best_param_set[2]],
+                                                  min_cluster_size=[best_param_set[0]],
+                                                  min_samples=[best_param_set[1]],
+                                                  DEBUG=True, pca=True, tsne=True,
+                                                  data_dir=data_dir, save=True)  
+                
+                with open(output_dir + 'param_summary.txt', 'a') as f:
+                    f.write('accuracy: ' + str(np.max(acc)))   
+                    
+                df.gmm_param_search(features, x, flux_feat, ticid_feat, info_feat,
+                                 output_dir=output_dir, database_dir=database_dir, 
+                                 data_dir=data_dir) 
+        
+                from sklearn.mixture import GaussianMixture
+                gmm = GaussianMixture(n_components=200)
+                labels = gmm.fit_predict(features)
+                acc = pf.plot_confusion_matrix(ticid_feat, labels,
+                                               database_dir=database_dir,
+                                               single_file=single_file,
+                                               output_dir=output_dir,
+                                               prefix='gmm-')          
+                pf.quick_plot_classification(x, flux_feat,ticid_feat,info_feat, 
+                                             features, labels,path=output_dir,
+                                             prefix='gmm-',
+                                             database_dir=database_dir,
+                                             single_file=single_file)
+                pf.plot_cross_identifications(x, flux_feat, ticid_feat,
+                                              info_feat, features,
+                                              labels, path=output_dir,
+                                              database_dir=database_dir,
+                                              data_dir=data_dir, prefix='gmm-')
+            
+                
+        # == iterative training =======================================================
+                
+        ml.iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train, 
+                          ticid_test, target_info_train, target_info_test, num_split=2,
+                          output_dir=output_dir, split=split_at_orbit_gap,
+                          input_psd=input_psd)

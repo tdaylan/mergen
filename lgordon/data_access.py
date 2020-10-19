@@ -159,7 +159,7 @@ def combine_sectors_by_lc(sectors, data_dir, custom_mask=[],
 
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                              ccds=[[1,2,3,4]]*4, data_type='SPOC',
-                             cadence='2-minute', DEBUG=False,
+                             cadence='2-minute', DEBUG=False, fast=False,
                              output_dir='./', debug_ind=0,
                              nan_mask_check=True,
                              custom_mask=[]):
@@ -193,8 +193,12 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     for i in range(len(cams)):
         cam = cams[i]
         for ccd in ccds[i]:
-            s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
-                'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+            if fast:
+                s = 'Sector{sector}_20s/Sector{sector}Cam{cam}CCD{ccd}/' + \
+                    'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+            else:
+                s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
+                    'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
             fname_info.append([sector, cam, ccd, data_type, cadence])
                 
@@ -221,7 +225,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     # >> apply nan mask
     if nan_mask_check:
         print('Applying nan mask')
-        flux, x = df.nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid,
+        flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid,
                            debug_ind=debug_ind, target_info=target_info,
                            output_dir=output_dir, custom_mask=custom_mask)
 
