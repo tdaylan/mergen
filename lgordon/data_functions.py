@@ -261,7 +261,7 @@ def normalize(flux, axis=1):
     '''Dividing by median.
     !!Current method blows points out of proportion if the median is too close to 0?'''
     medians = np.median(flux, axis = axis, keepdims=True)
-    flux = flux / medians - 1.
+    flux = flux / medians
     return flux
 
 def mean_norm(flux, axis=1): 
