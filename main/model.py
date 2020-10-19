@@ -1041,8 +1041,8 @@ def custom_loss_function1(y_true, y_pred):
     
 def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train, 
                   ticid_test, target_info_train, target_info_test, num_split=2,
-                  output_dir='./', split=False, input_psd=False,
-                  database_dir='./', data_dir='./'):
+                  output_dir='./', split=False, input_psd=False, 
+                  database_dir='./', data_dir='./', train_psd_only=True):
     import keras
     from sklearn.mixture import GaussianMixture
     
@@ -1095,9 +1095,15 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
     new_ticid_test = np.split(new_ticid_test, [int(test_len/num_split)])
     new_info_test = np.split(new_info_test, [int(test_len/num_split)])    
     
+    if train_psd_only:
+        new_x_train = new_x_train_1
+        new_x_test = new_x_test_1
+        x = x[1]
+        input_psd=False
+    
     history_list = []
     model_list = []
-    for i in range(2):
+    for i in range(num_split):
         # model_init = output_dir+'model'
         model_init = None
         history_new, model_new = \

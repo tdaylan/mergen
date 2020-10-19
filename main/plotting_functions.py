@@ -1927,6 +1927,11 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
         #     for i in range(len(ticid_test)):
         #         f.write('{}\t\t{}\n'.format(ticid_test[i], err[i]))
     
+    plt.figure()
+    plt.hist(err, bins=50)
+    plt.savefig(output_dir + prefix + 'reconstruction_error_histogram.png')
+    plt.close()
+    
     for i in range(3):
         fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
         for k in range(n): # >> loop through each row

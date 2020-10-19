@@ -14,7 +14,7 @@
 
 # data_dir = '../../' # >> directory with input data (ending with /)
 data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/Ensemble-Sector_27_0/' # >> directory to save diagnostic plots
+output_dir = '../../plots/Ensemble-Sectors_4_5/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -26,11 +26,11 @@ database_dir= '/Users/studentadmin/Dropbox/TESS_UROP/data/databases/'
 # database_dir = output_dir + 'all_simbad_classifications.txt'
 simbad_database_dir = ''
 # >> input data
-sectors = [27]
+sectors = [4,5]
 cams = [1,2,3,4]
 # cams = [1]
-ccds =  [[2,3,4], [2,3,4], [1,2,4], [1,2,4]]
-# ccds = [[1,2,3,4]]*4
+# ccds =  [[2,3,4], [2,3,4], [1,2,4], [1,2,4]]
+ccds = [[1,2,3,4]]*4
 fast=False
 
 # weights init
@@ -44,14 +44,14 @@ train_test_ratio = 0.9
 
 # >> what this script will run:
 hyperparameter_optimization = False # >> run hyperparameter search
-run_model = False # >> train autoencoder on a parameter set p
+run_model = True # >> train autoencoder on a parameter set p
 iterative=True
-diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
+diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 
-novelty_detection=False
+novelty_detection=True
 classification_param_search=False
-classification=False # >> runs DBSCAN on learned features
+classification=True # >> runs DBSCAN on learned features
 
 # >> normalization options:
 #    * standardization : sets mean to 0. and standard deviation to 1.
@@ -63,7 +63,7 @@ norm_type = 'standardization'
 input_rms=True# >> concatenate RMS to learned features
 input_psd=False # >> also train on PSD
 # n_pgram = 1500
-n_pgram = 50
+n_pgram = 128
 
 load_psd=False # >> if psd_train.fits, psd_test.fits already exists
 use_tess_features = True
@@ -77,14 +77,12 @@ DAE = False
 # targets = [219107776] # >> EX DRA # !!
 validation_targets = []
 
-if sectors[0] == 1:
+if 1 in sectors:
     custom_mask = list(range(800)) + list(range(15800, 17400)) + list(range(19576, 20075))
 elif 4 in sectors:
-    custom_mask = list(range(7424, 9078))
+    custom_mask = list(range(9100, 9800))
 else:
     custom_mask = []
-
-custom_masks = [list(range(500)) + list(range(15800, 17400)), []]
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -94,6 +92,7 @@ import pdb
 import os
 from astropy.io import fits
 import tensorflow as tf
+import gc
 # tf.enable_eager_execution()
 
 import sys
@@ -134,14 +133,14 @@ if hyperparameter_optimization:
 
 else:
     # >> strides: list, len = num_consecutive
-    p = {'kernel_size': 3,
+    p = {'kernel_size': 5,
           'latent_dim': 35,
           'strides': 1,
-          'epochs': 5,
+          'epochs': 3,
           'dropout': 0.2,
           'num_filters': 16,
           'num_conv_layers': 4,
-          'batch_size': 64,
+          'batch_size': 32,
           'activation': 'elu',
           'optimizer': 'adam',
           'last_activation': 'linear',
@@ -174,11 +173,17 @@ if os.path.isdir(output_dir) == False: # >> check if dir already exists
 
 
 if len(sectors) > 1:
-    # flux, x, ticid, target_info = df.combine_sectors(sectors, data_dir,
-    #                                                  custom_masks=custom_masks)
-    flux, x, ticid, target_info = df.combine_sectors_by_lc(sectors, data_dir,
-                                                           custom_mask=custom_mask,
-                                                           output_dir=output_dir)
+    flux, x, ticid,target_info = \
+        df.combine_sectors_by_time_axis(sectors, data_dir, 0.2,
+                                        custom_mask=custom_mask, order=5,
+                                        tol=0.5, norm_type=norm_type,
+                                        output_dir=output_dir)
+    norm_type='none'
+    
+    # flux, x, ticid, target_info = df.combine_sectors_by_lc(sectors, data_dir,
+    #                                                        custom_mask=custom_mask,
+    #                                                        output_dir=output_dir)
+    
 else:
     # >> currently only handles one sector
     flux, x, ticid, target_info = \
@@ -187,7 +192,6 @@ else:
                                     output_dir=output_dir, nan_mask_check=True,
                                     custom_mask=custom_mask)
     
-
 x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
     target_info_test, rms_train, rms_test, x = \
     ml.autoencoder_preprocessing(flux, x, p, ticid, target_info,
@@ -229,6 +233,7 @@ if hyperparameter_optimization:
 
 # == run model ================================================================
 if run_model:
+    gc.collect()
     print('Training autoencoder...') 
     history, model, x_predict = \
         ml.conv_autoencoder(x_train, x_train, x_test, x_test, p, val=False,
@@ -480,12 +485,12 @@ if novelty_detection or classification:
             with open(output_dir + 'param_summary.txt', 'a') as f:
                 f.write('accuracy: ' + str(np.max(acc)))   
                 
-            df.gmm_param_search(features, x, flux_feat, ticid_feat, info_feat,
-                             output_dir=output_dir+'gmm_'+str(i), database_dir=database_dir, 
-                             data_dir=data_dir) 
+            # df.gmm_param_search(features, x, flux_feat, ticid_feat, info_feat,
+            #                  output_dir=output_dir+'gmm_'+str(i), database_dir=database_dir, 
+            #                  data_dir=data_dir) 
     
             from sklearn.mixture import GaussianMixture
-            gmm = GaussianMixture(n_components=200)
+            gmm = GaussianMixture(n_components=100)
             labels = gmm.fit_predict(features)
             acc = pf.plot_confusion_matrix(ticid_feat, labels,
                                            database_dir=database_dir,
