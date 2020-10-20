@@ -267,48 +267,130 @@ def lc_by_camera_ccd(sectorfile, camera, ccd):
     matching_targets = target_list[indexes] #just grab those indexes
     return matching_targets #return list of only targets on that specific ccd
     
-def combine_sectors(sectors, data_dir, custom_masks=None):
+def combine_sectors_by_time_axis(sectors, data_dir, cutoff=0.5, custom_mask=[],
+                                 order=5, tol=0.4, debug=True, norm_type='standardization',
+                                 output_dir='./'):
+    from scipy import signal
     all_flux = []
     all_ticid = []
     all_target_info = []
     all_x = []
-    if type(custom_masks) == type(None):
-        custom_masks = [[]*len(sectors)]
+    print('Loading data and applying nanmask')
     for i in range(len(sectors)):
         flux, x, ticid, target_info = \
             load_data_from_metafiles(data_dir, sectors[i], nan_mask_check=True,
-                                     custom_mask=custom_masks[i])
+                                     custom_mask=custom_mask)
             
-        mins = np.min(flux, axis = 1, keepdims=True)
-        flux = flux - mins
-        maxs = np.max(flux, axis=1, keepdims=True)
-        flux = flux / maxs            
+        if norm_type == 'standardization':
+            print('Standardizing fluxes...')
+            flux = standardize(flux)
+    
+        elif norm_type == 'median_normalization':
+            print('Normalizing fluxes (dividing by median)...')
+            flux = normalize(flux)
+            
+        elif norm_type == 'minmax_normalization':
+            print('Normalizing fluxes (changing minimum and range)...')
+            mins = np.min(flux, axis = 1, keepdims=True)
+            flux = flux - mins
+            maxs = np.max(flux, axis=1, keepdims=True)
+            flux = flux / maxs
+            
+        else:
+            print('Light curves are not normalized!')            
+            
         all_flux.append(flux)
         all_ticid.append(ticid)
         all_target_info.append(target_info)
         all_x.append(x)
-    # >> stitch together !! can only handle 2 sectors
-    all_ticid1, comm1, comm2 = np.intersect1d(all_ticid[0], all_ticid[1],
-                                             return_indices=True)
-        
-    flux = np.concatenate([all_flux[0][comm1], all_flux[1][comm2]], axis = -1)
-
-    target_info = []
-    for i in range(len(comm1)):
-        target_info.append([','.join([all_target_info[0][comm1[i]][0],
-                                     all_target_info[1][comm2[i]][0]]),
-                           ','.join([all_target_info[0][comm1[i]][1],
-                                     all_target_info[1][comm2[i]][1]]),
-                           ','.join([all_target_info[0][comm1[i]][2],
-                                     all_target_info[1][comm2[i]][2]]),
-                           all_target_info[0][comm1[i]][3],
-                           all_target_info[0][comm1[i]][4]])
     
     x = np.concatenate(all_x)
+    if np.count_nonzero(np.isnan(x)):
+        x = np.interp(np.arange(len(x)), np.arange(len(x))[np.nonzero(~np.isnan(x))],
+                      x[np.nonzero(~np.isnan(x))])
+    flux, target_info, ticid, ticid_rejected = [], [], [], []
     
-    ticid = all_ticid[0][comm1]
+    all_ticid, comm1, comm2 = np.intersect1d(all_ticid[0], all_ticid[1],
+                                         return_indices=True)
+    all_flux[0] = all_flux[0][comm1]
+    all_flux[1] = all_flux[1][comm2]
+    all_target_info[0] = all_target_info[0][comm1]
+    all_target_info[1] = all_target_info[1][comm2]
     
-    return flux, x, ticid, np.array(target_info)
+    for i in range(len(all_ticid)):
+    
+        b, a = signal.butter(order, cutoff, btype='high', analog=False)
+        y1 = signal.filtfilt(b, a, all_flux[0][i])
+        rms1 = np.sqrt(np.mean(y1**2))
+        
+        y2 = signal.filtfilt(b, a, all_flux[1][i])
+        rms2 = np.sqrt(np.mean(y2**2))
+        
+        if debug and i < 5:
+            fig, ax = plt.subplots(2, 2)
+            ax[0,0].plot(all_x[0], all_flux[0][i], '.k', ms=1)
+            ax[0,1].plot(all_x[1], all_flux[1][i], '.k', ms=1)            
+            ax[1,0].plot(all_x[0], y1, '.k', ms=1)
+            ax[1,1].plot(all_x[1], y2, '.k', ms=1)
+            fig.savefig(output_dir+'highpass_'+str(cutoff)+'_'+str(i)+'.png')   
+    
+        # >> compare RMS !! assumes combining 2 sectors
+        if np.abs(rms2 - rms1) < tol*rms1 and \
+            np.abs(rms2 - rms1) < tol*rms2:
+            flux.append(np.concatenate([all_flux[0][i], all_flux[1][i]]))
+            target_info.append([','.join([all_target_info[0][i][0],
+                                         all_target_info[1][i][0]]),
+                               ','.join([all_target_info[0][i][1],
+                                         all_target_info[1][i][1]]),
+                               ','.join([all_target_info[0][i][2],
+                                         all_target_info[1][i][2]]),
+                               all_target_info[0][i][3],
+                               all_target_info[0][i][4]])  
+            ticid.append(all_ticid[i])
+        else:
+                       
+            print('Excluding TIC '+str(all_ticid[i]))
+            if debug:
+                fig, ax = plt.subplots(2, 2)
+                ax[0,0].plot(all_x[0], all_flux[0][i], '.k', ms=1)
+                ax[0,1].plot(all_x[1], all_flux[1][i], '.k', ms=1)            
+                ax[1,0].plot(all_x[0], y1, '.k', ms=1)
+                ax[1,1].plot(all_x[1], y2, '.k', ms=1)
+                fig.savefig(output_dir+'highpass_TIC_'+str(int(all_ticid[i]))+'.png')    
+            ticid_rejected.append(all_ticid[i])
+             
+
+    flux = np.array(flux)
+    target_info = np.array(target_info)
+    ticid = np.array(ticid)
+    
+    del all_flux
+    del all_x
+    del all_ticid
+    del all_target_info
+            
+    
+    # # >> stitch together !! can only handle 2 sectors
+    # all_ticid1, comm1, comm2 = np.intersect1d(all_ticid[0], all_ticid[1],
+    #                                          return_indices=True)
+        
+    # flux = np.concatenate([all_flux[0][comm1], all_flux[1][comm2]], axis = -1)
+
+    # target_info = []
+    # for i in range(len(comm1)):
+    #     target_info.append([','.join([all_target_info[0][comm1[i]][0],
+    #                                  all_target_info[1][comm2[i]][0]]),
+    #                        ','.join([all_target_info[0][comm1[i]][1],
+    #                                  all_target_info[1][comm2[i]][1]]),
+    #                        ','.join([all_target_info[0][comm1[i]][2],
+    #                                  all_target_info[1][comm2[i]][2]]),
+    #                        all_target_info[0][comm1[i]][3],
+    #                        all_target_info[0][comm1[i]][4]])
+    # target_info = np.array(target_info)
+    
+    # ticid = all_ticid[0][comm1]
+    
+    return flux, x, ticid, target_info
 
 def combine_sectors_by_lc(sectors, data_dir, custom_mask=[],
                           output_dir='./', DEBUG=True):
@@ -335,12 +417,12 @@ def combine_sectors_by_lc(sectors, data_dir, custom_mask=[],
     x = all_x[0][:new_length]
     target_info = np.concatenate([all_target_info[0], all_target_info[1]],
                                  axis=0)
-    ticid = np.concatenate([all_ticid[0], all_ticid[1]])    
+    ticid = np.concatenate([all_ticid[0], all_ticid[1]])
+  
     flux, x = nan_mask(flux, x, custom_mask=custom_mask, ticid=ticid,
                        target_info=target_info,
                        output_dir=output_dir, DEBUG=True)
 
-    
     return flux, x, ticid, np.array(target_info)
 
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
@@ -545,7 +627,7 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
                                       apply_nan_mask=apply_nan_mask)
         else: # >> download each light curve
             # !! TODO: add flag option to lc_from_target_list()
-            time, intensity, ticids = lc_from_target_list(yourpath, target_list,
+            confirmation = lc_from_target_list(yourpath, target_list,
                                                     fname_time_intensities,
                                                     fname_targets, fname_notes,
                                                      path=path,
@@ -557,8 +639,6 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
         print("There was an OS Error trying to create the folder. Check to see if data is already saved there")
         targets = "empty"
         
-    return time, intensity, ticids, path, flagged, ticid_flagged
-
 def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     """ function to follow up on rejected TIC ids"""
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
@@ -941,7 +1021,7 @@ def interpolate_all(flux, time, ticid, flux_err=False, interp_tol=20./(24*60),
 
 def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
                    num_sigma=10, k=3, search_range=200, med_tol=2,
-                   DEBUG_INTERP=False,
+                   DEBUG_INTERP=False, orbig_gap_len=0.5,
                    output_dir='./', prefix=''):
     '''Interpolation for one light curve. Linearly interpolates nan gaps less
     than 20 minutes long. Spline interpolates nan gaps more than 20 minutes
@@ -1015,12 +1095,15 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
         run_starts = np.delete(run_starts, -1)
         run_lengths = np.delete(run_lengths, -1)
         
-    # >> remove orbit gap from list
+    # >> remove orbit gap(s) from list
     orbit_gap_ind = np.argmax(run_lengths)
     orbit_gap_start = run_starts[ orbit_gap_ind ]
     orbit_gap_end = orbit_gap_start + run_lengths[ orbit_gap_ind ]    
     run_starts = np.delete(run_starts, orbit_gap_ind)
     run_lengths = np.delete(run_lengths, orbit_gap_ind)
+    
+    # !!
+    # orbit_gap_inds = np.nonzero(run_lengths > )
     
     # -- fit a spline ---------------------------------------------------------
     
@@ -1092,7 +1175,7 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
 def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
              ticid=False, target_info=False,
              output_dir='./', prefix='', tol1=0.05, tol2=0.1,
-             custom_mask=[], use_tol2=True):
+             custom_mask=[], use_tol2=False):
     '''Apply nan mask to flux and time array.
     Returns masked, homogenous flux and time array.
     If there are only a few (less than tol1 light curves) light curves that
