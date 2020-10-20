@@ -57,13 +57,13 @@ import model as ml
 import data_access as da
 import ENF_functions as enf
 
-
-class mergen(object):
-    
-    def __init__(self, datapath, datatype, savepath, filelabel,
+datapath, datatype, savepath, filelabel,
                  momentum_dump_csv = '/users/conta/urop/Table_of_momentum_dumps.csv',
                  sector = [20], cams = [1,2,3,4], ccds = [[1,2,3,4],[1,2,3,4],[1,2,3,4],[1,2,3,4]], 
-                 cadence = "2minute", ENF_exists = False):
+                 cadence = "2minute", ENF_exists = False)
+class mergen(object):
+    
+    def __init__(self, :
         """ Initializes mergen object and  loads in all data
         Data must already be in a metafile format"""
         self.datapath = datapath
@@ -448,19 +448,13 @@ class mergen(object):
             
     def autoencoder(self, sectors = [27], fast = False,
                     model_init = None, train_test_ratio = 0.9, hyperparameter_optimization = False,
-                    lib_dir = None, dataase_dir = None):
+                    lib_dir = None, database_dir = None, single_file = False, 
+                    simbad_database_dir = '', run_model = True, iterative = False, diag_plots = True,
+                    novelty_detection=True, classification_param_search=False, classification=True, 
+                    norm_type = 'standardization', input_rms=True, input_psd=False, n_pgram = 50):
         data_dir = self.datapath
         output_dir = self.CAEpath
         mom_dump = self.momdumpcsv
-       
-
-        #lib_dir = '../main/' # >> directory containing model.py, data_functions.py
-
-        single_file = False
-        #database_dir= '/Users/studentadmin/Dropbox/TESS_UROP/data/databases/'
-        # database_dir = output_dir + 'all_simbad_classifications.txt'
-        simbad_database_dir = ''
-        # >> input data
         sectors = [self.sector]
         cams = self.cams
         ccds = self.ccds
@@ -474,28 +468,13 @@ class mergen(object):
         # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
         train_test_ratio = train_test_ratio
         
-        # >> what this script will run:
-        hyperparameter_optimization = hyperparameter_optimization # >> run hyperparameter search
-        run_model = True # >> train autoencoder on a parameter set p
-        iterative=False
-        diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
-                          # >> load bottleneck*.fits for plotting
-        
-        novelty_detection=True
-        classification_param_search=False
-        classification=True # >> runs DBSCAN on learned features
+         # >> runs DBSCAN on learned features
         
         # >> normalization options:
         #    * standardization : sets mean to 0. and standard deviation to 1.
         #    * median_normalization : divides by median
         #    * minmax_normalization : sets range of values from 0. to 1.
         #    * none : no normalization
-        norm_type = 'standardization'
-
-        input_rms=True# >> concatenate RMS to learned features
-        input_psd=False # >> also train on PSD
-        # n_pgram = 1500
-        n_pgram = 50
         
         load_psd=False # >> if psd_train.fits, psd_test.fits already exists
         use_tess_features = True
