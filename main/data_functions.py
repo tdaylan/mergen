@@ -268,19 +268,22 @@ def lc_by_camera_ccd(sectorfile, camera, ccd):
     return matching_targets #return list of only targets on that specific ccd
     
 def combine_sectors_by_time_axis(sectors, data_dir, cutoff=0.5, custom_mask=[],
-                                 order=5, tol=0.4, debug=True, norm_type='standardization',
-                                 output_dir='./'):
+                                 order=5, tol=0.6, debug=True, norm_type='standardization',
+                                 output_dir='./', return_median_flux=False):
     from scipy import signal
+    num_sectors = len(sectors)
     all_flux = []
     all_ticid = []
     all_target_info = []
     all_x = []
+    all_flux_plot = []
     print('Loading data and applying nanmask')
     for i in range(len(sectors)):
         flux, x, ticid, target_info = \
             load_data_from_metafiles(data_dir, sectors[i], nan_mask_check=True,
                                      custom_mask=custom_mask)
             
+        # all_flux_plot.append(normalize(flux))
         if norm_type == 'standardization':
             print('Standardizing fluxes...')
             flux = standardize(flux)
@@ -308,12 +311,15 @@ def combine_sectors_by_time_axis(sectors, data_dir, cutoff=0.5, custom_mask=[],
     if np.count_nonzero(np.isnan(x)):
         x = np.interp(np.arange(len(x)), np.arange(len(x))[np.nonzero(~np.isnan(x))],
                       x[np.nonzero(~np.isnan(x))])
-    flux, target_info, ticid, ticid_rejected = [], [], [], []
+    flux, flux_plot, target_info, ticid, ticid_rejected = [], [], [], [], []
     
+    # !!
     all_ticid, comm1, comm2 = np.intersect1d(all_ticid[0], all_ticid[1],
                                          return_indices=True)
     all_flux[0] = all_flux[0][comm1]
     all_flux[1] = all_flux[1][comm2]
+    # all_flux_plot[0] = all_flux_plot[0][comm1]
+    # all_flux_plot[1] = all_flux_plot[1][comm2]
     all_target_info[0] = all_target_info[0][comm1]
     all_target_info[1] = all_target_info[1][comm2]
     
@@ -327,9 +333,11 @@ def combine_sectors_by_time_axis(sectors, data_dir, cutoff=0.5, custom_mask=[],
         rms2 = np.sqrt(np.mean(y2**2))
         
         if debug and i < 5:
-            fig, ax = plt.subplots(2, 2)
+            fig, ax = plt.subplots(2, num_sectors)
+            # ax[0,0].plot(all_x[0], all_flux_plot[0][i], '.k', ms=1)
+            # ax[0,1].plot(all_x[1], all_flux_plot[1][i], '.k', ms=1) 
             ax[0,0].plot(all_x[0], all_flux[0][i], '.k', ms=1)
-            ax[0,1].plot(all_x[1], all_flux[1][i], '.k', ms=1)            
+            ax[0,1].plot(all_x[1], all_flux[1][i], '.k', ms=1)               
             ax[1,0].plot(all_x[0], y1, '.k', ms=1)
             ax[1,1].plot(all_x[1], y2, '.k', ms=1)
             fig.savefig(output_dir+'highpass_'+str(cutoff)+'_'+str(i)+'.png')   
@@ -338,6 +346,8 @@ def combine_sectors_by_time_axis(sectors, data_dir, cutoff=0.5, custom_mask=[],
         if np.abs(rms2 - rms1) < tol*rms1 and \
             np.abs(rms2 - rms1) < tol*rms2:
             flux.append(np.concatenate([all_flux[0][i], all_flux[1][i]]))
+            # flux_plot.append(np.concatenate([all_flux_plot[0][i],
+            #                                  all_flux_plot[1][i]]))
             target_info.append([','.join([all_target_info[0][i][0],
                                          all_target_info[1][i][0]]),
                                ','.join([all_target_info[0][i][1],
@@ -352,8 +362,10 @@ def combine_sectors_by_time_axis(sectors, data_dir, cutoff=0.5, custom_mask=[],
             print('Excluding TIC '+str(all_ticid[i]))
             if debug:
                 fig, ax = plt.subplots(2, 2)
+                # ax[0,0].plot(all_x[0], all_flux_plot[0][i], '.k', ms=1)
+                # ax[0,1].plot(all_x[1], all_flux_plot[1][i], '.k', ms=1)       
                 ax[0,0].plot(all_x[0], all_flux[0][i], '.k', ms=1)
-                ax[0,1].plot(all_x[1], all_flux[1][i], '.k', ms=1)            
+                ax[0,1].plot(all_x[1], all_flux[1][i], '.k', ms=1)                   
                 ax[1,0].plot(all_x[0], y1, '.k', ms=1)
                 ax[1,1].plot(all_x[1], y2, '.k', ms=1)
                 fig.savefig(output_dir+'highpass_TIC_'+str(int(all_ticid[i]))+'.png')    
@@ -361,6 +373,7 @@ def combine_sectors_by_time_axis(sectors, data_dir, cutoff=0.5, custom_mask=[],
              
 
     flux = np.array(flux)
+    flux_plot = np.array(flux_plot)
     target_info = np.array(target_info)
     ticid = np.array(ticid)
     
@@ -390,6 +403,7 @@ def combine_sectors_by_time_axis(sectors, data_dir, cutoff=0.5, custom_mask=[],
     
     # ticid = all_ticid[0][comm1]
     
+    # return flux, flux_plot, x, ticid, target_info
     return flux, x, ticid, target_info
 
 def combine_sectors_by_lc(sectors, data_dir, custom_mask=[],

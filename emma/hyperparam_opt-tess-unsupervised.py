@@ -43,15 +43,16 @@ train_test_ratio = 0.9
 # train_test_ratio = 1.
 
 # >> what this script will run:
+preprocessing = False
 hyperparameter_optimization = False # >> run hyperparameter search
 run_model = True # >> train autoencoder on a parameter set p
-iterative=True
-diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
+diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 
-novelty_detection=True
+novelty_detection=False
 classification_param_search=False
-classification=True # >> runs DBSCAN on learned features
+classification=False # >> runs DBSCAN on learned features
+iterative=False
 
 # >> normalization options:
 #    * standardization : sets mean to 0. and standard deviation to 1.
@@ -60,7 +61,7 @@ classification=True # >> runs DBSCAN on learned features
 #    * none : no normalization
 norm_type = 'standardization'
 
-input_rms=True# >> concatenate RMS to learned features
+input_rms=False# >> concatenate RMS to learned features
 input_psd=False # >> also train on PSD
 # n_pgram = 1500
 n_pgram = 128
@@ -71,6 +72,7 @@ use_tls_features = False
 input_features=False # >> this option cannot be used yet
 split_at_orbit_gap=False
 DAE = False
+
 
 # >> move targets out of training set and into testing set (integer)
 # !! TODO: print failure if target not in sector
@@ -136,10 +138,10 @@ else:
     p = {'kernel_size': 5,
           'latent_dim': 35,
           'strides': 1,
-          'epochs': 3,
+          'epochs': 10,
           'dropout': 0.2,
-          'num_filters': 16,
-          'num_conv_layers': 4,
+          'num_filters': 8,
+          'num_conv_layers': 6,
           'batch_size': 32,
           'activation': 'elu',
           'optimizer': 'adam',
@@ -147,8 +149,8 @@ else:
           'losses': 'mean_squared_error',
           'lr': 0.0001,
           'initializer': 'random_normal',
-          'num_consecutive': 2,
-          'pool_size': 2, 
+          'num_consecutive': 1,
+          'pool_size': 4, 
           'pool_strides': 2,
           'units': [1024, 512, 64, 16],
           'kernel_regularizer': None,
@@ -171,43 +173,74 @@ if os.path.isdir(output_dir) == False: # >> check if dir already exists
     
 # -- load data ----------------------------------------------------------------
 
+if preprocessing:
+    if len(sectors) > 1:
+        flux, x, ticid,target_info = \
+            df.combine_sectors_by_time_axis(sectors, data_dir, 0.2,
+                                            custom_mask=custom_mask, order=5,
+                                            tol=0.5, norm_type=norm_type,
+                                            output_dir=output_dir)
+        norm_type='none'
+        
+        # flux, x, ticid, target_info = df.combine_sectors_by_lc(sectors, data_dir,
+        #                                                        custom_mask=custom_mask,
+        #                                                        output_dir=output_dir)
+        
+    else:
+        # >> currently only handles one sector
+        flux, x, ticid, target_info = \
+            df.load_data_from_metafiles(data_dir, sectors[0], cams=cams, ccds=ccds,
+                                        DEBUG=True, fast=fast,
+                                        output_dir=output_dir, nan_mask_check=True,
+                                        custom_mask=custom_mask)
+        # flux_plot = None
+        
+    x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
+        target_info_test, rms_train, rms_test, x = \
+        ml.autoencoder_preprocessing(flux, x, p, ticid, target_info,
+                                     mock_data=False,
+                                     sector=sectors[0],
+                                     validation_targets=validation_targets,
+                                     norm_type=norm_type,
+                                     input_rms=input_rms, input_psd=input_psd,
+                                     load_psd=load_psd, n_pgram=n_pgram,
+                                     train_test_ratio=train_test_ratio,
+                                     split=split_at_orbit_gap,
+                                     output_dir=output_dir, 
+                                     data_dir=data_dir,
+                                     use_tess_features=use_tess_features,
+                                     use_tls_features=use_tls_features)
+        
+    hdr = fits.Header()
+    hdu = fits.PrimaryHDU(x_train, header=hdr)
+    hdu.writeto(output_dir + 'x_train.fits')
+    hdu = fits.PrimaryHDU(x_test, header=hdr)
+    hdu.writeto(output_dir + 'x_test.fits')
+    hdu = fits.PrimaryHDU(ticid_train, header=hdr)
+    hdu.writeto(output_dir + 'ticid_train.fits')
+    hdu = fits.PrimaryHDU(ticid_test, header=hdr)
+    hdu.writeto(output_dir + 'ticid_test.fits')
+    hdu = fits.PrimaryHDU(target_info_train, header=hdr)
+    hdu.writeto(output_dir + 'target_info_train.fits')
+    hdu = fits.PrimaryHDU(target_info_test, header=hdr)
+    hdu.writeto(output_dir + 'target_info_test.fits')    
+    if input_rms:
+        hdu = fits.PrimaryHDU(rms_train, header=hdr) 
+        hdu.writeto(output_dir + 'rms_train.fits')
+        hdu = fits.PrimaryHDU(rms_test, header=hdr)
+        hdu.writeto(output_dir + 'rms_test.fits')     
 
-if len(sectors) > 1:
-    flux, x, ticid,target_info = \
-        df.combine_sectors_by_time_axis(sectors, data_dir, 0.2,
-                                        custom_mask=custom_mask, order=5,
-                                        tol=0.5, norm_type=norm_type,
-                                        output_dir=output_dir)
-    norm_type='none'
-    
-    # flux, x, ticid, target_info = df.combine_sectors_by_lc(sectors, data_dir,
-    #                                                        custom_mask=custom_mask,
-    #                                                        output_dir=output_dir)
-    
+
 else:
-    # >> currently only handles one sector
-    flux, x, ticid, target_info = \
-        df.load_data_from_metafiles(data_dir, sectors[0], cams=cams, ccds=ccds,
-                                    DEBUG=True, fast=fast,
-                                    output_dir=output_dir, nan_mask_check=True,
-                                    custom_mask=custom_mask)
-    
-x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
-    target_info_test, rms_train, rms_test, x = \
-    ml.autoencoder_preprocessing(flux, x, p, ticid, target_info,
-                                 mock_data=False,
-                                 sector=sectors[0],
-                                 validation_targets=validation_targets,
-                                 norm_type=norm_type,
-                                 input_rms=input_rms, input_psd=input_psd,
-                                 load_psd=load_psd, n_pgram=n_pgram,
-                                 train_test_ratio=train_test_ratio,
-                                 split=split_at_orbit_gap,
-                                 output_dir=output_dir, 
-                                 data_dir=data_dir,
-                                 use_tess_features=use_tess_features,
-                                 use_tls_features=use_tls_features)
-    
+    f = fits.open(output_dir + 'x_train.fits')
+    x_train = f[0].data
+    f = fits.open(output_dir + 'x_test.fits')
+    x_test = f[0].data
+    f = fits.open(output_dir + 'ticid_train.fits')
+    ticid_train = f[0].data
+    f = fits.open(output_dir + 'ticid_test.fits')
+    ticid_test = f[0].data
+
 if input_psd:
     p['concat_ext_feats'] = True
 
@@ -249,7 +282,7 @@ if run_model:
         x_test = np.concatenate(x_test, axis=1)
         x_predict = np.concatenate(x_predict, axis=1)
     
-    
+pdb.set_trace()
 # == Plots ====================================================================
 if diag_plots:
     print('Creating plots...')
@@ -264,6 +297,7 @@ if diag_plots:
                         input_rms=input_rms, rms_test=rms_test,
                         input_psd=input_psd,
                         rms_train=rms_train, n_tot=40,
+                        flux_train=flux_train, flux_test=flux_test, time=x,
                         plot_epoch = True,
                         plot_in_out = True,
                         plot_in_bottle_out=False,
@@ -354,7 +388,7 @@ if novelty_detection or classification:
         else:
             features, flux_feat, ticid_feat, info_feat = \
                 ml.bottleneck_preprocessing(sectors[0],
-                                            np.concatenate([x_train, x_test], axis=0),
+                                            np.concatenate([flux_train, flux_test], axis=0),
                                             np.concatenate([ticid_train, ticid_test]),
                                             np.concatenate([target_info_train,
                                                             target_info_test]),

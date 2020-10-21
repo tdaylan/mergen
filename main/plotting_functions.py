@@ -875,10 +875,10 @@ def diagnostic_plots(history, model, p, output_dir,
         psd_predict = x_predict[1]
         x_predict = x_predict[0]
         
-    if not feature_vector:
-        flux_test = x_test
-        flux_train = x_train
-        time = x
+    # if not feature_vector:
+    #     flux_test = x_test
+    #     flux_train = x_train
+    #     time = x
     
     # >> plot loss, accuracy, precision, recall vs. epochs
     if plot_epoch:
