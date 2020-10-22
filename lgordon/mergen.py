@@ -35,8 +35,7 @@ import shutil
 from scipy.stats import moment, sigmaclip
 
 import sklearn
-from sklearn.cluster import KMeans
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import KMeans, DBSCAN
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import Normalizer
 from sklearn import metrics
@@ -102,11 +101,11 @@ class mergen(object):
             print("loading FFIs")
             self.ffi_load_lc_metafiles_all()
             if remove_quaternions:
-                outlier_indexes = df.extract_smooth_quaterions(self.path, quaternion_file, 
+                outlier_indexes = df.extract_smooth_quaterions(self.savepath, quaternion_file, 
                                                             self.momdumpcsv, 31, 
                                                             self.time)
                 print("Current length of time axis: ", len(self.time))
-                self.time = np.delete(self.time, outlier_indexes, axis=1)
+                self.time = np.delete(self.time, outlier_indexes, axis=0)
                 self.flux = np.delete(self.flux, outlier_indexes, axis=1)
                 print("Updated length of time axis: ", len(self.time))
             

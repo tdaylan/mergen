@@ -472,7 +472,7 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     return i_interp, flag
  
 def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxis):
-
+    from scipy.signal import argrelextrema, medfilt
     f = fits.open(file, memmap=False)
 
     t = f[1].data['TIME']
@@ -573,6 +573,10 @@ def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxi
     
     outlier_indexes = np.unique(np.concatenate((Q1_outliers, Q2_outliers, Q3_outliers)))
     print(outlier_indexes)
+    for n in range(len(outlier_indexes)):
+        if outlier_indexes[n] > len(maintimeaxis):
+            outlier_indexes = outlier_indexes[0:(n-1)]
+            break
     return outlier_indexes    
 
 
