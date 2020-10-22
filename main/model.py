@@ -95,7 +95,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                               split=False, output_dir='./',
                               use_tess_features=True,
                               use_tls_features=True,
-                              use_rms=True):
+                              use_rms=True, flux_plot=None):
     '''Preprocesses output from df.load_data_from_metafiles
     Shuffles array.
     Parameters:
@@ -113,8 +113,8 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
           * norm_type : either standardization, median_normalization,
                         minmax_normalization, none
           * input_rms : calculate RMS before normalizing
-        
     '''
+    
     # >> shuffle array
     print('Shuffling data...')
     inds = np.arange(len(flux))
@@ -200,6 +200,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                 with fits.open(output_dir + 'psd_test.fits') as hdul:
                     psd_test = hdul[1].data    
             
+        # flux_plot = df.normalize(flux) # >> divide by medina
         if norm_type == 'standardization':
             print('Standardizing fluxes...')
             flux = df.standardize(flux)
@@ -219,11 +220,16 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
             print('Light curves are not normalized!')
             
         print('Partitioning data...')
+        # x_train, x_test, y_train, y_test, ticid_train, ticid_test,\
+        # target_info_train, target_info_test, flux_train, flux_test, time = \
+        #     split_data(flux, flux_plot, ticid, target_info, time, p,
+        #                train_test_ratio=train_test_ratio,
+        #                supervised=False) 
         x_train, x_test, y_train, y_test, ticid_train, ticid_test,\
         target_info_train, target_info_test, time = \
             split_data(flux, ticid, target_info, time, p,
                        train_test_ratio=train_test_ratio,
-                       supervised=False) 
+                       supervised=False)             
             
         if input_rms:
             rms_train = rms[:np.shape(x_train)[0]]
@@ -291,8 +297,12 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                                          log=False)  
             x_test = [flux_test, external_features_test]
                         
+        # return x_train, x_test, y_train, y_test, ticid_train, ticid_test, \
+        #     target_info_train, target_info_test, rms_train, rms_test, \
+        #     flux_train, flux_test, time
+            
         return x_train, x_test, y_train, y_test, ticid_train, ticid_test, \
-            target_info_train, target_info_test, rms_train, rms_test, time
+            target_info_train, target_info_test, rms_train, rms_test, time            
 
 def bottleneck_preprocessing(sector, flux, ticid, target_info,
                              rms=None,
@@ -2302,7 +2312,8 @@ def split_data_features(flux, features, time, ticid, target_info, classes, p,
     return x_train, x_test, y_train, y_test, flux_train, flux_test,\
         ticid_train, ticid_test, target_info_train, target_info_test, time
 
-def split_data(flux, ticid, target_info, time, p, train_test_ratio = 0.9,
+def split_data(flux, ticid, target_info, time, p,
+               train_test_ratio = 0.9,
                cutoff=16336,
                supervised=False, classes=False, interpolate=False,
                resize_arr=False, truncate=True):
@@ -2322,6 +2333,7 @@ def split_data(flux, ticid, target_info, time, p, train_test_ratio = 0.9,
                      tot_reduction_factor)*\
                      int(tot_reduction_factor)
         flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
+        # flux_plot=np.delete(flux_plot, np.arange(new_length,np.shape(flux_plot)[1]),1)
         time = time[:new_length]         
 
     # >> split test and train data
@@ -2353,13 +2365,15 @@ def split_data(flux, ticid, target_info, time, p, train_test_ratio = 0.9,
         target_info_test = np.copy(target_info[test_inds])        
     else:
         split_ind = int(train_test_ratio*np.shape(flux)[0])
-        x_train = np.copy(flux[:split_ind])
-        x_test = np.copy(flux[split_ind:])
-        ticid_train = np.copy(ticid[:split_ind])
-        ticid_test = np.copy(ticid[split_ind:])
-        target_info_train = np.copy(target_info[:split_ind])
-        target_info_test = np.copy(target_info[split_ind:])        
-        y_test, y_train = [False, False]
+        x_train = flux[:split_ind]
+        x_test = flux[split_ind:]
+        ticid_train = ticid[:split_ind]
+        ticid_test = ticid[split_ind:]
+        target_info_train = target_info[:split_ind]
+        target_info_test = target_info[split_ind:]    
+        y_test, y_train = [None, None]
+        # flux_train = flux_plot[:split_ind]
+        # flux_test = flux_plot[split_ind:]
         
     if resize_arr:
         x_train =  np.resize(x_train, (np.shape(x_train)[0],
