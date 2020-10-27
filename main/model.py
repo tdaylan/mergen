@@ -16,13 +16,10 @@ import data_functions as df
 from astropy.io import fits
 from astropy.timeseries import LombScargle
 import random
-from scipy.signal import lombscargle
-import keras.backend as K
-from keras.layers import Lambda, Activation, Conv2DTranspose
-import tensorflow as tf
-from tensorflow import keras
 from sklearn.cluster import KMeans    
-from sklearn.manifold import TSNE     
+
+import keras.backend as K
+import tensorflow as tf
 import keras
 from keras.models import Model
 from keras.layers import *
@@ -609,7 +606,7 @@ def vae_gan(x_train, y_train, x_test, y_test, params,
 
 def conv_autoencoder(x_train, y_train, x_test, y_test, params, 
                      val=True, split=False, input_features=False,
-                     features=None, input_psd=False, reshape=False,
+                     features=None, input_psd=False,
                      model_init=None, save_model=True, save_bottleneck=True,
                      predict=True, output_dir='./',
                      input_rms=False, rms_train=None, rms_test=None,
@@ -628,10 +625,10 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     elif input_psd:
         params['concat_ext_feats'] = True
         # encoded = encoder_split_diff_weights(x_train, params)
-        encoded, feature_maps, pool_masks = encoder(x_train, params, reshape=reshape)   
+        encoded = encoder(x_train, params)   
         
     else:
-        encoded, feature_maps, pool_masks = encoder(x_train, params, reshape=reshape)
+        encoded = encoder(x_train, params)
 
     # -- decoding -------------------------------------------------------------
     if split:
@@ -641,12 +638,10 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
 
     elif params['cvae']:
         # z_mean, z_log_var, z = encoded.output
-        decoded = decoder(x_train, encoded.output, params, feature_maps, pool_masks,
-                          reshape=reshape)
+        decoded = decoder(x_train, encoded.output, params)
         
     else:
-        decoded = decoder(x_train, encoded.output, params, feature_maps,
-                          pool_masks, reshape=reshape)
+        decoded = decoder(x_train, encoded.output, params)
         
     model = Model(encoded.input, decoded)
     print(model.summary())
@@ -1411,9 +1406,6 @@ def encoder(x_train, params, reshape=False):
         * lr : learning rate (e.g. 0.01)
         * initializer: 'random_normal', 'random_uniform', ...
     '''
-    from keras.layers import Input, Conv1D, MaxPooling1D, Dropout, Flatten, \
-        Dense, BatchNormalization, Reshape, Add, Activation, concatenate
-    from keras.models import Model
     
     if params['concat_ext_feats']:
         input_dim = np.shape(x_train[0])[1]
@@ -1429,82 +1421,28 @@ def encoder(x_train, params, reshape=False):
     if type(params['num_consecutive']) == np.int:
         params['num_consecutive'] = list(np.repeat(params['num_consecutive'], num_iter))
     
-    if reshape:
-        input_img = Input(shape = (input_dim, 1))
-        x = input_img
-    else:
-        input_img = Input(shape = (input_dim,))
-        x = Reshape((input_dim, 1))(input_img)
+    input_img = Input(shape = (input_dim,))
+    x = Reshape((input_dim, 1))(input_img)
     
-    feature_maps = []
-    pool_masks = []
     for i in range(num_iter):
-        # # !! 
-        # if i > 0:
-        #     params['activity_regularizer'] = None
         
         for j in range(params['num_consecutive'][i]):
-            if j == 0:
-                stride = params['strides']
-            else:
-                stride = 1
             x = Conv1D(params['num_filters'][i], int(params['kernel_size']),
                     padding='same',
-                    kernel_initializer=params['initializer'],
-                    strides=stride,
-                    kernel_regularizer=params['kernel_regularizer'],
-                    bias_regularizer=params['bias_regularizer'],
-                    activity_regularizer=params['activity_regularizer'])(x)
-            feature_maps.append(x)            
-            
-            # if j != 0 and params['consecutive_conv_skip']:
-            #     x = Add()([x, feature_maps[-2]])
-            #     x = Activation(params['activation'])(x)                
-            
-            if not params['batchnorm_before_act']:
-                activation=params['activation']
-            
-            x = BatchNormalization()(x)     
-            
-            if params['batchnorm_before_act']:
-                activation=params['activation']
-            
-            
-        if i != 0 and params['encoder_skip'] and not params['full_feed_forward_highway']:
-            f_x = feature_maps[-1 * params['num_consecutive'][i] - 1]
-            # >> projection layer
-            f_x = Conv1D(params['num_filters'][i-1], int(params['kernel_size']),
-                    activation=params['activation'], padding='same',
                     kernel_initializer=params['initializer'],
                     strides=params['strides'],
                     kernel_regularizer=params['kernel_regularizer'],
                     bias_regularizer=params['bias_regularizer'],
-                    activity_regularizer=params['activity_regularizer'])(f_x)
-            # >> add feature maps
-            x = Add()([x, f_x])
-            x = Activation(params['activation'])(x)    
-        if i != 0 and params['full_feed_forward_highway']:
-            for k in range(i):
-                f_x = feature_maps[(-1 - k) * params['num_consecutive'][i] - 1]
-                # >> projection layer
-                f_x = Conv1D(params['num_filters'][i-1], int(params['kernel_size']),
-                        activation=params['activation'], padding='same',
-                        kernel_initializer=params['initializer'],
-                        strides= params['strides']**(1+k),
-                        kernel_regularizer=params['kernel_regularizer'],
-                        bias_regularizer=params['bias_regularizer'],
-                        activity_regularizer=params['activity_regularizer'])(f_x)
-                # >> add feature maps
-                x = Add()([x, f_x])                
-            x = Activation(params['activation'])(x) 
-        if params['pool_size'] != 1:
-            if params['share_pool_inds']:
-                x, argmax = max_pool_layer(x, params)
-                pool_masks.append(argmax)
-            else:
-                x = MaxPooling1D(params['pool_size'], padding='same')(x)
-        if params['dropout'] > 0.:
-            x = Dropout(params['dropout'])(x)
+                    activity_regularizer=params['activity_regularizer'])(x)             
+
+            
+            if params['batch_norm']:
+                x = BatchNormalization()(x)     
+            
+            x = Activation(params['activation'])(x)
+            
+        x = MaxPooling1D(params['pool_size'], padding='same')(x)
+        x = Dropout(params['dropout'])(x)
 
     if params['fully_conv']:
         encoded = Conv1D(1, int(params['kernel_size']),
@@ -1577,7 +1515,7 @@ def encoder(x_train, params, reshape=False):
         else:
             encoder = Model(input_img, encoded)
 
-    return encoder, feature_maps, pool_masks
+    return encoder
 
 
 
@@ -1628,7 +1566,7 @@ def Conv1DTranspose(input_tensor, filters, kernel_size, strides=2, padding='same
     
     # return x
 
-def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False):
+def decoder(x_train, bottleneck, params):
     import tensorflow as tf
     
     if params['concat_ext_feats']:
@@ -1638,8 +1576,8 @@ def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False
         input_dim = np.shape(x_train)[1]
         
     num_iter = int(params['num_conv_layers']/2)
-      
-    
+    reduction_factor = params['pool_size'] * params['strides']**params['num_consecutive'][0] 
+    tot_reduction_factor = reduction_factor**num_iter
     
     if type(params['num_filters']) == np.int:
         params['num_filters'] = list(np.repeat(params['num_filters'], num_iter))    
@@ -1660,74 +1598,54 @@ def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False
                       bias_regularizer=params['bias_regularizer'],
                       activity_regularizer=params['activity_regularizer'])(bottleneck)            
         else:
-            x = bottleneck
+            x = bottleneck          
         
-        # x = Dense(64, activation=params['activation'],
-        #                 kernel_initializer=params['initializer'])(x)
-        # x = Dense(128, activation=params['activation'],
-        #                 kernel_initializer=params['initializer'])(x)
-        # x = Dense(256, activation=params['activation'],
-        #                 kernel_initializer=params['initializer'])(x)             
         
-        # reduction_factor = params['pool_size'] * params['strides']**params['num_consecutive']
-        reduction_factor = params['pool_size'] * params['strides']
-        tot_reduction_factor = reduction_factor**num_iter
+        # reduction_factor = params['pool_size'] * params['strides']
+        
         x = Dense(int(input_dim*params['num_filters'][-1]/tot_reduction_factor),
                   kernel_initializer=params['initializer'],
                   kernel_regularizer=params['kernel_regularizer'],
                   bias_regularizer=params['bias_regularizer'],
-                  activity_regularizer=params['activity_regularizer'])(x)
-        # x = Dense(int(input_dim*params['num_filters'][-1]/tot_reduction_factor),
-        #           kernel_initializer=params['initializer'])(x)    
+                  activity_regularizer=params['activity_regularizer'])(x) 
         x = Reshape((int(input_dim/tot_reduction_factor),
                       params['num_filters'][-1]))(x)
 
-        
-    feature_maps_decoder = []
+
     for i in range(num_iter):
         if params['dropout'] > 0:
             x = Dropout(params['dropout'])(x)
             
-        if params['pool_size'] != 1:
-            if params['share_pool_inds']:
-                argmax=pool_masks[-1*i-1]
-                x = unpool_with_with_argmax(x, argmax, params)
-            else:
-                x = UpSampling1D(params['pool_size'])(x)
-
-        # if i != num_iter - 1:
-        #     params['activity_regularizer'] = None
-        # else: 
-        #     params['activity_regularizer'] = 'l2'
+        x = UpSampling1D(params['pool_size'])(x)
         
         
         for j in range(params['num_consecutive'][-1*i - 1]):
-            x = BatchNormalization()(x)
+            
+            # >> last layer
             if i == num_iter-1 and j == params['num_consecutive'][-1*i - 1]-1 \
                 and not params['fully_conv']:
                 
                 if params['strides'] == 1: # >> faster than Conv1Dtranspose
-                    decoded = Conv1D(1, int(params['kernel_size']),
-                                      activation=params['last_activation'],
+                    x = Conv1D(1, int(params['kernel_size']),
                                       padding='same', strides=params['strides'],
                                       kernel_initializer=params['initializer'],
                                       kernel_regularizer=params['kernel_regularizer'],
                                       bias_regularizer=params['bias_regularizer'],
                                       activity_regularizer=params['activity_regularizer'])(x)  
+                    
                 
                 else:
-                    decoded = Conv1DTranspose(x, 1, int(params['kernel_size']),
-                               activation=params['activation'], padding='same',
-                               strides=1,
+                    x = Conv1DTranspose(x, 1, int(params['kernel_size']),
+                               padding='same',
+                               strides=params['strides'],
                                kernel_initializer=params['initializer'],
                                kernel_regularizer=params['kernel_regularizer'],
                                bias_regularizer=params['bias_regularizer'],
                           activity_regularizer=params['activity_regularizer'])
                     
-                
-                
-                if not reshape:
-                    decoded = Reshape((input_dim,))(decoded)
+                x = BatchNormalization()(x)
+                decoded = Activation(params['last_activation'])(x)
+                decoded = Reshape((input_dim,))(decoded)
                     
                 if params['concat_ext_feats']:
                     for i in range(len(params['units'])):
@@ -1747,15 +1665,10 @@ def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False
                     decoded = [decoded, x1]
                     
             else:
-                if j == 0:
-                    stride = params['strides']
-                else:
-                    stride = 1
                 
                 if params['strides'] == 1:
                     x = Conv1D(params['num_filters'][-1*i - 1],
-                                int(params['kernel_size']),
-                                activation=params['activation'], padding='same',
+                                int(params['kernel_size']),padding='same',
                                 strides=params['strides'],
                                 kernel_initializer=params['initializer'],
                                 kernel_regularizer=params['kernel_regularizer'],
@@ -1763,33 +1676,14 @@ def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False
                                 activity_regularizer=params['activity_regularizer'])(x)   
                 else:
                     x = Conv1DTranspose(x, params['num_filters'][-1*i - 1],
-                               int(params['kernel_size']),
-                               activation=params['activation'], padding='same',
-                               strides=stride,
+                               int(params['kernel_size']), padding='same',
+                               strides=params['strides'],
                                kernel_initializer=params['initializer'],
                                kernel_regularizer=params['kernel_regularizer'],
                                bias_regularizer=params['bias_regularizer'],
                                activity_regularizer=params['activity_regularizer'])
-                feature_maps_decoder.append(x)    
-                
-                if params['encoder_decoder_skip']:
-                    connect_ind=len(feature_maps)-1-i*params['num_consecutive'][-1*i - 1]-j
-                    x = Add()([x, feature_maps[connect_ind]])
-                    x = Activation(params['activation'])(x)
-                    
-        if i != 0 and params['decoder_skip']:
-            f_x = feature_maps_decoder[-1 * params['num_consecutive'][-1*i - 1] - 1]
-            # >> projection layer !! num_filters
-            f_x = Conv1DTranspose(f_x, params['num_filters'][-1*i - 1],
-                                  1, activation=params['activation'], 
-                                  strides=params['strides'], padding='same',
-                                  kernel_initializer=params['initializer'],
-                                  kernel_regularizer=params['kernel_regularizer'],
-                                  bias_regularizer=params['bias_regularizer'],
-                                  activity_regularizer=params['activity_regularizer'])
-            # >> add feature maps
-            x = Add()([x, f_x])
-            x = Activation(params['activation'])(x)              
+                x = BatchNormalization()(x)
+                x = Activation(params['activation'])(x)
 
     if params['fully_conv']:
         decoded = Conv1DTranspose(x, 1, int(params['kernel_size']),
@@ -1799,17 +1693,7 @@ def decoder(x_train, bottleneck, params, feature_maps, pool_masks, reshape=False
                    kernel_regularizer=params['kernel_regularizer'],
                    bias_regularizer=params['bias_regularizer'],
               activity_regularizer=params['activity_regularizer'])       
-        if not reshape:
-            decoded = Reshape((input_dim,))(decoded)        
-        # else:
-        #     # x = Conv1D(params['num_filters'], int(params['kernel_size']),
-        #     #            activation=params['activation'], padding='same',
-        #     #            strides=params['strides'],
-        #     #            kernel_initializer=params['initializer'])(x)        
-        #     x = tf.nn.conv1d_transpose(params['num_filters'], int(params['kernel_size']),
-        #                padding='same',
-        #                strides=params['strides'])(x)      
-        #     x = tf.keras.layers.Activation(params['activation'])(x)    
+        decoded = Reshape((input_dim,))(decoded)          
     return decoded
 
 def decgen(x_train, params):
@@ -2321,8 +2205,8 @@ def split_data(flux, ticid, target_info, time, p,
         
     if truncate:
         # >> dim reduced each iteration
-        # reduction_factor = np.max(p['pool_size'])* np.max(p['strides'])**np.max(p['num_consecutive'] )
-        reduction_factor = np.max(p['pool_size'])* np.max(p['strides'])
+        reduction_factor = np.max(p['pool_size'])* np.max(p['strides'])**np.max(p['num_consecutive'] )
+        # reduction_factor = np.max(p['pool_size'])* np.max(p['strides'])
         
         num_iter = np.max(p['num_conv_layers'])/2
         tot_reduction_factor = reduction_factor**num_iter
@@ -2812,4 +2696,53 @@ def get_high_freq_mock_data(p=None, dataset_size=10000, train_test_ratio=0.9,
 #     # image = G.predict(noise)
 #     # image = np.uint8(image * 127.5 +127.5)
 #     # plt.imshow(image[0]), plt.show()    
+            
+        # if i != 0 and params['encoder_skip'] and not params['full_feed_forward_highway']:
+        #     f_x = feature_maps[-1 * params['num_consecutive'][i] - 1]
+        #     # >> projection layer
+        #     f_x = Conv1D(params['num_filters'][i-1], int(params['kernel_size']),
+        #             activation=params['activation'], padding='same',
+        #             kernel_initializer=params['initializer'],
+        #             strides=params['strides'],
+        #             kernel_regularizer=params['kernel_regularizer'],
+        #             bias_regularizer=params['bias_regularizer'],
+        #             activity_regularizer=params['activity_regularizer'])(f_x)
+        #     # >> add feature maps
+        #     x = Add()([x, f_x])
+        #     x = Activation(params['activation'])(x)    
+        # if i != 0 and params['full_feed_forward_highway']:
+        #     for k in range(i):
+        #         f_x = feature_maps[(-1 - k) * params['num_consecutive'][i] - 1]
+        #         # >> projection layer
+        #         f_x = Conv1D(params['num_filters'][i-1], int(params['kernel_size']),
+        #                 activation=params['activation'], padding='same',
+        #                 kernel_initializer=params['initializer'],
+        #                 strides= params['strides']**(1+k),
+        #                 kernel_regularizer=params['kernel_regularizer'],
+        #                 bias_regularizer=params['bias_regularizer'],
+        #                 activity_regularizer=params['activity_regularizer'])(f_x)
+        #         # >> add feature maps
+        #         x = Add()([x, f_x])                
+        #     x = Activation(params['activation'])(x) 
 
+
+            # if j == 0:
+            #     stride = params['strides']
+            # else:
+            #     stride = 1
+
+            # if params['share_pool_inds']:
+            #     x, argmax = max_pool_layer(x, params)
+            #     pool_masks.append(argmax)
+            # else:
+
+        # if params['pool_size'] != 1:
+        #     if params['share_pool_inds']:
+        #         argmax=pool_masks[-1*i-1]
+        #         x = unpool_with_with_argmax(x, argmax, params)
+        #     else:
+
+        # if i != num_iter - 1:
+        #     params['activity_regularizer'] = None
+        # else: 
+        #     params['activity_regularizer'] = 'l2'

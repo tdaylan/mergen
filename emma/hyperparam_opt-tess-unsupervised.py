@@ -14,7 +14,7 @@
 
 # data_dir = '../../' # >> directory with input data (ending with /)
 data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/Ensemble-Sectors_4_5/' # >> directory to save diagnostic plots
+output_dir = '../../plots/Ensemble-Sectors_2_3_0/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -26,7 +26,7 @@ database_dir= '/Users/studentadmin/Dropbox/TESS_UROP/data/databases/'
 # database_dir = output_dir + 'all_simbad_classifications.txt'
 simbad_database_dir = ''
 # >> input data
-sectors = [4,5]
+sectors = [2,3]
 cams = [1,2,3,4]
 # cams = [1]
 # ccds =  [[2,3,4], [2,3,4], [1,2,4], [1,2,4]]
@@ -43,7 +43,7 @@ train_test_ratio = 0.9
 # train_test_ratio = 1.
 
 # >> what this script will run:
-preprocessing = False
+preprocessing = True
 hyperparameter_optimization = False # >> run hyperparameter search
 run_model = True # >> train autoencoder on a parameter set p
 diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
@@ -51,7 +51,7 @@ diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
 
 novelty_detection=False
 classification_param_search=False
-classification=False # >> runs DBSCAN on learned features
+classification=True # >> runs DBSCAN on learned features
 iterative=False
 
 # >> normalization options:
@@ -135,9 +135,40 @@ if hyperparameter_optimization:
 
 else:
     # >> strides: list, len = num_consecutive
+    # p = {'kernel_size': 5,
+    #       'latent_dim': 35,
+    #       'strides': 2,
+    #       'epochs': 10,
+    #       'dropout': 0.2,
+    #       'num_filters': 8,
+    #       'num_conv_layers': 6,
+    #       'batch_size': 32,
+    #       'activation': 'elu',
+    #       'optimizer': 'adam',
+    #       'last_activation': 'linear',
+    #       'losses': 'mean_squared_error',
+    #       'lr': 0.0001,
+    #       'initializer': 'random_normal',
+    #       'num_consecutive': 1,
+    #       'pool_size': 4, 
+    #       'pool_strides': 4,
+    #       'units': [1024, 512, 64, 16],
+    #       'kernel_regularizer': None,
+    #       'bias_regularizer': None,
+    #       'activity_regularizer': None,
+    #       'fully_conv': False,
+    #       'encoder_decoder_skip': False,
+    #       'encoder_skip': False,
+    #       'decoder_skip': False,
+    #       'full_feed_forward_highway': False,
+    #       'cvae': False,
+    #       'share_pool_inds': False,
+    #       'batchnorm_before_act': True,
+    #       'concat_ext_feats': False}      
+    
     p = {'kernel_size': 5,
           'latent_dim': 35,
-          'strides': 1,
+          'strides': 2,
           'epochs': 10,
           'dropout': 0.2,
           'num_filters': 8,
@@ -151,7 +182,7 @@ else:
           'initializer': 'random_normal',
           'num_consecutive': 1,
           'pool_size': 4, 
-          'pool_strides': 2,
+          'pool_strides': 4,
           'units': [1024, 512, 64, 16],
           'kernel_regularizer': None,
           'bias_regularizer': None,
@@ -163,8 +194,8 @@ else:
           'full_feed_forward_highway': False,
           'cvae': False,
           'share_pool_inds': False,
-          'batchnorm_before_act': True,
-          'concat_ext_feats': False}      
+          'batch_norm': True,
+          'concat_ext_feats': False}       
     
 # -- create output directory --------------------------------------------------
     
@@ -175,16 +206,16 @@ if os.path.isdir(output_dir) == False: # >> check if dir already exists
 
 if preprocessing:
     if len(sectors) > 1:
-        flux, x, ticid,target_info = \
-            df.combine_sectors_by_time_axis(sectors, data_dir, 0.2,
-                                            custom_mask=custom_mask, order=5,
-                                            tol=0.5, norm_type=norm_type,
-                                            output_dir=output_dir)
-        norm_type='none'
+        # flux, x, ticid,target_info = \
+        #     df.combine_sectors_by_time_axis(sectors, data_dir, 0.2,
+        #                                     custom_mask=custom_mask, order=5,
+        #                                     tol=0.5, norm_type=norm_type,
+        #                                     output_dir=output_dir)
+        # norm_type='none'
         
-        # flux, x, ticid, target_info = df.combine_sectors_by_lc(sectors, data_dir,
-        #                                                        custom_mask=custom_mask,
-        #                                                        output_dir=output_dir)
+        flux, x, ticid, target_info = df.combine_sectors_by_lc(sectors, data_dir,
+                                                                custom_mask=custom_mask,
+                                                                output_dir=output_dir)
         
     else:
         # >> currently only handles one sector
@@ -211,24 +242,24 @@ if preprocessing:
                                      use_tess_features=use_tess_features,
                                      use_tls_features=use_tls_features)
         
-    hdr = fits.Header()
-    hdu = fits.PrimaryHDU(x_train, header=hdr)
-    hdu.writeto(output_dir + 'x_train.fits')
-    hdu = fits.PrimaryHDU(x_test, header=hdr)
-    hdu.writeto(output_dir + 'x_test.fits')
-    hdu = fits.PrimaryHDU(ticid_train, header=hdr)
-    hdu.writeto(output_dir + 'ticid_train.fits')
-    hdu = fits.PrimaryHDU(ticid_test, header=hdr)
-    hdu.writeto(output_dir + 'ticid_test.fits')
-    hdu = fits.PrimaryHDU(target_info_train, header=hdr)
-    hdu.writeto(output_dir + 'target_info_train.fits')
-    hdu = fits.PrimaryHDU(target_info_test, header=hdr)
-    hdu.writeto(output_dir + 'target_info_test.fits')    
-    if input_rms:
-        hdu = fits.PrimaryHDU(rms_train, header=hdr) 
-        hdu.writeto(output_dir + 'rms_train.fits')
-        hdu = fits.PrimaryHDU(rms_test, header=hdr)
-        hdu.writeto(output_dir + 'rms_test.fits')     
+    # hdr = fits.Header()
+    # hdu = fits.PrimaryHDU(x_train, header=hdr)
+    # hdu.writeto(output_dir + 'x_train.fits')
+    # hdu = fits.PrimaryHDU(x_test, header=hdr)
+    # hdu.writeto(output_dir + 'x_test.fits')
+    # hdu = fits.PrimaryHDU(ticid_train, header=hdr)
+    # hdu.writeto(output_dir + 'ticid_train.fits')
+    # hdu = fits.PrimaryHDU(ticid_test, header=hdr)
+    # hdu.writeto(output_dir + 'ticid_test.fits')
+    # # hdu = fits.PrimaryHDU(target_info_train, header=hdr)
+    # # hdu.writeto(output_dir + 'target_info_train.fits')
+    # # hdu = fits.PrimaryHDU(target_info_test, header=hdr)
+    # # hdu.writeto(output_dir + 'target_info_test.fits')    
+    # if input_rms:
+    #     hdu = fits.PrimaryHDU(rms_train, header=hdr) 
+    #     hdu.writeto(output_dir + 'rms_train.fits')
+    #     hdu = fits.PrimaryHDU(rms_test, header=hdr)
+    #     hdu.writeto(output_dir + 'rms_test.fits')     
 
 
 else:
@@ -367,6 +398,15 @@ if novelty_detection or classification:
             
         print('Creating feature space')
         
+        if input_rms:
+            rms = np.concatenate([rms_train, rms_test])
+        else:
+            rms = None
+            
+        # !! 
+        flux_train = x_train
+        flux_test = x_test
+        
         if p['concat_ext_feats'] or input_psd:
             features, flux_feat, ticid_feat, info_feat = \
                 ml.bottleneck_preprocessing(sectors[0],
@@ -392,7 +432,7 @@ if novelty_detection or classification:
                                             np.concatenate([ticid_train, ticid_test]),
                                             np.concatenate([target_info_train,
                                                             target_info_test]),
-                                            rms=np.concatenate([rms_train, rms_test]),
+                                            rms=rms,
                                             data_dir=data_dir,
                                             bottleneck_dir=output_dir,
                                             output_dir=output_dir,
@@ -515,6 +555,16 @@ if novelty_detection or classification:
                                               min_samples=[best_param_set[1]],
                                               DEBUG=True, pca=True, tsne=True,
                                               data_dir=data_dir, save=False)  
+                
+            import hdbscan
+            clusterer = hdbscan.HDBSCAN(min_cluster_size=best_param_set[0],
+                                        min_samples=best_param_set[1],
+                                        metric=best_param_set[2]).fit(features)
+            assigned_labels, assigned_classes, recalls = \
+                pf.assign_classes(ticid_feat, clusterer.labels_, database_dir=database_dir,
+                                  output_dir=output_dir, prefix='hdbscan-')
+                
+            pdb.set_trace()
             
             with open(output_dir + 'param_summary.txt', 'a') as f:
                 f.write('accuracy: ' + str(np.max(acc)))   

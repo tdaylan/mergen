@@ -1514,6 +1514,101 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
     plt.close(fig)
     plt.close(fig1)
 
+def plot_lof_summary(time, intensity, targets, features, n, path,
+             momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
+             n_neighbors=20, target_info=False, p=4, metric='minkowski',
+             contamination=0.1, algorithm='auto', 
+             prefix='', mock_data=False, addend=1., feature_vector=False,
+             log=False, cross_check_txt=None, single_file=False,
+             fontsize='xx-small', title=True, n_pgram=5000,
+             nrows=5, ncols=4):
+    import matplotlib as mpl
+    mpl.rcParams['font.size'] = 11.
+    
+    # -- calculate LOF -------------------------------------------------------
+    print('Calculating LOF')
+    clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p, metric=metric,
+                             contamination=contamination, algorithm=algorithm)
+    fit_predictor = clf.fit_predict(features)
+    negative_factor = clf.negative_outlier_factor_
+    
+    lof = -1 * negative_factor
+    ranked = np.argsort(lof)
+    largest_indices = ranked[::-1] # >> outliers
+    
+    freq, tmp = LombScargle(time, intensity[0]).autopower()
+    freq = np.linspace(np.min(freq), np.max(freq), n_pgram)       
+
+    # -- momentum dumps ------------------------------------------------------
+    # >> get momentum dump times
+    print('Loading momentum dump times')
+    with open(momentum_dump_csv, 'r') as f:
+        lines = f.readlines()
+        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+        inds = np.nonzero((mom_dumps >= np.min(time)) * \
+                          (mom_dumps <= np.max(time)))
+        mom_dumps = np.array(mom_dumps)[inds]
+        
+    # -- plot cross-identifications -------------------------------------------
+    if type(cross_check_txt) != type(None):
+        class_info = df.get_true_classifications(targets, single_file=single_file,
+                                                 database_dir=cross_check_txt,
+                                                 useless_classes=[])        
+        ticid_classified = class_info[:,0].astype('int')
+
+    # -- plot smallest and largest LOF light curves --------------------------
+    print('Plot highest LOF and lowest LOF light curves')
+        
+    
+    fig, ax = plt.subplots(nrows, ncols, sharex=False,
+                           figsize = (8*ncols, 3*nrows))
+    
+    for i in range(nrows): # >> loop through each row
+        for j in range(int(ncols/2)): # >> loop through 2 columns
+            axis = ax[i, j*int(ncols/2)]
+            ind = largest_indices[i*int(ncols/2) + j]
+        
+            # >> plot momentum dumps
+            for t in mom_dumps:
+                axis.axvline(t, color='g', linestyle='--')
+                
+            # >> plot light curve
+            axis.plot(time, intensity[ind] + addend, '.k')
+            axis.text(0.98, 0.02, '%.3g'%lof[ind], transform=axis.transAxes,
+                       horizontalalignment='right', verticalalignment='bottom',
+                       fontsize=fontsize)
+            format_axes(axis, ylabel=True)
+            if not mock_data:
+                ticid_label(axis, targets[ind], target_info[ind],
+                            title=True)
+                if targets[ind] in ticid_classified:
+                    classified_ind = np.nonzero(ticid_classified == targets[ind])[0][0]
+                    classification_label(axis, targets[ind],
+                                         class_info[classified_ind])                        
+    
+            # >> plot PSD
+            axis = ax[i, j*int(ncols/2)+1]
+            power = LombScargle(time, intensity[ind]).power(freq)
+            axis.plot(freq, power, '-k')
+            format_axes(axis)
+            axis.set_ylabel('Power')
+            # axis.set_yscale('log')
+            
+            # xlim, ylim = axis.get_xlim(), axis.get_ylim()
+            # axis.set_aspect(abs((xlim[1]-xlim[0])/(ylim[1]-ylim[0])*(3./8.)))            
+            
+        
+    # >> label axes
+    for j in range(int(ncols/2)):
+        ax[nrows-1,j*2].set_xlabel('time [BJD - 2457000]')
+        ax[nrows-1,j*2+1].set_xlabel('Frequency [days^-1]')
+        
+    # >> save figures
+    fig.tight_layout()
+    fig.savefig(path + 'ensemble_summary_LOF.png',
+                bbox_inches='tight')
+    plt.close(fig)   
+
 def plot_lof(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
              n_neighbors=20, target_info=False, p=2, metric='minkowski',
@@ -2458,6 +2553,60 @@ def make_parent_dict():
          'Em': ['Be']
          }
     return d
+
+def make_hierarchy_dict():
+    # d = {'Eruptive Variable Stars': ['Be', 'FU', 'GCAS', 'Ir', 'IA', 'IB', 'Or',
+    #                                  'INA', 'INB', 'INT,IT', 'IN(YY)', 'RI',
+    #                                  'ISA', 'ISB']}
+    d = {'Eruptive Variable Stars':
+         ['Fl', 'BE', 'FU', 'GCAS', 'I', 'IA', 'IB', 'IN', 'INA', 'INB', 'INT,IT',
+          'IN(YY)', 'IS', 'ISA', 'ISB', 'RCB', 'RS', 'SDOR', 'UV', 'UV', 'UVN',
+          'WR'],
+         'Pulsating Variable Stars':
+             ['ACYG', 'BCEP', 'BCEPS', 'BLBOO', 'CEP', 'CEP(B)', 'CW', 'CWA',
+              'CWB', 'DCEP', 'DCEPS', 'DSCT', 'DSCTC', 'GDOR', 'L', 'LB', 'LC',
+              'LPB', 'M', 'PVTEL', 'RPHS', 'RR', 'RR(B)', 'RRAB', 'RRC', 'RV',
+              'RVA', 'RVB', 'SR', 'SRA', 'SRB' 'SRC', 'SRD', 'SRS', 'SXPHE',
+              'ZZ', 'ZZA', 'ZZB', 'ZZO'],
+         'Rotating Variable Stars': ['ACV', 'ACVO', 'BY', 'ELL', 'FKCOM', 'PSR',
+                                     'R', 'SXARI'],
+         'Cataclysmic (Explosive and Novalike) Variables':
+             ['N', 'NA', 'NB', 'NC', 'NL', 'NR', 'SN', 'SNI', 'SNII', 'UG',
+              'UGSS', 'UGSU', 'UGZ', 'ZAND'],
+         'Eclipsing Systems':
+             ['E', 'EA', 'EB', 'EP', 'EW', 'GS', 'PN', 'RS', 'WD', 'WR', 'AR',
+              'D', 'DM', 'DS', 'DW', 'K', 'KE', 'KW', 'SD'],
+         'Optically Variable Close Binary Sources of Strong, Variable X-ray Radiation (X-ray Sources)': 
+             ['AM', 'X', 'XB', 'XR', 'XI', 'XJ', 'XND', 'XNG', 'XP', 'XPR',
+              'XPRM', 'XM']
+         } 
+        
+        
+    # # >> include vizier
+    # d = {'Eruptive Variable Stars':
+    #      ['Be', 'Fl', 'Ir', 'Or', 'RI', 'BE', 'FU', 'GCAS', 'I', 'IA', 'IB', 'IN', 'INA', 'INB', 'INT,IT',
+    #       'IN(YY)', 'IS', 'ISA', 'ISB', 'RCB', 'RS', 'SDOR', 'UV', 'UV', 'UVN',
+    #       'WR'],
+    #      'Pulsating Variable Stars':
+    #          ['bC', 'cC', 'dS', 'gD', 'ACYG', 'BCEP', 'BCEPS', 'BLBOO', 'CEP', 'CEP(B)', 'CW', 'CWA',
+    #           'CWB', 'DCEP', 'DCEPS', 'DSCT', 'DSCTC', 'GDOR', 'L', 'LB', 'LC',
+    #           'LPB', 'M', 'PVTEL', 'RPHS', 'RR', 'RR(B)', 'RRAB', 'RRC', 'RV',
+    #           'RVA', 'RVB', 'SR', 'SRA', 'SRB' 'SRC', 'SRD', 'SRS', 'SXPHE',
+    #           'ZZ', 'ZZA', 'ZZB', 'ZZO'],
+    #      'Rotating Variable Stars': ['a2', 'El', 'ACV', 'ACVO', 'BY', 'ELL', 'FKCOM', 'PSR',
+    #                                  'R', 'SXARI'],
+    #      'Cataclysmic (Explosive and Novalike) Variables':
+    #          ['N', 'NA', 'NB', 'NC', 'NL', 'NR', 'SN', 'SNI', 'SNII', 'UG',
+    #           'UGSS', 'UGSU', 'UGZ', 'ZAND'],
+    #      'Eclipsing Systems':
+    #          ['Al', 'bL', 'WU', 'E', 'EA', 'EB', 'EP', 'EW', 'GS', 'PN', 'RS',
+    #           'WD', 'WR', 'AR',
+    #           'D', 'DM', 'DS', 'DW', 'K', 'KE', 'KW', 'SD'],
+    #      'Optically Variable Close Binary Sources of Strong, Variable X-ray Radiation (X-ray Sources)': 
+    #          ['AM', 'X', 'XB', 'XR', 'XI', 'XJ', 'XND', 'XNG', 'XP', 'XPR',
+    #           'XPRM', 'XM']
+    #      }         
+    return d
     
 def get_statistic(ticid_feat, labels, class_info, class_label='Al'):
     class_ticid = []
@@ -2484,14 +2633,21 @@ def get_statistic(ticid_feat, labels, class_info, class_label='Al'):
     
     return class_labels
 
-def assign_classes(ticid_pred, y_pred, database_dir='./databases/',
+def ensemble_summary(ticid_pred, y_pred, database_dir='./databases/',
                    output_dir='./', prefix='', single_file=False,
                    labels = [], merge_classes=False, class_info=None,
-                   parents=['EB'],
+                   parents=['EB'], fontsize=6., data_dir='./data/',
                    parent_dict = None, figsize=(30,30)):
+    
+
+    d = df.get_otype_dict(data_dir=data_dir)
     
     if type(parent_dict) == type(None):
         parent_dict= make_parent_dict()
+    
+    orig_classes, counts = np.unique(y_pred, return_counts=True)
+    orig_classes = orig_classes.astype('str')
+    num_samples = len(ticid_pred)
     
     # >> get clusterer classes
     inds = np.nonzero(y_pred > -1)
@@ -2551,7 +2707,8 @@ def assign_classes(ticid_pred, y_pred, database_dir='./databases/',
     cm = cm[:,col_ind]
     columns = columns[col_ind]
     
-    assigned_labels = {}
+    # >> make dictionary, where keys are true labels and values are learned labels
+    assigned_labels = {} # >> keys are true labels
     recalls = []
     for i in range(len(columns)):
         if columns[i] != 'X' and y_true_labels[i] != 'X':
@@ -2566,7 +2723,104 @@ def assign_classes(ticid_pred, y_pred, database_dir='./databases/',
     avg_recall = np.mean(recalls)
     print('Recall: ' + str(avg_recall))
     
-    return assigned_labels, recalls
+    # >> make dictionary, where keys are learned labels and values are true labels
+    assigned_classes = {} # >> keys are learned classes
+    for i in range(len(columns)):
+        if columns[i] != 'X':
+            if i < len(y_true_labels):
+                if y_true_labels[i] != 'X':
+                    if y_true_labels[i] in list(d.keys()):
+                        assigned_classes[str(columns[i])] = str(columns[i])+' = '+d[y_true_labels[i]]
+                    else:
+                        assigned_classes[str(columns[i])] = str(columns[i])+' = '+y_true_labels[i]
+                else:
+                    assigned_classes[str(columns[i])] = str(columns[i])
+            else:
+                assigned_classes[str(columns[i])] = str(columns[i])
+    for label in orig_classes:
+        if label not in assigned_classes:
+            assigned_classes[label] = label    
+    # >> re-label class '-1' as '-1: outliers'
+    if '-1' in orig_classes:
+        num_classes = len(orig_classes) - 1
+        assigned_classes['-1'] = '-1 = outliers'
+    else:
+        num_classes = len(orig_classes)
+            
+    # -- make pie charts ------------------------------------------------------
+            
+    import matplotlib as mpl
+    mpl.rcParams['font.size'] = fontsize            
+            
+    fig_labels = []
+    for label in orig_classes:
+        fig_labels.append(assigned_classes[label])
+        
+    # >> plot all classes
+    fig, ax = plt.subplots()
+    fig.suptitle('Number of classes: '+str(num_classes) + \
+                 '\nNumber of samples: '+str(num_samples))
+    ax.pie(counts, labels=fig_labels)
+    fig.savefig(output_dir+prefix+'ensemble_budget_all.png')
+    plt.close(fig)
+    
+    explode = np.zeros(len(orig_classes))
+    inds = np.argsort(counts)[:-5]
+    explode[inds] = 0.1
+    fig, ax = plt.subplots(ncols=2)
+    fig.suptitle('Number of classes: '+str(num_classes) + \
+                 '\nNumber of samples: '+str(num_samples))    
+    ax[0].pie(counts, labels=fig_labels, explode=explode)
+    ax[1].pie(counts[inds], labels=np.array(fig_labels)[inds])
+    fig.tight_layout()
+    fig.savefig(output_dir+prefix+'ensemble_budget_top5.png')  
+    plt.close(fig)
+    
+    # >> split into 6 big buckets
+    d = make_hierarchy_dict()
+    inds_eruptive = []
+    inds_pulsating = []
+    inds_rotating = []
+    inds_explosive = []
+    inds_eclipsing = []
+    inds_x = []
+    for i in range(len(fig_labels)):
+        if len(fig_labels[i].split(':')) > 1:
+            class_num, real_labels = fig_labels[i].split('=')
+            
+            for real_label in real_labels.split('|'):
+                if real_label in d['Eruptive Variable Stars']:
+                    inds_eruptive.append(i)
+                elif real_label in d['Pulsating Variable Stars']:
+                    inds_pulsating.append(i)
+                elif real_label in d['Rotating Variable Stars']:
+                    inds_rotating.append(i)
+                elif real_label in d['Cataclysmic (Explosive and Novalike) Variables']:
+                    inds_explosive.append(i)
+                elif real_label in d['Eclipsing Systems']:
+                    inds_eclipsing.append(i)
+                else:
+                    inds_x.append(i)
+                
+    inds_list = [inds_eruptive, inds_pulsating, inds_rotating, inds_explosive,\
+                 inds_eclipsing, inds_x]
+    fig, ax = plt.subplots(nrows=6, ncols=2, figsize=(30,30))
+    fig.suptitle('Number of classes: '+str(num_classes) + \
+                 '\nNumber of samples: '+str(num_samples))
+        
+    for i in range(6):
+        explode = np.zeros(len(orig_classes))
+        explode[inds_list[i]] = 0.1 
+        
+        ax[i,0].pie(counts, labels=fig_labels, explode=explode)
+        ax[i,1].pie(counts[inds_list[i]],
+                    labels=np.array(fig_labels)[inds_list[i]])
+    fig.tight_layout()
+    fig.savefig(output_dir+prefix+'ensemble_budget.png')
+    plt.close(fig)
+        
+    
+    return assigned_labels, assigned_classes, recalls
 
 def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
                           output_dir='./', prefix='', single_file=False,

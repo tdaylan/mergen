@@ -45,7 +45,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)
 
-import scipy.signal as signal
 from scipy.stats import moment
 from scipy import stats
 from pylab import rcParams
@@ -53,6 +52,7 @@ rcParams['figure.figsize'] = 10, 10
 rcParams["lines.markersize"] = 2
 # rcParams['lines.color'] = 'k'
 from scipy.signal import argrelextrema
+from scipy import signal
 
 import plotting_functions as pf
 
@@ -100,6 +100,7 @@ from sklearn.metrics import davies_bouldin_score
 from transitleastsquares import transitleastsquares
 
 import model as ml
+
 
 
 def test_data():
@@ -270,7 +271,6 @@ def lc_by_camera_ccd(sectorfile, camera, ccd):
 def combine_sectors_by_time_axis(sectors, data_dir, cutoff=0.5, custom_mask=[],
                                  order=5, tol=0.6, debug=True, norm_type='standardization',
                                  output_dir='./', return_median_flux=False):
-    from scipy import signal
     num_sectors = len(sectors)
     all_flux = []
     all_ticid = []
@@ -515,7 +515,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
     
     
 def load_group_from_fits(path, sector, camera, ccd): 
-    """ pull the light curves and target list from fits metafiles
+    """ pull the light curves and target def qlist from fits metafiles
     path is the folder in which all the metafiles are saved. ends in a backslash 
     sector camera ccd are integers you want the info from
     modified [lcg 07032020]
@@ -561,6 +561,28 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
                                       bulk_download_dir=bulk_download_dir,
                                       custom_mask=custom_mask,
                                       apply_nan_mask=apply_nan_mask)
+            
+    # >> get a list of TICIDs from sectorfile
+    with open(sectorfile, 'r') as f:
+        lines = f.readlines()
+    ticid_list = []
+    for line in lines[6:]:
+        ticid_list.append(int(line.split()[0]))        
+            
+    # >> download TIC-v8 features
+    get_tess_feature_txt(ticid_list,
+                         yourpath+'tess_features_sector'+str(sector)+'.txt')
+            
+    # >> query GCVS
+    query_vizier(ticid_list=ticid_list, out=yourpath+'Sector'+str(sector)+'_GCVS.txt',
+                 dat_dir=yourpath, sector=sector)
+            
+    # >> query SIMBAD
+    ticid_simbad, otypes_simbad, main_id_simbad = \
+        query_simbad_classifications(ticid_list, output_dir=yourpath+'Sector'+str(sector)+'_simbad.txt')
+    correct_simbad_to_vizier(in_f=yourpath+'Sector'+str(sector)+'_simbad.txt',
+                             out_f=yourpath+'Sector'+str(sector)+'_simbad_revised.txt')
+    
             
 def bulk_download_helper(yourpath, shell_script):
     '''If bulk download failed / need to start where you left off. Can also be
@@ -1792,7 +1814,7 @@ def query_associated_catalogs(ticid):
     for i in ['HIP', 'TYC', 'UCAC', 'TWOMASS', 'ALLWISE', 'GAIA', 'KIC', 'APASS']:
         print(i + ' ' + str(res[i]) + '\n')
 
-def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
+def query_simbad_classifications(ticid_list, out_f='./SectorX_simbda.txt'):
     '''Call like this:
     query_simbad_classifications([453370125.0, 356473029])
     '''
@@ -1807,10 +1829,10 @@ def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
     main_id_simbad = []
     bibcode_simbad = []
     
-    with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
+    with open(out_f, 'a') as f:
         f.write('')    
     
-    with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'r') as f:
+    with open(out_f, 'r') as f:
         lines = f.readlines()
         ticid_already_classified = []
         for line in lines:
@@ -1908,7 +1930,7 @@ def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
                     if type(res) == type(None):
                         print('failed :(')
                         res=0
-                        with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
+                        with open(out_f, 'a') as f:
                             f.write('{},{},{}\n'.format(tic, '', ''))              
                         ticid_simbad.append(tic)
                         otypes_simbad.append('none')
@@ -1920,20 +1942,16 @@ def query_simbad_classifications(ticid_list, output_dir='./', suffix=''):
                         otypes_simbad.append(otypes)
                         main_id_simbad.append(main_id)
                         
-                        with open(output_dir + 'all_simbad_classifications'+suffix+'.txt', 'a') as f:
+                        with open(out_f, 'a') as f:
                             f.write('{},{},{}\n'.format(tic, otypes, main_id))
                             
                     # time.sleep(6)
             except:
                 pass
                 print('connection failed! Trying again now')
-                    
-                    
             
     return ticid_simbad, otypes_simbad, main_id_simbad
         
-
-
 def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
                  dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/',
                  sector=20):
@@ -2005,7 +2023,10 @@ def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
                 
     return ticid_viz, otypes_viz, main_id_viz
 
-def get_otype_dict(data_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/'):
+
+
+def get_otype_dict(data_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/',
+                   uncertainty_flags=[':', '?', '*']):
     '''Return a dictionary of descriptions'''
     # d = {'a2': 'Variable Star of alpha2 CVn type',
     #      'ACYG': 'Variables of the Alpha Cygni type',
@@ -2047,26 +2068,40 @@ def get_otype_dict(data_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/'):
     
     d = {}
     
-    with open(data_dir + 'otypes_gcvs.txt', 'r') as f:
-        lines = f.readlines()
+    # with open(data_dir + 'otypes_gcvs.txt', 'r') as f:
+    #     lines = f.readlines()
         
-    for line in lines:
-        if len(line.split(' '*3)) > 1:
-            otype = line.split(' '*3)[0]
-            explanation = line.split(' '*3)[1].split('.')[0]
-            d[otype] = explanation
+    # for line in lines:
+    #     if len(line.split(' '*3)) > 1:
+    #         otype = line.split(' '*3)[0]
+    #         explanation = line.split(' '*3)[1].split('.')[0]
+    #         d[otype] = explanation
     
-    with open(data_dir + 'otypes_simbad.txt', 'r') as f:
-        lines= f.readlines()
+    # with open(data_dir + 'otypes_simbad.txt', 'r') as f:
+    #     lines= f.readlines()
         
+    # for line in lines:
+    #     if len(line.split('\t')) >= 3:
+    #         otype = line.split('\t')[-2].split()[0]
+    #         if len(otype) > 0:
+    #             if otype[-1] == '*' and otype != '**':
+    #                 otype = otype[:-1]
+    #         explanation = ' '.join(line.split('\t')[-1].split())
+    #         d[otype] = explanation
+    
+    with open(data_dir + 'gcvs_labels.txt', 'r') as f:
+        lines = f.readlines()
     for line in lines:
-        if len(line.split('\t')) >= 3:
-            otype = line.split('\t')[-2].split()[0]
-            if len(otype) > 0:
-                if otype[-1] == '*' and otype != '**':
-                    otype = otype[:-1]
-            explanation = ' '.join(line.split('\t')[-1].split())
-            d[otype] = explanation
+        otype, description = line.split(' = ')
+        
+        # >> remove uncertainty flags
+        if otype[-1] in uncertainty_flags:
+            otype = otype[:-1]
+        
+        # >> remove new line character
+        description = description.replace('\n', '')
+        
+        d[otype] = description
         
     return d
 
@@ -2130,22 +2165,51 @@ def correct_vizier_to_simbad(in_f='./SectorX_GCVS.txt',
                     
                 if o in list(renamed.keys()):
                     o = renamed[o]
-                # # >> rename object types to Simbad notation
-                # if o == 'E':
-                #     o = 'EB'
-                # elif o == 'EA':
-                #     o = 'Al'
-                # elif o == 'EB':
-                #     o = 'bL'
-                # elif o == 'EW':
-                #     o = 'WU'
-                # elif o == 'ACV' or o == 'ACVO':
-                #     o = 'a2'
-                # elif o == 'BCEP':
-                #     o = 'bC'
-                # elif o == 'BE':
-                #     o = 'Be'
-                # elif o == ''
+                
+            otype_list_new.append(o)
+                
+                
+        otype = '|'.join(otype_list_new)
+        
+        
+        with open(out_f, 'a') as f:
+            f.write(','.join([tic, otype, main]))
+            
+def correct_simbad_to_vizier(in_f='./SectorX_simbad.txt',
+                             out_f='./SectorX_simbad_revised.txt',
+                             simbad_gcvs_conversion='./simbad_gcvs_label.txt',
+                             uncertainty_flags=[':', '?', '*']):
+    '''Make sure object types are the same'''
+    
+    # >> make 
+    renamed = {'EB':'E', 'Al': 'EA', 'bL': 'EB', 'WU': 'EW', 'a2': 'ACV',
+               'a2': 'ACVO', 'bC': 'BCEP', 'Be': 'BE', 'cC': 'DCEP',
+               'dS': 'DSCT', 'dS': 'DSCTC', 'El': 'ELL', 'gD': 'GDOR',
+               'Ir': 'I', 'Or': 'IN', 'RI': 'IS', 'LP': 'L'}    
+    
+    with open(in_f, 'r') as f:
+        lines = f.readlines()
+        
+        
+    for line in lines:
+        tic, otype, main = line.split(',')
+        otype = otype.replace('+', '|')
+        otype_list = otype.split('|')
+        otype_list_new = []
+        
+        for o in otype_list:
+            
+            if len(o) > 0:
+                # >> remove uncertainty_flags
+                if o[-1] in uncertainty_flags:
+                    o = o[:-1]
+                    
+                # >> remove (B)
+                if '(' in o:
+                    o = o[:o.index('(')]
+                    
+                if o in list(renamed.keys()):
+                    o = renamed[o]
                 
             otype_list_new.append(o)
                 
@@ -2512,10 +2576,9 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                             metric=['euclidean', 'manhattan', 'minkowski'],
                             p0 = [1,2,3,4],
                             output_dir='./', DEBUG=False,
-                            simbad_database_txt='./simbad_database.txt',
                             database_dir='./databases/',
                             pca=False, tsne=False, confusion_matrix=True,
-                            single_file=False, prefix='',
+                            prefix='',
                             data_dir='./data/', save=False,
                             parents=[], labels=[]):
     '''Performs a grid serach across parameter space for HDBSCAN. 
@@ -2610,7 +2673,6 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                             print('Computing accuracy')
                             acc = pf.plot_confusion_matrix(ticid, labels,
                                                            database_dir=database_dir,
-                                                           single_file=single_file,
                                                            output_dir=output_dir,
                                                            prefix=prefix)       
                             
@@ -2637,8 +2699,7 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                                                      features, labels,path=output_dir,
                                                      prefix=prefix,
                                                      title=title,
-                                                     database_dir=database_dir,
-                                                     single_file=single_file)
+                                                     database_dir=database_dir)
                     
                         pf.plot_cross_identifications(time, flux, ticid,
                                                       target_info, features,
@@ -2648,7 +2709,6 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                                                       data_dir=data_dir)
                         pf.plot_confusion_matrix(ticid, labels,
                                                   database_dir=database_dir,
-                                                  single_file=single_file,
                                                   output_dir=output_dir,
                                                   prefix=prefix+'merge', merge_classes=True,
                                                   labels=[], parents=parents) 
