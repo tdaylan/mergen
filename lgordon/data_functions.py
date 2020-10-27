@@ -470,7 +470,117 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
         plt.close(fig)        
         
     return i_interp, flag
+ 
+def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxis):
+    from scipy.signal import argrelextrema, medfilt
+    f = fits.open(file, memmap=False)
+
+    t = f[1].data['TIME']
+    Q1 = f[1].data['C1_Q1']
+    Q2 = f[1].data['C1_Q2']
+    Q3 = f[1].data['C1_Q3']
     
+    f.close()
+    
+    plt.scatter(t, Q1)
+    plt.title("Quaternion 1")
+    plt.savefig(path + "Q1.png")
+    plt.close()
+    plt.scatter(t, Q2)
+    plt.title("Quaternion 2")
+    plt.savefig(path + "Q2.png")
+    plt.close()
+    plt.scatter(t, Q3)
+    plt.title("Quaternion 3")
+    plt.savefig(path + "Q3.png")
+    plt.close()
+    
+    q = [Q1, Q2, Q3]
+    
+    with open(momentum_dump_csv, 'r') as f:
+        lines = f.readlines()
+        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+        inds = np.nonzero((mom_dumps >= np.min(t)) * \
+                          (mom_dumps <= np.max(t)))
+        mom_dumps = np.array(mom_dumps)[inds]
+    #q is a list of qs
+    for n in range(3):
+        #s = pd.Series(q[n])
+        
+        smoothed = medfilt(q[n], kernel_size = kernal)
+        #smoothed = s.rolling(window).median()
+        plt.scatter(t, q[n], label = "original")
+        plt.scatter(t, smoothed, label = "smoothed")
+        for k in mom_dumps:
+            plt.axvline(k, color='g', linestyle='--', alpha = 0.1)
+        plt.legend("upper left")
+        plt.title("Q" + str(n+1))
+        plt.savefig(path + str(n + 1) + "-kernal-" + str(kernal) +"-both.png")
+        plt.show()
+        #plt.scatter(t, q[n], label = "original")
+        plt.scatter(t, smoothed, label = "smoothed")
+        for k in mom_dumps:
+            plt.axvline(k, color='g', linestyle='--', alpha = 0.1)
+        plt.legend(loc="upper left")
+        plt.title("Q" + str(n+1) + "Smoothed")
+        plt.savefig(path + str(n + 1) + "-kernal-" + str(kernal) +"-median-smoothed-only.png")
+        plt.show()
+        
+        def quaternion_binning(quaternion_t, q, maintimeaxis):
+            sector_start = maintimeaxis[0]
+            bins = 900 #30 min times sixty seconds/2 second cadence
+            
+            def find_nearest_values_index(array, value):
+                array = np.asarray(array)
+                idx = (np.abs(array - value)).argmin()
+                return idx
+            binning_start = find_nearest_values_index(quaternion_t, sector_start)
+            n = binning_start
+            m = n + bins
+            binned_Q = []
+            binned_t = []
+            
+            while m <= len(t):
+                bin_t = quaternion_t[n]
+                binned_t.append(bin_t)
+                bin_q = np.mean(q[n:m])
+                binned_Q.append(bin_q)
+                n += 900
+                m += 900
+            plt.scatter(binned_t, binned_Q)
+            plt.show()
+        
+            standard_dev = np.std(np.asarray(binned_Q))
+            mean_Q = np.mean(binned_Q)
+            outlier_indexes = []
+            
+            for n in range(len(binned_Q)):
+                if binned_Q[n] >= mean_Q + 5*standard_dev or binned_Q[n] <= mean_Q - 5*standard_dev:
+                    outlier_indexes.append(n)
+            
+            print(outlier_indexes)      
+            return outlier_indexes
+        
+        if n == 0:
+            Q1 = smoothed
+            Q1_outliers = quaternion_binning(t, Q1, maintimeaxis)
+        elif n == 1:
+            Q2 = smoothed
+            Q2_outliers = quaternion_binning(t, Q2, maintimeaxis)
+        elif n == 2:
+            Q3 = smoothed
+            Q3_outliers = quaternion_binning(t, Q3, maintimeaxis)
+    
+    outlier_indexes = np.unique(np.concatenate((Q1_outliers, Q2_outliers, Q3_outliers)))
+    print(outlier_indexes)
+    for n in range(len(outlier_indexes)):
+        if outlier_indexes[n] > len(maintimeaxis):
+            outlier_indexes = outlier_indexes[0:(n-1)]
+            break
+    return outlier_indexes    
+
+
+
 def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
              ticid=False, target_info=False,
              output_dir='./', prefix='', tol1=0.05, tol2=0.1,

@@ -16,7 +16,7 @@ from pylab import rcParams
 rcParams['figure.figsize'] = 10,10
 
 rcParams["lines.markersize"] = 2
-from scipy.signal import argrelextrema
+from scipy.signal import argrelextrema, medfilt
 
 
 import astropy
@@ -35,8 +35,7 @@ import shutil
 from scipy.stats import moment, sigmaclip
 
 import sklearn
-from sklearn.cluster import KMeans
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import KMeans, DBSCAN
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import Normalizer
 from sklearn import metrics
@@ -57,13 +56,14 @@ import model as ml
 import data_access as da
 import ENF_functions as enf
 
-datapath, datatype, savepath, filelabel,
-                 momentum_dump_csv = '/users/conta/urop/Table_of_momentum_dumps.csv',
-                 sector = [20], cams = [1,2,3,4], ccds = [[1,2,3,4],[1,2,3,4],[1,2,3,4],[1,2,3,4]], 
-                 cadence = "2minute", ENF_exists = False)
+
 class mergen(object):
     
-    def __init__(self, :
+    def __init__(self, datapath, datatype, savepath, filelabel,
+                 momentum_dump_csv = '/users/conta/urop/Table_of_momentum_dumps.csv',
+                 sector = [20], cams = [1,2,3,4], ccds = [[1,2,3,4],[1,2,3,4],[1,2,3,4],[1,2,3,4]], 
+                 cadence = "2minute", ENF_exists = False, remove_quaternions = False,
+                 quaternion_file = '/Users/conta/UROP/S2DataAll/tess2018330083923_sector02-quat.fits'):
         """ Initializes mergen object and  loads in all data
         Data must already be in a metafile format"""
         self.datapath = datapath
@@ -100,6 +100,14 @@ class mergen(object):
             #currently only works for one sector
             print("loading FFIs")
             self.ffi_load_lc_metafiles_all()
+            if remove_quaternions:
+                outlier_indexes = df.extract_smooth_quaterions(self.savepath, quaternion_file, 
+                                                            self.momdumpcsv, 31, 
+                                                            self.time)
+                print("Current length of time axis: ", len(self.time))
+                self.time = np.delete(self.time, outlier_indexes, axis=0)
+                self.flux = np.delete(self.flux, outlier_indexes, axis=1)
+                print("Updated length of time axis: ", len(self.time))
             
         if ENF_exists:
             print("Loading in existing feature metafiles")
@@ -143,7 +151,7 @@ class mergen(object):
                         self.time = f[0].data
                         self.flux = f[1].data
                     else:
-                        self.flux = np.vstack((self.v, f[1].data))
+                        self.flux = np.vstack((self.flux, f[1].data))
                     f.close()
                         
                 elif files[n].endswith("_lightcurve_ids.txt"):
@@ -240,7 +248,7 @@ class mergen(object):
         
         print("Beginning PCA Linear Regression Corrections for 3 components")
         from sklearn.linear_model import LinearRegression
-        pca = PCA(n_components=3)
+        pca = PCA(n_components=5)
         if not self.isfluxnormalized:
             self.median_normalize()
         standardized_flux = df.standardize(self.flux)
@@ -260,7 +268,8 @@ class mergen(object):
         for n in range(len(self.flux)):
             reg = LinearRegression().fit(components.T, standardized_flux[n])
             
-            y = reg.coef_[0] * components[0] + reg.coef_[1] * components[1] + reg.coef_[2] * components[2]
+            y = reg.coef_[0] * components[0] + reg.coef_[1] * components[1] + reg.coef_[2] * components[2] \
+                + reg.coef_[3] * components[3] + reg.coef_[4] * components[4]
             residual = standardized_flux[n] - y
             residuals[n] = residual
             if plot:
