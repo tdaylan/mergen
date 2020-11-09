@@ -208,6 +208,43 @@ class hyperleda_ffi(object):
         self.identifiers = np.loadtxt(fname_ids, dtype='str')
         
         return
+    
+    def load_lc_from_files(self):
+
+        #make sure they're all txt files
+        for root, dirs, files in os.walk(self.datapath):
+            for filename in files:
+                file = os.path.join(root, filename)
+                if filename.startswith("lc_") and not filename.endswith(".txt"):
+                    os.rename(file, file + ".txt")
+           
+        #get all file names
+        intensities = []
+        identifiers = []
+        
+        #open all files
+        for root, dirs, files in os.walk(self.datapath):
+            
+            for n in range(len(files)):
+                #print(files[n])
+                if files[n].endswith(("cleaned.txt")):
+                    #print(os.path.join(root, files[n]))
+                    lc_data = np.genfromtxt(os.path.join(root,files[n]), skip_header = 1)
+                    u, iden, k = files[n].split("_")
+                    identifiers.append(iden)
+                    if n == 0:
+                        timeaxis = lc_data[:,0]
+                        intensities.append(lc_data[:,2])
+                    else:
+                        intensities.append(lc_data[:,2])
+                        
+                    if n % 500 == 0:
+                        print(n, "completed")
+        
+        self.intensities = np.asarray(intensities)
+        self.timeaxis = timeaxis
+        self.identifiers = identifiers
+        return
 
     def plot_everything(self, dbscan_eps, min_samples):
         self.path = self.enffolder
@@ -300,45 +337,6 @@ class hyperleda_ffi(object):
             plt.title("K-Neighbor plot for k=" + str(k_values[n]))
             plt.savefig(self.knnpath + "kneighbors-" +str(k_values[n]) +"-plot-sorted.png")
             plt.close() 
-    
-    def load_lc_from_files(self):
-
-        #make sure they're all txt files
-        for root, dirs, files in os.walk(self.datapath):
-            for filename in files:
-                file = os.path.join(root, filename)
-                if filename.startswith("lc_") and not filename.endswith(".txt"):
-                    os.rename(file, file + ".txt")
-                        
-            
-        
-        #get all file names
-        intensities = []
-        identifiers = []
-        
-        #open all files
-        for root, dirs, files in os.walk(self.datapath):
-            
-            for n in range(len(files)):
-                #print(files[n])
-                if files[n].endswith(("cleaned.txt")):
-                    #print(os.path.join(root, files[n]))
-                    lc_data = np.genfromtxt(os.path.join(root,files[n]), skip_header = 1)
-                    u, iden, k = files[n].split("_")
-                    identifiers.append(iden)
-                    if n == 0:
-                        timeaxis = lc_data[:,0]
-                        intensities.append(lc_data[:,2])
-                    else:
-                        intensities.append(lc_data[:,2])
-                        
-                    if n % 500 == 0:
-                        print(n, "completed")
-        
-        self.intensities = np.asarray(intensities)
-        self.timeaxis = timeaxis
-        self.identifiers = identifiers
-        return
     
         
     

@@ -113,20 +113,13 @@ class FFI_lc(object):
                  momentumdumpcsv = "/users/conta/urop/Table_of_momentum_dumps.csv",
                  customlist = False):
 
-        """ okay bud you need to overhaul this whole deal
-        - they need to give a path to save everything into
-        a momentum dump csv file
-        and a folder label to save things into
-        and that's it for init'
-        
+        """ 
+        put documentation here
         
         """
         if path is None:
             print('Please pass a path to save into')
             return
-        
-        
-        
 
         if len(folderlabel) == 1:
             print("Only one folder label passed.")

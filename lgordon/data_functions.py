@@ -471,7 +471,10 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
         
     return i_interp, flag
  
-def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxis):
+def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxis, 
+                              plot = False):
+    """ returns all outlier indexes in a time axis where the quatenrions were > 5 sigma outliers"""
+    #open and extract file info
     from scipy.signal import argrelextrema, medfilt
     f = fits.open(file, memmap=False)
 
@@ -482,51 +485,57 @@ def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxi
     
     f.close()
     
-    plt.scatter(t, Q1)
-    plt.title("Quaternion 1")
-    plt.savefig(path + "Q1.png")
-    plt.close()
-    plt.scatter(t, Q2)
-    plt.title("Quaternion 2")
-    plt.savefig(path + "Q2.png")
-    plt.close()
-    plt.scatter(t, Q3)
-    plt.title("Quaternion 3")
-    plt.savefig(path + "Q3.png")
-    plt.close()
+    #plot the quaternions if you want
+    if plot:
+        plt.scatter(t, Q1)
+        plt.title("Quaternion 1")
+        plt.savefig(path + "Q1.png")
+        plt.close()
+        plt.scatter(t, Q2)
+        plt.title("Quaternion 2")
+        plt.savefig(path + "Q2.png")
+        plt.close()
+        plt.scatter(t, Q3)
+        plt.title("Quaternion 3")
+        plt.savefig(path + "Q3.png")
+        plt.close()
     
     q = [Q1, Q2, Q3]
     
-    with open(momentum_dump_csv, 'r') as f:
-        lines = f.readlines()
-        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
-        inds = np.nonzero((mom_dumps >= np.min(t)) * \
-                          (mom_dumps <= np.max(t)))
-        mom_dumps = np.array(mom_dumps)[inds]
+    if plot:
+        with open(momentum_dump_csv, 'r') as f:
+            lines = f.readlines()
+            mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+            inds = np.nonzero((mom_dumps >= np.min(t)) * \
+                              (mom_dumps <= np.max(t)))
+            mom_dumps = np.array(mom_dumps)[inds]
     #q is a list of qs
+    #for each quaternion
     for n in range(3):
-        #s = pd.Series(q[n])
-        
+        #smooth it out using scipy medfilt
         smoothed = medfilt(q[n], kernel_size = kernal)
-        #smoothed = s.rolling(window).median()
-        plt.scatter(t, q[n], label = "original")
-        plt.scatter(t, smoothed, label = "smoothed")
-        for k in mom_dumps:
-            plt.axvline(k, color='g', linestyle='--', alpha = 0.1)
-        plt.legend("upper left")
-        plt.title("Q" + str(n+1))
-        plt.savefig(path + str(n + 1) + "-kernal-" + str(kernal) +"-both.png")
-        plt.show()
-        #plt.scatter(t, q[n], label = "original")
-        plt.scatter(t, smoothed, label = "smoothed")
-        for k in mom_dumps:
-            plt.axvline(k, color='g', linestyle='--', alpha = 0.1)
-        plt.legend(loc="upper left")
-        plt.title("Q" + str(n+1) + "Smoothed")
-        plt.savefig(path + str(n + 1) + "-kernal-" + str(kernal) +"-median-smoothed-only.png")
-        plt.show()
-        
+        #plot them if you want
+        if plot:
+            plt.scatter(t, q[n], label = "original")
+            plt.scatter(t, smoothed, label = "smoothed")
+            for k in mom_dumps:
+                plt.axvline(k, color='g', linestyle='--', alpha = 0.1)
+            plt.legend(loc = "upper left")
+            plt.title("Q" + str(n+1))
+            plt.savefig(path + str(n + 1) + "-kernal-" + str(kernal) +"-both.png")
+            plt.show()
+            #plt.scatter(t, q[n], label = "original")
+            plt.scatter(t, smoothed, label = "smoothed")
+            for k in mom_dumps:
+                plt.axvline(k, color='g', linestyle='--', alpha = 0.1)
+            plt.legend(loc="upper left")
+            plt.title("Q" + str(n+1) + "Smoothed")
+            plt.savefig(path + str(n + 1) + "-kernal-" + str(kernal) +"-median-smoothed-only.png")
+            plt.show()
+         
+        #this bins the quaternions into FFI length piles
         def quaternion_binning(quaternion_t, q, maintimeaxis):
+            #where does the main time axis start
             sector_start = maintimeaxis[0]
             bins = 900 #30 min times sixty seconds/2 second cadence
             
@@ -534,12 +543,14 @@ def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxi
                 array = np.asarray(array)
                 idx = (np.abs(array - value)).argmin()
                 return idx
+            #find the index on the quaternion time axis closest to start of the data axis
             binning_start = find_nearest_values_index(quaternion_t, sector_start)
             n = binning_start
             m = n + bins
             binned_Q = []
             binned_t = []
             
+            #bin starting at that point
             while m <= len(t):
                 bin_t = quaternion_t[n]
                 binned_t.append(bin_t)
@@ -547,9 +558,12 @@ def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxi
                 binned_Q.append(bin_q)
                 n += 900
                 m += 900
-            plt.scatter(binned_t, binned_Q)
-            plt.show()
+            #plot if you want to
+            if plot: 
+                plt.scatter(binned_t, binned_Q)
+                plt.show()
         
+            #dig out and return the outliers
             standard_dev = np.std(np.asarray(binned_Q))
             mean_Q = np.mean(binned_Q)
             outlier_indexes = []
@@ -561,6 +575,7 @@ def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxi
             print(outlier_indexes)      
             return outlier_indexes
         
+        #for each of the Q's, return the outliers
         if n == 0:
             Q1 = smoothed
             Q1_outliers = quaternion_binning(t, Q1, maintimeaxis)
@@ -571,8 +586,10 @@ def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxi
             Q3 = smoothed
             Q3_outliers = quaternion_binning(t, Q3, maintimeaxis)
     
+    #put them all together, delete duplicates
     outlier_indexes = np.unique(np.concatenate((Q1_outliers, Q2_outliers, Q3_outliers)))
     print(outlier_indexes)
+    #get rid of any extra points that lie beyond the main light curve
     for n in range(len(outlier_indexes)):
         if outlier_indexes[n] > len(maintimeaxis):
             outlier_indexes = outlier_indexes[0:(n-1)]
