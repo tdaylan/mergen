@@ -169,20 +169,6 @@ class mergen(object):
                                     nan_mask_check=True, custom_mask=[]):
     
         
-        #if len(sectors) > 1:
-            # flux, x, ticid, target_info = df.combine_sectors(sectors, data_dir,
-            #                                                  custom_masks=custom_masks)
-         #   flux, x, ticid, target_info = df.combine_sectors_by_lc(sectors, data_dir,
-          #                                                         custom_mask=custom_mask,
-           #                                                        output_dir=output_dir)
-        #else:
-            # >> currently only handles one sector
-         #   flux, x, ticid, target_info = \
-          #      df.load_data_from_metafiles(data_dir, sectors[0], cams=cams, ccds=ccds,
-           #                                 DEBUG=True, fast=fast,
-            #                                output_dir=output_dir, nan_mask_check=True,
-             #                               custom_mask=custom_mask)
-    # >> get file names for each group
         fnames = []
         print("Loading in SPOC light curves from folder")
         fname_info = []
@@ -332,6 +318,8 @@ class mergen(object):
             if version == 0:
                 if n % 500 == 0: 
                     print(str(n) + " completed")
+                if self.cadence == "20_s" and n % 20 == 0:
+                    print(str(n) + " completed")
             elif version == 1:
                 print(str(n))
         
@@ -454,7 +442,26 @@ class mergen(object):
                                  p=2, target_info=self.target_info, kmeans_clusters=4,
                                  momentum_dump_csv= self.momdumpcsv)
         return
+         
+    def plot_duration_range_lc(self, duration_max = 2):
+        """ duration max in hours"""
+        folder_path = self.ENFpath + "/duration-" + str(duration_max) + "-hrs/"
+        try:
+            os.makedirs(folder_path)
+        except OSError:
+            print ("Creation of the directory %s failed, directory already exists" % folder_path)
             
+        rcParams['figure.figsize'] = 16,6
+        for n in range(len(self.flux)):
+            if self.features[n][1] < (duration_max/24) and self.features[n][1] != 0:
+                plt.scatter(self.time, self.flux[n], s = 0.2)
+                plt.title("TIC " + str(int(self.identifiers[n])) + "  Duration: " + str(self.features[n][1]))
+                plt.savefig(folder_path + str(int(self.identifiers[n])) + ".png")
+                plt.show()
+                plt.close()
+                with open(folder_path + '/duration_info.txt', 'a') as f:
+                    f.write('{} {} \n'.format(int(self.identifiers[n]), self.features[n][1]))
+
     def autoencoder(self, sectors = [27], fast = False,
                     model_init = None, train_test_ratio = 0.9, hyperparameter_optimization = False,
                     lib_dir = None, database_dir = None, single_file = False, 

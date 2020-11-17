@@ -767,6 +767,17 @@ def targetwise_lc(yourpath, target_list, fname_time_intensities,fname_notes):
     print("lc_from_target_list has finished running")
     return np.asarray(ticids)
 
+def fetch_local_bright_TICs(ra_dec_string, targetname):
+    """Produces a CSV of all <Tmag 10 targets w/in 2 degrees of the target for reference """
+    catalog_data1 = Catalogs.query_criteria(coordinates=ra_dec_string, radius=2,
+                                        catalog="TIC", Tmag = [-40, 10])
+
+    correctcols = catalog_data1['ID', 'ra', 'dec', 'Tmag']
+    
+    print(correctcols)
+    
+    correctcols.write("/users/conta/urop/Local_TIC_to_" + targetname +".csv")
+
 def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
     """ Creates a fits file of the first n TICs that fall between the given
     magnitude ranges. 
