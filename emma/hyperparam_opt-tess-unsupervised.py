@@ -14,7 +14,7 @@
 
 # data_dir = '../../' # >> directory with input data (ending with /)
 data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/Ensemble-Sectors_2_3_0/' # >> directory to save diagnostic plots
+output_dir = '../../plots/Ensemble-Sectors_2_3_rerun/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
 mom_dump = '../../Table_of_momentum_dumps.csv'
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
@@ -32,11 +32,15 @@ cams = [1,2,3,4]
 # ccds =  [[2,3,4], [2,3,4], [1,2,4], [1,2,4]]
 ccds = [[1,2,3,4]]*4
 fast=False
+n_tot=100
+n_components=200
 
 # weights init
 # model_init = output_dir + 'model'
 model_init = None
-
+load_saved_model = False
+load_weights = False
+weights_path = output_dir+'model.hdf5'
 
 # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
 train_test_ratio = 0.9
@@ -46,13 +50,19 @@ train_test_ratio = 0.9
 preprocessing = True
 hyperparameter_optimization = False # >> run hyperparameter search
 run_model = True # >> train autoencoder on a parameter set p
-diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
+diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 
-novelty_detection=False
+novelty_detection=True
 classification_param_search=False
 classification=True # >> runs DBSCAN on learned features
+
+run_dbscan = False
+run_hdbscan= False
+run_gmm = True
+
 iterative=False
+
 
 # >> normalization options:
 #    * standardization : sets mean to 0. and standard deviation to 1.
@@ -73,7 +83,7 @@ input_features=False # >> this option cannot be used yet
 split_at_orbit_gap=False
 DAE = False
 
-
+model_name = 'best_model.hdf5'
 # >> move targets out of training set and into testing set (integer)
 # !! TODO: print failure if target not in sector
 # targets = [219107776] # >> EX DRA # !!
@@ -102,6 +112,8 @@ sys.path.insert(0, lib_dir)     # >> needed if scripts not in current dir
 import model as ml              # >> for autoencoder
 import data_functions as df     # >> for classification, pre-processing
 import plotting_functions as pf # >> for vsualizations
+from keras.models import load_model
+from sklearn.mixture import GaussianMixture
 
 # >> hyperparameters
 if hyperparameter_optimization:
@@ -168,10 +180,10 @@ else:
     
     p = {'kernel_size': 5,
           'latent_dim': 35,
-          'strides': 2,
-          'epochs': 10,
+          'strides': 1,
+          'epochs': 30,
           'dropout': 0.2,
-          'num_filters': 8,
+          'num_filters': 32,
           'num_conv_layers': 6,
           'batch_size': 32,
           'activation': 'elu',
@@ -180,9 +192,9 @@ else:
           'losses': 'mean_squared_error',
           'lr': 0.0001,
           'initializer': 'random_normal',
-          'num_consecutive': 1,
-          'pool_size': 4, 
-          'pool_strides': 4,
+          'num_consecutive': 2,
+          'pool_size': 2, 
+          'pool_strides': 2,
           'units': [1024, 512, 64, 16],
           'kernel_regularizer': None,
           'bias_regularizer': None,
@@ -306,14 +318,39 @@ if run_model:
                             save_model=True, predict=True,
                             save_bottleneck=True,
                             output_dir=output_dir,
-                            model_init=model_init) 
+                            model_init=model_init, train=True) 
     
     if split_at_orbit_gap:
         x_train = np.concatenate(x_train, axis=1)
         x_test = np.concatenate(x_test, axis=1)
         x_predict = np.concatenate(x_predict, axis=1)
+    plot_epoch = True
+elif load_saved_model:
+    if load_weights:
+        print('Loading weights...')
+        history, model, x_predict = \
+                ml.conv_autoencoder(x_train, x_train, x_test, x_test, p, val=False,
+                                    split=split_at_orbit_gap,
+                                    ticid_train=ticid_train, ticid_test=ticid_test,
+                                    save_model=True, predict=True,
+                                    save_bottleneck=True,
+                                    output_dir=output_dir,
+                                    model_init=model_init, train=False,
+                                    weights_path=weights_path)         
+        
+        # # >> create model
+        # import model as ml
+        # from keras.models import Model
+        # encoded = ml.encoder(x_train, p)
+        # decoded = ml.decoder(x_train, encoded.output, p)
+        # model = Model(encoded.input, decoded)
+        # model.summary()
+        # model.load_weights(output_dir+weights_path)
+    else:
+        model = load_model(output_dir+'model')
+    plot_epoch = False
     
-pdb.set_trace()
+    
 # == Plots ====================================================================
 if diag_plots:
     print('Creating plots...')
@@ -328,8 +365,8 @@ if diag_plots:
                         input_rms=input_rms, rms_test=rms_test,
                         input_psd=input_psd,
                         rms_train=rms_train, n_tot=40,
-                        flux_train=flux_train, flux_test=flux_test, time=x,
-                        plot_epoch = True,
+                        
+                        plot_epoch = plot_epoch,
                         plot_in_out = True,
                         plot_in_bottle_out=False,
                         plot_latent_test = True,
@@ -342,13 +379,14 @@ if diag_plots:
                         plot_lof_all=False,
                         plot_reconstruction_error_test=True,
                         plot_reconstruction_error_all=False,
-                        load_bottleneck=True)          
+                        load_bottleneck=True)     
+# flux_train=flux_train, flux_test=flux_test, time=x,     
     
  
 # if input_psd:
 #     x = x[0]  
 if novelty_detection or classification:         
-    for i in [0,1,2]:
+    for i in [0]: # !!
         if i == 0:
             use_learned_features=True
             use_tess_features=False
@@ -502,13 +540,17 @@ if novelty_detection or classification:
         if novelty_detection:
             print('Novelty detection')
             pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
-                        n_tot=200, target_info=info_feat, prefix=str(i),
-                        cross_check_txt=database_dir, debug=True, addend=0.,
+                        n_tot=n_tot, target_info=info_feat, prefix=str(i),
+                        database_dir=database_dir, debug=True, addend=0.,
                         single_file=single_file, log=True, n_pgram=n_pgram,
                         plot_psd=True)
+            
+            pf.plot_lof_summary(x, flux_feat, ticid_feat, features, 20,
+                                output_dir, target_info=info_feat,
+                                database_dir=database_dir)
     
         if classification:
-            if classification_param_search:
+            if classification_param_search and run_dbscan:
                 df.KNN_plotting(output_dir +'str(i)-', features, [10, 20, 100])
         
                 print('DBSCAN parameter search')
@@ -534,7 +576,7 @@ if novelty_detection or classification:
           
         
             
-            if classification_param_search:
+            if classification_param_search and run_hdbscan:
                 print('HDBSCAN parameter search')
                 acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
                                               info_feat, output_dir=output_dir,
@@ -542,7 +584,7 @@ if novelty_detection or classification:
                                               database_dir=database_dir, metric=['all'],
                                               min_samples=[3], min_cluster_size=[3],
                                               data_dir=data_dir)
-            else:
+            elif not classification_param_search and run_hdbscan:
                 # best_param_set = [3, 3, 'manhattan', None]
                 best_param_set = [3, 3, 'canberra', None]
                 print('Run HDBSCAN')
@@ -555,43 +597,53 @@ if novelty_detection or classification:
                                               min_samples=[best_param_set[1]],
                                               DEBUG=True, pca=True, tsne=True,
                                               data_dir=data_dir, save=False)  
+              
+            if run_hdbscan:
+                import hdbscan
+                clusterer = hdbscan.HDBSCAN(min_cluster_size=best_param_set[0],
+                                            min_samples=best_param_set[1],
+                                            metric=best_param_set[2]).fit(features)
+                assigned_labels, assigned_classes, recalls = \
+                    pf.assign_classes(ticid_feat, clusterer.labels_, database_dir=database_dir,
+                                      output_dir=output_dir, prefix='hdbscan-')
+                    
+    
                 
-            import hdbscan
-            clusterer = hdbscan.HDBSCAN(min_cluster_size=best_param_set[0],
-                                        min_samples=best_param_set[1],
-                                        metric=best_param_set[2]).fit(features)
-            assigned_labels, assigned_classes, recalls = \
-                pf.assign_classes(ticid_feat, clusterer.labels_, database_dir=database_dir,
-                                  output_dir=output_dir, prefix='hdbscan-')
-                
-            pdb.set_trace()
-            
-            with open(output_dir + 'param_summary.txt', 'a') as f:
-                f.write('accuracy: ' + str(np.max(acc)))   
+                with open(output_dir + 'param_summary.txt', 'a') as f:
+                    f.write('accuracy: ' + str(np.max(acc)))   
                 
             # df.gmm_param_search(features, x, flux_feat, ticid_feat, info_feat,
             #                  output_dir=output_dir+'gmm_'+str(i), database_dir=database_dir, 
             #                  data_dir=data_dir) 
     
-            from sklearn.mixture import GaussianMixture
-            gmm = GaussianMixture(n_components=100)
-            labels = gmm.fit_predict(features)
-            acc = pf.plot_confusion_matrix(ticid_feat, labels,
-                                           database_dir=database_dir,
-                                           single_file=single_file,
-                                           output_dir=output_dir,
-                                           prefix='gmm-'+str(i)+'_')          
-            pf.quick_plot_classification(x, flux_feat,ticid_feat,info_feat, 
-                                         features, labels,path=output_dir,
-                                         prefix='gmm-'+str(i)+'_',
-                                         database_dir=database_dir)
-            pf.plot_cross_identifications(x, flux_feat, ticid_feat,
-                                          info_feat, features,
-                                          labels, path=output_dir,
-                                          database_dir=database_dir,
-                                          data_dir=data_dir, prefix='gmm-'+str(i)+'_')
-    
+            if run_gmm:
+                gmm = GaussianMixture(n_components=n_components)
+                labels = gmm.fit_predict(features)
+                acc = pf.plot_confusion_matrix(ticid_feat, labels,
+                                               database_dir=database_dir,
+                                               single_file=single_file,
+                                               output_dir=output_dir,
+                                               prefix='gmm-'+str(i)+'_')          
+                pf.quick_plot_classification(x, flux_feat,ticid_feat,info_feat, 
+                                             features, labels,path=output_dir,
+                                             prefix='gmm-'+str(i)+'_',
+                                             database_dir=database_dir)
+                pf.plot_cross_identifications(x, flux_feat, ticid_feat,
+                                              info_feat, features,
+                                              labels, path=output_dir,
+                                              database_dir=database_dir,
+                                              data_dir=data_dir, prefix='gmm-'+str(i)+'_')
         
+                class_info = df.get_true_classifications(ticid_feat, database_dir)
+                pf.ensemble_summary(ticid_feat, labels, database_dir,
+                                    output_dir, 'gmm-', data_dir=data_dir,
+                                    class_info=class_info)
+                
+                
+            cm, assignments, ticid_true, y_true, class_info_new, recalls, false_discovery_rates,\
+                    counts_true, counts_pred, precisions, accuracy = \
+                        pf.assign_real_labels(ticid_feat, labels, database_dir, data_dir, class_info)
+            
 # == iterative training =======================================================
         
 if iterative:

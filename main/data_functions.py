@@ -2187,6 +2187,18 @@ def correct_simbad_to_vizier(in_f='./SectorX_simbad.txt',
                'dS': 'DSCT', 'dS': 'DSCTC', 'El': 'ELL', 'gD': 'GDOR',
                'Ir': 'I', 'Or': 'IN', 'RI': 'IS', 'LP': 'L'}    
     
+    
+    with open(simbad_gcvs_conversion, 'r') as f:
+        lines = f.readlines()
+    renamed = {}
+    for line in lines:
+        otype, description = line.split(' = ')
+        
+        # >> remove new line character
+        description = description.replace('\n', '')
+        
+        renamed[otype] = description    
+    
     with open(in_f, 'r') as f:
         lines = f.readlines()
         

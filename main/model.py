@@ -18,13 +18,20 @@ from astropy.timeseries import LombScargle
 import random
 from sklearn.cluster import KMeans    
 
+# import tensorflow as tf
+# import tensorflow.keras.backend as K
+# from tensorflow import keras
+# from tensorflow.keras.models import Model, Sequential
+# from tensorflow.keras.layers import *
+# from tensorflow.keras import optimizers
+# from tensorflow.keras import metrics
+
 import keras.backend as K
 import tensorflow as tf
 import keras
 from keras.models import Model
 from keras.layers import *
 from keras import optimizers
-import keras.metrics
 from keras import metrics
 
 
@@ -610,7 +617,8 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
                      model_init=None, save_model=True, save_bottleneck=True,
                      predict=True, output_dir='./',
                      input_rms=False, rms_train=None, rms_test=None,
-                     ticid_train=None, ticid_test=None):
+                     ticid_train=None, ticid_test=None,
+                     train=True, weights_path='./best_model.hdf5'):
     from keras.models import Model
     
     # -- making swish activation function -------------------------------------
@@ -643,7 +651,10 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     else:
         decoded = decoder(x_train, encoded.output, params)
         
+        
     model = Model(encoded.input, decoded)
+    # model = decoder(x_train, encoded, params)
+        
     print(model.summary())
     
     # -- initialize weights ---------------------------------------------------
@@ -665,17 +676,34 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     compile_model(model, params)
 
     # -- train model ----------------------------------------------------------
-    print('Training model...')
-    if val:
-        history = model.fit(x_train, x_train, epochs=params['epochs'],
-                            batch_size=params['batch_size'], shuffle=True,
-                            validation_data=(x_test, x_test))
-    else:
-        history = model.fit(x_train, x_train, epochs=params['epochs'],
-                    batch_size=params['batch_size'], shuffle=True)
+    if train:
+        print('Training model...')
+        # tf.keras.backend.clear_session()
+        tensorboard_callback = keras.callbacks.TensorBoard(histogram_freq=0)
         
-    if save_model:
-        model.save(output_dir + 'model')      
+        checkpoint = keras.callbacks.ModelCheckpoint(output_dir+"model.hdf5",
+                                                        monitor='loss', verbose=1,
+                                                        save_best_only=True, mode='auto', period=1)
+        
+        if val:
+            history = model.fit(x_train, x_train, epochs=params['epochs'],
+                                batch_size=params['batch_size'], shuffle=True,
+                                validation_data=(x_test, x_test),
+                                callbacks=[checkpoint, tensorboard_callback])
+        else:
+            history = model.fit(x_train, x_train, epochs=params['epochs'],
+                        batch_size=params['batch_size'], shuffle=True,
+                        callbacks=[checkpoint, tensorboard_callback])
+            
+        if save_model:
+            model.save(output_dir + 'model')      
+            
+    else:
+        print('Loading weights...')
+        model.load_weights(weights_path)
+        history=None
+        
+    # -------------------------------------------------------------------------
         
     if save_bottleneck:
         bottleneck_train = \
@@ -695,11 +723,12 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
         hdu.writeto(output_dir + 'x_predict.fits')
         fits.append(output_dir + 'x_predict.fits', ticid_test)
         
-        if params['concat_ext_feats']:
-            param_summary(history, x_test[0], x_predict[0], params, output_dir, 
-                          0,'')
-        else:
-            param_summary(history, x_test, x_predict, params, output_dir, 0,'')            
+        if train:
+            if params['concat_ext_feats']:
+                param_summary(history, x_test[0], x_predict[0], params, output_dir, 
+                              0,'')
+            else:
+                param_summary(history, x_test, x_predict, params, output_dir, 0,'')            
         model_summary_txt(output_dir, model)               
     
         return history, model, x_predict
@@ -1364,6 +1393,8 @@ def compile_model(model, params):
     if params['optimizer'] == 'adam':
         opt = optimizers.adam(lr = params['lr'], 
                               decay=params['lr']/params['epochs'])
+        # opt = optimizers.Adam(lr = params['lr'], 
+        #                       decay=params['lr']/params['epochs'])        
     elif params['optimizer'] == 'adadelta':
         opt = optimizers.adadelta(lr = params['lr'])
         
@@ -1384,6 +1415,77 @@ def sampling(args):
     # by default, random_normal has mean=0 and std=1.0
     epsilon = K.random_normal(shape=(batch, dim))
     return z_mean + K.exp(0.5 * z_log_var) * epsilon
+
+# def encoder(x_train, params, reshape=False):
+#     '''x_train is an array with shape (num light curves, num data points, 1).
+#     params is a dictionary with keys:
+#         * kernel_size : 3, 5
+#         * latent_dim : dimension of bottleneck/latent space
+#         * strides : 1
+#         * epochs
+#         * dropout
+#         * num_filters : 8, 16, 32, 64...
+#         * num_conv_layers : number of convolutional layers in entire
+#           autoencoder (number of conv layers in encoder is num_conv_layers/2)
+#         * num_consecutive : number of consecutive convolutional layers (can
+#           currently only handle 1 or 2)
+#         * batch_size : 128
+#         * activation : 'elu'
+#         * last_activation : 'linear'        
+#         * optimizer : 'adam'
+#         * losses : 'mean_squared_error', 'custom'
+#         * lr : learning rate (e.g. 0.01)
+#         * initializer: 'random_normal', 'random_uniform', ...
+#     '''
+    
+#     if params['concat_ext_feats']:
+#         input_dim = np.shape(x_train[0])[1]
+#         input_dim1 = np.shape(x_train[1])[1]
+#         input_img1 = Input(shape = (input_dim1,))
+#         x1 = input_img1
+#     else:
+#         input_dim = np.shape(x_train)[1]
+#     num_iter = int(params['num_conv_layers']/2)
+    
+#     if type(params['num_filters']) == np.int:
+#         params['num_filters'] = list(np.repeat(params['num_filters'], num_iter))
+#     if type(params['num_consecutive']) == np.int:
+#         params['num_consecutive'] = list(np.repeat(params['num_consecutive'], num_iter))
+    
+#     encoder = Sequential()
+    
+#     encoder.add(Input(shape = (input_dim,)))
+#     encoder.add(Reshape((input_dim, 1)))
+    
+#     for i in range(num_iter):
+        
+#         for j in range(params['num_consecutive'][i]):
+#             encoder.add(Conv1D(params['num_filters'][i], int(params['kernel_size']),
+#                     padding='same',
+#                     kernel_initializer=params['initializer'],
+#                     strides=params['strides'],
+#                     kernel_regularizer=params['kernel_regularizer'],
+#                     bias_regularizer=params['bias_regularizer'],
+#                     activity_regularizer=params['activity_regularizer']))             
+
+            
+#             if params['batch_norm']:
+#                 encoder.add(BatchNormalization())
+            
+#             encoder.add(Activation(params['activation']))
+            
+#         encoder.add(MaxPooling1D(params['pool_size'], padding='same'))
+#         encoder.add(Dropout(params['dropout']))
+        
+#     encoder.add(Flatten())
+
+#     encoder.add(Dense(params['latent_dim'], activation=params['activation'],
+#                     kernel_initializer=params['initializer'],
+#                     kernel_regularizer=params['kernel_regularizer'],
+#                     bias_regularizer=params['bias_regularizer'],
+#                     activity_regularizer=params['activity_regularizer']))
+
+#     return encoder
 
 def encoder(x_train, params, reshape=False):
     '''x_train is an array with shape (num light curves, num data points, 1).
@@ -1456,10 +1558,10 @@ def encoder(x_train, params, reshape=False):
     elif params['concat_ext_feats']:
         for i in range(len(params['units'])):
             x1 = Dense(params['units'][i], activation=params['activation'],
-                       kernel_initializer=params['initializer'],
-                       kernel_regularizer=params['kernel_regularizer'],
-                       bias_regularizer=params['bias_regularizer'],
-                       activity_regularizer=params['activity_regularizer'])(x1)
+                        kernel_initializer=params['initializer'],
+                        kernel_regularizer=params['kernel_regularizer'],
+                        bias_regularizer=params['bias_regularizer'],
+                        activity_regularizer=params['activity_regularizer'])(x1)
             
         x = Flatten()(x)      
         x = Dense(params['latent_dim'], activation=params['activation'],
@@ -1566,6 +1668,109 @@ def Conv1DTranspose(input_tensor, filters, kernel_size, strides=2, padding='same
     
     # return x
 
+# def decoder(x_train, model, params):
+#     import tensorflow as tf
+    
+#     if params['concat_ext_feats']:
+#         input_dim = np.shape(x_train[0])[1]
+#         input_dim1 = np.shape(x_train[1])[1]
+#     else:
+#         input_dim = np.shape(x_train)[1]
+        
+#     num_iter = int(params['num_conv_layers']/2)
+#     reduction_factor = params['pool_size'] * params['strides']**params['num_consecutive'][0] 
+#     tot_reduction_factor = reduction_factor**num_iter
+    
+#     if type(params['num_filters']) == np.int:
+#         params['num_filters'] = list(np.repeat(params['num_filters'], num_iter))    
+#     if type(params['num_consecutive']) == np.int:
+#         params['num_consecutive'] = list(np.repeat(params['num_consecutive'], num_iter))
+
+#     model.add(Dense(int(input_dim*params['num_filters'][-1]/tot_reduction_factor),
+#                   kernel_initializer=params['initializer'],
+#                   kernel_regularizer=params['kernel_regularizer'],
+#                   bias_regularizer=params['bias_regularizer'],
+#                   activity_regularizer=params['activity_regularizer']))
+#     model.add(Reshape((int(input_dim/tot_reduction_factor),
+#                          params['num_filters'][-1])))
+
+
+#     for i in range(num_iter):
+#         if params['dropout'] > 0:
+#             model.add(Dropout(params['dropout']))
+            
+#         model.add(UpSampling1D(params['pool_size']))
+        
+        
+#         for j in range(params['num_consecutive'][-1*i - 1]):
+            
+#             # >> last layer
+#             if i == num_iter-1 and j == params['num_consecutive'][-1*i - 1]-1 \
+#                 and not params['fully_conv']:
+                
+#                 if params['strides'] == 1: # >> faster than Conv1Dtranspose
+#                     model.add(Conv1D(1, int(params['kernel_size']),
+#                                       padding='same', strides=params['strides'],
+#                                       kernel_initializer=params['initializer'],
+#                                       kernel_regularizer=params['kernel_regularizer'],
+#                                       bias_regularizer=params['bias_regularizer'],
+#                                       activity_regularizer=params['activity_regularizer']))
+                    
+                
+#                 # else: # !!
+#                 #     decoder.add(Conv1DTranspose(x, 1, int(params['kernel_size']),
+#                 #                padding='same',
+#                 #                strides=params['strides'],
+#                 #                kernel_initializer=params['initializer'],
+#                 #                kernel_regularizer=params['kernel_regularizer'],
+#                 #                bias_regularizer=params['bias_regularizer'],
+#                 #           activity_regularizer=params['activity_regularizer']))
+                    
+#                 model.add(BatchNormalization())
+#                 model.add(Activation(params['last_activation']))
+#                 model.add(Reshape((input_dim,)))
+                    
+#                 if params['concat_ext_feats']:
+#                     for i in range(len(params['units'])):
+#                         x1 = Dense(params['units'][-1*i-1],
+#                                    activation=params['activation'],
+#                                    kernel_initializer=params['initializer'],
+#                                    kernel_regularizer=params['kernel_regularizer'],
+#                                    bias_regularizer=params['bias_regularizer'],
+#                                    activity_regularizer=params['activity_regularizer'])(x1)
+                        
+#                     x1 = Dense(input_dim1,
+#                                activation=params['activation'],
+#                                kernel_initializer=params['initializer'],
+#                                kernel_regularizer=params['kernel_regularizer'],
+#                                bias_regularizer=params['bias_regularizer'],
+#                                activity_regularizer=params['activity_regularizer'])(x1)                        
+#                     decoded = [decoded, x1]
+                    
+#             else:
+                
+#                 if params['strides'] == 1:
+#                     model.add(Conv1D(params['num_filters'][-1*i - 1],
+#                                 int(params['kernel_size']),padding='same',
+#                                 strides=params['strides'],
+#                                 kernel_initializer=params['initializer'],
+#                                 kernel_regularizer=params['kernel_regularizer'],
+#                                 bias_regularizer=params['bias_regularizer'],
+#                                 activity_regularizer=params['activity_regularizer']))  
+#                 # else:
+#                 #     x = Conv1DTranspose(x, params['num_filters'][-1*i - 1],
+#                 #                int(params['kernel_size']), padding='same',
+#                 #                strides=params['strides'],
+#                 #                kernel_initializer=params['initializer'],
+#                 #                kernel_regularizer=params['kernel_regularizer'],
+#                 #                bias_regularizer=params['bias_regularizer'],
+#                 #                activity_regularizer=params['activity_regularizer'])
+#                 model.add(BatchNormalization())
+#                 model.add(Activation(params['activation']))
+        
+#     return model
+
+
 def decoder(x_train, bottleneck, params):
     import tensorflow as tf
     
@@ -1636,11 +1841,11 @@ def decoder(x_train, bottleneck, params):
                 
                 else:
                     x = Conv1DTranspose(x, 1, int(params['kernel_size']),
-                               padding='same',
-                               strides=params['strides'],
-                               kernel_initializer=params['initializer'],
-                               kernel_regularizer=params['kernel_regularizer'],
-                               bias_regularizer=params['bias_regularizer'],
+                                padding='same',
+                                strides=params['strides'],
+                                kernel_initializer=params['initializer'],
+                                kernel_regularizer=params['kernel_regularizer'],
+                                bias_regularizer=params['bias_regularizer'],
                           activity_regularizer=params['activity_regularizer'])
                     
                 x = BatchNormalization()(x)
@@ -1650,18 +1855,18 @@ def decoder(x_train, bottleneck, params):
                 if params['concat_ext_feats']:
                     for i in range(len(params['units'])):
                         x1 = Dense(params['units'][-1*i-1],
-                                   activation=params['activation'],
-                                   kernel_initializer=params['initializer'],
-                                   kernel_regularizer=params['kernel_regularizer'],
-                                   bias_regularizer=params['bias_regularizer'],
-                                   activity_regularizer=params['activity_regularizer'])(x1)
+                                    activation=params['activation'],
+                                    kernel_initializer=params['initializer'],
+                                    kernel_regularizer=params['kernel_regularizer'],
+                                    bias_regularizer=params['bias_regularizer'],
+                                    activity_regularizer=params['activity_regularizer'])(x1)
                         
                     x1 = Dense(input_dim1,
-                               activation=params['activation'],
-                               kernel_initializer=params['initializer'],
-                               kernel_regularizer=params['kernel_regularizer'],
-                               bias_regularizer=params['bias_regularizer'],
-                               activity_regularizer=params['activity_regularizer'])(x1)                        
+                                activation=params['activation'],
+                                kernel_initializer=params['initializer'],
+                                kernel_regularizer=params['kernel_regularizer'],
+                                bias_regularizer=params['bias_regularizer'],
+                                activity_regularizer=params['activity_regularizer'])(x1)                        
                     decoded = [decoded, x1]
                     
             else:
@@ -1676,22 +1881,22 @@ def decoder(x_train, bottleneck, params):
                                 activity_regularizer=params['activity_regularizer'])(x)   
                 else:
                     x = Conv1DTranspose(x, params['num_filters'][-1*i - 1],
-                               int(params['kernel_size']), padding='same',
-                               strides=params['strides'],
-                               kernel_initializer=params['initializer'],
-                               kernel_regularizer=params['kernel_regularizer'],
-                               bias_regularizer=params['bias_regularizer'],
-                               activity_regularizer=params['activity_regularizer'])
+                                int(params['kernel_size']), padding='same',
+                                strides=params['strides'],
+                                kernel_initializer=params['initializer'],
+                                kernel_regularizer=params['kernel_regularizer'],
+                                bias_regularizer=params['bias_regularizer'],
+                                activity_regularizer=params['activity_regularizer'])
                 x = BatchNormalization()(x)
                 x = Activation(params['activation'])(x)
 
     if params['fully_conv']:
         decoded = Conv1DTranspose(x, 1, int(params['kernel_size']),
-                   activation=params['activation'], padding='same',
-                   strides=params['strides'],
-                   kernel_initializer=params['initializer'],
-                   kernel_regularizer=params['kernel_regularizer'],
-                   bias_regularizer=params['bias_regularizer'],
+                    activation=params['activation'], padding='same',
+                    strides=params['strides'],
+                    kernel_initializer=params['initializer'],
+                    kernel_regularizer=params['kernel_regularizer'],
+                    bias_regularizer=params['bias_regularizer'],
               activity_regularizer=params['activity_regularizer'])       
         decoded = Reshape((input_dim,))(decoded)          
     return decoded
