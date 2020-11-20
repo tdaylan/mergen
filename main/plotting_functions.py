@@ -1135,7 +1135,7 @@ def epoch_plots(history, p, out_dir, supervised=False, input_psd=False):
 
 def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
                       inds = [-1,0,1,2,3,4,5,6,7,-2,-3,-4,-5,-6,-7],
-                      addend = 1., sharey=False,
+                      addend = 0., sharey=False,
                       mock_data=False, feature_vector=False,
                       percentage=False, target_info=False, psd=False):
     '''Plots input light curve, output light curve and the residual.
@@ -2423,7 +2423,7 @@ def classification_label(ax, ticid, classification_info, fontsize='xx-small'):
     ticid, otype, bibcode = classification_info
     ax.text(0.98, 0.98, 'otype: '+otype+'\nmaind_id: '+bibcode,
             transform=ax.transAxes, fontsize=fontsize,
-            horizontalalignment='right', verticalalignment='top')
+            horizontalalignment='left', verticalalignment='top')
     
 def format_axes(ax, xlabel=False, ylabel=False):
     '''Helper function to plot TESS light curves. Aspect ratio is 3/8.
@@ -2820,6 +2820,30 @@ def ensemble_summary_tables(assignments, recalls, false_discovery_rates, precisi
     else:
         fig.savefig(output_dir+'ensemble_summary_table_all_true.png')    
 
+def plot_fail_reconstructions(x, x_test, x_predict, ticid, y_true, y_pred, assignments,
+                              class_info, target_info, output_dir='./',
+                              true_label=''):
+    
+    colors = get_colors()
+    ind = np.nonzero(assignments[:,1] == true_label)[0][0]
+    # >> get TICIDs of the true positives and false negatives (row of cm)
+    inds = np.nonzero(y_true == true_label)[0]
+    for i in range(len(inds)//15):
+        fig, ax = input_output_plot(x, x_test, x_predict,
+                                    output_dir+'input_output_'+true_label.replace('/', '-')+'.png',
+                                    ticid_test=ticid, target_info=target_info,
+                                    inds=inds[i*15:(i+1)*15])
+        
+        # >> change colors to reflect what class object was assigned
+        # >> add text that says what object was assigned as
+        for col in range(5):
+            for row in range(3):
+                ax[row*3,col].set_title(ax[row*3,col].get_title(),
+                                        color=colors[y_pred[i*15+col*5+row]])
+                classification_label(ax[row*3,col], ticid[i*15+col*5+row],
+                                     class_info[i*15+col*5+row])
+                
+        fig.savefig(output_dir+'input_output_'+true_label.replace('/', '-')+'.png')
 
 def plot_fail_cases(time, flux, ticid, y_true, y_pred, assignments, class_info,
                     target_info, output_dir='./', nrows=10):
@@ -3872,11 +3896,54 @@ def plot_cross_identifications(time, intensity, targets, target_info, features,
         # fig.savefig(path + prefix + '-' + str(i) + '.pdf')
         plt.close(fig)                
    
-def sector_dists(data_dir, sector, output_dir='./', figsize=(3,3)):
-    tess_features = np.loadtxt(data_dir + 'Sector'+str(sector)+\
-                               '/tess_features_sector'+str(sector)+'.txt',
-                               delimiter=' ', usecols=[1,2,3,4,5,6])
+def plot_class_dists(assignments, ticid, y_pred, y_true, data_dir, sectors, 
+                     true_label=None, output_dir='./'):
     
+    if type(true_label) == type(None):
+        # >> create plot for every class
+        for i in range(len(assignments)):
+            # >> find TICIDs of the true positives
+            ticid_pred = ticid[np.nonzero(y_pred == int(assignments[i][0]))]
+            ticid_true = ticid[np.nonzero(y_true == assignments[i][1])]
+            intersection = np.intersect1d(ticid_pred, ticid_true)
+            
+            sector_dists(data_dir, sectors, intersection, output_dir,
+                         prefix=assignments[i][1])
+            
+    else:
+        ind = np.nonzero(assignments[:,1] == true_label)[0][0]
+        # >> find TICIDs of the true positives
+        ticid_pred = ticid[np.nonzero(y_pred == int(assignments[ind][0]))]
+        ticid_true = ticid[np.nonzero(y_true == true_label)]
+        intersection = np.intersect1d(ticid_pred, ticid_true)
+        
+        sector_dists(data_dir, sectors, intersection, output_dir,
+                     prefix=true_label)        
+    
+def sector_dists(data_dir, sectors, ticid_list=[], output_dir='./', figsize=(3,3),
+                 prefix=''):
+    
+    # >> make sure prefix doesn't have '/'
+    prefix = prefix.replace('/', '-')
+    
+    # >> read TIC-v8 text files
+    tess_features = np.empty((0,6))
+    if len(sectors) == 1:
+        sector_name = 'Sector'+str(sectors[0])+'_'
+    else:
+        sector_name='Sectors_'+'_'.join(np.array(sectors).astype('str'))+'_'
+    for sector in sectors:
+        sector_data = np.loadtxt(data_dir + 'Sector'+str(sector)+\
+                                 '/tess_features_sector'+str(sector)+'.txt',
+                                 delimiter=' ', usecols=[1,2,3,4,5,6])
+        tess_features = np.append(tess_features, sector_data, axis=0)
+    
+    # >> get features for TICIDs in ticid_list
+    if len(ticid_list) > 0:
+        intersection, comm1, comm2 = \
+            np.intersect1d(tess_features[:,0], ticid_list, return_indices=True)
+        tess_features = tess_features[comm1]
+        
     fig1, ax1 = plt.subplots(2,3)
     for i in range(5):
         fig, ax = plt.subplots(figsize=figsize)
@@ -3908,9 +3975,10 @@ def sector_dists(data_dir, sector, output_dir='./', figsize=(3,3)):
         a.set_xscale('log')
         a.set_yscale('log')
         fig.tight_layout()
-        fig.savefig(output_dir+'Sector'+str(sector)+suffix+'.png')
+        fig.savefig(output_dir+sector_name+prefix+suffix+'.png')
     fig1.tight_layout()
-    fig.savefig(output_dir+'Sector_dists.png')
+
+    fig1.savefig(output_dir+sector_name+prefix+'_dists.png')
         
         
 

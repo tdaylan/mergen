@@ -13,20 +13,28 @@
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 # data_dir = '../../' # >> directory with input data (ending with /)
-data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-output_dir = '../../plots/Ensemble-Sectors_2_3_rerun/' # >> directory to save diagnostic plots
+# data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
+data_dir = '/nfs/ger/home/echickle/data/'
+
+# output_dir = '../../plots/Ensemble-Sectors_2_3_rerun/' # >> directory to save diagnostic plots
                                      # >> will make dir if doesn't exist
-mom_dump = '../../Table_of_momentum_dumps.csv'
+output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_2/'
+
+# mom_dump = '../../Table_of_momentum_dumps.csv'
+mom_dump = '/nfs/ger/home/echickle/data/Table_of_momentum_dumps.csv'
+
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
                      # >> and plotting_functions.py
 # database_dir = '../../databases/' # >> directory containing text files for
                                   # >> cross-checking classifications
 single_file = False
-database_dir= '/Users/studentadmin/Dropbox/TESS_UROP/data/databases/'
+# database_dir= '/Users/studentadmin/Dropbox/TESS_UROP/data/databases/'
+database_dir = '/nfs/ger/home/echickle/data/databases/'
+
 # database_dir = output_dir + 'all_simbad_classifications.txt'
 simbad_database_dir = ''
 # >> input data
-sectors = [2,3]
+sectors = [2]
 cams = [1,2,3,4]
 # cams = [1]
 # ccds =  [[2,3,4], [2,3,4], [1,2,4], [1,2,4]]
@@ -38,7 +46,7 @@ n_components=200
 # weights init
 # model_init = output_dir + 'model'
 model_init = None
-load_saved_model = False
+load_saved_model = True
 load_weights = False
 weights_path = output_dir+'model.hdf5'
 
@@ -53,6 +61,7 @@ run_model = True # >> train autoencoder on a parameter set p
 diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 
+plot_feat_space = True
 novelty_detection=True
 classification_param_search=False
 classification=True # >> runs DBSCAN on learned features
@@ -61,7 +70,7 @@ run_dbscan = False
 run_hdbscan= False
 run_gmm = True
 
-iterative=False
+iterative=True
 
 
 # >> normalization options:
@@ -481,8 +490,9 @@ if novelty_detection or classification:
                                             use_rms=use_rms, norm=True,
                                             cams=cams, ccds=ccds, log=True)  
                 
-        print('Plotting feature space')
-        pf.latent_space_plot(features, output_dir + 'feature_space_'+str(i)+'.png')    
+        if plot_feat_space:
+            print('Plotting feature space')
+            pf.latent_space_plot(features, output_dir + 'feature_space_'+str(i)+'.png')    
         
         if DAE:
             if DAE_hyperparam_opt:
@@ -617,8 +627,12 @@ if novelty_detection or classification:
             #                  data_dir=data_dir) 
     
             if run_gmm:
-                gmm = GaussianMixture(n_components=n_components)
-                labels = gmm.fit_predict(features)
+                if os.path.exist(output_dir+'gmm_fit.txt'):
+                    _, labels = np.loadtxt(output_dir+'gmm_fit.txt')
+                else:
+                    gmm = GaussianMixture(n_components=n_components)
+                    labels = gmm.fit_predict(features)
+                    np.savetxt(output_dir+'gmm_fit.txt', np.array([ticid_feat, labels]))
                 acc = pf.plot_confusion_matrix(ticid_feat, labels,
                                                database_dir=database_dir,
                                                single_file=single_file,
@@ -640,10 +654,29 @@ if novelty_detection or classification:
                                     class_info=class_info)
                 
                 
-            cm, assignments, ticid_true, y_true, class_info_new, recalls, false_discovery_rates,\
-                    counts_true, counts_pred, precisions, accuracy = \
-                        pf.assign_real_labels(ticid_feat, labels, database_dir, data_dir, class_info)
-            
+                cm, assignments, ticid_true, y_true, class_info_new, recalls, false_discovery_rates,\
+                        counts_true, counts_pred, precisions, accuracy = \
+                            pf.assign_real_labels(ticid_feat, labels, database_dir, data_dir, class_info)
+                pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates, precisions, accuracy, counts_true, counts_pred, output_dir)
+                pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates, precisions, accuracy, counts_true, counts_pred, output_dir, target_labels=[])
+                inter, comm1, comm2 = np.intersect1d(ticid_feat, ticid_true, return_indices=True)
+                y_pred = labels[comm1]
+                
+                flux_in = flux_feat[comm1]
+                flux_pred = model.predict(flux_in)
+                
+                pf.plot_fail_cases(x, flux_in, ticid_true, y_true, y_pred, assignments, class_info, info_feat[comm1], output_dir)
+                pf.plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors, output_dir=output_dir)
+                pf.sector_dists(data_dir, sectors, output_dir=output_dir)
+                
+                true_label = 'E'
+                pf.plot_fail_reconstructions(x, flux_in, flux_pred, ticid_true,
+                                             y_true, y_pred, assignments,
+                                             class_info, info_feat[comm1],
+                                             output_dir=output_dir,
+                                             true_label='E')
+                
+                
 # == iterative training =======================================================
         
 if iterative:
