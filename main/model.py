@@ -18,21 +18,23 @@ from astropy.timeseries import LombScargle
 import random
 from sklearn.cluster import KMeans    
 
-# import tensorflow as tf
-# import tensorflow.keras.backend as K
-# from tensorflow import keras
-# from tensorflow.keras.models import Model, Sequential
-# from tensorflow.keras.layers import *
-# from tensorflow.keras import optimizers
-# from tensorflow.keras import metrics
-
-import keras.backend as K
 import tensorflow as tf
-import keras
-from keras.models import Model
-from keras.layers import *
-from keras import optimizers
-from keras import metrics
+import tensorflow.keras.backend as K
+from tensorflow import keras
+from tensorflow.keras.models import Model, Sequential
+from tensorflow.keras.layers import *
+from tensorflow.keras import optimizers
+from tensorflow.keras import metrics
+# from tensorflow.keras.utils.generic_utils import get_custom_objects
+
+# import keras.backend as K
+# import tensorflow as tf
+# import keras
+# from keras.models import Model
+# from keras.layers import *
+# from keras import optimizers
+# from keras import metrics
+# from keras.utils.generic_utils import get_custom_objects
 
 
 def sector_mask_diag(sectors=[1,2,3,17,18,19,20], data_dir='./',
@@ -619,12 +621,9 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
                      input_rms=False, rms_train=None, rms_test=None,
                      ticid_train=None, ticid_test=None,
                      train=True, weights_path='./best_model.hdf5'):
-    from keras.models import Model
     
     # -- making swish activation function -------------------------------------
-    from keras.utils.generic_utils import get_custom_objects
-    from keras.layers import Activation
-    get_custom_objects().update({'swish': Activation(swish)})
+    # get_custom_objects().update({'swish': Activation(swish)})
 
     # -- encoding -------------------------------------------------------------
     if split:
@@ -1391,10 +1390,10 @@ def encoder_DAE(x_train, params):
 def compile_model(model, params):
 
     if params['optimizer'] == 'adam':
-        opt = optimizers.adam(lr = params['lr'], 
-                              decay=params['lr']/params['epochs'])
-        # opt = optimizers.Adam(lr = params['lr'], 
-        #                       decay=params['lr']/params['epochs'])        
+        # opt = optimizers.adam(lr = params['lr'], 
+        #                       decay=params['lr']/params['epochs'])
+        opt = optimizers.Adam(lr = params['lr'], 
+                              decay=params['lr']/params['epochs'])        
     elif params['optimizer'] == 'adadelta':
         opt = optimizers.adadelta(lr = params['lr'])
         
