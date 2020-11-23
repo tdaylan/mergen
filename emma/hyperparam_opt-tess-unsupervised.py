@@ -107,7 +107,7 @@ else:
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-import talos                    # >> a hyperparameter optimization library
+# import talos                    # >> a hyperparameter optimization library
 import numpy as np
 import pdb
 import os
@@ -121,8 +121,10 @@ sys.path.insert(0, lib_dir)     # >> needed if scripts not in current dir
 import model as ml              # >> for autoencoder
 import data_functions as df     # >> for classification, pre-processing
 import plotting_functions as pf # >> for vsualizations
-from keras.models import load_model
 from sklearn.mixture import GaussianMixture
+
+# from keras.models import load_model
+from tensorflow.keras.models import load_model
 
 # >> hyperparameters
 if hyperparameter_optimization:
