@@ -666,7 +666,17 @@ if novelty_detection or classification:
                 flux_pred = model.predict(flux_in)
                 
                 pf.plot_fail_cases(x, flux_in, ticid_true, y_true, y_pred, assignments, class_info, info_feat[comm1], output_dir)
-                pf.plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors, output_dir=output_dir)
+                
+                # >> find top 20 most popular classes
+                classes, counts = np.unique(y_true, return_counts=True)
+                classes = classes[np.argsort(counts)]
+                for class_label in classes[-20:]:
+                    pf.plot_class_dists(assignments, ticid_true, y_pred, y_true,
+                                        data_dir, sectors, true_label=class_label,
+                                        output_dir=output_dir)
+                
+                
+                # pf.plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors, output_dir=output_dir)
                 pf.sector_dists(data_dir, sectors, output_dir=output_dir)
                 
                 true_label = 'E'
