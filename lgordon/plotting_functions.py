@@ -115,33 +115,7 @@ def plot_lc(time, intensity, target, sector):
         for n in range(len(dumppoints)):
             plt.axvline(dumppoints[n], linewidth=0.5)
        
-def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppath, sigma):
-    """loads in a sector and plots lof +insets """
-    
-
-    flux, x, ticid, target_info = df.load_data_from_metafiles(pathtofolder, sector, cams=[1,2,3,4],
-                                 ccds=[1,2,3,4], DEBUG=False,
-                                 output_dir=pathtofolder, debug_ind=10, nan_mask_check=True)
-    featuresallpath = pathtofolder + "Sector" + str(sector) + "_features_v0_all.fits"
-    f = fits.open(featuresallpath, mmap=False)
-    
-    features = f[0].data
-    #targetsfits = f[1].data
-    f.close()
-
-    flux = df.normalize(flux, axis=1)
-    
-    features, ticid, flux, outlier_indexes = isolate_plot_feature_outliers(pathtofolder, sector, features, x, flux, ticid, sigma)
-    
-    plot_lof(x, flux, ticid, features, sector, pathtofolder,
-                 momentum_dump_csv = momentumdumppath,
-                 n_neighbors=20, target_info=target_info,
-                 prefix='', mock_data=False, addend=1., feature_vector=True,
-                 n_tot=numberofplots)
-
-    features_insets(x, flux, features, ticid, pathtofolder)
-    
-    return features, x, flux, ticid, outlier_indexes    
+ 
         
 def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, target_info, sigma, version=0, plot=True):
     """ isolate features that are significantly out there and crazy
@@ -255,7 +229,7 @@ def features_plotting_2D(feature_vectors, path, clustering,
         db = DBSCAN(eps=eps, min_samples=min_samples, metric=metric,
                     algorithm=algorithm, leaf_size=leaf_size,
                     p=p).fit(feature_vectors) #eps is NOT epochs
-        classes_dbscan = db.labels_
+        labels = db.labels_
         numclasses = str(len(set(classes_dbscan)))
         folder_label = "dbscan-colored"
         
@@ -267,7 +241,7 @@ def features_plotting_2D(feature_vectors, path, clustering,
     elif clustering == 'kmeans': 
         Kmean = KMeans(n_clusters=kmeans_clusters, max_iter=700, n_init = 20)
         x = Kmean.fit(feature_vectors)
-        classes_kmeans = x.labels_
+        labels = x.labels_
         folder_label = "kmeans-colored"
         
     elif clustering == 'hdbscan': 
@@ -275,10 +249,15 @@ def features_plotting_2D(feature_vectors, path, clustering,
         clusterer = hdbscan.HDBSCAN(metric=metric, min_samples=3,
                                     min_cluster_size=3)
         clusterer.fit(feature_vectors)
-        classes_hdbscan = clusterer.labels_
+        labels = clusterer.labels_
         print(np.unique(classes_hdbscan, return_counts=True))
         folder_label = "hdbscan-colored"        
         
+    elif clustering == "GMM": 
+        from sklearn.mixture import GaussianMixture
+        gmm = GaussianMixture(n_components=100)
+        labels = gmm.fit_predict(feature_vectors)
+        folder_label = "GMM-colored"
     else: 
         print("no clustering chosen")
         folder_label = "2DFeatures"
@@ -291,18 +270,14 @@ def features_plotting_2D(feature_vectors, path, clustering,
         print ("Creation of the directory %s failed, directory already exists" % folder_path)
 
  
-    if clustering == 'dbscan':
-        plot_classification(time, intensity, targets, db.labels_,
-                            folder_path+'/', prefix='dbscan',
+    if clustering == 'dbscan' or clustering == 'kmeans' or clustering == 'hdbscan' or clustering == 'GMM':
+        plot_classification(time, intensity, targets, labels,
+                            folder_path+'/', prefix=clustering,
                             momentum_dump_csv=momentum_dump_csv,
                             target_info=target_info)
-        plot_pca(feature_vectors, db.labels_,
+        plot_pca(feature_vectors, labels,
                     output_dir=folder_path+'/')
-    elif clustering == 'kmeans':
-        plot_classification(time, intensity, targets, x.labels_,
-                            path+folder_label+'/', prefix='kmeans',
-                            momentum_dump_csv=momentum_dump_csv,
-                            target_info=target_info)
+    
  
     colors = get_colors()
     #creates labels based on if engineered features or not
@@ -355,39 +330,17 @@ def features_plotting_2D(feature_vectors, path, clustering,
             fname_label2 = fname_labels[m]                
             feat2 = feature_vectors[:,m]
  
-            # >> fix all this repeated code
-            if clustering == 'dbscan':
+            if clustering == 'dbscan' or clustering == 'kmeans' or clustering == 'hdbscan' or clustering == 'GMM':
                 plt.figure() # >> [etc 060520]
                 plt.clf()
                 for n in range(len(feature_vectors)):
-                    plt.scatter(feat1[n], feat2[n], c=colors[classes_dbscan[n]], s=2)
+                    plt.scatter(feat1[n], feat2[n], c=colors[labels[n]], s=2)
                 plt.xlabel(graph_label1)
                 plt.ylabel(graph_label2)
-                plt.savefig((folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-dbscan.png"))
+                plt.savefig((folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-" + clustering + ".png"))
                 # plt.show()
                 plt.close()
                  
-            elif clustering == 'kmeans':
-                plt.figure() # >> [etc 060520]
-                plt.clf()
-                for n in range(len(feature_vectors)):
-                    plt.scatter(feat1[n], feat2[n], c=colors[classes_kmeans[n]], s=2)
-                plt.xlabel(graph_label1)
-                plt.ylabel(graph_label2)
-                plt.savefig(folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-kmeans.png")
-                # plt.show()
-                plt.close()
-                 
-            elif clustering == 'hdbscan':
-                plt.figure() # >> [etc 060520]
-                plt.clf()
-                for n in range(len(feature_vectors)):
-                    plt.scatter(feat1[n], feat2[n], c=colors[classes_hdbscan[n]], s=2)
-                plt.xlabel(graph_label1)
-                plt.ylabel(graph_label2)
-                plt.savefig(folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-hdbscan.png")
-                # plt.show()
-                plt.close()            
                 
             else:
                 plt.scatter(feat1, feat2, s = 2, color = 'black')
@@ -397,14 +350,10 @@ def features_plotting_2D(feature_vectors, path, clustering,
                 #plt.show()
                 plt.close()
                 
-    if clustering == 'dbscan':
-        np.savetxt(folder_path+"/dbscan-classes.txt", classes_dbscan)
-        return classes_dbscan
-    if clustering == 'kmeans':
-        return classes_kmeans
-    if clustering == 'hdbscan':
-        np.savetxt(folder_path+"/hdbscan-classes.txt", classes_hdbscan)
-        return classes_hdbscan
+    if clustering == 'dbscan' or clustering == 'kmeans' or clustering == 'hdbscan' or clustering == 'GMM':
+        np.savetxt(folder_path+"/" + clustering + "-classes.txt", labels)
+        return labels
+    
                           
 def astroquery_pull_data(target, breaks=True):
     """Give a TIC ID - ID /only/, any format is fine, it'll get converted to str
@@ -795,8 +744,20 @@ def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
     plt.close()
 
 
-# plotting features by color and shape
-
+def plot_lygos(t, intensity, error, title = "empty title"):
+    mean = np.mean(intensity)
+    mean_error = np.mean(error)
+    print(mean, mean_error)
+    
+    sigclip = SigmaClip(sigma=5, maxiters=None, cenfunc='median')
+    clipped_inds = np.nonzero(np.ma.getmask(sigclip(intensity)))
+    intensity[clipped_inds] = mean
+    
+    plt.scatter(t, intensity)
+    plt.title(title)
+    plt.show()
+    plt.errorbar(t, intensity, yerr = error, fmt = 'o', markersize = 0.1)
+    plt.show()
                  
 
 def diagnostic_plots(history, model, p, output_dir, 
