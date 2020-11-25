@@ -696,7 +696,7 @@ if iterative:
                       ticid_test, target_info_train, target_info_test, num_split=2,
                       output_dir=output_dir, split=split_at_orbit_gap,
                       input_psd=input_psd, database_dir=database_dir,
-                      data_dir=data_dir) 
+                      data_dir=data_dir, train_psd_only=False) 
         
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     
