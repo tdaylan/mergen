@@ -1097,6 +1097,10 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
     err_test = np.mean(err_test, axis=1)
     err_test = err_test.reshape(np.shape(err_test)[0])
     ranked_test = np.argsort(err_test)    
+    del x_train_predict
+    del x_test_predict
+    del err_train
+    del err_test
     
     # >> re-order arrays
     new_ticid_train = ticid_train[ranked_train]
@@ -1133,6 +1137,8 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
         new_x_test = new_x_test_1
         x = x[1]
         input_psd=False
+    
+    pdb.set_trace()
     
     history_list = []
     model_list = []
