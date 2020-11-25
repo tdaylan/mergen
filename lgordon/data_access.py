@@ -370,6 +370,15 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
         
     return time, intensity, ticids, path, flagged, ticid_flagged
 
+def load_lygos_csv(file):
+    import pandas as pd
+    data = pd.read_csv(file, sep = ' ', header = None)
+    #print (data)
+    t = np.asarray(data[0])
+    ints = np.asarray(data[1])
+    error = np.asarray(data[2])
+    return t, ints, error
+
 def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     """ function to follow up on rejected TIC ids"""
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
@@ -766,6 +775,26 @@ def targetwise_lc(yourpath, target_list, fname_time_intensities,fname_notes):
         
     print("lc_from_target_list has finished running")
     return np.asarray(ticids)
+
+def convert_listofRADEC_todegrees(file, outputfile)
+
+    #converting to decimal degrees
+    import pandas as pd
+    
+    df = pd.read_csv(file)
+    print (df)
+    
+    for n in range(len(df)):
+        a = Angle(df['RA'][n], u.degree)
+        a = a.degree
+        df['RA'][n] = a
+        b = Angle(df['DEC'][n], u.degree)
+        b = b.degree
+        df['DEC'][n] = b
+    
+    new = df[['RA', 'DEC']].copy()
+    print(new)
+    new.to_csv(outputfile, index = False)
 
 def fetch_local_bright_TICs(ra_dec_string, targetname):
     """Produces a CSV of all <Tmag 10 targets w/in 2 degrees of the target for reference """

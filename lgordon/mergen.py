@@ -55,6 +55,7 @@ import ffi_hyperleda as fh
 import model as ml
 import data_access as da
 import ENF_functions as enf
+import sn_functions as sn
 
 
 class mergen(object):
