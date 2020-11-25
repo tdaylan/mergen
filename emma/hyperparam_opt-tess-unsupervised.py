@@ -57,12 +57,12 @@ train_test_ratio = 0.9
 # >> what this script will run:
 preprocessing = True
 hyperparameter_optimization = False # >> run hyperparameter search
-run_model = True # >> train autoencoder on a parameter set p
-diag_plots = True # >> creates diagnostic plots. If run_model==False, then will
+run_model = False # >> train autoencoder on a parameter set p
+diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 
-plot_feat_space = True
-novelty_detection=True
+plot_feat_space = False
+novelty_detection=False
 classification_param_search=False
 classification=True # >> runs DBSCAN on learned features
 
@@ -555,11 +555,12 @@ if novelty_detection or classification:
                         n_tot=n_tot, target_info=info_feat, prefix=str(i),
                         database_dir=database_dir, debug=True, addend=0.,
                         single_file=single_file, log=True, n_pgram=n_pgram,
-                        plot_psd=True)
+                        plot_psd=True, momentum_dump_csv=mom_dump)
             
             pf.plot_lof_summary(x, flux_feat, ticid_feat, features, 20,
                                 output_dir, target_info=info_feat,
-                                database_dir=database_dir)
+                                database_dir=database_dir,
+                                momentum_dump_csv=mom_dump)
     
         if classification:
             if classification_param_search and run_dbscan:
@@ -629,7 +630,7 @@ if novelty_detection or classification:
             #                  data_dir=data_dir) 
     
             if run_gmm:
-                if os.path.exist(output_dir+'gmm_fit.txt'):
+                if os.path.exists(output_dir+'gmm_fit.txt'):
                     _, labels = np.loadtxt(output_dir+'gmm_fit.txt')
                 else:
                     gmm = GaussianMixture(n_components=n_components)
@@ -686,8 +687,8 @@ if iterative:
                       ticid_test, target_info_train, target_info_test, num_split=2,
                       output_dir=output_dir, split=split_at_orbit_gap,
                       input_psd=input_psd, database_dir=database_dir,
-                      data_dir=data_dir) 
-        
+                      data_dir=data_dir, train_psd_only=False) 
+    
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     
     # if DBSCAN_parameter_search:
