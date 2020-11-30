@@ -101,7 +101,8 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                               split=False, output_dir='./',
                               use_tess_features=True,
                               use_tls_features=True,
-                              use_rms=True, flux_plot=None):
+                              use_rms=True, flux_plot=None,
+                              concat_ext_feats=False):
     '''Preprocesses output from df.load_data_from_metafiles
     Shuffles array.
     Parameters:
@@ -278,7 +279,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
             x_train = np.split(x_train, [orbit_gap], axis=1)
             x_test = np.split(x_test, [orbit_gap], axis=1)
             
-        if p['concat_ext_feats']:
+        if concat_ext_feats:
             external_features_train, flux_train, ticid_train, target_info_train = \
                 bottleneck_preprocessing(sector, x_train, ticid_train,
                                          target_info_train, rms_train,
@@ -620,17 +621,19 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
                      predict=True, output_dir='./',
                      input_rms=False, rms_train=None, rms_test=None,
                      ticid_train=None, ticid_test=None,
-                     train=True, weights_path='./best_model.hdf5'):
+                     train=True, weights_path='./best_model.hdf5',
+                     concat_ext_feats=False):
     
     # -- making swish activation function -------------------------------------
     # get_custom_objects().update({'swish': Activation(swish)})
-
+    
     # -- encoding -------------------------------------------------------------
+    params['concat_ext_feats']=concat_ext_feats
     if split:
         encoded = encoder_split(x_train, params) # >> shared weights        
         
     elif input_psd:
-        params['concat_ext_feats'] = True
+        concat_ext_feats = True
         # encoded = encoder_split_diff_weights(x_train, params)
         encoded = encoder(x_train, params)   
         
@@ -681,8 +684,9 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
         tensorboard_callback = keras.callbacks.TensorBoard(histogram_freq=0)
         
         checkpoint = keras.callbacks.ModelCheckpoint(output_dir+"model.hdf5",
-                                                        monitor='loss', verbose=1,
-                                                        save_best_only=True, mode='auto', period=1)
+                                                     monitor='loss', verbose=1,
+                                                     save_best_only=True, mode='auto',
+                                                     save_freq='epoch')
         
         if val:
             history = model.fit(x_train, x_train, epochs=params['epochs'],
@@ -715,7 +719,7 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     if predict:
         x_predict = model.predict(x_test)      
         hdr = fits.Header()
-        if params['concat_ext_feats']:
+        if concat_ext_feats:
             hdu = fits.PrimaryHDU(x_predict[0], header=hdr)
         else:
             hdu = fits.PrimaryHDU(x_predict, header=hdr)
@@ -723,7 +727,7 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
         fits.append(output_dir + 'x_predict.fits', ticid_test)
         
         if train:
-            if params['concat_ext_feats']:
+            if concat_ext_feats:
                 param_summary(history, x_test[0], x_predict[0], params, output_dir, 
                               0,'')
             else:
@@ -1075,9 +1079,9 @@ def custom_loss_function1(y_true, y_pred):
 def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train, 
                   ticid_test, target_info_train, target_info_test, num_split=2,
                   output_dir='./', split=False, input_psd=False, 
-                  database_dir='./', data_dir='./', train_psd_only=True):
-    import keras
-    from sklearn.mixture import GaussianMixture
+                  database_dir='./', data_dir='./', train_psd_only=True,
+                  momentum_dump_csv='./Table_of_momentum_dumps.csv', sectors=[],
+                  concat_ext_feats=False):
     
     # >> load model
     model = keras.models.load_model(output_dir+'model')
@@ -1085,7 +1089,7 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
     # >> get training set of highest reconstruction error
     x_train_predict = model.predict(x_train)
     x_test_predict = model.predict(x_test)
-    if p['concat_ext_feats'] or input_psd: 
+    if concat_ext_feats or input_psd: 
         err_train = (x_train[0] - x_train_predict[0])**2
         err_test = (x_test[0] - x_test_predict[0])**2
     else:      
@@ -1103,38 +1107,39 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
     del err_test
     
     # >> re-order arrays
-    new_ticid_train = ticid_train[ranked_train]
-    new_info_train = target_info_train[ranked_train]
-    new_ticid_test = ticid_test[ranked_test]
-    new_info_test = target_info_test[ranked_test]
-    if p['concat_ext_feats'] or input_psd:
-        new_x_train = x_train[0][ranked_train]
-        new_x_train_1 = x_train[1][ranked_train]
-        new_x_test = x_test[0][ranked_test]
-        new_x_test_1 = x_test[1][ranked_test]
+    ticid_train = ticid_train[ranked_train]
+    info_train = target_info_train[ranked_train]
+    ticid_test = ticid_test[ranked_test]
+    info_test = target_info_test[ranked_test]
+    if concat_ext_feats or input_psd:
+        x_train = x_train[0][ranked_train]
+        x_train_feat = x_train[1][ranked_train]
+        x_test = x_test[0][ranked_test]
+        x_test_feat = x_test[1][ranked_test]
     else:
-        new_x_train = x_train[ranked_train]
-        new_x_test = x_test[ranked_test]
+        x_train = x_train[ranked_train]
+        x_test = x_test[ranked_test]
         
     # >> now split
-    train_len = len(new_x_train)
-    test_len = len(new_x_test)
-    new_x_train = np.split(new_x_train, [int(train_len/num_split)])
-    new_x_test = np.split(new_x_test, [int(test_len/num_split)])
-    if p['concat_ext_feats'] or input_psd:
-        new_x_train_1 = np.split(new_x_train_1, [int(train_len/num_split)])
-        new_x_train[0] = np.concatenate([new_x_train[0], new_x_train_1[0]], axis=0)
-        new_x_train[1] = np.concatenate([new_x_train[1], new_x_train_1[1]], axis=0)        
-        new_x_test_1 = np.split(new_x_test_1, [int(test_len/num_split)])
-
-    new_ticid_train = np.split(new_ticid_train, [int(train_len/num_split)])
-    new_info_train = np.split(new_info_train, [int(train_len/num_split)])
-    new_ticid_test = np.split(new_ticid_test, [int(test_len/num_split)])
-    new_info_test = np.split(new_info_test, [int(test_len/num_split)])    
+    train_len = len(x_train)
+    test_len = len(x_test)
+    x_train = np.split(x_train, [int(train_len/num_split)])
+    x_test = np.split(x_test, [int(test_len/num_split)])
+    if concat_ext_feats or input_psd:
+        x_train_feat = np.split(x_train_feat, [int(train_len/num_split)])
+        x_train[0] = np.concatenate([x_train[0], x_train_feat[0]], axis=0)
+        x_train[1] = np.concatenate([x_train[1], x_train_feat[1]], axis=0)        
+        x_test_feat = np.split(x_test_feat, [int(test_len/num_split)])
+        x_test[0] = np.concatenate([x_test[0], x_test_feat[0]], axis=0)
+        x_test[1] = np.concatenate([x_test[1], x_test_feat[1]], axis=0)
+    ticid_train = np.split(ticid_train, [int(train_len/num_split)])
+    info_train = np.split(info_train, [int(train_len/num_split)])
+    ticid_test = np.split(ticid_test, [int(test_len/num_split)])
+    info_test = np.split(info_test, [int(test_len/num_split)])    
     
     if train_psd_only:
-        new_x_train = new_x_train_1
-        new_x_test = new_x_test_1
+        x_train = x_train_feat
+        x_test = x_test_feat
         x = x[1]
         input_psd=False
     
@@ -1145,34 +1150,24 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
     for i in range(num_split):
         # model_init = output_dir+'model'
         model_init = None
-        history_new, model_new = \
-            conv_autoencoder(new_x_train[i], new_x_train[i], new_x_test[i],
-                             new_x_test[i], p,
-                             val=False, split=split, predict=False,
-                             save_bottleneck=False, output_dir=output_dir,
-                             save_model=False, model_init=model_init)
-        history_list.append(history_new)
-        model_list.append(model_new)
+        history, model, x_predict = \
+            conv_autoencoder(x_train[i], x_train[i], x_test[i], x_test[i], p,
+                             val=False, split=split, save_model=True,
+                             predict=True, save_bottleneck=True,
+                             output_dir=output_dir+'iter'+str(i)+'-',
+                             model_init=model_init)
+        history_list.append(history)
+        model_list.append(model)
         
-        bottleneck_train = \
-            get_bottleneck(model_new, new_x_train[i], p, save=True,
-                           ticid=new_ticid_train[i],
-                           out=output_dir+'bottleneck_train_iter'+str(i)+'.fits')
-        bottleneck = \
-            get_bottleneck(model_new, new_x_test[i], p, save=True,
-                           ticid=new_ticid_test[i],
-                           out=output_dir+'bottleneck_test_iter'+str(i)+'.fits')
-            
-        x_predict = model_new.predict(new_x_test[i])
         features = bottleneck_train
-        pf.diagnostic_plots(history_new, model_new, p, output_dir, x,
-                            new_x_train[i], new_x_test[i],
+        pf.diagnostic_plots(history_new, model_new, p, output_dir+'iter'+str(i)+'-',
+                            x, x_train[i], x_test[i],
                             x_predict, mock_data=False,
                             addend=0., prefix=str(i),
-                            target_info_test=new_info_test[i],
-                            target_info_train=new_info_train[i],
-                            ticid_train=new_ticid_train[i],
-                            ticid_test=new_ticid_test[i], percentage=False,
+                            target_info_test=info_test[i],
+                            target_info_train=info_train[i],
+                            ticid_train=ticid_train[i],
+                            ticid_test=ticid_test[i], percentage=False,
                             input_features=False,
                             input_rms=False, 
                             input_psd=input_psd, n_tot=40,
@@ -1191,18 +1186,18 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
                             plot_reconstruction_error_all=False,
                             load_bottleneck=True)  
          
-        if p['concat_ext_feats']:
+        if concat_ext_feats:
             
             
-            x_predict = model_new.predict(new_x_train)
-            pf.diagnostic_plots(history_new, model_new, p, output_dir+str(i), x,
-                                new_x_train,
-                                new_x_train, x_predict, mock_data=False,
+            x_predict = model_new.predict(x_train)
+            pf.diagnostic_plots(history_new, model_new, p, output_dir+'iter'+str(i)+'-', x,
+                                x_train,
+                                x_train, x_predict, mock_data=False,
                                 addend=0.,
-                                target_info_test=new_info_test[i],
-                                target_info_train=new_info_train[i],
-                                ticid_train=new_ticid_train[i],
-                                ticid_test=new_ticid_test[i], percentage=False,
+                                target_info_test=info_test[i],
+                                target_info_train=info_train[i],
+                                ticid_train=ticid_train[i],
+                                ticid_test=ticid_test[i], percentage=False,
                                 input_features=False,
                                 input_rms=False, 
                                 input_psd=True, n_tot=40,
@@ -1220,12 +1215,30 @@ def iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train,
                                 plot_reconstruction_error_test=True,
                                 plot_reconstruction_error_all=False,
                                 load_bottleneck=True)      
-            
-        pf.plot_lof(x, new_x_train[i], new_ticid_train[i], features, 20, output_dir+str(i),
-                    n_tot=100, target_info=new_info_train[i], prefix=str(i),
-                    cross_check_txt=database_dir, debug=True, addend=0.,
+
+        features, flux_feat, ticid_feat, info_feat = \
+            ml.bottleneck_preprocessing(sectors,
+                                        np.concatenate([x_train[i], x_test[i]], axis=0),
+                                        np.concatenate([ticid_train[i], ticid_test][i]),
+                                        np.concatenate([target_info_train,
+                                                        target_info_test]),
+                                        rms=rms,
+                                        data_dir=data_dir,
+                                        bottleneck_dir=output_dir,
+                                        output_dir=output_dir,
+                                        use_learned_features=True,
+                                        use_tess_features=use_tess_features,
+                                        use_engineered_features=False,
+                                        use_tls_features=use_tls_features,
+                                        use_rms=use_rms, norm=True,
+                                        cams=cams, ccds=ccds, log=True)  
+
+        pf.plot_lof(x, x_train[i], ticid_train[i], features, 20,
+                    output_dir+'iter'+str(i)+'-',
+                    n_tot=100, target_info=info_train[i], prefix=str(i),
+                    database_dir=database_dir, debug=True, addend=0.,
                     single_file=False, log=True, n_pgram=1000,
-                    plot_psd=True )       
+                    plot_psd=True, momentum_dump_csv=momentum_dump_csv)       
         
         best_param_set = [3, 3, 'canberra', None]
         print('Run HDBSCAN')
@@ -1308,8 +1321,6 @@ def cnn_mock(x_train, y_train, x_test, y_test, params, num_classes = 2):
 def mlp(x_train, y_train, x_test, y_test, params, resize=True):
     '''a simple classifier based on a fully-connected layer
     Deprecated 071720'''
-    from keras.models import Model
-    from keras.layers import Input, Dense, Flatten
 
     num_classes = np.shape(y_train)[1]
     input_dim = np.shape(x_train)[1]

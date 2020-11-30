@@ -12,13 +12,14 @@
 # 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+run_cpu=True
+
 # data_dir = '../../' # >> directory with input data (ending with /)
 # data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
 data_dir = '/nfs/ger/home/echickle/data/'
 
-# output_dir = '../../plots/Ensemble-Sectors_2_3_rerun/' # >> directory to save diagnostic plots
-                                     # >> will make dir if doesn't exist
-output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_2/'
+# >> directory to save plots (will make dir if doesn't exist)
+output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_2_split/'
 
 # mom_dump = '../../Table_of_momentum_dumps.csv'
 mom_dump = '/nfs/ger/home/echickle/data/Table_of_momentum_dumps.csv'
@@ -46,7 +47,7 @@ n_components=200
 # weights init
 # model_init = output_dir + 'model'
 model_init = None
-load_saved_model = True
+load_saved_model = False
 load_weights = False
 weights_path = output_dir+'model.hdf5'
 
@@ -57,18 +58,18 @@ train_test_ratio = 0.9
 # >> what this script will run:
 preprocessing = True
 hyperparameter_optimization = False # >> run hyperparameter search
-run_model = False # >> train autoencoder on a parameter set p
+run_model = True # >> train autoencoder on a parameter set p
 diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
                   # >> load bottleneck*.fits for plotting
 
 plot_feat_space = False
 novelty_detection=False
 classification_param_search=False
-classification=True # >> runs DBSCAN on learned features
+classification=False # >> runs DBSCAN on learned features
 
 run_dbscan = False
 run_hdbscan= False
-run_gmm = True
+run_gmm = False
 
 iterative=True
 
@@ -91,6 +92,7 @@ use_tls_features = False
 input_features=False # >> this option cannot be used yet
 split_at_orbit_gap=False
 DAE = False
+concat_ext_feats=False
 
 model_name = 'best_model.hdf5'
 # >> move targets out of training set and into testing set (integer)
@@ -107,12 +109,21 @@ else:
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-# import talos                    # >> a hyperparameter optimization library
+import talos                    # >> a hyperparameter optimization library
 import numpy as np
 import pdb
 import os
 from astropy.io import fits
+
+if run_cpu:
+    os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+
 import tensorflow as tf
+print('GPU devices: ')
+print(tf.config.list_physical_devices('GPU'))
+print('CPU devices: ')
+print(tf.config.list_physical_devices('CPU'))
+
 import gc
 # tf.enable_eager_execution()
 
@@ -156,39 +167,38 @@ if hyperparameter_optimization:
          
           'pool_size': [1]}     
 
-else:
-    # >> strides: list, len = num_consecutive
-    # p = {'kernel_size': 5,
-    #       'latent_dim': 35,
-    #       'strides': 2,
-    #       'epochs': 10,
-    #       'dropout': 0.2,
-    #       'num_filters': 8,
-    #       'num_conv_layers': 6,
-    #       'batch_size': 32,
-    #       'activation': 'elu',
-    #       'optimizer': 'adam',
-    #       'last_activation': 'linear',
-    #       'losses': 'mean_squared_error',
-    #       'lr': 0.0001,
-    #       'initializer': 'random_normal',
-    #       'num_consecutive': 1,
-    #       'pool_size': 4, 
-    #       'pool_strides': 4,
-    #       'units': [1024, 512, 64, 16],
-    #       'kernel_regularizer': None,
-    #       'bias_regularizer': None,
-    #       'activity_regularizer': None,
-    #       'fully_conv': False,
-    #       'encoder_decoder_skip': False,
-    #       'encoder_skip': False,
-    #       'decoder_skip': False,
-    #       'full_feed_forward_highway': False,
-    #       'cvae': False,
-    #       'share_pool_inds': False,
-    #       'batchnorm_before_act': True,
-    #       'concat_ext_feats': False}      
-    
+    p = {'kernel_size': [5,15,25],
+          'latent_dim': [35, 55, 75],
+          'strides': [1,2,3],
+          'epochs': [10],
+          'dropout': [0.1, 0.3, 0.5],
+          'num_filters': [8, 32, 64],
+          'num_conv_layers': [4, 6, 8, 10],
+          'batch_size': [32],
+          'activation': ['elu'],
+          'optimizer': ['adam'],
+          'last_activation': ['elu', 'relu', 'linear'],
+          'losses': ['mean_squared_error'],
+          'lr': [0.0001],
+          'initializer': ['random_normal', 'glorot_normal', 'glorot_uniform'],
+          'num_consecutive': [1,2,3],
+          'pool_size': [2,4], 
+          'pool_strides': [1,2],
+          'units': [[1024, 512, 64, 16]],
+          'kernel_regularizer': [None],
+          'bias_regularizer': [None],
+          'activity_regularizer': [None],
+          'fully_conv': [False],
+          'encoder_decoder_skip': [False],
+          'encoder_skip': [False],
+          'decoder_skip': [False],
+          'full_feed_forward_highway': [False],
+          'cvae': [False],
+          'share_pool_inds': [False],
+          'batch_norm': [True]}      
+
+
+else:    
     p = {'kernel_size': 5,
           'latent_dim': 35,
           'strides': 1,
@@ -217,8 +227,7 @@ else:
           'full_feed_forward_highway': False,
           'cvae': False,
           'share_pool_inds': False,
-          'batch_norm': True,
-          'concat_ext_feats': False}       
+          'batch_norm': True}      
     
 # -- create output directory --------------------------------------------------
     
@@ -263,7 +272,8 @@ if preprocessing:
                                      output_dir=output_dir, 
                                      data_dir=data_dir,
                                      use_tess_features=use_tess_features,
-                                     use_tls_features=use_tls_features)
+                                     use_tls_features=use_tls_features,
+                                     concat_ext_feats=concat_ext_feats)
         
     # hdr = fits.Header()
     # hdu = fits.PrimaryHDU(x_train, header=hdr)
@@ -347,7 +357,8 @@ elif load_saved_model:
                                     save_bottleneck=True,
                                     output_dir=output_dir,
                                     model_init=model_init, train=False,
-                                    weights_path=weights_path)         
+                                    weights_path=weights_path,
+                                    concat_ext_feats=concat_ext_feats)        
         
         # # >> create model
         # import model as ml
@@ -697,5 +708,7 @@ if iterative:
                       ticid_test, target_info_train, target_info_test, num_split=2,
                       output_dir=output_dir, split=split_at_orbit_gap,
                       input_psd=input_psd, database_dir=database_dir,
-                      data_dir=data_dir, train_psd_only=False) 
+                      data_dir=data_dir, train_psd_only=False,
+                     momentum_dump_csv=mom_dump, sectors=sectors,
+                     concat_ext_feats=concat_ext_feats) 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
