@@ -815,7 +815,7 @@ def diagnostic_plots(history, model, p, output_dir,
                      input_bottle_inds = [0,1,2,-6,-7],
                      addend = 1., feature_vector=False, percentage=False,
                      input_features = False, load_bottleneck=False, n_tot=100,
-                     DAE=False,
+                     DAE=False, bottleneck_train=None, bottleneck=None,
                      plot_epoch = False,
                      plot_in_out = False,
                      plot_in_bottle_out=False,
@@ -882,9 +882,10 @@ def diagnostic_plots(history, model, p, output_dir,
     
     # >> plot loss, accuracy, precision, recall vs. epochs
     if plot_epoch:
-        print('Plotting loss vs. epoch')
-        epoch_plots(history, p, output_dir+prefix+'epoch-',
-                    supervised=supervised)   
+        if type(history) != type(None):
+            print('Plotting loss vs. epoch')
+            epoch_plots(history, p, output_dir+prefix+'epoch-',
+                        supervised=supervised)   
 
     # -- unsupervised ---------------------------------------------------------
     # >> plot some decoded light curves
@@ -933,18 +934,19 @@ def diagnostic_plots(history, model, p, output_dir,
         features = np.array(features)
     else: features=False
     if plot_in_bottle_out or plot_latent_test or plot_lof_test or plot_lof_all:
-        if load_bottleneck:
-            print('Loading bottleneck (testing set)')
-            with fits.open(output_dir + 'bottleneck_test.fits', mmap=False) as hdul:
-                bottleneck = hdul[0].data
-        else:
-            print('Getting bottleneck (testing set)')
-            bottleneck = ml.get_bottleneck(model, x_test, p,
-                                           input_features=input_features,
-                                           features=features,
-                                           input_rms=input_rms,
-                                           rms=rms_test,
-                                           DAE=DAE)
+        if type(bottleneck) == type(None):
+            if load_bottleneck:
+                print('Loading bottleneck (testing set)')
+                with fits.open(output_dir + 'bottleneck_test.fits', mmap=False) as hdul:
+                    bottleneck = hdul[0].data
+            else:
+                print('Getting bottleneck (testing set)')
+                bottleneck = ml.get_bottleneck(model, x_test, p,
+                                               input_features=input_features,
+                                               features=features,
+                                               input_rms=input_rms,
+                                               rms=rms_test,
+                                               DAE=DAE)
         
     # >> plot input, bottleneck, output
     if plot_in_bottle_out and not supervised:
@@ -973,19 +975,20 @@ def diagnostic_plots(history, model, p, output_dir,
 
     
     if plot_latent_train or plot_lof_train or plot_lof_all:
-        if load_bottleneck:
-            print('Loading bottleneck (training set)')
-            with fits.open(output_dir + 'bottleneck_train.fits', mmap=False) as hdul:
-                bottleneck_train = hdul[0].data
-        else:
-            print('Getting bottleneck (training set)')
-            bottleneck_train = ml.get_bottleneck(model, x_train, p,
-                                                 input_features=input_features,
-                                                 features=features,
-                                                 input_rms=input_rms,
-                                                 rms=rms_train,
-                                                 DAE=DAE)
-        
+        if type(bottleneck_train) == type(None):
+            if load_bottleneck:
+                print('Loading bottleneck (training set)')
+                with fits.open(output_dir + 'bottleneck_train.fits', mmap=False) as hdul:
+                    bottleneck_train = hdul[0].data
+            else:
+                print('Getting bottleneck (training set)')
+                bottleneck_train = ml.get_bottleneck(model, x_train, p,
+                                                     input_features=input_features,
+                                                     features=features,
+                                                     input_rms=input_rms,
+                                                     rms=rms_train,
+                                                     DAE=DAE)
+
     if plot_latent_train:
         print('Plotting latent space for training set')
         latent_space_plot(bottleneck_train, output_dir+prefix+\
@@ -1074,6 +1077,65 @@ def diagnostic_plots(history, model, p, output_dir,
         
     # return activations, bottleneck
 
+def classification_plots(features, flux_feat, ticid_feat, info_feat, labels,
+                         output_dir='./', prefix='', database_dir='./', data_dir='./'):
+
+        
+    acc = pf.plot_confusion_matrix(ticid_feat, labels, database_dir=database_dir,
+                                   output_dir=output_dir, prefix=prefix)         
+    with open(output_dir+prefix+'param_summary.txt', 'a') as f:
+        f.write('accuracy: ' + str(np.max(acc)))   
+    pf.quick_plot_classification(x, flux_feat, ticid_feat, info_feat, 
+                                 features, labels, path=output_dir,
+                                 prefix=prefix, database_dir=database_dir)
+    pf.plot_cross_identifications(x, flux_feat, ticid_feat, info_feat, features,
+                                  labels, path=output_dir, database_dir=database_dir,
+                                  data_dir=data_dir, prefix=prefix)
+
+    class_info = df.get_true_classifications(ticid_feat, database_dir)
+    pf.ensemble_summary(ticid_feat, labels, database_dir,
+                        output_dir, prefix, data_dir=data_dir,
+                        class_info=class_info)
+
+    cm, assignments, ticid_true, y_true, class_info_new, recalls, \
+        false_discovery_rates, counts_true, counts_pred, precisions, accuracy =\
+        pf.assign_real_labels(ticid_feat, labels, database_dir, data_dir, class_info)
+    pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+                               precisions, accuracy, counts_true, counts_pred,
+                               output_dir+prefix)
+    pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+                               precisions, accuracy, counts_true, counts_pred,
+                               output_dir+prefix, target_labels=[])
+    inter, comm1, comm2 = np.intersect1d(ticid_feat, ticid_true, return_indices=True)
+    y_pred = labels[comm1]
+
+    flux_in = flux_feat[comm1]
+    flux_pred = model.predict(flux_in)
+
+    pf.plot_fail_cases(x, flux_in, ticid_true, y_true, y_pred, assignments,
+                       class_info, info_feat[comm1], output_dir+prefix)
+
+    # >> find top 20 most popular classes
+    classes, counts = np.unique(y_true, return_counts=True)
+    classes = classes[np.argsort(counts)]
+    for class_label in classes[-20:]:
+        pf.plot_class_dists(assignments, ticid_true, y_pred, y_true,
+                            data_dir, sectors, true_label=class_label,
+                            output_dir=output_dir+prefix)
+
+
+    # pf.plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors, output_dir=output_dir)
+    pf.sector_dists(data_dir, sectors, output_dir=output_dir+prefix)
+
+    true_label = 'E'
+    pf.plot_fail_reconstructions(x, flux_in, flux_pred, ticid_true,
+                                 y_true, y_pred, assignments,
+                                 class_info, info_feat[comm1],
+                                 output_dir=output_dir+prefix,
+                                 true_label='E')
+
+
+
 def epoch_plots(history, p, out_dir, supervised=False, input_psd=False):
     '''Plot metrics vs. epochs.
     Parameters:
@@ -1081,7 +1143,7 @@ def epoch_plots(history, p, out_dir, supervised=False, input_psd=False):
         * model = Keras Model()
         * activations
         * '''
-        
+
     if supervised:
         label_list = [['loss', 'accuracy'], ['precision', 'recall']]
         key_list = [['loss', 'accuracy'], [list(history.history.keys())[-2],
@@ -1518,7 +1580,7 @@ def plot_lof_summary(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
              n_neighbors=20, target_info=False, p=4, metric='minkowski',
              contamination=0.1, algorithm='auto', 
-             prefix='', mock_data=False, addend=1., feature_vector=False,
+             prefix='', mock_data=False, addend=0., feature_vector=False,
              log=False, database_dir=None, single_file=False,
              fontsize='xx-small', title=True, n_pgram=5000,
              nrows=5, ncols=4):
