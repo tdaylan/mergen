@@ -19,7 +19,7 @@ run_cpu=True
 data_dir = '/nfs/ger/home/echickle/data/'
 
 # >> directory to save plots (will make dir if doesn't exist)
-output_dir = '/nfs/ger/home/echickle/plots113020/'
+output_dir = '/nfs/ger/home/echickle/plots120220/'
 
 # mom_dump = '../../Table_of_momentum_dumps.csv'
 mom_dump = '/nfs/ger/home/echickle/data/Table_of_momentum_dumps.csv'
@@ -57,9 +57,9 @@ train_test_ratio = 1.
 # >> what this script will run:
 preprocessing = True
 hyperparameter_optimization = False # >> run hyperparameter search
-run_model = False # >> train autoencoder on a parameter set p
-diag_plots = False # >> creates diagnostic plots. If run_model==False, then will
-                  # >> load bottleneck*.fits for plotting
+run_model = False # >> train autoencoder with parameter set p
+save_model_epoch = False
+diag_plots = False # >> creates diagnostic plots
 
 plot_feat_space = False
 novelty_detection=False
@@ -70,16 +70,18 @@ run_dbscan = False
 run_hdbscan= False
 run_gmm = False
 
-iterative=False
-all_split=True
-
+iterative=True
+train_split=False
 
 # >> normalization options:
 #    * standardization : sets mean to 0. and standard deviation to 1.
 #    * median_normalization : divides by median
 #    * minmax_normalization : sets range of values from 0. to 1.
 #    * none : no normalization
-norm_type = 'standardization'
+if train_split or iterative:
+    norm_type = 'none'
+else:
+    norm_type = 'standardization'
 
 input_rms=False# >> concatenate RMS to learned features
 input_psd=False # >> also train on PSD
@@ -170,7 +172,7 @@ if hyperparameter_optimization:
     p = {'kernel_size': [5,15,25],
           'latent_dim': [35, 55, 75],
           'strides': [1,2,3],
-          'epochs': [10],
+          'epochs': [30],
           'dropout': [0.1, 0.3, 0.5],
           'num_filters': [8, 32, 64],
           'num_conv_layers': [4, 6, 8, 10],
@@ -202,7 +204,7 @@ else:
     p = {'kernel_size': 5,
           'latent_dim': 35,
           'strides': 1,
-          'epochs': 30,
+          'epochs': 1,
           'dropout': 0.2,
           'num_filters': 32,
           'num_conv_layers': 6,
@@ -713,18 +715,19 @@ if novelty_detection or classification:
 # == iterative training =======================================================
         
 if iterative:
-    ml.iterative_cae(x_train, y_train, x_test, y_test, x, p, ticid_train, 
-                      ticid_test, target_info_train, target_info_test, num_split=2,
+    ml.iterative_cae(x_train, x_test, x, p, ticid_train, 
+                      ticid_test, target_info_train, target_info_test,
+                     iterations=2, n_split=[4,8],
                       output_dir=output_dir, split=split_at_orbit_gap,
                       input_psd=input_psd, database_dir=database_dir,
                       data_dir=data_dir, train_psd_only=False,
                      momentum_dump_csv=mom_dump, sectors=sectors,
                      concat_ext_feats=concat_ext_feats) 
 
-if all_split:
+if train_split:
     ml.split_cae(x, x_train, x_test, p, target_info_train, target_info_test,
                  ticid_train, ticid_test, sectors, data_dir=data_dir, 
                  database_dir=database_dir, output_dir=output_dir, 
-                 momentum_dump_csv=mom_dump)
+                 momentum_dump_csv=mom_dump, save_model_epoch=save_model_epoch)
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
