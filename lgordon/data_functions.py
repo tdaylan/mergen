@@ -470,7 +470,86 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
         plt.close(fig)        
         
     return i_interp, flag
- 
+
+def convert_to_quat_metafile(file, fileoutput):
+    f = fits.open(file, memmap=False)
+    
+    t = f[1].data['TIME']
+    Q1 = f[1].data['C1_Q1']
+    Q2 = f[1].data['C1_Q2']
+    Q3 = f[1].data['C1_Q3']
+    f.close()
+    
+    big_quat_array = np.asarray((t, Q1, Q2, Q3))
+    np.savetxt(fileoutput, big_quat_array)
+
+def metafile_load_smooth_quaternions(sector, maintimeaxis, 
+                                     quaternion_folder = "/users/conta/urop/quaternions/"):
+    
+    def quaternion_binning(quaternion_t, q, maintimeaxis):
+        sector_start = maintimeaxis[0]
+        bins = 900 #30 min times sixty seconds/2 second cadence
+                
+        def find_nearest_values_index(array, value):
+            array = np.asarray(array)
+            idx = (np.abs(array - value)).argmin()
+            return idx
+                
+        binning_start = find_nearest_values_index(quaternion_t, sector_start)
+        n = binning_start
+        m = n + bins
+        binned_Q = []
+        binned_t = []
+                
+        while m <= len(quaternion_t):
+            bin_t = quaternion_t[n]
+            binned_t.append(bin_t)
+            bin_q = np.mean(q[n:m])
+            binned_Q.append(bin_q)
+            n += 900
+            m += 900
+                
+            
+        standard_dev = np.std(np.asarray(binned_Q))
+        mean_Q = np.mean(binned_Q)
+        outlier_indexes = []
+                
+        for n in range(len(binned_Q)):
+            if binned_Q[n] >= mean_Q + 5*standard_dev or binned_Q[n] <= mean_Q - 5*standard_dev:
+                outlier_indexes.append(n)
+                
+                      
+        return np.asarray(binned_t), np.asarray(binned_Q), outlier_indexes
+        
+    from scipy.signal import medfilt
+    for root, dirs, files in os.walk(quaternion_folder):
+            for name in files:
+                if name.endswith(("S"+sector+"-quat.txt")):
+                    filepath = root + "/" + name
+                    c = np.genfromtxt(filepath)
+                    tQ = c[0]
+                    Q1 = c[1]
+                    Q2 = c[2]
+                    Q3 = c[3]
+
+    q = [Q1, Q2, Q3]
+
+    
+    for n in range(3):
+        smoothed = medfilt(q[n], kernel_size = 31)
+        if n == 0:
+            Q1 = smoothed
+            tQ_, Q1, Q1_outliers = quaternion_binning(tQ, Q1, maintimeaxis)
+        elif n == 1:
+            Q2 = smoothed
+            tQ_, Q2, Q2_outliers = quaternion_binning(tQ, Q2, maintimeaxis)
+        elif n == 2:
+            Q3 = smoothed
+            tQ_, Q3, Q3_outliers = quaternion_binning(tQ, Q3, maintimeaxis)
+    
+    outlier_indexes = np.unique(np.concatenate((Q1_outliers, Q2_outliers, Q3_outliers)))
+    return tQ_, Q1, Q2, Q3, outlier_indexes  
+
 def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxis, plot = False):
 
     from scipy.signal import medfilt

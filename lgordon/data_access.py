@@ -776,11 +776,11 @@ def targetwise_lc(yourpath, target_list, fname_time_intensities,fname_notes):
     print("lc_from_target_list has finished running")
     return np.asarray(ticids)
 
-def convert_listofRADEC_todegrees(file, outputfile)
+def convert_listofRADEC_todegrees(file, outputfile):
 
     #converting to decimal degrees
     import pandas as pd
-    
+    from astropy.coordinates import Angle
     df = pd.read_csv(file)
     print (df)
     
