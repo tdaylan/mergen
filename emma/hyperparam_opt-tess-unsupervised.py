@@ -13,16 +13,20 @@
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 run_cpu=True
+sirius=False
 
 # data_dir = '../../' # >> directory with input data (ending with /)
-# data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-data_dir = '/nfs/ger/home/echickle/data/'
 
-# >> directory to save plots (will make dir if doesn't exist)
-output_dir = '/nfs/ger/home/echickle/plots120220/'
-
-# mom_dump = '../../Table_of_momentum_dumps.csv'
-mom_dump = '/nfs/ger/home/echickle/data/Table_of_momentum_dumps.csv'
+if sirius:
+    data_dir = '/nfs/ger/home/echickle/data/'
+    output_dir = '/nfs/ger/home/echickle/plots120220/'
+    mom_dump = '/nfs/ger/home/echickle/data/Table_of_momentum_dumps.csv'
+    database_dir = '/nfs/ger/home/echickle/data/databases/'
+else:
+    data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
+    output_dir = '../../plots120220/'
+    mom_dump = '../../Table_of_momentum_dumps.csv'
+    database_dir = data_dir + 'databases/'
 
 lib_dir = '../main/' # >> directory containing model.py, data_functions.py
                      # >> and plotting_functions.py
@@ -30,7 +34,7 @@ lib_dir = '../main/' # >> directory containing model.py, data_functions.py
                                   # >> cross-checking classifications
 single_file = False
 # database_dir= '/Users/studentadmin/Dropbox/TESS_UROP/data/databases/'
-database_dir = '/nfs/ger/home/echickle/data/databases/'
+
 
 # database_dir = output_dir + 'all_simbad_classifications.txt'
 simbad_database_dir = ''
@@ -121,10 +125,11 @@ if run_cpu:
     os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 
 import tensorflow as tf
-print('GPU devices: ')
-print(tf.config.list_physical_devices('GPU'))
-print('CPU devices: ')
-print(tf.config.list_physical_devices('CPU'))
+if sirius:
+    print('GPU devices: ')
+    print(tf.config.list_physical_devices('GPU'))
+    print('CPU devices: ')
+    print(tf.config.list_physical_devices('CPU'))
 
 import gc
 # tf.enable_eager_execution()
@@ -477,7 +482,27 @@ if novelty_detection or classification:
                         use_engineered_features=use_engineered_features,
                         use_tls_features=use_tls_features, log=False,
                         momentum_dump_csv=mom_dump)
+                
+# == iterative training =======================================================
         
+if iterative:
+    ml.iterative_cae(x_train, x_test, x, p, ticid_train, 
+                      ticid_test, target_info_train, target_info_test,
+                     iterations=2, n_split=[4,8],
+                      output_dir=output_dir, split=split_at_orbit_gap,
+                      input_psd=input_psd, database_dir=database_dir,
+                      data_dir=data_dir, train_psd_only=False,
+                     momentum_dump_csv=mom_dump, sectors=sectors,
+                     concat_ext_feats=concat_ext_feats) 
+
+if train_split:
+    ml.split_cae(x, x_train, x_test, p, target_info_train, target_info_test,
+                 ticid_train, ticid_test, sectors, data_dir=data_dir, 
+                 database_dir=database_dir, output_dir=output_dir, 
+                 momentum_dump_csv=mom_dump, save_model_epoch=save_model_epoch)
+
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
         # if p['concat_ext_feats'] or input_psd:
         #     features, flux_feat, ticid_feat, info_feat = \
         #         ml.bottleneck_preprocessing(sectors[0],
@@ -711,23 +736,3 @@ if novelty_detection or classification:
         #                                      output_dir=output_dir,
         #                                      true_label='E')
                 
-                
-# == iterative training =======================================================
-        
-if iterative:
-    ml.iterative_cae(x_train, x_test, x, p, ticid_train, 
-                      ticid_test, target_info_train, target_info_test,
-                     iterations=2, n_split=[4,8],
-                      output_dir=output_dir, split=split_at_orbit_gap,
-                      input_psd=input_psd, database_dir=database_dir,
-                      data_dir=data_dir, train_psd_only=False,
-                     momentum_dump_csv=mom_dump, sectors=sectors,
-                     concat_ext_feats=concat_ext_feats) 
-
-if train_split:
-    ml.split_cae(x, x_train, x_test, p, target_info_train, target_info_test,
-                 ticid_train, ticid_test, sectors, data_dir=data_dir, 
-                 database_dir=database_dir, output_dir=output_dir, 
-                 momentum_dump_csv=mom_dump, save_model_epoch=save_model_epoch)
-
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
