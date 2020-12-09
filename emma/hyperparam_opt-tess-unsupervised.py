@@ -24,7 +24,7 @@ if sirius:
     database_dir = '/nfs/ger/home/echickle/data/databases/'
 else:
     data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/'
-    output_dir = '../../plots120220/'
+    output_dir = '../../plots120820/'
     mom_dump = '../../Table_of_momentum_dumps.csv'
     database_dir = data_dir + 'databases/'
 
@@ -56,14 +56,14 @@ load_weights = False
 weights_path = output_dir+'model.hdf5'
 
 # train_test_ratio = 0.1 # >> fraction of training set size to testing set size
-train_test_ratio = 1.
+train_test_ratio = 1.0
 
 # >> what this script will run:
 preprocessing = True
 hyperparameter_optimization = False # >> run hyperparameter search
-run_model = False # >> train autoencoder with parameter set p
+run_model = True # >> train autoencoder with parameter set p
 save_model_epoch = False
-diag_plots = False # >> creates diagnostic plots
+diag_plots = True # >> creates diagnostic plots
 
 plot_feat_space = False
 novelty_detection=False
@@ -74,7 +74,7 @@ run_dbscan = False
 run_hdbscan= False
 run_gmm = False
 
-iterative=True
+iterative=False
 train_split=False
 
 # >> normalization options:
@@ -209,7 +209,7 @@ else:
     p = {'kernel_size': 5,
           'latent_dim': 35,
           'strides': 1,
-          'epochs': 1,
+          'epochs': 20,
           'dropout': 0.2,
           'num_filters': 32,
           'num_conv_layers': 6,
@@ -217,7 +217,7 @@ else:
           'activation': 'elu',
           'optimizer': 'adam',
           'last_activation': 'linear',
-          'losses': 'mean_squared_error',
+          'losses': ml.mean_cubic_loss,
           'lr': 0.0001,
           'initializer': 'random_normal',
           'num_consecutive': 2,
@@ -316,6 +316,7 @@ if input_psd:
     p['concat_ext_feats'] = True
 
 title='TESS-unsupervised'
+
 
 # == talos experiment =========================================================
 if hyperparameter_optimization:

@@ -699,7 +699,7 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
                                                          monitor='loss', verbose=1,
                                                          save_best_only=True, mode='auto',
                                                          save_freq='epoch')
-            callbacks = [checkoint, tensorboard_callback]
+            callbacks = [checkpoint, tensorboard_callback]
         else:
             callbacks = None
         
@@ -726,6 +726,7 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     res = [model, history]
 
     if save_bottleneck:
+        print('Getting bottlneck...')
         bottleneck_train = \
             get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
                            out=output_dir+prefix+'bottleneck_train.fits')
@@ -738,6 +739,7 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
         res.append(bottleneck_train)
         res.append(bottleneck)
     if predict:
+        print('Getting x_predict...')
         if len(x_test) > 0:
             x_predict = model.predict(x_test)      
             hdr = fits.Header()
@@ -875,6 +877,12 @@ def custom_loss_tsne(y_true, y_pred):
     
     # >> now compute MSE
     loss = K.mean(K.square(P_output - P_input))
+    
+    return loss
+
+def mean_cubic_loss(y_true, y_pred): 
+    # >> now compute MSE
+    loss = K.mean(K.pow(K.abs(y_true - y_pred), 3))
     
     return loss
 
@@ -1483,6 +1491,16 @@ def split_cae(x, flux_train, flux_test, p, target_info_train, target_info_test,
                  data_dir=data_dir, database_dir=database_dir,
                  momentum_dump_csv=momentum_dump_csv, features=features, 
                  flux_feat=flux_feat, ticid_feat=ticid_feat, info_feat=info_feat)
+   
+    
+def top_reconstruction_error(x_true, x_predict, nfrac=0.01):
+    '''Calculates the mean of the highest nfrac reconstruction errors for each
+    light curve.'''
+    err = (x_true - x_predict)**2
+    err = np.sort(err, axis=-1)
+    err = err[:,-1*int(nfrac*err.shape[-1]):]
+    err = np.mean(err, axis=-1)
+    return err
     
     
 def iterative_cae(flux_train, flux_test, x, p, ticid_train, 
@@ -1501,7 +1519,6 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
     rms_test = df.rms(flux_test)
     x_test = df.standardize(flux_test)
     
-    pdb.set_trace()
 
     model, history, bottleneck_train, bottleneck_test, x_predict, x_predict_train = \
         conv_autoencoder(x_train, x_train, x_test, x_test, p,

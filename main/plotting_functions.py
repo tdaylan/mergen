@@ -2095,16 +2095,68 @@ def plot_paramscan_classes(output_dir, parameter_sets, num_classes, noise_points
     
     plt.show()
 
+def reconstruction_error_power(time, intensity, x_test, x_predict, ticid_test,
+                               output_dir='./', target_info=False, n=20,
+                              prefix='', powers=[1,2,3,4,5]):
+    
+    
+    fig_large, ax_large = plt.subplots(n, len(powers), sharex=True,
+                           figsize=(8*len(powers), 3*n))
+    fig_small, ax_small = plt.subplots(n, len(powers), sharex=True,
+                             figsize=(8*len(powers), 3*n))
+    
+    for col in range(len(powers)):
+    
+        print('Calculating reconstruction error ...')
+        err = np.abs(x_test - x_predict)**powers[col]
+        err = np.mean(err, axis=1)
+        err = err.reshape(np.shape(err)[0])
+    
+        # >> get top n light curves
+        ranked = np.argsort(err)
+        largest_inds = np.copy(ranked[::-1][:n])
+        smallest_inds = np.copy(ranked[:n])
+    
+        for i in range(2):
+            if i == 0:
+                fig, ax = fig_large, ax_large
+                inds = largest_inds
+            else:
+                fig, ax = fig_small, ax_small
+                inds =smallest_inds
+            for k in range(n): # >> loop through each row
+                ind = inds[k]
+                
+                # >> plot light curve
+                ax[k, col].plot(time, intensity[ind], '.k')
+                ax[k, col].plot(time, x_predict[ind], '.')
+                # ax[k].text(0.98, 0.02, 'mse: ' +str(err[ind]),
+                #            transform=ax[k].transAxes, horizontalalignment='right',
+                #            verticalalignment='bottom', fontsize='xx-small')
+                format_axes(ax[k, col], ylabel=True)
+                ticid_label(ax[k, col], ticid_test[ind], target_info[ind],
+                            title=True)
+            ax[0, col].set_title('Power='+str(powers[col]))
+            ax[n-1, col].set_xlabel('Time [BJD - 2457000]')
+            
+    fig_large.suptitle('largest reconstruction error', fontsize=16, y=0.9)
+    fig_large.savefig(output_dir+prefix+'reconstruction_error-largest.png',
+                      bbox_inches='tight')
+
+    fig_small.suptitle('smallest reconstruction error', fontsize=16, y=0.9)
+    fig_small.savefig(output_dir+prefix+'reconstruction_error-smallest.png',
+                bbox_inches='tight')  
+
 
 def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
-                              output_dir='./', addend=1., mock_data=False,
+                              output_dir='./', err=None, mock_data=False,
                               feature_vector=False, n=20, target_info=False,
                               prefix=''):
-    '''For autoencoder, intensity = x_test'''
-    # >> calculate reconstruction error (mean squared error)
-    err = (x_test - x_predict)**2
-    err = np.mean(err, axis=1)
-    err = err.reshape(np.shape(err)[0])
+    if type(err) == type(None):
+        print('Calculating reconstruction error ...')
+        err = (x_test - x_predict)**2
+        err = np.mean(err, axis=1)
+        err = err.reshape(np.shape(err)[0])
     
     # >> get top n light curves
     ranked = np.argsort(err)
@@ -2117,10 +2169,7 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
     if not mock_data:
         out = np.column_stack([ticid_test.astype('int'), err])
         np.savetxt(output_dir+prefix+'reconstruction_error.txt', out, fmt='%-16s')
-        
-        # with open(output_dir+'reconstruction_error.txt', 'w') as f:
-        #     for i in range(len(ticid_test)):
-        #         f.write('{}\t\t{}\n'.format(ticid_test[i], err[i]))
+    
     
     plt.figure()
     plt.hist(err, bins=50)
@@ -2135,9 +2184,9 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
             else: ind = random_inds[k]
             
             # >> plot light curve
-            ax[k].plot(time, intensity[ind]+addend, '.k')
+            ax[k].plot(time, intensity[ind], '.k')
             if not feature_vector:
-                ax[k].plot(time, x_predict[ind]+addend, '.')
+                ax[k].plot(time, x_predict[ind], '.')
             ax[k].text(0.98, 0.02, 'mse: ' +str(err[ind]),
                        transform=ax[k].transAxes, horizontalalignment='right',
                        verticalalignment='bottom', fontsize='xx-small')
@@ -2163,7 +2212,7 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
             fig.savefig(output_dir+prefix+'reconstruction_error-random.png',
                         bbox_inches='tight')            
         plt.close(fig)
-    
+
 def classification_diagnosis(features, labels_feat, output_dir, prefix='',
                              figsize=(15,15)):
 
