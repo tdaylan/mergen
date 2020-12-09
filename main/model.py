@@ -1127,12 +1127,20 @@ def split_reconstruction(x, flux_train, flux_test,
     if len(x_test) == 0:
         x_predict_test = np.empty((0, x_train.shape[-1]))
     
+    # if concat_ext_feats or input_psd: 
+    #     err_train = (x_train[0] - x_predict_train[0])**2
+    #     err_test = (x_test[0] - x_predict_test[0])**2
+    # else:      
+    #     err_train = (x_train - x_predict_train)**2
+    #     err_test = (x_test - x_predict_test)**2
+        
     if concat_ext_feats or input_psd: 
-        err_train = (x_train[0] - x_predict_train[0])**2
-        err_test = (x_test[0] - x_predict_test[0])**2
+        err_train = np.abs(x_train[0] - x_predict_train[0])**3
+        err_test = np.abs(x_test[0] - x_predict_test[0])**3
     else:      
-        err_train = (x_train - x_predict_train)**2
-        err_test = (x_test - x_predict_test)**2
+        err_train = np.abs(x_train - x_predict_train)**3
+        err_test = np.abs(x_test - x_predict_test)**3
+        
     err_train = np.mean(err_train, axis=1)
     err_train = err_train.reshape(np.shape(err_train)[0])
     ranked_train = np.argsort(err_train)

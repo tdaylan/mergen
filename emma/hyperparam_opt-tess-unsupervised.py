@@ -12,8 +12,8 @@
 # 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+sirius=True
 run_cpu=True
-sirius=False
 
 # data_dir = '../../' # >> directory with input data (ending with /)
 
@@ -217,7 +217,7 @@ else:
           'activation': 'elu',
           'optimizer': 'adam',
           'last_activation': 'linear',
-          'losses': ml.mean_cubic_loss,
+          'losses': 'mean_squared_error',
           'lr': 0.0001,
           'initializer': 'random_normal',
           'num_consecutive': 2,
@@ -357,7 +357,7 @@ if run_model:
 elif load_saved_model:
     if load_weights:
         print('Loading weights...')
-        history, model, x_predict = \
+        history, model, bottleneck_train, bottleneck, x_predict, x_predict_train = \
                 ml.conv_autoencoder(x_train, x_train, x_test, x_test, p, val=False,
                                     split=split_at_orbit_gap,
                                     ticid_train=ticid_train, ticid_test=ticid_test,
@@ -385,7 +385,7 @@ elif load_saved_model:
 if diag_plots:
     print('Creating plots...')
     pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
-                        x_test, x_predict, mock_data=False,
+                        x_test, x_predict, x_predict_train, mock_data=False,
                         addend=0.,
                         target_info_test=target_info_test,
                         target_info_train=target_info_train,
@@ -395,20 +395,7 @@ if diag_plots:
                         input_rms=input_rms, rms_test=rms_test,
                         input_psd=input_psd,
                         rms_train=rms_train, n_tot=40,
-                        
                         plot_epoch = plot_epoch,
-                        plot_in_out = True,
-                        plot_in_bottle_out=False,
-                        plot_latent_test = True,
-                        plot_latent_train = True,
-                        plot_kernel=False,
-                        plot_intermed_act=False,
-                        make_movie = False,
-                        plot_lof_test=False,
-                        plot_lof_train=False,
-                        plot_lof_all=False,
-                        plot_reconstruction_error_test=True,
-                        plot_reconstruction_error_all=False,
                         load_bottleneck=True)     
 # flux_train=flux_train, flux_test=flux_test, time=x,     
     

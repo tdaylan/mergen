@@ -1063,7 +1063,7 @@ def diagnostic_plots(history, model, p, output_dir,
         plot_reconstruction_error(x, x_train, x_train, x_predict_train, ticid_train,
                                   output_dir=output_dir, prefix=prefix,
                                   target_info=target_info_train,
-                                  mock_data=mock_data, addend=addend)
+                                  mock_data=mock_data)
     
     if plot_reconstruction_error_all:
         print('Plotting reconstruction error for entire dataset')
