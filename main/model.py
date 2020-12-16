@@ -132,7 +132,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
     if DAE:
         features = features[inds]
         
-    # >> move specified targest to testing set [deprecated 120120]
+    # >> move specified targest to testing set [deprecated 12-01-20]
     if len(validation_targets) > 0:
         for t in validation_targets:
             target_ind = np.nonzero( ticid == t )
@@ -153,7 +153,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                                      axis=0)
                 features = np.delete(features, target_ind, axis=0)
                 
-    # >> partition data and normalize
+    # :: partition data and normalize ::::::::::::::::::::::::::::::::::::::::::
     if DAE:
         print('Partitioning data...')
         x_train, x_test, y_train, y_test, flux_train, flux_test,\
@@ -212,27 +212,28 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
         # -- normalize ---------------------------------------------------------
         if norm_type == 'standardization':
             print('Standardizing fluxes...')
-            flux = df.standardize(flux)
+            x = df.standardize(flux)
     
         elif norm_type == 'median_normalization':
             print('Normalizing fluxes (dividing by median)...')
-            flux = df.normalize(flux)
+            x = df.normalize(flux)
             
         elif norm_type == 'minmax_normalization':
             print('Normalizing fluxes (changing minimum and range)...')
-            mins = np.min(flux, axis = 1, keepdims=True)
-            flux = flux - mins
-            maxs = np.max(flux, axis=1, keepdims=True)
-            flux = flux / maxs
+            mins = np.min(x, axis = 1, keepdims=True)
+            x = x - mins
+            maxs = np.max(x, axis=1, keepdims=True)
+            x = x / maxs
             
         else:
             print('Light curves were not normalized!')
+            x = flux
             
         # -- partitioning training and testing set -----------------------------
         print('Partitioning data...')
-        x_train, x_test, y_train, y_test, ticid_train, ticid_test,\
-        target_info_train, target_info_test, time = \
-            split_data(flux, ticid, target_info, time, p,
+        flux_train, flux_test, x_train, x_test, y_train, y_test, ticid_train, \
+            ticid_test, target_info_train, target_info_test, time, time_plot  = \
+            split_data(flux, x, ticid, target_info, time, p,
                        train_test_ratio=train_test_ratio,
                        supervised=False)             
             
@@ -299,7 +300,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                                          use_engineered_features=False,
                                          use_tls_features=use_tls_features,
                                          log=False)  
-            x_train = [flux_train, external_features_train]
+            x_train = [x_train, external_features_train]
             external_features_test, flux_test, ticid_test, target_info_test = \
                 bottleneck_preprocessing(sector, x_test, ticid_test,
                                          target_info_test, rms_test,
@@ -311,10 +312,10 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                                          use_tls_features=use_tls_features,
                                          use_rms=use_rms,
                                          log=False)  
-            x_test = [flux_test, external_features_test]
+            x_test = [x_test, external_features_test]
                                     
-        return x_train, x_test, y_train, y_test, ticid_train, ticid_test, \
-            target_info_train, target_info_test, rms_train, rms_test, time            
+        return flux_train, flux_test, x_train, x_test, ticid_train, ticid_test,\
+            target_info_train, target_info_test, rms_train, rms_test, time, time_plot
 
 def bottleneck_preprocessing(sector, flux, ticid, target_info,
                              rms=None,
@@ -2735,13 +2736,11 @@ def split_data_features(flux, features, time, ticid, target_info, classes, p,
     return x_train, x_test, y_train, y_test, flux_train, flux_test,\
         ticid_train, ticid_test, target_info_train, target_info_test, time
 
-def split_data(flux, ticid, target_info, time, p,
+def split_data(flux, x, ticid, target_info, time, p,
                train_test_ratio = 0.9,
-               cutoff=16336,
                supervised=False, classes=False, interpolate=False,
                resize_arr=False, truncate=True):
-    '''need to update, might not work'''
-        
+
     if truncate:
         # >> dim reduced each iteration
         reduction_factor = np.max(p['pool_size'])* np.max(p['strides'])**np.max(p['num_consecutive'] )
@@ -2752,11 +2751,9 @@ def split_data(flux, ticid, target_info, time, p,
         if p['fully_conv']:
             # >> 1 more conv layer
             tot_reduction_factor = tot_reduction_factor * np.max(p['strides'])
-        new_length = int(np.shape(flux)[1] / \
-                     tot_reduction_factor)*\
+        new_length = int(x.shape[1] / tot_reduction_factor)*\
                      int(tot_reduction_factor)
-        flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
-        # flux_plot=np.delete(flux_plot, np.arange(new_length,np.shape(flux_plot)[1]),1)
+        x = np.delete(x,np.arange(new_length,x.shape[1]),1)
         time = time[:new_length]         
 
     # >> split test and train data
@@ -2788,23 +2785,23 @@ def split_data(flux, ticid, target_info, time, p,
         target_info_test = np.copy(target_info[test_inds])        
     else:
         split_ind = int(train_test_ratio*np.shape(flux)[0])
-        x_train = flux[:split_ind]
-        x_test = flux[split_ind:]
+        flux_train = flux[:split_ind]
+        flux_test = flux[split_ind:]
+        x_train = x[:split_ind]
+        x_test = x[split_ind:]
         ticid_train = ticid[:split_ind]
         ticid_test = ticid[split_ind:]
         target_info_train = target_info[:split_ind]
         target_info_test = target_info[split_ind:]    
         y_test, y_train = [None, None]
-        # flux_train = flux_plot[:split_ind]
-        # flux_test = flux_plot[split_ind:]
         
     if resize_arr:
         x_train =  np.resize(x_train, (np.shape(x_train)[0],
                                        np.shape(x_train)[1], 1))
         x_test =  np.resize(x_test, (np.shape(x_test)[0],
                                        np.shape(x_test)[1], 1))
-    return x_train, x_test, y_train, y_test, ticid_train, ticid_test, \
-        target_info_train, target_info_test, time
+    return flux_train, flux_test, x_train, x_test, y_train, y_test, ticid_train,\
+        ticid_test, target_info_train, target_info_test, x, time
     
 
 def get_activations(model, x_test, input_rms = False, rms_test = False,
