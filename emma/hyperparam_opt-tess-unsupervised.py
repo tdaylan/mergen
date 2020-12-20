@@ -12,7 +12,7 @@
 # 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-sirius=True
+sirius=False
 run_cpu=True
 
 # data_dir = '../../' # >> directory with input data (ending with /)
@@ -174,7 +174,7 @@ else:
     p = {'kernel_size': 5,
           'latent_dim': 35,
           'strides': 1,
-          'epochs': 10,
+          'epochs': 1,
           'dropout': 0.2,
           'num_filters': 32,
           'num_conv_layers': 6,
@@ -216,21 +216,22 @@ if preprocessing:
         #                                     tol=0.5, norm_type=norm_type,
         #                                     output_dir=output_dir)
         
-        flux, x, ticid, target_info =\
+        flux, time, ticid, target_info =\
             df.combine_sectors_by_lc(sectors, data_dir, custom_mask=custom_mask,
                                      output_dir=output_dir)
         
     else:
         # >> currently only handles one sector
-        flux, x, ticid, target_info = \
+        flux, time, ticid, target_info = \
             df.load_data_from_metafiles(data_dir, sectors[0], cams=cams, ccds=ccds,
                                         DEBUG=True, fast=fast,
                                         output_dir=output_dir, nan_mask_check=True,
                                         custom_mask=custom_mask)
         
+
     flux_train, flux_test, x_train, x_test, ticid_train, ticid_test, \
         target_info_train, target_info_test, rms_train, rms_test, time, time_plot = \
-        ml.autoencoder_preprocessing(flux, x, p, ticid, target_info,
+        ml.autoencoder_preprocessing(flux, time, p, ticid, target_info,
                                      mock_data=False,
                                      sector=sectors[0],
                                      validation_targets=validation_targets,
@@ -374,7 +375,7 @@ if novelty_detection or classification:
         else:
             rms = None
 
-        ml.post_process(x_plot, flux_train, flux_test, ticid_train, ticid_test,
+        ml.post_process(time_plot, flux_train, flux_test, ticid_train, ticid_test,
                         target_info_train, target_info_test, p, output_dir, sectors,
                         prefix=prefix, data_dir=data_dir, database_dir=database_dir,
                         cams=cams, ccds=ccds,
@@ -387,7 +388,7 @@ if novelty_detection or classification:
 # == iterative training =======================================================
         
 if iterative:
-    ml.iterative_cae(flux_train, flux_test, time, p, ticid_train, 
+    ml.iterative_cae(x_train, x_test, time, p, ticid_train, 
                       ticid_test, target_info_train, target_info_test,
                      iterations=2, n_split=[4,8],
                       output_dir=output_dir, split=split_at_orbit_gap,

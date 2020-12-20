@@ -365,11 +365,23 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
             
     if use_learned_features:
         with fits.open(bottleneck_dir+prefix+'bottleneck_train.fits') as hdul:
-            bottleneck_train = hdul[0].data        
+            bottleneck_train = hdul[0].data
+            ticid_bottleneck_train = hdul[1].data
         with fits.open(bottleneck_dir+prefix+'bottleneck_test.fits') as hdul:
             bottleneck_test = hdul[0].data
+            ticid_bottleneck_test = hdul[1].data
         learned_feature_vector = np.concatenate([bottleneck_train,
                                                  bottleneck_test], axis=0)
+        ticid_learned = np.concatenate([ticid_bottleneck_train,
+                                        ticid_bottleneck_test])
+        
+        intersection, comm1, comm2 = np.intersect1d(ticid_learned, ticid,
+                                                    return_indices=True)
+        
+        flux = flux[comm2]
+        ticid = ticid[comm2]
+        target_info = target_info[comm2]
+        learned_feature_vector = learned_feature_vector[comm1]
         features.append(learned_feature_vector)
         
     if use_tls_features:
@@ -736,7 +748,12 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
                                         ticid=ticid_test,
                                         out=output_dir+prefix+'bottleneck_test.fits')    
         else:
-            bottleneck=None
+            bottleneck=np.empty((0,params['latent_dim']))
+            hdr=  fits.Header()
+            hdu = fits.PrimaryHDU(bottleneck, header=hdr)
+            hdu.writeto(output_dir+prefix+'bottleneck_test.fits')
+            fits.append(output_dir+prefix+'bottleneck_test.fits', ticid_test)
+            
         res.append(bottleneck_train)
         res.append(bottleneck)
     if predict:
@@ -1212,7 +1229,8 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                  metric='canberra', run_gmm=True, classification_param_search=False,
                  plot_feat_space=False, DAE=False, DAE_hyperparam_opt=False,
                  novelty_detection=True, classification=True,
-                 features=None, flux_feat=None, ticid_feat=None, info_feat=None):
+                 features=None, flux_feat=None, ticid_feat=None, info_feat=None,
+                 use_rms=False, n_components=100):
     if type(features) == type(None):
         features, flux_feat, ticid_feat, info_feat = \
             bottleneck_preprocessing(sectors, np.concatenate([x_train, x_test], axis=0),
@@ -1226,7 +1244,7 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                                      use_tess_features=use_tess_features,
                                      use_engineered_features=use_engineered_features,
                                      use_tls_features=use_tls_features,
-                                     norm=True,
+                                     norm=True, use_rms=use_rms,
                                      cams=cams, ccds=ccds, log=log)
 
     if plot_feat_space:
@@ -1357,7 +1375,8 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                 np.savetxt(output_dir+prefix+'gmm_labels.txt',
                            np.array([ticid_feat, labels]))
 
-        pf.classification_plots(features, flux_feat, ticid_feat, info_feat,
+        
+        pf.classification_plots(x, features, flux_feat, ticid_feat, info_feat,
                                 labels, output_dir=output_dir, prefix=prefix,
                                 database_dir=database_dir, data_dir=data_dir)
             
@@ -1518,7 +1537,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                   output_dir='./', split=False, input_psd=False, 
                   database_dir='./', data_dir='./', train_psd_only=True,
                   momentum_dump_csv='./Table_of_momentum_dumps.csv', sectors=[],
-                  concat_ext_feats=False, load_model = False):
+                  concat_ext_feats=False, load_model = False, use_rms=False):
     '''len(n_split)=iterations'''
 
     # -- first iteration -------------------------------------------------------
@@ -1529,7 +1548,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
     x_test = df.standardize(flux_test)
     
 
-    model, history, bottleneck_train, bottleneck_test, x_predict, x_predict_train = \
+    model, history, bottleneck_train, bottleneck_test, x_predict_test, x_predict_train = \
         conv_autoencoder(x_train, x_train, x_test, x_test, p,
                          ticid_train=ticid_train, ticid_test=ticid_test,
                          val=False, save_model=True, predict=True, 
@@ -1538,7 +1557,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                          save_model_epoch=save_model_epoch)
 
     pf.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
-                        x_predict, x_predict_train=x_predict_train,
+                        x_predict_test, x_predict_train=x_predict_train,
                         target_info_test=target_info_test,
                         target_info_train=target_info_train, prefix=prefix,
                         ticid_train=ticid_train, ticid_test=ticid_test, 
@@ -1577,7 +1596,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
         post_process(x, flux_train[0], flux_test[0], ticid_train[0], ticid_test[0],
                      info_train[0], info_test[0], p, output_dir, sectors,
                      data_dir=data_dir, database_dir=database_dir, prefix=prefix,
-                     momentum_dump_csv=momentum_dump_csv)
+                     momentum_dump_csv=momentum_dump_csv, use_rms=use_rms)
         
         # >> do split_cae on highest reconstruction error
         prefix='iteration'+str(i)+'-'
@@ -2754,6 +2773,7 @@ def split_data(flux, x, ticid, target_info, time, p,
         new_length = int(x.shape[1] / tot_reduction_factor)*\
                      int(tot_reduction_factor)
         x = np.delete(x,np.arange(new_length,x.shape[1]),1)
+        time_plot = time
         time = time[:new_length]         
 
     # >> split test and train data
@@ -2801,7 +2821,7 @@ def split_data(flux, x, ticid, target_info, time, p,
         x_test =  np.resize(x_test, (np.shape(x_test)[0],
                                        np.shape(x_test)[1], 1))
     return flux_train, flux_test, x_train, x_test, y_train, y_test, ticid_train,\
-        ticid_test, target_info_train, target_info_test, x, time
+        ticid_test, target_info_train, target_info_test, time, time
     
 
 def get_activations(model, x_test, input_rms = False, rms_test = False,
