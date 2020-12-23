@@ -12,14 +12,14 @@
 # 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-sirius=False
-run_cpu=True
+sirius=True
+run_cpu=False
 
 # data_dir = '../../' # >> directory with input data (ending with /)
 
 if sirius:
     data_dir = '/nfs/ger/home/echickle/data/'
-    output_dir = '/nfs/ger/home/echickle/plots120220/'
+    output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_2/'
     mom_dump = '/nfs/ger/home/echickle/data/Table_of_momentum_dumps.csv'
     database_dir = '/nfs/ger/home/echickle/data/databases/'
 else:
@@ -71,6 +71,7 @@ run_hdbscan= False
 run_gmm = False
 
 iterative=True
+plot_only=True
 train_split=False
 
 # >> normalization options:
@@ -174,7 +175,7 @@ else:
     p = {'kernel_size': 5,
           'latent_dim': 35,
           'strides': 1,
-          'epochs': 1,
+          'epochs': 30,
           'dropout': 0.2,
           'num_filters': 32,
           'num_conv_layers': 6,
@@ -388,19 +389,27 @@ if novelty_detection or classification:
 # == iterative training =======================================================
         
 if iterative:
+    # pdb.set_trace()
+    # ticid_err = np.loadtxt(output_dir+'iteration1-ticid_highest_error_train.txt')
+    # inter, comm1, comm2 = np.intersect1d(ticid_err, ticid_train, return_indices=True)
+    # x_train = x_train[comm2]
+    # ticid_train = ticid_train[comm2]
+    # target_info_train = target_info_train[comm2]
+    if plot_only: run=False
     ml.iterative_cae(x_train, x_test, time, p, ticid_train, 
                       ticid_test, target_info_train, target_info_test,
-                     iterations=2, n_split=[4,8],
+                     iterations=2, n_split=[4,8], latent_dim=[16,8],
                       output_dir=output_dir, split=split_at_orbit_gap,
                       input_psd=input_psd, database_dir=database_dir,
                       data_dir=data_dir, train_psd_only=False,
                      momentum_dump_csv=mom_dump, sectors=sectors,
-                     concat_ext_feats=concat_ext_feats) 
+                     concat_ext_feats=concat_ext_feats, plot=plot_only,
+                     run=run) 
 
-# if train_split:
-#     ml.split_cae(x, x_train, x_test, p, target_info_train, target_info_test,
-#                  ticid_train, ticid_test, sectors, data_dir=data_dir, 
-#                  database_dir=database_dir, output_dir=output_dir, 
-#                  momentum_dump_csv=mom_dump, save_model_epoch=save_model_epoch)
+if train_split:
+    ml.split_cae(time, x_train, x_test, p, target_info_train, target_info_test,
+                 ticid_train, ticid_test, sectors, data_dir=data_dir, 
+                 database_dir=database_dir, output_dir=output_dir, 
+                 momentum_dump_csv=mom_dump, save_model_epoch=save_model_epoch)
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::

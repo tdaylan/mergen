@@ -1108,7 +1108,7 @@ def diagnostic_plots(history, model, p, output_dir,
         print('Plotting kernel vs. filter')
         kernel_filter_plot(model, output_dir+prefix+'kernel-')    
 
-def classification_plots(model, features, time, flux_feat, ticid_feat, info_feat, labels,
+def classification_plots(features, time, flux_feat, ticid_feat, info_feat, labels,
                          output_dir='./', prefix='', database_dir='./', data_dir='./',
                          sectors=[1], true_label = 'E'):
 
@@ -2177,6 +2177,9 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
             ax[k].plot(time, intensity[ind], '.k')
             if not feature_vector:
                 ax[k].plot(time, x_predict[ind], '.')
+            text='mae: '+str(np.mean(np.abs(intensity[ind]-x_predict[ind])))+\
+                '\nmse: '+str(err[ind])+\
+                '\nmce: '+str(np.mean(np.abs((intensity[ind]-x_predict[ind])**3)))
             ax[k].text(0.98, 0.02, 'mse: ' +str(err[ind]),
                        transform=ax[k].transAxes, horizontalalignment='right',
                        verticalalignment='bottom', fontsize='xx-small')
