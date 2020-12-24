@@ -1109,7 +1109,8 @@ def diagnostic_plots(history, model, p, output_dir,
         kernel_filter_plot(model, output_dir+prefix+'kernel-')    
 
 def classification_plots(features, time, flux_feat, ticid_feat, info_feat, labels,
-                         output_dir='./', prefix='', database_dir='./', data_dir='./',
+                         x_predict, output_dir='./', prefix='', database_dir='./',
+                         data_dir='./',
                          sectors=[1], true_label = 'E'):
 
         
@@ -1119,7 +1120,7 @@ def classification_plots(features, time, flux_feat, ticid_feat, info_feat, label
         f.write('accuracy: ' + str(np.max(acc)))   
     quick_plot_classification(time, flux_feat, ticid_feat, info_feat, 
                                  features, labels, path=output_dir,
-                                 prefix=prefix, database_dir=database_dir)
+                                 prefix=prefix+'learned_classes', database_dir=database_dir)
     plot_cross_identifications(time, flux_feat, ticid_feat, info_feat, features,
                                   labels, path=output_dir, database_dir=database_dir,
                                   data_dir=data_dir, prefix=prefix)
@@ -2994,7 +2995,7 @@ def plot_fail_cases(time, flux, ticid, y_true, y_pred, assignments, class_info,
     for i in range(len(assignments)):
         fig, ax = plt.subplots(nrows, 3, sharex=True, figsize=(8*3*0.75, 3*nrows))
         
-        ticid_pred = ticid[np.nonzero(y_pred == int(assignments[i][0]))]
+        ticid_pred = ticid[np.nonzero(y_pred == int(float(assignments[i][0])))]
         ticid_true = ticid[np.nonzero(y_true == assignments[i][1])]
         
         
@@ -3308,8 +3309,8 @@ def ensemble_summary(ticid_pred, y_pred, database_dir='./databases/',
     
     intersection, comm1, comm2 = np.intersect1d(target_labels, true_labels,
                                                 return_indices=True)
-    plot_confusion_matrix(cm[comm1], intersection, columns, output_dir=output_dir,
-                          prefix=prefix, figsize=figsize)
+    # plot_confusion_matrix(cm[comm1], intersection, columns, output_dir=output_dir,
+    #                       prefix=prefix, figsize=figsize)
     
 
     
@@ -4045,7 +4046,7 @@ def plot_class_dists(assignments, ticid, y_pred, y_true, data_dir, sectors,
         # >> create plot for every class
         for i in range(len(assignments)):
             # >> find TICIDs of the true positives
-            ticid_pred = ticid[np.nonzero(y_pred == int(assignments[i][0]))]
+            ticid_pred = ticid[np.nonzero(y_pred == int(float(assignments[i][0])))]
             ticid_true = ticid[np.nonzero(y_true == assignments[i][1])]
             intersection = np.intersect1d(ticid_pred, ticid_true)
             
@@ -4053,14 +4054,15 @@ def plot_class_dists(assignments, ticid, y_pred, y_true, data_dir, sectors,
                          prefix=assignments[i][1])
             
     else:
-        ind = np.nonzero(assignments[:,1] == true_label)[0][0]
-        # >> find TICIDs of the true positives
-        ticid_pred = ticid[np.nonzero(y_pred == int(assignments[ind][0]))]
-        ticid_true = ticid[np.nonzero(y_true == true_label)]
-        intersection = np.intersect1d(ticid_pred, ticid_true)
-        
-        sector_dists(data_dir, sectors, intersection, output_dir,
-                     prefix=true_label)        
+        if len( np.nonzero(assignments[:,1] == true_label)[0]) > 0:
+            ind = np.nonzero(assignments[:,1] == true_label)[0][0]
+            # >> find TICIDs of the true positives
+            ticid_pred = ticid[np.nonzero(y_pred == int(float(assignments[ind][0])))]
+            ticid_true = ticid[np.nonzero(y_true == true_label)]
+            intersection = np.intersect1d(ticid_pred, ticid_true)
+
+            sector_dists(data_dir, sectors, intersection, output_dir,
+                         prefix=true_label)        
     
 def sector_dists(data_dir, sectors, ticid_list=[], output_dir='./', figsize=(3,3),
                  prefix=''):

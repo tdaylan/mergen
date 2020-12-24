@@ -19,7 +19,7 @@ run_cpu=False
 
 if sirius:
     data_dir = '/nfs/ger/home/echickle/data/'
-    output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_2/'
+    output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_1/'
     mom_dump = '/nfs/ger/home/echickle/data/Table_of_momentum_dumps.csv'
     database_dir = '/nfs/ger/home/echickle/data/databases/'
 else:
@@ -39,7 +39,7 @@ single_file = False
 # database_dir = output_dir + 'all_simbad_classifications.txt'
 simbad_database_dir = ''
 # >> input data
-sectors = [2]
+sectors = [1]
 cams = [1,2,3,4]
 ccds = [[1,2,3,4]]*4
 fast=False
@@ -71,7 +71,7 @@ run_hdbscan= False
 run_gmm = False
 
 iterative=True
-plot_only=True
+plot_only=False
 train_split=False
 
 # >> normalization options:
@@ -141,66 +141,68 @@ from sklearn.mixture import GaussianMixture
 from tensorflow.keras.models import load_model
 
 # >> hyperparameters
-if hyperparameter_optimization:
-    p = {'kernel_size': [3,5],
-          'latent_dim': [25],
-          'strides': [2],# 3
-          'epochs': [5],
-          'dropout': [0.1, 0.2, 0.3, 0.4, 0.5],
-          'num_filters': [32,64,128],
-          'num_conv_layers': [4,6,8,10],
-          'batch_size': [128],
-          'activation': [tf.keras.activations.softplus,
-                         tf.keras.activations.selu,
-                         tf.keras.activations.relu,
-                         'swish',
-                         tf.keras.activations.exponential,
-                         tf.keras.activations.elu, 'linear'],
-          'optimizer': ['adam', 'adadelta'],
-          'last_activation': ['linear'],
-          'losses': ['mean_squared_error'],
-          'lr': [0.001],
-          'initializer': ['random_normal'],
-          'num_consecutive': [2],
-           'kernel_regularizer': [None],
-          
-           'bias_regularizer': [None],
-          
-           'activity_regularizer': [None],
-         
-          'pool_size': [1]}     
+# if hyperparameter_optimization:
+p_opt = {'kernel_size': [3,5],
+      'latent_dim': [25, 35],
+      'strides': [1,2],
+      'epochs': [10],
+      'dropout': [0.1, 0.2, 0.3, 0.4, 0.5],
+      'num_filters': [32,64,128],
+      'num_conv_layers': [4,6,8,10],
+      'batch_size': [128],
+      'activation': [tf.keras.activations.softplus,
+                     tf.keras.activations.selu,
+                     tf.keras.activations.relu,
+                     tf.keras.activations.exponential,
+                     tf.keras.activations.elu],
+      'optimizer': ['adam', 'adadelta'],
+      'last_activation': ['elu'],
+      'losses': ['mean_squared_error'],
+      'lr': [0.001, 0.0001, 0.00001],
+      'initializer': ['random_normal'],
+      'num_consecutive': [2, 3],
+       'kernel_regularizer': [None],
+
+       'bias_regularizer': [None],
+
+       'activity_regularizer': [None],
+     'fully_conv': [False], 'encoder_decoder_skip': [False],
+     'encoder_skip':[False], 'decoder_skip': [False],
+     'full_feed_forward_highway': [False], 'cvae': [False],
+     'share_pool_inds': [False],
+      'pool_size': [1, 2], 'batch_norm': [True]}    
 
 
-else:    
-    p = {'kernel_size': 5,
-          'latent_dim': 35,
-          'strides': 1,
-          'epochs': 30,
-          'dropout': 0.2,
-          'num_filters': 32,
-          'num_conv_layers': 6,
-          'batch_size': 32,
-          'activation': 'elu',
-          'optimizer': 'adam',
-          'last_activation': 'linear',
-          'losses': 'mean_squared_error',
-          'lr': 0.0001,
-          'initializer': 'random_normal',
-          'num_consecutive': 2,
-          'pool_size': 2, 
-          'pool_strides': 2,
-          'units': [1024, 512, 64, 16],
-          'kernel_regularizer': None,
-          'bias_regularizer': None,
-          'activity_regularizer': None,
-          'fully_conv': False,
-          'encoder_decoder_skip': False,
-          'encoder_skip': False,
-          'decoder_skip': False,
-          'full_feed_forward_highway': False,
-          'cvae': False,
-          'share_pool_inds': False,
-          'batch_norm': True}      
+# else:    
+p = {'kernel_size': 5,
+      'latent_dim': 35,
+      'strides': 1,
+      'epochs': 30,
+      'dropout': 0.2,
+      'num_filters': 32,
+      'num_conv_layers': 6,
+      'batch_size': 32,
+      'activation': 'elu',
+      'optimizer': 'adam',
+      'last_activation': 'linear',
+      'losses': 'mean_squared_error',
+      'lr': 0.0001,
+      'initializer': 'random_normal',
+      'num_consecutive': 2,
+      'pool_size': 2, 
+      'pool_strides': 2,
+      'units': [1024, 512, 64, 16],
+      'kernel_regularizer': None,
+      'bias_regularizer': None,
+      'activity_regularizer': None,
+      'fully_conv': False,
+      'encoder_decoder_skip': False,
+      'encoder_skip': False,
+      'decoder_skip': False,
+      'full_feed_forward_highway': False,
+      'cvae': False,
+      'share_pool_inds': False,
+      'batch_norm': True}      
     
 # -- create output directory --------------------------------------------------
     
@@ -252,18 +254,18 @@ if input_psd:
     p['concat_ext_feats'] = True
 
 # == talos experiment =========================================================
-if hyperparameter_optimization:
-    print('Starting hyperparameter optimization...')
-    import talos
-    experiment_name='TESS-unsupervised'
-    t = talos.Scan(x=x_test, y=x_test, params=p, model=ml.conv_autoencoder,
-                   experiment_name=experiment_name, reduction_metric='val_loss',
-                   minimize_loss=True, reduction_method='correlation',
-                   fraction_limit=0.001)      
-    analyze_object = talos.Analyze(t)
-    data_frame, best_param_ind,p = pf.hyperparam_opt_diagnosis(analyze_object,
-                                                       output_dir,
-                                                       supervised=False)
+# if hyperparameter_optimization:
+#     print('Starting hyperparameter optimization...')
+#     import talos
+#     experiment_name='TESS-unsupervised'
+#     t = talos.Scan(x=x_test, y=x_test, params=p, model=ml.conv_autoencoder,
+#                    experiment_name=experiment_name, reduction_metric='val_loss',
+#                    minimize_loss=True, reduction_method='correlation',
+#                    fraction_limit=0.001)      
+#     analyze_object = talos.Analyze(t)
+#     data_frame, best_param_ind,p = pf.hyperparam_opt_diagnosis(analyze_object,
+#                                                        output_dir,
+#                                                        supervised=False)
 
 # == run model ================================================================
 if run_model:
@@ -395,7 +397,10 @@ if iterative:
     # x_train = x_train[comm2]
     # ticid_train = ticid_train[comm2]
     # target_info_train = target_info_train[comm2]
-    if plot_only: run=False
+    if plot_only:
+        run=False
+    else:
+        run=True
     ml.iterative_cae(x_train, x_test, time, p, ticid_train, 
                       ticid_test, target_info_train, target_info_test,
                      iterations=2, n_split=[4,8], latent_dim=[16,8],
@@ -404,7 +409,8 @@ if iterative:
                       data_dir=data_dir, train_psd_only=False,
                      momentum_dump_csv=mom_dump, sectors=sectors,
                      concat_ext_feats=concat_ext_feats, plot=plot_only,
-                     run=run) 
+                     run=run, hyperparam_opt=hyperparameter_optimization,
+                     p_opt=p_opt) 
 
 if train_split:
     ml.split_cae(time, x_train, x_test, p, target_info_train, target_info_test,

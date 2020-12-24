@@ -27,6 +27,8 @@ from tensorflow.keras import optimizers
 from tensorflow.keras import metrics
 from tensorflow.keras.models import load_model
 
+import talos
+
 # from tensorflow.keras.utils.generic_utils import get_custom_objects
 
 # import keras.backend as K
@@ -655,9 +657,9 @@ class TimeHistory(keras.callbacks.Callback):
 
 def conv_autoencoder(x_train, y_train, x_test, y_test, params, 
                      val=True, split=False, input_features=False,
-                     features=None, input_psd=False, save_model_epoch=True,
-                     model_init=None, save_model=True, save_bottleneck=True,
-                     predict=True, output_dir='./', prefix='',
+                     features=None, input_psd=False, save_model_epoch=False,
+                     model_init=None, save_model=False, save_bottleneck=False,
+                     predict=False, output_dir='./', prefix='',
                      input_rms=False, rms_train=None, rms_test=None,
                      ticid_train=None, ticid_test=None,
                      train=True, weights_path='./best_model.hdf5',
@@ -1187,8 +1189,6 @@ def split_reconstruction(x, flux_train, flux_test,
     err_test = np.mean(err_test, axis=1)
     err_test = err_test.reshape(np.shape(err_test)[0])
     ranked_test = np.argsort(err_test)    
-    del x_predict_train
-    del x_predict_test
     del err_train
     del err_test
     
@@ -1229,6 +1229,8 @@ def split_reconstruction(x, flux_train, flux_test,
     ticid_test = np.split(ticid_test, [split_ind])
     info_test = np.split(info_test, [split_ind])    
     features = np.split(features, [split_ind])
+    x_predict_train = np.split(x_predict_train, [split_ind])
+    x_predict_test = np.split(x_predict_test, [split_ind])
     
     if train_psd_only:
         x_train = x_train_feat
@@ -1243,9 +1245,10 @@ def split_reconstruction(x, flux_train, flux_test,
 
     if return_highest_error_ticid:
         return x, flux_train[-1], flux_test[-1], x_train[-1], x_test[-1],\
-            ticid_train[-1], ticid_test[-1], info_train[-1], info_test[-1], features[-1]
+            ticid_train[-1], ticid_test[-1], info_train[-1], info_test[-1],\
+            features[-1], x_predict_train[-1], x_predict_test[-1]
     return x, flux_train, flux_test, x_train, x_test, ticid_train, ticid_test,\
-        info_train, info_test, features
+        info_train, info_test, features, x_predict_train, x_predict_test
 
 def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                  target_info_test,
@@ -1262,7 +1265,8 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                  plot_feat_space=False, DAE=False, DAE_hyperparam_opt=False,
                  novelty_detection=True, classification=True,
                  features=None, flux_feat=None, ticid_feat=None, info_feat=None,
-                 use_rms=False, n_components=100):
+                 x_predict=None,
+                 use_rms=False, n_components=100, n_tot=20):
     if type(features) == type(None):
         features, flux_feat, ticid_feat, info_feat = \
             bottleneck_preprocessing(sectors, np.concatenate([x_train, x_test], axis=0),
@@ -1278,10 +1282,6 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                                      use_tls_features=use_tls_features,
                                      norm=True, use_rms=use_rms,
                                      cams=cams, ccds=ccds, log=log)
-    else:
-        flux_feat = np.concatenate([x_train, x_test], axis=0)
-        ticid_feat = np.concatenate([ticid_train, ticid_test])
-        info_feat = np.concatenate([target_info_train, target_info_test], axis=0)
 
     if plot_feat_space:
         print('Plotting feature space')
@@ -1334,14 +1334,14 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
 
         pf.plot_lof(x, flux_feat, ticid_feat, features, 20,
                     output_dir,
-                    n_tot=100, target_info=info_feat, prefix=prefix,
+                    n_tot=n_tot, target_info=info_feat, prefix=prefix,
                     database_dir=database_dir, debug=True,
                     log=True, n_pgram=1000,
                     plot_psd=True, momentum_dump_csv=momentum_dump_csv)       
 
         pf.plot_lof_summary(x, flux_feat, ticid_feat, features, 20,
-                            output_dir, target_info=info_feat,
-                            database_dir=database_dir,
+                            output_dir+prefix, target_info=info_feat,
+                            database_dir=database_dir, 
                             momentum_dump_csv=momentum_dump_csv)
 
     # -- classification --------------------------------------------------------
@@ -1414,7 +1414,8 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
         
         pf.classification_plots(features, x, flux_feat, ticid_feat, info_feat,
                                 labels, output_dir=output_dir, prefix=prefix,
-                                database_dir=database_dir, data_dir=data_dir)
+                                database_dir=database_dir, data_dir=data_dir,
+                                x_predict=x_predict)
             
 def split_segments(x, x_train, x_test, p, target_info_train, target_info_test,
                    ticid_train, ticid_test, sectors, n_split=4, len_var=0.1,
@@ -1489,7 +1490,7 @@ def split_cae(x, flux_train, flux_test, p, target_info_train, target_info_test,
               ticid_train, ticid_test, sectors, n_split=4, len_var=0.1, 
               data_dir='./', database_dir='./', output_dir='./', prefix0='',
               momentum_dump_csv='./Table_of_momentum_dumps.csv', debug=True,
-              save_model_epoch=False, plot=False):
+              save_model_epoch=False, plot=False, hyperparam_opt=False, p_opt={}):
     # -- split x_train into n_split segments randomly --------------------------
 
     print('Splitting light curves into '+str(n_split)+' segments...')
@@ -1504,6 +1505,22 @@ def split_cae(x, flux_train, flux_test, p, target_info_train, target_info_test,
     for i in range(n_split):
         print('Segment ' + str(i) + '...')
         prefix = prefix0+'segment'+str(i)+'-'
+
+        if hyperparam_opt:
+            print('Starting hyperparameter optimization...')
+            p_opt['latent_dim'] = [14,16]
+            t = talos.Scan(x=x_train, y=x_train, params=p_opt, model=conv_autoencoder,
+                           experiment_name=prefix, reduction_metric='val_loss',
+                           minimize_loss=True, reduction_method='correlation',
+                           fraction_limit=0.001)      
+            analyze_object = talos.Analyze(t)
+            data_frame, best_param_ind,p = \
+                pf.hyperparam_opt_diagnosis(analyze_object, output_dir+prefix,
+                                           supervised=False)        
+            p['epochs'] = p['epochs']*3
+
+
+
         model, history, bottleneck_train, bottleneck_test, x_predict, x_predict_train = \
             conv_autoencoder(x_train[i], x_train[i], x_test[i], x_test[i], p,
                              ticid_train=ticid_train, ticid_test=ticid_test,
@@ -1595,7 +1612,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                   database_dir='./', data_dir='./', train_psd_only=True,
                   momentum_dump_csv='./Table_of_momentum_dumps.csv', sectors=[],
                   concat_ext_feats=False, use_rms=False,
-                  run=True, plot=False):
+                  run=True, plot=False, hyperparam_opt=False, p_opt={}):
     '''len(n_split)=iterations'''
 
     # -- first iteration -------------------------------------------------------
@@ -1605,6 +1622,18 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
     rms_test = df.rms(flux_test)
     x_test = df.standardize(flux_test)
     
+    if hyperparam_opt:
+        print('Starting hyperparameter optimization...')
+        t = talos.Scan(x=x_train, y=x_train, params=p_opt, model=conv_autoencoder,
+                       experiment_name=prefix, reduction_metric='val_loss',
+                       minimize_loss=True, reduction_method='correlation',
+                       fraction_limit=0.001)      
+        analyze_object = talos.Analyze(t)
+        data_frame, best_param_ind,p = \
+            pf.hyperparam_opt_diagnosis(analyze_object, output_dir+prefix,
+                                       supervised=False)        
+        p['epochs'] = p['epochs']*3
+
     if run:
         model, history, bottleneck_train, bottleneck_test, x_predict_test, x_predict_train = \
             conv_autoencoder(x_train, x_train, x_test, x_test, p,
@@ -1658,10 +1687,10 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
 
 
     # -- additional iterations -------------------------------------------------
-    for i in range(1,iterations+1):
+    for i in range(2,iterations+1):
         # >> split by reconstruction error
         x, flux_train, flux_test,  x_train, x_test, ticid_train, ticid_test,\
-            info_train, info_test, features =\
+            info_train, info_test, features, x_predict_train, x_predict_test =\
             split_reconstruction(x, flux_train, flux_test, x_train, x_test,
                                  x_predict_train, x_predict_test,
                                  ticid_train, ticid_test, target_info_train,
@@ -1672,12 +1701,17 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
             
         if plot:
             # >> do postprocessing on lowest reconstruction error
-            post_process(x, flux_train[0], flux_test[0], ticid_train[0], ticid_test[0],
+            post_process(x, x_train[0], x_test[0], ticid_train[0], ticid_test[0],
                          info_train[0], info_test[0], p, output_dir, sectors,
                          data_dir=data_dir, database_dir=database_dir, prefix=prefix,
                          momentum_dump_csv=momentum_dump_csv, use_rms=use_rms,
-                         features=features[0])
-        
+                         features=features[0], 
+                         flux_feat=np.concatenate([flux_train[0], flux_test[0]], axis=0),
+                         ticid_feat=np.concatenate([ticid_train[0], ticid_test[0]]),
+                         info_feat=np.concatenate([info_train[0], info_test[0]], axis=0),
+                         x_predict=np.concatenate([x_predict_train[0], x_predict_test[0]], axis=0))
+
+
         # >> do split_cae on highest reconstruction error
         prefix='iteration'+str(i)+'-'
         p['latent_dim']=latent_dim[i-1]
@@ -1691,20 +1725,25 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                           len_var=len_var, data_dir=data_dir, database_dir=database_dir,
                           output_dir=output_dir, prefix0=prefix,
                           momentum_dump_csv=momentum_dump_csv, debug=True,
-                          save_model_epoch=False, plot=plot)
+                          save_model_epoch=False, plot=plot,
+                          hyperparam_opt=hyperparam_opt)
         else:
             x_predict_test = np.empty((len(flux_test), 0))
             x_predict_train = np.empty((len(flux_train), 0))
-            x_train = np.empty((len(flux_train, 0)))
-            x_test = np.empty((len(flux_test, 0)))
+            x_train = np.empty((len(flux_train), 0))
+            x_test = np.empty((len(flux_test), 0))
             features = np.empty((len(x_train)+len(x_test), 0))
             for j in range(n_split[i-1]):
                 fname=output_dir+prefix+'segment'+str(j)+'-x_predict_train.fits'
                 with fits.open(fname) as hdul:
                     segment_predict_train = hdul[0].data
-                fname=output_dir+prefix+'segment'+str(j)+'-x_predict_test.fits'                
-                with fits.open(fname) as hdul:
-                    segment_predict_test = hdul[0].data
+                segment_len = segment_predict_train.shape[1]
+                if len(flux_test) > 0:
+                    fname=output_dir+prefix+'segment'+str(j)+'-x_predict_test.fits'              
+                    with fits.open(fname) as hdul:
+                        segment_predict_test = hdul[0].data
+                else:
+                    segment_predict_test = np.empty((0,segment_len))
                 fname=output_dir+prefix+'segment'+str(j)+'-bottleneck_train.fits'                
                 with fits.open(fname) as hdul:
                     bottleneck_train = hdul[0].data
@@ -1712,7 +1751,6 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                 with fits.open(fname) as hdul:
                     bottleneck_test = hdul[0].data
 
-                segment_len = hdul[0].data.shape[1]
                 start = x_predict_train.shape[1]
                 end = start+segment_len
                 segment_train = df.standardize(flux_train[:,start:end])
@@ -1721,10 +1759,11 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                 pf.diagnostic_plots(history, model, p, output_dir,
                                     x[start:start+segment_len],
                                     segment_train, segment_test,
-                                    x_predict_test=segment_predict_test,
-                                    x_predict_train=segment_predict_train,
+                                    segment_predict_test,
+                                    segment_predict_train,
                                     target_info_test=info_test,
-                                    target_info_train=info_train, prefix=prefix,
+                                    target_info_train=info_train,
+                                    prefix=prefix+'segment'+str(j)+'-',
                                     ticid_train=ticid_train, ticid_test=ticid_test, 
                                     bottleneck_train=bottleneck_train,
                                     bottleneck=bottleneck_test,
@@ -1882,7 +1921,8 @@ def compile_model(model, params):
         opt = optimizers.Adam(lr = params['lr'], 
                               decay=params['lr']/params['epochs'])        
     elif params['optimizer'] == 'adadelta':
-        opt = optimizers.adadelta(lr = params['lr'])
+        # opt = optimizers.adadelta(lr = params['lr'])
+        opt = optimizers.Adadelta(lr = params['lr'])
         
     model.compile(optimizer=opt, loss=params['losses'])
 
