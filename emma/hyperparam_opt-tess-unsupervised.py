@@ -19,7 +19,7 @@ run_cpu=False
 
 if sirius:
     data_dir = '/nfs/ger/home/echickle/data/'
-    output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_1/'
+    output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_4/'
     mom_dump = '/nfs/ger/home/echickle/data/Table_of_momentum_dumps.csv'
     database_dir = '/nfs/ger/home/echickle/data/databases/'
 else:
@@ -39,7 +39,7 @@ single_file = False
 # database_dir = output_dir + 'all_simbad_classifications.txt'
 simbad_database_dir = ''
 # >> input data
-sectors = [1]
+sectors = [4]
 cams = [1,2,3,4]
 ccds = [[1,2,3,4]]*4
 fast=False

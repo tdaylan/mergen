@@ -1265,7 +1265,7 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                  plot_feat_space=False, DAE=False, DAE_hyperparam_opt=False,
                  novelty_detection=True, classification=True,
                  features=None, flux_feat=None, ticid_feat=None, info_feat=None,
-                 x_predict=None,
+                 x_predict=None, do_diagnostic_plots=True, do_summary=True,
                  use_rms=False, n_components=100, n_tot=20):
     if type(features) == type(None):
         features, flux_feat, ticid_feat, info_feat = \
@@ -1330,6 +1330,7 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
 
     # -- novelty detection -----------------------------------------------------
 
+    novelty_detection=False
     if novelty_detection:
 
         pf.plot_lof(x, flux_feat, ticid_feat, features, 20,
@@ -1339,10 +1340,11 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                     log=True, n_pgram=1000,
                     plot_psd=True, momentum_dump_csv=momentum_dump_csv)       
 
-        pf.plot_lof_summary(x, flux_feat, ticid_feat, features, 20,
-                            output_dir+prefix, target_info=info_feat,
-                            database_dir=database_dir, 
-                            momentum_dump_csv=momentum_dump_csv)
+        # !! 
+        # pf.plot_lof_summary(x, flux_feat, ticid_feat, features, 20,
+        #                     output_dir+prefix, target_info=info_feat,
+        #                     database_dir=database_dir, 
+        #                     momentum_dump_csv=momentum_dump_csv)
 
     # -- classification --------------------------------------------------------
 
@@ -1415,8 +1417,12 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
         pf.classification_plots(features, x, flux_feat, ticid_feat, info_feat,
                                 labels, output_dir=output_dir, prefix=prefix,
                                 database_dir=database_dir, data_dir=data_dir,
-                                x_predict=x_predict)
+                                x_predict=x_predict, do_summary=do_summary,
+                                do_diagnostic_plots=do_diagnostic_plots)
             
+
+
+
 def split_segments(x, x_train, x_test, p, target_info_train, target_info_test,
                    ticid_train, ticid_test, sectors, n_split=4, len_var=0.1,
                    output_dir='./', prefix='', debug=False):
@@ -1611,8 +1617,9 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                   output_dir='./', split=False, input_psd=False, 
                   database_dir='./', data_dir='./', train_psd_only=True,
                   momentum_dump_csv='./Table_of_momentum_dumps.csv', sectors=[],
-                  concat_ext_feats=False, use_rms=False,
-                  run=True, plot=False, hyperparam_opt=False, p_opt={}):
+                  concat_ext_feats=False, use_rms=False, do_diagnostic_plots=True,
+                  do_summary=True, novelty_detection=True,
+                  run=True, hyperparam_opt=False, p_opt={}):
     '''len(n_split)=iterations'''
 
     # -- first iteration -------------------------------------------------------
@@ -1659,7 +1666,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
         else:
             x_predict_test = x_test
 
-    if plot:
+    if do_diagnostic_plots:
         pf.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
                             x_predict_test, x_predict_train=x_predict_train,
                             target_info_test=target_info_test,
@@ -1699,17 +1706,21 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                                  return_highest_error_ticid=False,
                                  output_dir=output_dir, prefix=prefix)
             
-        if plot:
-            # >> do postprocessing on lowest reconstruction error
-            post_process(x, x_train[0], x_test[0], ticid_train[0], ticid_test[0],
-                         info_train[0], info_test[0], p, output_dir, sectors,
-                         data_dir=data_dir, database_dir=database_dir, prefix=prefix,
-                         momentum_dump_csv=momentum_dump_csv, use_rms=use_rms,
-                         features=features[0], 
-                         flux_feat=np.concatenate([flux_train[0], flux_test[0]], axis=0),
-                         ticid_feat=np.concatenate([ticid_train[0], ticid_test[0]]),
-                         info_feat=np.concatenate([info_train[0], info_test[0]], axis=0),
-                         x_predict=np.concatenate([x_predict_train[0], x_predict_test[0]], axis=0))
+
+        # >> do postprocessing on lowest reconstruction error
+        post_process(x, x_train[0], x_test[0], ticid_train[0], ticid_test[0],
+                     info_train[0], info_test[0], p, output_dir, sectors,
+                     data_dir=data_dir, database_dir=database_dir, prefix=prefix,
+                     momentum_dump_csv=momentum_dump_csv, use_rms=use_rms,
+                     features=features[0],  novelty_detection=novelty_detection,
+                     flux_feat=np.concatenate([flux_train[0],
+                                               flux_test[0]], axis=0),
+                     ticid_feat=np.concatenate([ticid_train[0], ticid_test[0]]),
+                     info_feat=np.concatenate([info_train[0],
+                                               info_test[0]], axis=0),
+                     x_predict=np.concatenate([x_predict_train[0],
+                                               x_predict_test[0]], axis=0),
+                     do_summary=do_summary, do_diagnostic_plots=do_diagnostic_plots)
 
 
         # >> do split_cae on highest reconstruction error
@@ -1756,18 +1767,19 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                 segment_train = df.standardize(flux_train[:,start:end])
                 segment_test = df.standardize(flux_test[:,start:end])
                 
-                pf.diagnostic_plots(history, model, p, output_dir,
-                                    x[start:start+segment_len],
-                                    segment_train, segment_test,
-                                    segment_predict_test,
-                                    segment_predict_train,
-                                    target_info_test=info_test,
-                                    target_info_train=info_train,
-                                    prefix=prefix+'segment'+str(j)+'-',
-                                    ticid_train=ticid_train, ticid_test=ticid_test, 
-                                    bottleneck_train=bottleneck_train,
-                                    bottleneck=bottleneck_test,
-                                    plot_epoch=plot_epoch, load_bottleneck=False)
+                if do_diagnostic_plots:
+                    pf.diagnostic_plots(history, model, p, output_dir,
+                                        x[start:start+segment_len],
+                                        segment_train, segment_test,
+                                        segment_predict_test,
+                                        segment_predict_train,
+                                        target_info_test=info_test,
+                                        target_info_train=info_train,
+                                        prefix=prefix+'segment'+str(j)+'-',
+                                        ticid_train=ticid_train, ticid_test=ticid_test, 
+                                        bottleneck_train=bottleneck_train,
+                                        bottleneck=bottleneck_test,
+                                        plot_epoch=plot_epoch, load_bottleneck=False)
 
                 x_predict_train = np.append(x_predict_train, segment_predict_train, axis=1)
                 x_predict_test = np.append(x_predict_test, segment_predict_test, axis=1)
@@ -1776,8 +1788,57 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                 bottleneck = np.concatenate([bottleneck_train, bottleneck_test], axis=0)
                 features = np.append(features, bottleneck, axis=1)
 
-        
-    
+
+    # -- plots for last iteration ----------------------------------------------
+    if do_summary or do_diagnostic_plots:
+        post_process(x, x_train, x_test, ticid_train, ticid_test,
+                     info_train, info_test, p, output_dir, sectors,
+                     data_dir=data_dir, database_dir=database_dir, prefix=prefix,
+                     momentum_dump_csv=momentum_dump_csv, use_rms=use_rms,
+                     features=features, 
+                     flux_feat=np.concatenate([flux_train, flux_test], axis=0),
+                     ticid_feat=np.concatenate([ticid_train, ticid_test]),
+                     info_feat=np.concatenate([info_train, info_test], axis=0),
+                     x_predict=np.concatenate([x_predict_train, x_predict_test], axis=0),
+                     do_summary=do_summary, do_diagnostic_plots=do_diagnostic_plots)
+
+
+    # -- summary plots for entire ensemble -------------------------------------
+    if do_summary:
+        science_labels = [] # >> [ticid, science label]
+        ticid_label = np.empty(())
+        for i in [0, 2]: #range(iterations+1):
+            ticid, y_pred = np.loadtxt(output_dir+'iteration'+str(i)+\
+                                       '-gmm_labels.txt')
+            di = np.loadtxt('iteration'+str(i)+'-assignments.txt', dtype='str',
+                            delimiter=',')
+            ticid_label = np.append(ticid_label, ticid)
+            for j in range(len(y_pred)):
+                ind = np.nonzero(float(di[:,0]) == y_pred[j])
+                science_labels.append(di[:,1][ind])
+
+        assignments = []
+        classes, num_classes = np.unique(science_labels, return_counts=True)
+        for i in range(num_classes):
+            assignments.append([i, classes[i]])
+        assignments = np.array(assignments)
+
+        labels = []
+        for i in range(len(science_labels)):
+            ind = np.nonzero(assignments[:,1] == science_labels[i])
+            labels.append(assignments[:,0][ind])
+
+        ensemble_summary(ticid_label, labels, cm, assignments, rows, columns,
+                         database_dir=database_dir, output_dir=output_dir, 
+                         prefix=prefix, data_dir=data_dir,
+                         class_info=class_info)
+        ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+                                precisions, accuracy, counts_true, counts_pred,
+                                output_dir+prefix)
+        ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+                                precisions, accuracy, counts_true, counts_pred,
+                                output_dir+prefix, target_labels=[])
+
  
 
 def cnn(x_train, y_train, x_test, y_test, params, num_classes=4):

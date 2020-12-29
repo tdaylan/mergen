@@ -536,7 +536,8 @@ def load_group_from_fits(path, sector, camera, ccd):
 
 def data_access_sector_by_bulk(yourpath, sectorfile, sector,
                                bulk_download_dir, custom_mask=[],
-                               apply_nan_mask=False):
+                               apply_nan_mask=False, compute_tess_feats=False,
+                               query_catalogs=True):
     '''Get interpolated flux array for each group, if you already have all the
     _lc.fits files downloaded in bulk_download_dir.
     Parameters:
@@ -569,19 +570,21 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
     for line in lines[6:]:
         ticid_list.append(int(line.split()[0]))        
             
-    # >> download TIC-v8 features
-    get_tess_feature_txt(ticid_list,
-                         yourpath+'tess_features_sector'+str(sector)+'.txt')
-            
-    # >> query GCVS
-    query_vizier(ticid_list=ticid_list, out=yourpath+'Sector'+str(sector)+'_GCVS.txt',
-                 dat_dir=yourpath, sector=sector)
-            
-    # >> query SIMBAD
-    ticid_simbad, otypes_simbad, main_id_simbad = \
-        query_simbad_classifications(ticid_list, output_dir=yourpath+'Sector'+str(sector)+'_simbad.txt')
-    correct_simbad_to_vizier(in_f=yourpath+'Sector'+str(sector)+'_simbad.txt',
-                             out_f=yourpath+'Sector'+str(sector)+'_simbad_revised.txt')
+    if compute_tess_feats:
+        # >> download TIC-v8 features
+        get_tess_feature_txt(ticid_list,
+                             yourpath+'tess_features_sector'+str(sector)+'.txt')
+
+    if query_catalogs:
+        # >> query GCVS
+        query_vizier(ticid_list=ticid_list, out=yourpath+'Sector'+str(sector)+'_GCVS.txt',
+                     dat_dir=yourpath, sector=sector)
+
+        # >> query SIMBAD
+        ticid_simbad, otypes_simbad, main_id_simbad = \
+            query_simbad_classifications(ticid_list, out_f=yourpath+'Sector'+str(sector)+'_simbad.txt')
+        correct_simbad_to_vizier(in_f=yourpath+'Sector'+str(sector)+'_simbad.txt',
+                                 out_f=yourpath+'Sector'+str(sector)+'_simbad_revised.txt')
     
             
 def bulk_download_helper(yourpath, shell_script):
@@ -1814,7 +1817,7 @@ def query_associated_catalogs(ticid):
     for i in ['HIP', 'TYC', 'UCAC', 'TWOMASS', 'ALLWISE', 'GAIA', 'KIC', 'APASS']:
         print(i + ' ' + str(res[i]) + '\n')
 
-def query_simbad_classifications(ticid_list, out_f='./SectorX_simbda.txt'):
+def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt'):
     '''Call like this:
     query_simbad_classifications([453370125.0, 356473029])
     '''
