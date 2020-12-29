@@ -1618,11 +1618,16 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                   database_dir='./', data_dir='./', train_psd_only=True,
                   momentum_dump_csv='./Table_of_momentum_dumps.csv', sectors=[],
                   concat_ext_feats=False, use_rms=False, do_diagnostic_plots=True,
-                  do_summary=True, novelty_detection=True,
+                  do_iteration_summary=True, do_ensemble_summary=True,
+                  novelty_detection=True,
                   run=True, hyperparam_opt=False, p_opt={}):
     '''len(n_split)=iterations'''
 
     # -- first iteration -------------------------------------------------------
+    print('-'*17)
+    print('-- iteration 0 --')
+    print('-'*17)
+
     prefix='iteration0-'
     rms_train = df.rms(flux_train)
     x_train = df.standardize(flux_train)
@@ -1683,18 +1688,9 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
     else:
         flux_feat, ticid_feat, info_feat = flux_train, ticid_train, target_info_train
         features = bottleneck_train
-        # flux_feat = np.empty((len(flux_train[0]), 0))
-        # for i in range(n_split):
-        #     flux_feat = np.append(flux_feat, flux_train[i], axis=-1)
-        # for i in range(n_split):
-        #     with fits.open(output_dir+prefix+'bottleneck_train.fits') as hdul:
-        #         bottleneck_train = hdul[0].data
-        #         features=np.append(features, bottleneck_train, axis=-1)
-
-
 
     # -- additional iterations -------------------------------------------------
-    for i in range(2,iterations+1):
+    for i in [2]: # range(1,iterations+1):
         # >> split by reconstruction error
         x, flux_train, flux_test,  x_train, x_test, ticid_train, ticid_test,\
             info_train, info_test, features, x_predict_train, x_predict_test =\
@@ -1705,7 +1701,6 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                                  error_threshold=error_threshold,
                                  return_highest_error_ticid=False,
                                  output_dir=output_dir, prefix=prefix)
-            
 
         # >> do postprocessing on lowest reconstruction error
         post_process(x, x_train[0], x_test[0], ticid_train[0], ticid_test[0],
@@ -1720,10 +1715,15 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                                                info_test[0]], axis=0),
                      x_predict=np.concatenate([x_predict_train[0],
                                                x_predict_test[0]], axis=0),
-                     do_summary=do_summary, do_diagnostic_plots=do_diagnostic_plots)
+                     do_summary=do_iteration_summary,
+                     do_diagnostic_plots=do_diagnostic_plots)
 
 
         # >> do split_cae on highest reconstruction error
+        print('-'*17)
+        print('-- iteration '+str(i)+' --')
+        print('-'*17)
+
         prefix='iteration'+str(i)+'-'
         p['latent_dim']=latent_dim[i-1]
         flux_train, flux_test, info_train, info_test, ticid_train, ticid_test =\
@@ -1736,7 +1736,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                           len_var=len_var, data_dir=data_dir, database_dir=database_dir,
                           output_dir=output_dir, prefix0=prefix,
                           momentum_dump_csv=momentum_dump_csv, debug=True,
-                          save_model_epoch=False, plot=plot,
+                          save_model_epoch=False, plot=do_diagnostic_plots,
                           hyperparam_opt=hyperparam_opt)
         else:
             x_predict_test = np.empty((len(flux_test), 0))
@@ -1790,56 +1790,79 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
 
 
     # -- plots for last iteration ----------------------------------------------
-    if do_summary or do_diagnostic_plots:
-        post_process(x, x_train, x_test, ticid_train, ticid_test,
-                     info_train, info_test, p, output_dir, sectors,
-                     data_dir=data_dir, database_dir=database_dir, prefix=prefix,
-                     momentum_dump_csv=momentum_dump_csv, use_rms=use_rms,
-                     features=features, 
-                     flux_feat=np.concatenate([flux_train, flux_test], axis=0),
-                     ticid_feat=np.concatenate([ticid_train, ticid_test]),
-                     info_feat=np.concatenate([info_train, info_test], axis=0),
-                     x_predict=np.concatenate([x_predict_train, x_predict_test], axis=0),
-                     do_summary=do_summary, do_diagnostic_plots=do_diagnostic_plots)
+    post_process(x, x_train, x_test, ticid_train, ticid_test,
+                 info_train, info_test, p, output_dir, sectors,
+                 data_dir=data_dir, database_dir=database_dir, prefix=prefix,
+                 momentum_dump_csv=momentum_dump_csv, use_rms=use_rms,
+                 features=features, 
+                 flux_feat=np.concatenate([flux_train, flux_test], axis=0),
+                 ticid_feat=np.concatenate([ticid_train, ticid_test]),
+                 info_feat=np.concatenate([info_train, info_test], axis=0),
+                 x_predict=np.concatenate([x_predict_train, x_predict_test], axis=0),
+                 do_summary=do_iteration_summary,
+                 do_diagnostic_plots=do_diagnostic_plots)
 
 
     # -- summary plots for entire ensemble -------------------------------------
-    if do_summary:
-        science_labels = [] # >> [ticid, science label]
-        ticid_label = np.empty(())
-        for i in [0, 2]: #range(iterations+1):
-            ticid, y_pred = np.loadtxt(output_dir+'iteration'+str(i)+\
-                                       '-gmm_labels.txt')
-            di = np.loadtxt('iteration'+str(i)+'-assignments.txt', dtype='str',
-                            delimiter=',')
-            ticid_label = np.append(ticid_label, ticid)
-            for j in range(len(y_pred)):
-                ind = np.nonzero(float(di[:,0]) == y_pred[j])
-                science_labels.append(di[:,1][ind])
+    if do_ensemble_summary:
 
+        print('Making ensemble summary plots...')
+        # >> get science label for every light curve in ensemble
+        ticid_label = np.empty((0,2)) # >> list of [ticid, science label]
+        for i in [0, 2]: #range(iterations+1):
+            fname=output_dir+'iteration'+str(i)+'-ticid_to_label.txt'
+            filo = np.loadtxt(fname, dtype='str', delimiter=',')
+            ticid_label = np.append(ticid_label, filo, axis=0)
+        ticid = ticid_label[:,0].astype('float')
+        labels = ticid_label[:,1]
+
+        # >> before making a confusion matrix, we need to assign each science 
+        # >> label a number
+        underlying_classes  = np.unique(labels)
         assignments = []
-        classes, num_classes = np.unique(science_labels, return_counts=True)
-        for i in range(num_classes):
-            assignments.append([i, classes[i]])
+        for i in range(len(underlying_classes)):
+            assignments.append([i, underlying_classes[i]])
         assignments = np.array(assignments)
 
-        labels = []
-        for i in range(len(science_labels)):
-            ind = np.nonzero(assignments[:,1] == science_labels[i])
-            labels.append(assignments[:,0][ind])
+        # >> get the predicted labels (in numbers)
+        y_pred = []
+        for i in range(len(ticid)):
+            ind = np.nonzero(assignments[:,1] == labels[i])
+            y_pred.append(float(assignments[ind][0][0]))
+        y_pred = np.array(y_pred)
 
-        ensemble_summary(ticid_label, labels, cm, assignments, rows, columns,
-                         database_dir=database_dir, output_dir=output_dir, 
-                         prefix=prefix, data_dir=data_dir,
-                         class_info=class_info)
-        ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+
+        # >> create confusion matrix
+        cm, assignments, ticid_true, y_true, class_info_new, recalls,\
+        false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
+        label_true, label_pred=\
+            pf.assign_real_labels(ticid, y_pred, database_dir, data_dir,
+                                  output_dir=output_dir)
+
+        # >> create summary pie charts
+        pf.ensemble_summary(ticid, labels, cm, assignments, label_true, label_pred,
+                            database_dir=database_dir, output_dir=output_dir, 
+                            prefix=prefix, data_dir=data_dir)
+        pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
                                 precisions, accuracy, counts_true, counts_pred,
                                 output_dir+prefix)
-        ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+        pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
                                 precisions, accuracy, counts_true, counts_pred,
                                 output_dir+prefix, target_labels=[])
 
- 
+        # >> distribution plots
+        inter, comm1, comm2 = np.intersect1d(ticid_feat, ticid_true,
+                                             return_indices=True)
+        y_pred = labels[comm1]
+        x_true = flux_feat[comm1]
+
+        classes, counts = np.unique(y_true, return_counts=True)
+        classes = classes[np.argsort(counts)]
+        for class_label in classes[-20:]:
+            pf.plot_class_dists(assignments, ticid_true, y_pred, y_true,
+                                data_dir, sectors, true_label=class_label,
+                                output_dir=output_dir+'Sector'+str(sectors[0]))
+
 
 def cnn(x_train, y_train, x_test, y_test, params, num_classes=4):
     from keras.models import Model

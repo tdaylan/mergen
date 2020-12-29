@@ -1132,6 +1132,16 @@ def classification_plots(features, time, flux_feat, ticid_feat, info_feat, label
     with open(output_dir+prefix+'param_summary.txt', 'a') as f:
         f.write('accuracy: ' + str(np.max(accuracy)))   
 
+    # -- save science labels for each ticid ------------------------------------
+
+    with open(output_dir+prefix+'ticid_to_label.txt', 'w') as f:
+        for i in range(len(labels)):
+            ind = np.nonzero(assignments[:,0].astype('float') == labels[i])
+            if len(ind[0]) == 0:
+                f.write(str(ticid_feat[i])+',NONE\n')
+            else:
+                f.write(str(ticid_feat[i])+','+str(assignments[:,1][ind][0])+'\n')
+
     # -- ensemble summary plots ------------------------------------------------
 
     if do_summary:
@@ -1147,9 +1157,8 @@ def classification_plots(features, time, flux_feat, ticid_feat, info_feat, label
                                    output_dir+prefix, target_labels=[])
     inter, comm1, comm2 = np.intersect1d(ticid_feat, ticid_true, return_indices=True)
     y_pred = labels[comm1]
-
     x_true = flux_feat[comm1]
-    x_predict = x_predict[comm1]
+    # x_predict = x_predict[comm1]
 
         
     # -- sector distributions --------------------------------------------------
@@ -2890,7 +2899,7 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
     while len(label_pred) < len(cm):
         label_pred = np.append(label_pred, 'X')     
     while len(label_true) < len(cm):
-        rows = np.append(label_true, 'X')
+        label_true = np.append(label_true, 'X')
         
     # >> make confusion matrix diagonal by re-ordering columns
     row_ind, col_ind = linear_sum_assignment(-1*cm)
@@ -2898,7 +2907,8 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
     label_pred = label_pred[col_ind]
     
     # -- plot confusion matrix -------------------------------------------------
-
+    
+    print('Saving confusion matrix...')
     df_cm = pd.DataFrame(cm, index=label_true, columns=label_pred)
     fig, ax = plt.subplots(figsize=figsize)
     sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
@@ -2909,6 +2919,7 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
     # -- make assignment dictionary --------------------------------------------
 
     # >> create a list of tuples [label_pred, label_true]
+    print('Saving assignment dictionary...')
     assignments = []
     f = open(output_dir+prefix+'assignments.txt', 'a')
     for i in range(len(label_pred)):
@@ -2943,9 +2954,9 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
     # >> convert arbitrary number labels to real labels
     y_true = class_info_new[:,1]
     
-
-    return cm, assignments, ticid_true, y_true, class_info_new, recalls, false_discovery_rates,\
-        counts_true, counts_pred, precisions, accuracy, label_true, label_pred
+    return cm, assignments, ticid_true, y_true, class_info_new, recalls,\
+        false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
+        label_true, label_pred
 
 
 
@@ -3086,13 +3097,16 @@ def ensemble_summary(ticid_pred, y_pred, cm, assignments, y_true_labels,
     # >> make dictionary, where keys are learned labels and values are true labels
     assigned_classes = {} # >> keys are learned classes
     for i in range(len(columns)):
-        if columns[i] != 'X':
+        if columns[i] != 'NONE':
             if i < len(y_true_labels):
-                if y_true_labels[i] != 'X':
+                if y_true_labels[i] != 'NONE':
                     if y_true_labels[i] in list(d.keys()):
-                        assigned_classes[str(columns[i])] = str(columns[i])+' = '+y_true_labels[i]+' = '+d[y_true_labels[i]]
+                        assigned_classes[str(columns[i])] = str(columns[i])+\
+                                         ' = '+y_true_labels[i]+' = '+\
+                                         d[y_true_labels[i]]
                     else:
-                        assigned_classes[str(columns[i])] = str(columns[i])+' = '+y_true_labels[i]
+                        assigned_classes[str(columns[i])] = str(columns[i])+\
+                                         ' = '+y_true_labels[i]
                 else:
                     assigned_classes[str(columns[i])] = str(columns[i])
             else:
@@ -4061,7 +4075,10 @@ def sector_dists(data_dir, sectors, ticid_list=[], output_dir='./', figsize=(3,3
         a.set_xscale('log')
         a.set_yscale('log')
         fig.tight_layout()
-        fig.savefig(output_dir+sector_name+prefix+suffix+'.png')
+        # fig.savefig(output_dir+sector_name+prefix+suffix+'.png')
+        fig.savefig(output_dir+prefix+suffix+'.png')
     fig1.tight_layout()
 
-    fig1.savefig(output_dir+sector_name+prefix+'_dists.png')
+    # fig1.savefig(output_dir+sector_name+prefix+'_dists.png')
+    plt.close(fig)
+    plt.close(fig1)
