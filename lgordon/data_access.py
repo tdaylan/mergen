@@ -21,7 +21,7 @@ rcParams["lines.markersize"] = 2
 # rcParams['lines.color'] = 'k'
 from scipy.signal import argrelextrema
 
-import plotting_functions as pf
+#import plotting_functions as pf
 
 import sklearn
 from sklearn.cluster import KMeans
@@ -58,16 +58,16 @@ from astroquery.vizier import Vizier
 import pdb
 import fnmatch as fm
 
-import numba
+#import numba
 
 from sklearn.cluster import DBSCAN
 from sklearn.metrics import silhouette_score, calinski_harabasz_score
 from sklearn.metrics import davies_bouldin_score   
 # import batman
-from transitleastsquares import transitleastsquares
+#from transitleastsquares import transitleastsquares
 
-import model as ml
-import data_functions as df
+#import model as ml
+#import data_functions as df
 
 
 def lc_by_camera_ccd(sectorfile, camera, ccd):

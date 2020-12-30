@@ -91,15 +91,15 @@ from astroquery.vizier import Vizier
 import pdb
 import fnmatch as fm
 
-import numba
+#import numba
 
 from sklearn.cluster import DBSCAN
 from sklearn.metrics import silhouette_score, calinski_harabasz_score
 from sklearn.metrics import davies_bouldin_score   
 # import batman
-from transitleastsquares import transitleastsquares
+#from transitleastsquares import transitleastsquares
 
-import model as ml
+#import model as ml
 
 
 def test_data():
