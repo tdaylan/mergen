@@ -15,6 +15,7 @@ import data_functions as df
 from astropy.io import fits
 from astropy.timeseries import LombScargle
 import random
+import time
 from sklearn.cluster import KMeans    
 
 import tensorflow as tf
@@ -24,6 +25,10 @@ from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.layers import *
 from tensorflow.keras import optimizers
 from tensorflow.keras import metrics
+from tensorflow.keras.models import load_model
+
+import talos
+
 # from tensorflow.keras.utils.generic_utils import get_custom_objects
 
 # import keras.backend as K
@@ -132,7 +137,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
     if DAE:
         features = features[inds]
         
-    # >> move specified targest to testing set [deprecated 120120]
+    # >> move specified targest to testing set [deprecated 12-01-20]
     if len(validation_targets) > 0:
         for t in validation_targets:
             target_ind = np.nonzero( ticid == t )
@@ -153,7 +158,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                                      axis=0)
                 features = np.delete(features, target_ind, axis=0)
                 
-    # >> partition data and normalize
+    # :: partition data and normalize ::::::::::::::::::::::::::::::::::::::::::
     if DAE:
         print('Partitioning data...')
         x_train, x_test, y_train, y_test, flux_train, flux_test,\
@@ -212,27 +217,28 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
         # -- normalize ---------------------------------------------------------
         if norm_type == 'standardization':
             print('Standardizing fluxes...')
-            flux = df.standardize(flux)
+            x = df.standardize(flux)
     
         elif norm_type == 'median_normalization':
             print('Normalizing fluxes (dividing by median)...')
-            flux = df.normalize(flux)
+            x = df.normalize(flux)
             
         elif norm_type == 'minmax_normalization':
             print('Normalizing fluxes (changing minimum and range)...')
-            mins = np.min(flux, axis = 1, keepdims=True)
-            flux = flux - mins
-            maxs = np.max(flux, axis=1, keepdims=True)
-            flux = flux / maxs
+            mins = np.min(x, axis = 1, keepdims=True)
+            x = x - mins
+            maxs = np.max(x, axis=1, keepdims=True)
+            x = x / maxs
             
         else:
             print('Light curves were not normalized!')
+            x = flux
             
         # -- partitioning training and testing set -----------------------------
         print('Partitioning data...')
-        x_train, x_test, y_train, y_test, ticid_train, ticid_test,\
-        target_info_train, target_info_test, time = \
-            split_data(flux, ticid, target_info, time, p,
+        flux_train, flux_test, x_train, x_test, y_train, y_test, ticid_train, \
+            ticid_test, target_info_train, target_info_test, time, time_plot  = \
+            split_data(flux, x, ticid, target_info, time, p,
                        train_test_ratio=train_test_ratio,
                        supervised=False)             
             
@@ -299,7 +305,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                                          use_engineered_features=False,
                                          use_tls_features=use_tls_features,
                                          log=False)  
-            x_train = [flux_train, external_features_train]
+            x_train = [x_train, external_features_train]
             external_features_test, flux_test, ticid_test, target_info_test = \
                 bottleneck_preprocessing(sector, x_test, ticid_test,
                                          target_info_test, rms_test,
@@ -311,10 +317,10 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                                          use_tls_features=use_tls_features,
                                          use_rms=use_rms,
                                          log=False)  
-            x_test = [flux_test, external_features_test]
+            x_test = [x_test, external_features_test]
                                     
-        return x_train, x_test, y_train, y_test, ticid_train, ticid_test, \
-            target_info_train, target_info_test, rms_train, rms_test, time            
+        return flux_train, flux_test, x_train, x_test, ticid_train, ticid_test,\
+            target_info_train, target_info_test, rms_train, rms_test, time, time_plot
 
 def bottleneck_preprocessing(sector, flux, ticid, target_info,
                              rms=None,
@@ -364,11 +370,23 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
             
     if use_learned_features:
         with fits.open(bottleneck_dir+prefix+'bottleneck_train.fits') as hdul:
-            bottleneck_train = hdul[0].data        
+            bottleneck_train = hdul[0].data
+            ticid_bottleneck_train = hdul[1].data
         with fits.open(bottleneck_dir+prefix+'bottleneck_test.fits') as hdul:
             bottleneck_test = hdul[0].data
+            ticid_bottleneck_test = hdul[1].data
         learned_feature_vector = np.concatenate([bottleneck_train,
                                                  bottleneck_test], axis=0)
+        ticid_learned = np.concatenate([ticid_bottleneck_train,
+                                        ticid_bottleneck_test])
+        
+        intersection, comm1, comm2 = np.intersect1d(ticid_learned, ticid,
+                                                    return_indices=True)
+        
+        flux = flux[comm2]
+        ticid = ticid[comm2]
+        target_info = target_info[comm2]
+        learned_feature_vector = learned_feature_vector[comm1]
         features.append(learned_feature_vector)
         
     if use_tls_features:
@@ -625,11 +643,23 @@ def vae_gan(x_train, y_train, x_test, y_test, params,
     E.save_weights('encoder.h5')
     print('end')    
 
+class TimeHistory(keras.callbacks.Callback):
+    '''https://stackoverflow.com/questions/43178668/record-the-computation-time-
+    for-each-epoch-in-keras-during-model-fit'''
+    def on_train_begin(self, logs={}):
+        self.times = []
+
+    def on_epoch_begin(self, batch, logs={}):
+        self.epoch_time_start = time.time()
+
+    def on_epoch_end(self, batch, logs={}):
+        self.times.append(time.time() - self.epoch_time_start)
+
 def conv_autoencoder(x_train, y_train, x_test, y_test, params, 
                      val=True, split=False, input_features=False,
-                     features=None, input_psd=False, save_model_epoch=True,
-                     model_init=None, save_model=True, save_bottleneck=True,
-                     predict=True, output_dir='./', prefix='',
+                     features=None, input_psd=False, save_model_epoch=False,
+                     model_init=None, save_model=False, save_bottleneck=False,
+                     predict=False, output_dir='./', prefix='',
                      input_rms=False, rms_train=None, rms_test=None,
                      ticid_train=None, ticid_test=None,
                      train=True, weights_path='./best_model.hdf5',
@@ -692,6 +722,8 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     if train:
         print('Training model...')
         # tf.keras.backend.clear_session()
+        time_callback = TimeHistory()
+        callbacks=[time_callback]
         if save_model_epoch:
             tensorboard_callback = keras.callbacks.TensorBoard(histogram_freq=0)
 
@@ -699,9 +731,8 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
                                                          monitor='loss', verbose=1,
                                                          save_best_only=True, mode='auto',
                                                          save_freq='epoch')
-            callbacks = [checkoint, tensorboard_callback]
-        else:
-            callbacks = None
+            callbacks.append(checkpoint)
+            callbacks.append(tensorboard_callback)
         
         if val:
             history = model.fit(x_train, x_train, epochs=params['epochs'],
@@ -712,6 +743,10 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
             history = model.fit(x_train, x_train, epochs=params['epochs'],
                         batch_size=params['batch_size'], shuffle=True,
                                 callbacks=callbacks)
+            time = time_callback.times
+            print('Training time: ' + str(time))
+            with open(output_dir+prefix+'training_time.txt', 'w') as f:
+                f.write(str(time[0]))
             
         if save_model:
             model.save(output_dir + prefix + 'model.hdf5')      
@@ -726,6 +761,7 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
     res = [model, history]
 
     if save_bottleneck:
+        print('Getting bottlneck...')
         bottleneck_train = \
             get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
                            out=output_dir+prefix+'bottleneck_train.fits')
@@ -734,10 +770,16 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
                                         ticid=ticid_test,
                                         out=output_dir+prefix+'bottleneck_test.fits')    
         else:
-            bottleneck=None
+            bottleneck=np.empty((0,params['latent_dim']))
+            hdr=  fits.Header()
+            hdu = fits.PrimaryHDU(bottleneck, header=hdr)
+            hdu.writeto(output_dir+prefix+'bottleneck_test.fits')
+            fits.append(output_dir+prefix+'bottleneck_test.fits', ticid_test)
+            
         res.append(bottleneck_train)
         res.append(bottleneck)
     if predict:
+        print('Getting x_predict...')
         if len(x_test) > 0:
             x_predict = model.predict(x_test)      
             hdr = fits.Header()
@@ -875,6 +917,12 @@ def custom_loss_tsne(y_true, y_pred):
     
     # >> now compute MSE
     loss = K.mean(K.square(P_output - P_input))
+    
+    return loss
+
+def mean_cubic_loss(y_true, y_pred): 
+    # >> now compute MSE
+    loss = K.mean(K.pow(K.abs(y_true - y_pred), 3))
     
     return loss
 
@@ -1113,26 +1161,34 @@ def custom_loss_function1(y_true, y_pred):
 def split_reconstruction(x, flux_train, flux_test,
                          x_train, x_test, x_predict_train, x_predict_test, 
                          ticid_train, ticid_test, target_info_train, 
-                         target_info_test, n_split=2, input_psd=False,
+                         target_info_test, features,
+                         n_split=2, input_psd=False,
                          concat_ext_feats=False, train_psd_only=False,
-                         return_highest_error_ticid=True):
+                         error_threshold=0.5, 
+                         return_highest_error_ticid=True, output_dir='./', prefix=''):
     if len(x_test) == 0:
         x_predict_test = np.empty((0, x_train.shape[-1]))
     
+    # if concat_ext_feats or input_psd: 
+    #     err_train = (x_train[0] - x_predict_train[0])**2
+    #     err_test = (x_test[0] - x_predict_test[0])**2
+    # else:      
+    #     err_train = (x_train - x_predict_train)**2
+    #     err_test = (x_test - x_predict_test)**2
+        
     if concat_ext_feats or input_psd: 
-        err_train = (x_train[0] - x_predict_train[0])**2
-        err_test = (x_test[0] - x_predict_test[0])**2
+        err_train = np.abs(x_train[0] - x_predict_train[0])**3
+        err_test = np.abs(x_test[0] - x_predict_test[0])**3
     else:      
-        err_train = (x_train - x_predict_train)**2
-        err_test = (x_test - x_predict_test)**2
+        err_train = np.abs(x_train - x_predict_train)**3
+        err_test = np.abs(x_test - x_predict_test)**3
+        
     err_train = np.mean(err_train, axis=1)
     err_train = err_train.reshape(np.shape(err_train)[0])
     ranked_train = np.argsort(err_train)
     err_test = np.mean(err_test, axis=1)
     err_test = err_test.reshape(np.shape(err_test)[0])
     ranked_test = np.argsort(err_test)    
-    del x_predict_train
-    del x_predict_test
     del err_train
     del err_test
     
@@ -1155,31 +1211,44 @@ def split_reconstruction(x, flux_train, flux_test,
     # >> now split
     train_len = len(x_train)
     test_len = len(x_test)
-    flux_train = np.split(flux_train, [int(train_len/n_split)])
-    flux_test = np.split(flux_test, [int(test_len/n_split)])
-    x_train = np.split(x_train, [int(train_len/n_split)])
-    x_test = np.split(x_test, [int(test_len/n_split)])
+    # split_ind = int(train_len/n_split)
+    split_ind = int(error_threshold*train_len)
+    flux_train = np.split(flux_train, [split_ind])
+    flux_test = np.split(flux_test, [split_ind])
+    x_train = np.split(x_train, [split_ind])
+    x_test = np.split(x_test, [split_ind])
     if concat_ext_feats or input_psd:
-        x_train_feat = np.split(x_train_feat, [int(train_len/n_split)])
+        x_train_feat = np.split(x_train_feat, [split_ind])
         x_train[0] = np.concatenate([x_train[0], x_train_feat[0]], axis=0)
         x_train[1] = np.concatenate([x_train[1], x_train_feat[1]], axis=0)        
-        x_test_feat = np.split(x_test_feat, [int(test_len/n_split)])
+        x_test_feat = np.split(x_test_feat, [split_ind])
         x_test[0] = np.concatenate([x_test[0], x_test_feat[0]], axis=0)
         x_test[1] = np.concatenate([x_test[1], x_test_feat[1]], axis=0)
-    ticid_train = np.split(ticid_train, [int(train_len/n_split)])
-    info_train = np.split(info_train, [int(train_len/n_split)])
-    ticid_test = np.split(ticid_test, [int(test_len/n_split)])
-    info_test = np.split(info_test, [int(test_len/n_split)])    
+    ticid_train = np.split(ticid_train, [split_ind])
+    info_train = np.split(info_train, [split_ind])
+    ticid_test = np.split(ticid_test, [split_ind])
+    info_test = np.split(info_test, [split_ind])    
+    features = np.split(features, [split_ind])
+    x_predict_train = np.split(x_predict_train, [split_ind])
+    x_predict_test = np.split(x_predict_test, [split_ind])
     
     if train_psd_only:
         x_train = x_train_feat
         x_test = x_test_feat
         x = x[1]
 
+    np.savetxt(output_dir+prefix+'ticid_highest_error_train.txt', ticid_train[1])
+    np.savetxt(output_dir+prefix+'ticid_lowest_error_train.txt', ticid_train[0])
+    np.savetxt(output_dir+prefix+'ticid_highest_error_test.txt', ticid_test[1])
+    np.savetxt(output_dir+prefix+'ticid_lowest_error_test.txt', ticid_test[0])
+    
+
     if return_highest_error_ticid:
-        return x, flux_train[-1], flux_test[-1], x_train[-1], x_test[-1], ticid_train[-1], ticid_test[-1], \
-            info_train[-1], info_test[-1]
-    return x, flux_train, flux_test, x_train, x_test, ticid_train, ticid_test, info_train, info_test
+        return x, flux_train[-1], flux_test[-1], x_train[-1], x_test[-1],\
+            ticid_train[-1], ticid_test[-1], info_train[-1], info_test[-1],\
+            features[-1], x_predict_train[-1], x_predict_test[-1]
+    return x, flux_train, flux_test, x_train, x_test, ticid_train, ticid_test,\
+        info_train, info_test, features, x_predict_train, x_predict_test
 
 def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                  target_info_test,
@@ -1195,7 +1264,9 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                  metric='canberra', run_gmm=True, classification_param_search=False,
                  plot_feat_space=False, DAE=False, DAE_hyperparam_opt=False,
                  novelty_detection=True, classification=True,
-                 features=None, flux_feat=None, ticid_feat=None, info_feat=None):
+                 features=None, flux_feat=None, ticid_feat=None, info_feat=None,
+                 x_predict=None, do_diagnostic_plots=True, do_summary=True,
+                 use_rms=False, n_components=100, n_tot=20):
     if type(features) == type(None):
         features, flux_feat, ticid_feat, info_feat = \
             bottleneck_preprocessing(sectors, np.concatenate([x_train, x_test], axis=0),
@@ -1209,7 +1280,7 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                                      use_tess_features=use_tess_features,
                                      use_engineered_features=use_engineered_features,
                                      use_tls_features=use_tls_features,
-                                     norm=True,
+                                     norm=True, use_rms=use_rms,
                                      cams=cams, ccds=ccds, log=log)
 
     if plot_feat_space:
@@ -1259,19 +1330,21 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
 
     # -- novelty detection -----------------------------------------------------
 
+    novelty_detection=False
     if novelty_detection:
 
         pf.plot_lof(x, flux_feat, ticid_feat, features, 20,
                     output_dir,
-                    n_tot=100, target_info=info_feat, prefix=prefix,
+                    n_tot=n_tot, target_info=info_feat, prefix=prefix,
                     database_dir=database_dir, debug=True,
                     log=True, n_pgram=1000,
                     plot_psd=True, momentum_dump_csv=momentum_dump_csv)       
 
-        pf.plot_lof_summary(x, flux_feat, ticid_feat, features, 20,
-                            output_dir, target_info=info_feat,
-                            database_dir=database_dir,
-                            momentum_dump_csv=momentum_dump_csv)
+        # !! 
+        # pf.plot_lof_summary(x, flux_feat, ticid_feat, features, 20,
+        #                     output_dir+prefix, target_info=info_feat,
+        #                     database_dir=database_dir, 
+        #                     momentum_dump_csv=momentum_dump_csv)
 
     # -- classification --------------------------------------------------------
 
@@ -1340,13 +1413,19 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                 np.savetxt(output_dir+prefix+'gmm_labels.txt',
                            np.array([ticid_feat, labels]))
 
-        pf.classification_plots(features, flux_feat, ticid_feat, info_feat,
+        
+        pf.classification_plots(features, x, flux_feat, ticid_feat, info_feat,
                                 labels, output_dir=output_dir, prefix=prefix,
-                                database_dir=database_dir, data_dir=data_dir)
+                                database_dir=database_dir, data_dir=data_dir,
+                                x_predict=x_predict, do_summary=do_summary,
+                                do_diagnostic_plots=do_diagnostic_plots)
             
+
+
+
 def split_segments(x, x_train, x_test, p, target_info_train, target_info_test,
                    ticid_train, ticid_test, sectors, n_split=4, len_var=0.1,
-                   output_dir='./', debug=False):
+                   output_dir='./', prefix='', debug=False):
     '''Split each light curve into n_split segments. Args:
         * len_var: determines possible range of segment lengths'''
 
@@ -1407,7 +1486,7 @@ def split_segments(x, x_train, x_test, p, target_info_train, target_info_test,
                 ax[row, col].plot(x[col], x_train[col][row], '.k')
                 pf.format_axes(ax[row,col], xlabel=True, ylabel=True)
         fig.tight_layout()
-        fig.savefig(output_dir+'light_curve_segments.png')
+        fig.savefig(output_dir+prefix+'light_curve_segments.png')
         plt.close('all')
 
     return x, x_train, x_test, rms_train, rms_test
@@ -1417,18 +1496,37 @@ def split_cae(x, flux_train, flux_test, p, target_info_train, target_info_test,
               ticid_train, ticid_test, sectors, n_split=4, len_var=0.1, 
               data_dir='./', database_dir='./', output_dir='./', prefix0='',
               momentum_dump_csv='./Table_of_momentum_dumps.csv', debug=True,
-              save_model_epoch=False):
+              save_model_epoch=False, plot=False, hyperparam_opt=False, p_opt={}):
     # -- split x_train into n_split segments randomly --------------------------
 
+    print('Splitting light curves into '+str(n_split)+' segments...')
     x, x_train, x_test, rms_train, rms_test = \
         split_segments(x, flux_train, flux_test, p, target_info_train, target_info_test,
                        ticid_train, ticid_test, sectors, n_split=n_split,
-                       len_var=len_var, output_dir=output_dir, debug=debug)
+                       len_var=len_var, output_dir=output_dir, prefix=prefix0,
+                       debug=debug)
 
     # -- train each segment ----------------------------------------------------
     features = np.empty((len(x_train[0])+len(x_test[0]), 0))
     for i in range(n_split):
+        print('Segment ' + str(i) + '...')
         prefix = prefix0+'segment'+str(i)+'-'
+
+        if hyperparam_opt:
+            print('Starting hyperparameter optimization...')
+            p_opt['latent_dim'] = [14,16]
+            t = talos.Scan(x=x_train, y=x_train, params=p_opt, model=conv_autoencoder,
+                           experiment_name=prefix, reduction_metric='val_loss',
+                           minimize_loss=True, reduction_method='correlation',
+                           fraction_limit=0.001)      
+            analyze_object = talos.Analyze(t)
+            data_frame, best_param_ind,p = \
+                pf.hyperparam_opt_diagnosis(analyze_object, output_dir+prefix,
+                                           supervised=False)        
+            p['epochs'] = p['epochs']*3
+
+
+
         model, history, bottleneck_train, bottleneck_test, x_predict, x_predict_train = \
             conv_autoencoder(x_train[i], x_train[i], x_test[i], x_test[i], p,
                              ticid_train=ticid_train, ticid_test=ticid_test,
@@ -1436,88 +1534,151 @@ def split_cae(x, flux_train, flux_test, p, target_info_train, target_info_test,
                              save_bottleneck=True, prefix=prefix,
                              output_dir=output_dir,
                              save_model_epoch=save_model_epoch)
-        features = np.append(features, bottleneck_train, axis=0)
+        features = np.append(features, bottleneck_train, axis=1)
 
-        pf.diagnostic_plots(history, model, p, output_dir, x[i], x_train[i], x_test[i],
-                            x_predict, x_predict_train=x_predict_train,
-                            target_info_test=target_info_test,
-                            target_info_train=target_info_train, prefix=prefix,
-                            ticid_train=ticid_train, ticid_test=ticid_test, 
-                            bottleneck_train=bottleneck_train, bottleneck=bottleneck_test,
-                            plot_epoch = True,
-                            plot_in_out = False,
-                            plot_in_out_train = True,
-                            plot_in_bottle_out=False,
-                            plot_latent_test = False,
-                            plot_latent_train = True,
-                            plot_kernel=False,
-                            plot_intermed_act=False,
-                            make_movie = False,
-                            plot_lof_test=False,
-                            plot_lof_train=False,
-                            plot_lof_all=False,
-                            plot_reconstruction_error_test=False,
-                            plot_reconstruction_error_train=True,
-                            plot_reconstruction_error_all=False,
-                            load_bottleneck=True)
+        if plot:
+            pf.diagnostic_plots(history, model, p, output_dir, x[i], x_train[i], x_test[i],
+                                x_predict, x_predict_train=x_predict_train,
+                                target_info_test=target_info_test,
+                                target_info_train=target_info_train, prefix=prefix,
+                                ticid_train=ticid_train, ticid_test=ticid_test, 
+                                bottleneck_train=bottleneck_train, bottleneck=bottleneck_test,
+                                plot_epoch = True,
+                                plot_in_out = False,
+                                plot_in_out_train = True,
+                                plot_in_bottle_out=False,
+                                plot_latent_test = False,
+                                plot_latent_train = True,
+                                plot_kernel=False,
+                                plot_intermed_act=False,
+                                make_movie = False,
+                                plot_lof_test=False,
+                                plot_lof_train=False,
+                                plot_lof_all=False,
+                                plot_reconstruction_error_test=False,
+                                plot_reconstruction_error_train=True,
+                                plot_reconstruction_error_all=False,
+                                load_bottleneck=True)
 
     # -- novelty detection & classification ------------------------------------
 
-    if len(x_test) > 0:
-        flux_feat = np.concatenate([x_train, x_test], axis=0)
-        ticid_feat = np.concatenate([ticid_train, ticid_test])
-        info_feat = np.concatenate([target_info_train, target_info_test])
-    else:
-        flux_feat, ticid_feat, info_feat = x_train, ticid_train, target_info_train
-        flux_feat = np.empty((len(x_train[0]), 0))
-        for i in range(n_split):
-            flux_feat = np.append(flux_feat, x_train[i], axis=-1)
-        for i in range(n_split):
-            with fits.open(output_dir+'segment'+str(i)+'-'+'bottleneck_train.fits') as hdul:
-                bottleneck_train = hdul[0].data
-                features=np.append(features, bottleneck_train, axis=-1)
+    if plot:
+        if len(x_test) > 0:
+            flux_feat = np.concatenate([x_train, x_test], axis=0)
+            ticid_feat = np.concatenate([ticid_train, ticid_test])
+            info_feat = np.concatenate([target_info_train, target_info_test])
+        else:
+            flux_feat, ticid_feat, info_feat = x_train, ticid_train, target_info_train
+            flux_feat = np.empty((len(x_train[0]), 0))
+            for i in range(n_split):
+                flux_feat = np.append(flux_feat, x_train[i], axis=-1)
+            for i in range(n_split):
+                with fits.open(output_dir+'segment'+str(i)+'-'+'bottleneck_train.fits') as hdul:
+                    bottleneck_train = hdul[0].data
+                    features=np.append(features, bottleneck_train, axis=-1)
 
-    post_process(x[i], x_train[i], x_test[i], ticid_train, ticid_test,
-                 target_info_train, target_info_test, p,
-                 output_dir, sectors, prefix=prefix,
-                 data_dir=data_dir, database_dir=database_dir,
-                 momentum_dump_csv=momentum_dump_csv, features=features, 
-                 flux_feat=flux_feat, ticid_feat=ticid_feat, info_feat=info_feat)
+        post_process(x[i], x_train[i], x_test[i], ticid_train, ticid_test,
+                     target_info_train, target_info_test, p,
+                     output_dir, sectors, prefix=prefix,
+                     data_dir=data_dir, database_dir=database_dir,
+                     momentum_dump_csv=momentum_dump_csv, features=features, 
+                     flux_feat=flux_feat, ticid_feat=ticid_feat, info_feat=info_feat)
+
+    # >> concatenate segments for x_train, x_test, x_predict_train, ...
+    x_train = np.concatenate(x_train, axis=1)
+    x_test = np.concatenate(x_test, axis=1)
+    x_predict_train = np.empty((np.shape(x_train)[0], 0))
+    x_predict_test = np.empty((np.shape(x_test)[0], 0))
+    prefix = prefix.split('-')[0]+'-'
+    for i in range(n_split):
+        with fits.open(output_dir+prefix+'segment'+str(i)+'-x_predict_train.fits') as hdul:
+            x_predict_train=np.append(x_predict_train, hdul[0].data, axis=1)
+        if len(x_test) > 0:
+            with fits.open(output_dir+prefix+'segment'+str(i)+'-x_predict_test.fits') as hdul:
+                x_predict_test=np.append(x_predict_test, hdul[0].data, axis=1)
+    return x_train, x_test, x_predict_train, x_predict_test
+    
+
+    
+def top_reconstruction_error(x_true, x_predict, nfrac=0.01):
+    '''Calculates the mean of the highest nfrac reconstruction errors for each
+    light curve.'''
+    err = (x_true - x_predict)**2
+    err = np.sort(err, axis=-1)
+    err = err[:,-1*int(nfrac*err.shape[-1]):]
+    err = np.mean(err, axis=-1)
+    return err
     
     
 def iterative_cae(flux_train, flux_test, x, p, ticid_train, 
-                  ticid_test, target_info_train, target_info_test, iterations=3,
-                  n_split=[1,2,3], len_var=0.1, save_model_epoch=False,
+                  ticid_test, target_info_train, target_info_test, iterations=2,
+                  error_threshold=0.5, latent_dim=[20, 16],
+                  n_split=[4,8], len_var=0.1, save_model_epoch=False,
                   output_dir='./', split=False, input_psd=False, 
                   database_dir='./', data_dir='./', train_psd_only=True,
                   momentum_dump_csv='./Table_of_momentum_dumps.csv', sectors=[],
-                  concat_ext_feats=False, load_model = False):
+                  concat_ext_feats=False, use_rms=False, do_diagnostic_plots=True,
+                  do_iteration_summary=True, do_ensemble_summary=True,
+                  novelty_detection=True,
+                  run=True, hyperparam_opt=False, p_opt={}):
     '''len(n_split)=iterations'''
 
     # -- first iteration -------------------------------------------------------
+    print('-'*17)
+    print('-- iteration 0 --')
+    print('-'*17)
+
     prefix='iteration0-'
     rms_train = df.rms(flux_train)
     x_train = df.standardize(flux_train)
     rms_test = df.rms(flux_test)
     x_test = df.standardize(flux_test)
     
-    pdb.set_trace()
+    if hyperparam_opt:
+        print('Starting hyperparameter optimization...')
+        t = talos.Scan(x=x_train, y=x_train, params=p_opt, model=conv_autoencoder,
+                       experiment_name=prefix, reduction_metric='val_loss',
+                       minimize_loss=True, reduction_method='correlation',
+                       fraction_limit=0.001)      
+        analyze_object = talos.Analyze(t)
+        data_frame, best_param_ind,p = \
+            pf.hyperparam_opt_diagnosis(analyze_object, output_dir+prefix,
+                                       supervised=False)        
+        p['epochs'] = p['epochs']*3
 
-    model, history, bottleneck_train, bottleneck_test, x_predict, x_predict_train = \
-        conv_autoencoder(x_train, x_train, x_test, x_test, p,
-                         ticid_train=ticid_train, ticid_test=ticid_test,
-                         val=False, save_model=True, predict=True, 
-                         save_bottleneck=True, prefix=prefix,
-                         output_dir=output_dir,
-                         save_model_epoch=save_model_epoch)
+    if run:
+        model, history, bottleneck_train, bottleneck_test, x_predict_test, x_predict_train = \
+            conv_autoencoder(x_train, x_train, x_test, x_test, p,
+                             ticid_train=ticid_train, ticid_test=ticid_test,
+                             val=False, save_model=True, predict=True, 
+                             save_bottleneck=True, prefix=prefix,
+                             output_dir=output_dir,
+                             save_model_epoch=save_model_epoch)
+        plot_epoch=True
+    else:
+        history=None
+        plot_epoch=False,
+        model = load_model(output_dir+prefix+'model.hdf5')
+        with fits.open(output_dir+prefix+'bottleneck_test.fits') as hdul:
+            bottleneck_test = hdul[0].data
+        with fits.open(output_dir+prefix+'bottleneck_train.fits') as hdul:
+            bottleneck_train = hdul[0].data
+        with fits.open(output_dir+prefix+'x_predict_train.fits') as hdul:
+            x_predict_train = hdul[0].data
+        if len(x_test) > 0:
+            with fits.open(output_dir+prefix+'x_predict_test.fits') as hdul:
+                x_predict_test = hdul[0].data
+        else:
+            x_predict_test = x_test
 
-    pf.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
-                        x_predict, x_predict_train=x_predict_train,
-                        target_info_test=target_info_test,
-                        target_info_train=target_info_train, prefix=prefix,
-                        ticid_train=ticid_train, ticid_test=ticid_test, 
-                        bottleneck_train=bottleneck_train, bottleneck=bottleneck_test,
-                        load_bottleneck=True)
+    if do_diagnostic_plots:
+        pf.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
+                            x_predict_test, x_predict_train=x_predict_train,
+                            target_info_test=target_info_test,
+                            target_info_train=target_info_train, prefix=prefix,
+                            ticid_train=ticid_train, ticid_test=ticid_test, 
+                            bottleneck_train=bottleneck_train, bottleneck=bottleneck_test,
+                            plot_epoch=plot_epoch, load_bottleneck=False)
 
     if len(x_test) > 0:
         flux_feat = np.concatenate([flux_train, flux_test], axis=0)
@@ -1527,42 +1688,181 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
     else:
         flux_feat, ticid_feat, info_feat = flux_train, ticid_train, target_info_train
         features = bottleneck_train
-        # flux_feat = np.empty((len(flux_train[0]), 0))
-        # for i in range(n_split):
-        #     flux_feat = np.append(flux_feat, flux_train[i], axis=-1)
-        # for i in range(n_split):
-        #     with fits.open(output_dir+prefix+'bottleneck_train.fits') as hdul:
-        #         bottleneck_train = hdul[0].data
-        #         features=np.append(features, bottleneck_train, axis=-1)
-
-
 
     # -- additional iterations -------------------------------------------------
-    for i in range(1,iterations+1):
+    for i in [2]: # range(1,iterations+1):
         # >> split by reconstruction error
         x, flux_train, flux_test,  x_train, x_test, ticid_train, ticid_test,\
-            info_train, info_test =\
+            info_train, info_test, features, x_predict_train, x_predict_test =\
             split_reconstruction(x, flux_train, flux_test, x_train, x_test,
                                  x_predict_train, x_predict_test,
                                  ticid_train, ticid_test, target_info_train,
-                                 target_info_test, return_highest_error_ticid=False)
-            
+                                 target_info_test, features,
+                                 error_threshold=error_threshold,
+                                 return_highest_error_ticid=False,
+                                 output_dir=output_dir, prefix=prefix)
+
         # >> do postprocessing on lowest reconstruction error
-        post_process(x, flux_train[0], flux_test[0], ticid_train[0], ticid_test[0],
+        post_process(x, x_train[0], x_test[0], ticid_train[0], ticid_test[0],
                      info_train[0], info_test[0], p, output_dir, sectors,
                      data_dir=data_dir, database_dir=database_dir, prefix=prefix,
-                     momentum_dump_csv=momentum_dump_csv)
-        
+                     momentum_dump_csv=momentum_dump_csv, use_rms=use_rms,
+                     features=features[0],  novelty_detection=novelty_detection,
+                     flux_feat=np.concatenate([flux_train[0],
+                                               flux_test[0]], axis=0),
+                     ticid_feat=np.concatenate([ticid_train[0], ticid_test[0]]),
+                     info_feat=np.concatenate([info_train[0],
+                                               info_test[0]], axis=0),
+                     x_predict=np.concatenate([x_predict_train[0],
+                                               x_predict_test[0]], axis=0),
+                     do_summary=do_iteration_summary,
+                     do_diagnostic_plots=do_diagnostic_plots)
+
+
         # >> do split_cae on highest reconstruction error
+        print('-'*17)
+        print('-- iteration '+str(i)+' --')
+        print('-'*17)
+
         prefix='iteration'+str(i)+'-'
-        split_cae(x, flux_train, flux_test, p, info_train, info_test,
-                  ticid_train, ticid_test, sectors, n_split=n_split[i],
-                  len_var=len_var, data_dir=data_dir, database_dir=database_dir,
-                  output_dir=output_dir, prefix0=prefix,
-                  momentum_dump_csv=momentum_dump_csv, debug=True,
-                  save_model_epoch=False)
-    
- 
+        p['latent_dim']=latent_dim[i-1]
+        flux_train, flux_test, info_train, info_test, ticid_train, ticid_test =\
+            flux_train[1], flux_test[1], info_train[1], info_test[1], \
+            ticid_train[1], ticid_test[1]
+        if run:
+            x_train, x_test, x_predict_train, x_predict_test =\
+                split_cae(x, flux_train, flux_test, p, info_train, info_test,
+                          ticid_train, ticid_test, sectors, n_split=n_split[i-1],
+                          len_var=len_var, data_dir=data_dir, database_dir=database_dir,
+                          output_dir=output_dir, prefix0=prefix,
+                          momentum_dump_csv=momentum_dump_csv, debug=True,
+                          save_model_epoch=False, plot=do_diagnostic_plots,
+                          hyperparam_opt=hyperparam_opt)
+        else:
+            x_predict_test = np.empty((len(flux_test), 0))
+            x_predict_train = np.empty((len(flux_train), 0))
+            x_train = np.empty((len(flux_train), 0))
+            x_test = np.empty((len(flux_test), 0))
+            features = np.empty((len(x_train)+len(x_test), 0))
+            for j in range(n_split[i-1]):
+                fname=output_dir+prefix+'segment'+str(j)+'-x_predict_train.fits'
+                with fits.open(fname) as hdul:
+                    segment_predict_train = hdul[0].data
+                segment_len = segment_predict_train.shape[1]
+                if len(flux_test) > 0:
+                    fname=output_dir+prefix+'segment'+str(j)+'-x_predict_test.fits'              
+                    with fits.open(fname) as hdul:
+                        segment_predict_test = hdul[0].data
+                else:
+                    segment_predict_test = np.empty((0,segment_len))
+                fname=output_dir+prefix+'segment'+str(j)+'-bottleneck_train.fits'                
+                with fits.open(fname) as hdul:
+                    bottleneck_train = hdul[0].data
+                fname=output_dir+prefix+'segment'+str(j)+'-bottleneck_test.fits'                
+                with fits.open(fname) as hdul:
+                    bottleneck_test = hdul[0].data
+
+                start = x_predict_train.shape[1]
+                end = start+segment_len
+                segment_train = df.standardize(flux_train[:,start:end])
+                segment_test = df.standardize(flux_test[:,start:end])
+                
+                if do_diagnostic_plots:
+                    pf.diagnostic_plots(history, model, p, output_dir,
+                                        x[start:start+segment_len],
+                                        segment_train, segment_test,
+                                        segment_predict_test,
+                                        segment_predict_train,
+                                        target_info_test=info_test,
+                                        target_info_train=info_train,
+                                        prefix=prefix+'segment'+str(j)+'-',
+                                        ticid_train=ticid_train, ticid_test=ticid_test, 
+                                        bottleneck_train=bottleneck_train,
+                                        bottleneck=bottleneck_test,
+                                        plot_epoch=plot_epoch, load_bottleneck=False)
+
+                x_predict_train = np.append(x_predict_train, segment_predict_train, axis=1)
+                x_predict_test = np.append(x_predict_test, segment_predict_test, axis=1)
+                x_train = np.append(x_train, segment_train, axis=1)
+                x_test = np.append(x_test, segment_test, axis=1)
+                bottleneck = np.concatenate([bottleneck_train, bottleneck_test], axis=0)
+                features = np.append(features, bottleneck, axis=1)
+
+
+    # -- plots for last iteration ----------------------------------------------
+    post_process(x, x_train, x_test, ticid_train, ticid_test,
+                 info_train, info_test, p, output_dir, sectors,
+                 data_dir=data_dir, database_dir=database_dir, prefix=prefix,
+                 momentum_dump_csv=momentum_dump_csv, use_rms=use_rms,
+                 features=features, 
+                 flux_feat=np.concatenate([flux_train, flux_test], axis=0),
+                 ticid_feat=np.concatenate([ticid_train, ticid_test]),
+                 info_feat=np.concatenate([info_train, info_test], axis=0),
+                 x_predict=np.concatenate([x_predict_train, x_predict_test], axis=0),
+                 do_summary=do_iteration_summary,
+                 do_diagnostic_plots=do_diagnostic_plots)
+
+
+    # -- summary plots for entire ensemble -------------------------------------
+    if do_ensemble_summary:
+
+        print('Making ensemble summary plots...')
+        # >> get science label for every light curve in ensemble
+        ticid_label = np.empty((0,2)) # >> list of [ticid, science label]
+        for i in [0, 2]: #range(iterations+1):
+            fname=output_dir+'iteration'+str(i)+'-ticid_to_label.txt'
+            filo = np.loadtxt(fname, dtype='str', delimiter=',')
+            ticid_label = np.append(ticid_label, filo, axis=0)
+        ticid = ticid_label[:,0].astype('float')
+        labels = ticid_label[:,1]
+
+        # >> before making a confusion matrix, we need to assign each science 
+        # >> label a number
+        underlying_classes  = np.unique(labels)
+        assignments = []
+        for i in range(len(underlying_classes)):
+            assignments.append([i, underlying_classes[i]])
+        assignments = np.array(assignments)
+
+        # >> get the predicted labels (in numbers)
+        y_pred = []
+        for i in range(len(ticid)):
+            ind = np.nonzero(assignments[:,1] == labels[i])
+            y_pred.append(float(assignments[ind][0][0]))
+        y_pred = np.array(y_pred)
+
+
+        # >> create confusion matrix
+        cm, assignments, ticid_true, y_true, class_info_new, recalls,\
+        false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
+        label_true, label_pred=\
+            pf.assign_real_labels(ticid, y_pred, database_dir, data_dir,
+                                  output_dir=output_dir)
+
+        # >> create summary pie charts
+        pf.ensemble_summary(ticid, labels, cm, assignments, label_true, label_pred,
+                            database_dir=database_dir, output_dir=output_dir, 
+                            prefix=prefix, data_dir=data_dir)
+        pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+                                precisions, accuracy, counts_true, counts_pred,
+                                output_dir+prefix)
+        pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+                                precisions, accuracy, counts_true, counts_pred,
+                                output_dir+prefix, target_labels=[])
+
+        # >> distribution plots
+        inter, comm1, comm2 = np.intersect1d(ticid_feat, ticid_true,
+                                             return_indices=True)
+        y_pred = labels[comm1]
+        x_true = flux_feat[comm1]
+
+        classes, counts = np.unique(y_true, return_counts=True)
+        classes = classes[np.argsort(counts)]
+        for class_label in classes[-20:]:
+            pf.plot_class_dists(assignments, ticid_true, y_pred, y_true,
+                                data_dir, sectors, true_label=class_label,
+                                output_dir=output_dir+'Sector'+str(sectors[0]))
+
 
 def cnn(x_train, y_train, x_test, y_test, params, num_classes=4):
     from keras.models import Model
@@ -1705,7 +2005,8 @@ def compile_model(model, params):
         opt = optimizers.Adam(lr = params['lr'], 
                               decay=params['lr']/params['epochs'])        
     elif params['optimizer'] == 'adadelta':
-        opt = optimizers.adadelta(lr = params['lr'])
+        # opt = optimizers.adadelta(lr = params['lr'])
+        opt = optimizers.Adadelta(lr = params['lr'])
         
     model.compile(optimizer=opt, loss=params['losses'])
 
@@ -2710,13 +3011,11 @@ def split_data_features(flux, features, time, ticid, target_info, classes, p,
     return x_train, x_test, y_train, y_test, flux_train, flux_test,\
         ticid_train, ticid_test, target_info_train, target_info_test, time
 
-def split_data(flux, ticid, target_info, time, p,
+def split_data(flux, x, ticid, target_info, time, p,
                train_test_ratio = 0.9,
-               cutoff=16336,
                supervised=False, classes=False, interpolate=False,
                resize_arr=False, truncate=True):
-    '''need to update, might not work'''
-        
+
     if truncate:
         # >> dim reduced each iteration
         reduction_factor = np.max(p['pool_size'])* np.max(p['strides'])**np.max(p['num_consecutive'] )
@@ -2727,11 +3026,10 @@ def split_data(flux, ticid, target_info, time, p,
         if p['fully_conv']:
             # >> 1 more conv layer
             tot_reduction_factor = tot_reduction_factor * np.max(p['strides'])
-        new_length = int(np.shape(flux)[1] / \
-                     tot_reduction_factor)*\
+        new_length = int(x.shape[1] / tot_reduction_factor)*\
                      int(tot_reduction_factor)
-        flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
-        # flux_plot=np.delete(flux_plot, np.arange(new_length,np.shape(flux_plot)[1]),1)
+        x = np.delete(x,np.arange(new_length,x.shape[1]),1)
+        time_plot = time
         time = time[:new_length]         
 
     # >> split test and train data
@@ -2763,23 +3061,23 @@ def split_data(flux, ticid, target_info, time, p,
         target_info_test = np.copy(target_info[test_inds])        
     else:
         split_ind = int(train_test_ratio*np.shape(flux)[0])
-        x_train = flux[:split_ind]
-        x_test = flux[split_ind:]
+        flux_train = flux[:split_ind]
+        flux_test = flux[split_ind:]
+        x_train = x[:split_ind]
+        x_test = x[split_ind:]
         ticid_train = ticid[:split_ind]
         ticid_test = ticid[split_ind:]
         target_info_train = target_info[:split_ind]
         target_info_test = target_info[split_ind:]    
         y_test, y_train = [None, None]
-        # flux_train = flux_plot[:split_ind]
-        # flux_test = flux_plot[split_ind:]
         
     if resize_arr:
         x_train =  np.resize(x_train, (np.shape(x_train)[0],
                                        np.shape(x_train)[1], 1))
         x_test =  np.resize(x_test, (np.shape(x_test)[0],
                                        np.shape(x_test)[1], 1))
-    return x_train, x_test, y_train, y_test, ticid_train, ticid_test, \
-        target_info_train, target_info_test, time
+    return flux_train, flux_test, x_train, x_test, y_train, y_test, ticid_train,\
+        ticid_test, target_info_train, target_info_test, time, time
     
 
 def get_activations(model, x_test, input_rms = False, rms_test = False,

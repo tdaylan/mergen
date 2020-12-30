@@ -138,7 +138,7 @@ def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppa
     plot_lof(x, flux, ticid, features, sector, pathtofolder,
                  momentum_dump_csv = momentumdumppath,
                  n_neighbors=20, target_info=target_info,
-                 prefix='', mock_data=False, addend=1., feature_vector=True,
+                 prefix='', mock_data=False, feature_vector=True,
                  n_tot=numberofplots)
 
     features_insets(x, flux, features, ticid, pathtofolder)
@@ -800,20 +800,19 @@ def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
 
                  
 
-def diagnostic_plots(history, model, p, output_dir, 
+def diagnostic_plots(history, model, p, output_dir,
                      x, x_train, x_test, x_predict, x_predict_train=None,
                      mock_data=False, target_info_test=False,
                      target_info_train=False, ticid_train=False,
                      ticid_test=False, sharey=False, prefix='',
                      supervised=False, y_true=False, y_predict=False,
                      y_train=False, y_test=False,
-                     flux_test=False, flux_train=False, time=False,
                      rms_train=False, rms_test = False, input_rms = False,
                      input_psd=False,
                      inds = [-1,0,1,2,3,4,5,6,7,-2,-3,-4,-5,-6,-7],
                      intermed_inds = None,
                      input_bottle_inds = [0,1,2,-6,-7],
-                     addend = 1., feature_vector=False, percentage=False,
+                     feature_vector=False, percentage=False,
                      input_features = False, load_bottleneck=False, n_tot=100,
                      DAE=False, bottleneck_train=None, bottleneck=None,
                      plot_epoch = True,
@@ -877,11 +876,6 @@ def diagnostic_plots(history, model, p, output_dir,
         psd_predict = x_predict[1]
         x_predict = x_predict[0]
         
-    # if not feature_vector:
-    #     flux_test = x_test
-    #     flux_train = x_train
-    #     time = x
-    
     # >> plot loss, accuracy, precision, recall vs. epochs
     if plot_epoch:
         if type(history) != type(None):
@@ -900,7 +894,7 @@ def diagnostic_plots(history, model, p, output_dir,
                                               'input_output_test_PSD.png',
                                           ticid_test=ticid_test,
                                           inds=inds, target_info=target_info_test,
-                                          addend=addend, sharey=sharey,
+                                          sharey=sharey,
                                           mock_data=mock_data,
                                           feature_vector=feature_vector,
                                           percentage=percentage) 
@@ -909,7 +903,7 @@ def diagnostic_plots(history, model, p, output_dir,
                                       output_dir+prefix+'input_output_test.png',
                                       ticid_test=ticid_test,
                                       inds=inds, target_info=target_info_test,
-                                      addend=addend, sharey=sharey,
+                                      sharey=sharey,
                                       mock_data=mock_data,
                                       feature_vector=feature_vector,
                                       percentage=percentage)
@@ -929,7 +923,7 @@ def diagnostic_plots(history, model, p, output_dir,
                                               'input_output_train_PSD.png',
                                           ticid_test=ticid_test,
                                           inds=inds, target_info=target_info_test,
-                                          addend=addend, sharey=sharey,
+                                          sharey=sharey,
                                           mock_data=mock_data,
                                           feature_vector=feature_vector,
                                           percentage=percentage) 
@@ -938,7 +932,7 @@ def diagnostic_plots(history, model, p, output_dir,
                                       output_dir+prefix+'input_output_train.png',
                                       ticid_test=ticid_train,
                                       inds=inds, target_info=target_info_train,
-                                      addend=addend, sharey=sharey,
+                                      sharey=sharey,
                                       mock_data=mock_data,
                                       feature_vector=feature_vector,
                                       percentage=percentage)
@@ -986,7 +980,7 @@ def diagnostic_plots(history, model, p, output_dir,
                                      bottleneck, model, ticid_test,
                                      output_dir+prefix+\
                                      'input_bottleneck_output.png',
-                                     addend=addend, inds = input_bottle_inds,
+                                     inds = input_bottle_inds,
                                      sharey=False, mock_data=mock_data,
                                      feature_vector=feature_vector)
 
@@ -995,57 +989,58 @@ def diagnostic_plots(history, model, p, output_dir,
         print('Plotting latent space for testing set')
         latent_space_plot(bottleneck, output_dir+prefix+'latent_space.png')
     
-    # >> plot the 20 light curves with the highest LOF
-    if plot_lof_test:
-        print('Plotting LOF for testing set')
-        for n in [20]: # [20, 50, 100]: loop through n_neighbors
-            plot_lof(time, flux_test, ticid_test, bottleneck, 20, output_dir,
-                     prefix='test-'+prefix, n_neighbors=n, mock_data=mock_data,
-                     feature_vector=feature_vector, n_tot=n_tot,
-                     target_info=target_info_test, log=True, addend=addend)
+    # [120920 - Now do novelty detection in ml.postprocessing]
+    # # >> plot the 20 light curves with the highest LOF
+    # if plot_lof_test:
+    #     print('Plotting LOF for testing set')
+    #     for n in [20]: # [20, 50, 100]: loop through n_neighbors
+    #         plot_lof(time, flux_test, ticid_test, bottleneck, 20, output_dir,
+    #                  prefix='test-'+prefix, n_neighbors=n, mock_data=mock_data,
+    #                  feature_vector=feature_vector, n_tot=n_tot,
+    #                  target_info=target_info_test, log=True)
 
     
-    if plot_latent_train or plot_lof_train or plot_lof_all:
-        if type(bottleneck_train) == type(None):
-            if load_bottleneck:
-                print('Loading bottleneck (training set)')
-                with fits.open(output_dir + 'bottleneck_train.fits', mmap=False) as hdul:
-                    bottleneck_train = hdul[0].data
-            else:
-                print('Getting bottleneck (training set)')
-                bottleneck_train = ml.get_bottleneck(model, x_train, p,
-                                                     input_features=input_features,
-                                                     features=features,
-                                                     input_rms=input_rms,
-                                                     rms=rms_train,
-                                                     DAE=DAE)
+    # if plot_latent_train or plot_lof_train or plot_lof_all:
+    #     if type(bottleneck_train) == type(None):
+    #         if load_bottleneck:
+    #             print('Loading bottleneck (training set)')
+    #             with fits.open(output_dir + 'bottleneck_train.fits', mmap=False) as hdul:
+    #                 bottleneck_train = hdul[0].data
+    #         else:
+    #             print('Getting bottleneck (training set)')
+    #             bottleneck_train = ml.get_bottleneck(model, x_train, p,
+    #                                                  input_features=input_features,
+    #                                                  features=features,
+    #                                                  input_rms=input_rms,
+    #                                                  rms=rms_train,
+    #                                                  DAE=DAE)
 
-    if plot_latent_train:
-        print('Plotting latent space for training set')
-        latent_space_plot(bottleneck_train, output_dir+prefix+\
-                          'latent_space-x_train.png')        
+    # if plot_latent_train:
+    #     print('Plotting latent space for training set')
+    #     latent_space_plot(bottleneck_train, output_dir+prefix+\
+    #                       'latent_space-x_train.png')        
         
-    if plot_lof_train:
-        print('Plotting LOF for testing set')
-        for n in [20]: # [20, 50, 100]:
-            # if type(flux_train) != bool:
-            plot_lof(time, flux_train, ticid_train, bottleneck_train, 20,
-                     output_dir, prefix='train-'+prefix, n_neighbors=n,
-                     mock_data=mock_data, feature_vector=feature_vector,
-                     n_tot=n_tot, target_info=target_info_train,
-                     log=True, addend=addend)
+    # if plot_lof_train:
+    #     print('Plotting LOF for testing set')
+    #     for n in [20]: # [20, 50, 100]:
+    #         # if type(flux_train) != bool:
+    #         plot_lof(time, flux_train, ticid_train, bottleneck_train, 20,
+    #                  output_dir, prefix='train-'+prefix, n_neighbors=n,
+    #                  mock_data=mock_data, feature_vector=feature_vector,
+    #                  n_tot=n_tot, target_info=target_info_train,
+    #                  log=True)
 
                 
-    if plot_lof_all:
-        print('Plotting LOF for entire dataset')
-        bottleneck_all = np.concatenate([bottleneck, bottleneck_train], axis=0)
-        plot_lof(time, np.concatenate([flux_test, flux_train], axis=0),
-                 np.concatenate([ticid_test, ticid_train]), bottleneck_all,
-                 20, output_dir, prefix='all-'+prefix, n_neighbors=20,
-                 mock_data=mock_data, feature_vector=feature_vector,
-                 n_tot=n_tot, log=True, addend=addend,
-                 target_info=np.concatenate([target_info_test,
-                                             target_info_train], axis=0))   
+    # if plot_lof_all:
+    #     print('Plotting LOF for entire dataset')
+    #     bottleneck_all = np.concatenate([bottleneck, bottleneck_train], axis=0)
+    #     plot_lof(time, np.concatenate([flux_test, flux_train], axis=0),
+    #              np.concatenate([ticid_test, ticid_train]), bottleneck_all,
+    #              20, output_dir, prefix='all-'+prefix, n_neighbors=20,
+    #              mock_data=mock_data, feature_vector=feature_vector,
+    #              n_tot=n_tot, log=True,
+    #              target_info=np.concatenate([target_info_test,
+    #                                          target_info_train], axis=0))   
 
     
     # -- plot reconstruction error (unsupervised) -----------------------------
@@ -1056,14 +1051,14 @@ def diagnostic_plots(history, model, p, output_dir,
         plot_reconstruction_error(x, x_test, x_test, x_predict, ticid_test,
                                   output_dir=output_dir, prefix=prefix,
                                   target_info=target_info_test,
-                                  mock_data=mock_data, addend=addend)
+                                  mock_data=mock_data)
 
     if plot_reconstruction_error_train:
         print('Plotting reconstruction error for training set')
         plot_reconstruction_error(x, x_train, x_train, x_predict_train, ticid_train,
                                   output_dir=output_dir, prefix=prefix,
                                   target_info=target_info_train,
-                                  mock_data=mock_data, addend=addend)
+                                  mock_data=mock_data)
     
     if plot_reconstruction_error_all:
         print('Plotting reconstruction error for entire dataset')
@@ -1079,7 +1074,7 @@ def diagnostic_plots(history, model, p, output_dir,
         plot_reconstruction_error(x, tmp, tmp, tmp_predict, 
                                   np.concatenate([ticid_test, ticid_train],
                                                  axis=0), prefix=prefix,
-                                  output_dir=output_dir, addend=addend,
+                                  output_dir=output_dir,
                                   target_info=\
                                       np.concatenate([target_info_test,
                                                       target_info_train]))
@@ -1099,78 +1094,107 @@ def diagnostic_plots(history, model, p, output_dir,
     if plot_intermed_act:
         print('Plotting intermediate activations')
         intermed_act_plot(x, model, activations, x_test[intermed_inds],
-                          output_dir+prefix+'intermed_act-', addend=addend,
+                          output_dir+prefix+'intermed_act-',
                           inds=list(range(len(intermed_inds))),
                           feature_vector=feature_vector)
     
     if make_movie:
         print('Making movie of intermediate activations')
         movie(x, model, activations, x_test, p, output_dir+prefix+'movie-',
-              ticid_test, addend=addend, inds=intermed_inds)        
+              ticid_test, inds=intermed_inds)        
         
     # >> plot kernel vs. filter
     if plot_kernel:
         print('Plotting kernel vs. filter')
         kernel_filter_plot(model, output_dir+prefix+'kernel-')    
-        
-    # return activations, bottleneck
 
-def classification_plots(features, flux_feat, ticid_feat, info_feat, labels,
-                         output_dir='./', prefix='', database_dir='./', data_dir='./'):
+def classification_plots(features, time, flux_feat, ticid_feat, info_feat, labels,
+                         x_predict, output_dir='./', prefix='', database_dir='./',
+                         data_dir='./', do_diagnostic_plots=True, do_summary=True,
+                         sectors=[1], true_label = 'E'):
 
         
-    acc = pf.plot_confusion_matrix(ticid_feat, labels, database_dir=database_dir,
-                                   output_dir=output_dir, prefix=prefix)         
-    with open(output_dir+prefix+'param_summary.txt', 'a') as f:
-        f.write('accuracy: ' + str(np.max(acc)))   
-    pf.quick_plot_classification(x, flux_feat, ticid_feat, info_feat, 
-                                 features, labels, path=output_dir,
-                                 prefix=prefix, database_dir=database_dir)
-    pf.plot_cross_identifications(x, flux_feat, ticid_feat, info_feat, features,
-                                  labels, path=output_dir, database_dir=database_dir,
-                                  data_dir=data_dir, prefix=prefix)
+    # acc = plot_confusion_matrix(ticid_feat, labels, database_dir=database_dir,
+    #                                output_dir=output_dir, prefix=prefix)         
+
 
     class_info = df.get_true_classifications(ticid_feat, database_dir)
-    pf.ensemble_summary(ticid_feat, labels, database_dir,
-                        output_dir, prefix, data_dir=data_dir,
-                        class_info=class_info)
 
+    # -- assign number labels to science labels --------------------------------
+
+    print('Assigning science labels to number labels')
     cm, assignments, ticid_true, y_true, class_info_new, recalls, \
-        false_discovery_rates, counts_true, counts_pred, precisions, accuracy =\
-        pf.assign_real_labels(ticid_feat, labels, database_dir, data_dir, class_info)
-    pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
-                               precisions, accuracy, counts_true, counts_pred,
-                               output_dir+prefix)
-    pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
-                               precisions, accuracy, counts_true, counts_pred,
-                               output_dir+prefix, target_labels=[])
+        false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
+        rows, columns =\
+        assign_real_labels(ticid_feat, labels, database_dir, data_dir, class_info,
+                           output_dir, prefix)
+
+    with open(output_dir+prefix+'param_summary.txt', 'a') as f:
+        f.write('accuracy: ' + str(np.max(accuracy)))   
+
+    # -- save science labels for each ticid ------------------------------------
+
+    with open(output_dir+prefix+'ticid_to_label.txt', 'w') as f:
+        for i in range(len(labels)):
+            ind = np.nonzero(assignments[:,0].astype('float') == labels[i])
+            if len(ind[0]) == 0:
+                f.write(str(ticid_feat[i])+',NONE\n')
+            else:
+                f.write(str(ticid_feat[i])+','+str(assignments[:,1][ind][0])+'\n')
+
+    # -- ensemble summary plots ------------------------------------------------
+
+    if do_summary:
+        print('Ensemble summary...')
+        ensemble_summary(ticid_feat, labels, cm, assignments, rows, columns,
+                         database_dir=database_dir, output_dir=output_dir, 
+                         prefix=prefix, data_dir=data_dir, class_info=class_info)
+        ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+                                   precisions, accuracy, counts_true, counts_pred,
+                                   output_dir+prefix)
+        ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+                                   precisions, accuracy, counts_true, counts_pred,
+                                   output_dir+prefix, target_labels=[])
     inter, comm1, comm2 = np.intersect1d(ticid_feat, ticid_true, return_indices=True)
     y_pred = labels[comm1]
+    x_true = flux_feat[comm1]
+    # x_predict = x_predict[comm1]
 
-    flux_in = flux_feat[comm1]
-    flux_pred = model.predict(flux_in)
-
-    pf.plot_fail_cases(x, flux_in, ticid_true, y_true, y_pred, assignments,
-                       class_info, info_feat[comm1], output_dir+prefix)
-
+        
+    # -- sector distributions --------------------------------------------------
     # >> find top 20 most popular classes
     classes, counts = np.unique(y_true, return_counts=True)
     classes = classes[np.argsort(counts)]
     for class_label in classes[-20:]:
-        pf.plot_class_dists(assignments, ticid_true, y_pred, y_true,
+        plot_class_dists(assignments, ticid_true, y_pred, y_true,
                             data_dir, sectors, true_label=class_label,
                             output_dir=output_dir+prefix)
 
 
     # pf.plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors, output_dir=output_dir)
-    pf.sector_dists(data_dir, sectors, output_dir=output_dir+prefix)
+    # sector_dists(data_dir, sectors, output_dir=output_dir+prefix)
 
-    true_label = 'E'
-    pf.plot_fail_reconstructions(x, flux_in, flux_pred, ticid_true,
-                                 y_true, y_pred, assignments,
-                                 class_info, info_feat[comm1],
-                                 output_dir=output_dir+prefix,
-                                 true_label='E')
+    # -- plot light curves from each class -------------------------------------
+
+    if do_diagnostic_plots:
+        quick_plot_classification(time, flux_feat, ticid_feat, info_feat, 
+                                     features, labels, path=output_dir,
+                                     prefix=prefix+'learned_classes',
+                                  database_dir=database_dir)
+        plot_cross_identifications(time, flux_feat, ticid_feat, info_feat, features,
+                                      labels, path=output_dir, database_dir=database_dir,
+                                      data_dir=data_dir, prefix=prefix)
+
+
+    # -- plot fail cases -------------------------------------------------------
+    if do_diagnostic_plots:
+        plot_fail_reconstructions(time, x_true, x_predict, ticid_true,
+                                     y_true, y_pred, assignments,
+                                     class_info, info_feat[comm1],
+                                     output_dir=output_dir+prefix,
+                                     true_label=true_label)
+        plot_fail_cases(time, x_true, ticid_true, y_true, y_pred, assignments,
+                        class_info, info_feat[comm1], output_dir+prefix)
 
 
 
@@ -1235,7 +1259,7 @@ def epoch_plots(history, p, out_dir, supervised=False, input_psd=False):
 
 def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
                       inds = [-1,0,1,2,3,4,5,6,7,-2,-3,-4,-5,-6,-7],
-                      addend = 0., sharey=False,
+                      sharey=False,
                       mock_data=False, feature_vector=False,
                       percentage=False, target_info=False, psd=False):
     '''Plots input light curve, output light curve and the residual.
@@ -1247,7 +1271,6 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
         * out : output directory
         * ticid_test : list/array of TICIDs, required if mock_data=False
         * inds : indices of light curves in x_test to plot (len(inds)=15)
-        * addend : constant to add to light curves when plotting
         * sharey : share y axis
         * mock_data : if mock_data, includes TICID, mass, rad, ... in titles
         * feature_vector : if feature_vector, assumes x-axis is latent space
@@ -1272,10 +1295,10 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
                             target_info[ind], title=True)
                 
             # >> plot input
-            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend, '.k')
+            axes[ngroup*3,i].plot(x,x_test[inds[ind]], '.k')
             
             # >> plot output
-            axes[ngroup*3+1,i].plot(x,x_predict[inds[ind]]+addend, '.k')
+            axes[ngroup*3+1,i].plot(x,x_predict[inds[ind]], '.k')
             if sharey:
                 bottom, top = axes[ngroup*3,i].get_ylim()
                 axes[ngroup*3+1,i].set_ylim(bottom, top)
@@ -1338,7 +1361,7 @@ def kernel_filter_plot(model, out_dir):
         plt.savefig(out_dir + 'layer' + str(a) + '.png')
         plt.close(fig)
 
-def intermed_act_plot(x, model, activations, x_test, out_dir, addend=1.,
+def intermed_act_plot(x, model, activations, x_test, out_dir,
                       inds = [0, -1], feature_vector=False):
     '''Visualizing intermediate activations.
     Parameters:
@@ -1367,9 +1390,8 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=1.,
         
         # -- plot input -------------------------------------------------------
         fig, axes = plt.subplots(figsize=(8,3))
-        addend = 1. - np.median(x_test[inds[c]])
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
-                x_test[inds[c]] + addend, '.k')
+                x_test[inds[c]], '.k')
         if feature_vector:
             axes.set_xlabel('\u03C8')
         else:
@@ -1413,9 +1435,9 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=1.,
                 # >> make new time array and plot
                 x1 = np.linspace(np.min(x), np.max(x), np.shape(activation)[1])
                 if num_filters > 1:
-                    ax.plot(x1, activation[inds[c]][:,b]+addend, '.k')
+                    ax.plot(x1, activation[inds[c]][:,b], '.k')
                 else:
-                    ax.plot(x1, activation[inds[c]]+addend, '.k')
+                    ax.plot(x1, activation[inds[c]], '.k')
                 
             # >> make x-axis and y-axis labels
             if nrows == 1:
@@ -1439,7 +1461,7 @@ def intermed_act_plot(x, model, activations, x_test, out_dir, addend=1.,
     
 def input_bottleneck_output_plot(x, x_test, x_predict, bottleneck, model,
                                  ticid_test, out, inds=[0,1,-1,-2,-3],
-                                 addend = 1., sharey=False, mock_data=False,
+                                 sharey=False, mock_data=False,
                                  feature_vector=False):
     '''Can only handle len(inds) divisible by 3 or 5'''
     # bottleneck_ind = np.nonzero(['dense' in x.name for x in \
@@ -1457,11 +1479,11 @@ def input_bottleneck_output_plot(x, x_test, x_predict, bottleneck, model,
     for i in range(ncols):
         for ngroup in range(ngroups):
             ind = int(ngroup*ncols + i)
-            axes[ngroup*3,i].plot(x,x_test[inds[ind]]+addend, '.k')
+            axes[ngroup*3,i].plot(x,x_test[inds[ind]], '.k')
             axes[ngroup*3+1,i].plot(np.linspace(np.min(x),np.max(x),
                                               len(bottleneck[inds[ind]])),
                                               bottleneck[inds[ind]], '.k')
-            axes[ngroup*3+2,i].plot(x,x_predict[inds[ind]]+addend, '.k')
+            axes[ngroup*3+2,i].plot(x,x_predict[inds[ind]], '.k')
             if not mock_data:
                 ticid_label(axes[ngroup*3,i],ticid_test[inds[ind]], title=True)
             for j in range(3):
@@ -1484,8 +1506,7 @@ def input_bottleneck_output_plot(x, x_test, x_predict, bottleneck, model,
     return fig, axes
     
 
-def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
-          addend=0.5):
+def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1]):
     '''Make a .mp4 file of intermediate activations.
     Parameters:
         * x : time array
@@ -1510,13 +1531,12 @@ def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
                 # if np.shape(activation)[2] == 1:
                     # ymin.append(min(activation[inds[c]]))
                     # ymax.append(max(activation[inds[c]]))
-        ymin = np.min(ymin) + addend + 0.3*np.median(x_test[inds[c]])
-        ymax = np.max(ymax) + addend - 0.3*np.median(x_test[inds[c]])
-        addend = 1. - np.median(x_test[inds[c]])
+        ymin = np.min(ymin) + 0.3*np.median(x_test[inds[c]])
+        ymax = np.max(ymax) - 0.3*np.median(x_test[inds[c]])
 
         # >> plot input
         axes.plot(np.linspace(np.min(x), np.max(x), np.shape(x_test)[1]),
-                  x_test[inds[c]] + addend, '.k')
+                  x_test[inds[c]], '.k')
         axes.set_xlabel('time [BJD - 2457000]')
         axes.set_ylabel('relative flux')
         axes.set_ylim(ymin=ymin, ymax=ymax)
@@ -1532,7 +1552,7 @@ def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
                 length = p['latent_dim']
                 axes.cla()
                 axes.plot(np.linspace(np.min(x), np.max(x), length),
-                          activation[inds[c]] + addend, '.k')
+                          activation[inds[c]], '.k')
                 axes.set_xlabel('time [BJD - 2457000]')
                 axes.set_ylabel('relative flux')
                 # format_axes(axes, xlabel=True, ylabel=True)
@@ -1549,7 +1569,7 @@ def movie(x, model, activations, x_test, p, out_dir, ticid_test, inds = [0, -1],
                     y = np.reshape(activation[inds[c]], (length))
                     axes.cla()
                     axes.plot(np.linspace(np.min(x), np.max(x), length),
-                              y + addend, '.k')
+                              y, '.k')
                     axes.set_xlabel('time [BJD - 2457000]')
                     axes.set_ylabel('relative flux')
                     # format_axes(axes, xlabel=True, ylabel=True)
@@ -1618,7 +1638,7 @@ def plot_lof_summary(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
              n_neighbors=20, target_info=False, p=4, metric='minkowski',
              contamination=0.1, algorithm='auto', 
-             prefix='', mock_data=False, addend=0., feature_vector=False,
+             prefix='', mock_data=False, feature_vector=False,
              log=False, database_dir=None, single_file=False,
              fontsize='xx-small', title=True, n_pgram=5000,
              nrows=5, ncols=4):
@@ -1673,7 +1693,7 @@ def plot_lof_summary(time, intensity, targets, features, n, path,
                 axis.axvline(t, color='g', linestyle='--')
                 
             # >> plot light curve
-            axis.plot(time, intensity[ind] + addend, '.k')
+            axis.plot(time, intensity[ind], '.k')
             axis.text(0.98, 0.02, '%.3g'%lof[ind], transform=axis.transAxes,
                        horizontalalignment='right', verticalalignment='bottom',
                        fontsize=fontsize)
@@ -1713,7 +1733,7 @@ def plot_lof(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
              n_neighbors=20, target_info=False, p=2, metric='minkowski',
              contamination=0.1, algorithm='auto',
-             prefix='', mock_data=False, addend=1., feature_vector=False,
+             prefix='', mock_data=False, feature_vector=False,
              n_tot=100, log=False, debug=False, feature_lof=None,
              bins=50, database_dir=None, single_file=False,
              fontsize='xx-small', title=True, plot_psd=True, n_pgram=1500):
@@ -1850,7 +1870,7 @@ def plot_lof(time, intensity, targets, features, n, path,
                     axis.axvline(t, color='g', linestyle='--')
                     
                 # >> plot light curve
-                axis.plot(time, intensity[ind] + addend, '.k')
+                axis.plot(time, intensity[ind], '.k')
                 axis.text(0.98, 0.02, '%.3g'%lof[ind],
                            transform=axis.transAxes,
                            horizontalalignment='right',
@@ -2095,16 +2115,68 @@ def plot_paramscan_classes(output_dir, parameter_sets, num_classes, noise_points
     
     plt.show()
 
+def reconstruction_error_power(time, intensity, x_test, x_predict, ticid_test,
+                               output_dir='./', target_info=False, n=20,
+                              prefix='', powers=[1,2,3,4,5]):
+    
+    
+    fig_large, ax_large = plt.subplots(n, len(powers), sharex=True,
+                           figsize=(8*len(powers), 3*n))
+    fig_small, ax_small = plt.subplots(n, len(powers), sharex=True,
+                             figsize=(8*len(powers), 3*n))
+    
+    for col in range(len(powers)):
+    
+        print('Calculating reconstruction error ...')
+        err = np.abs(x_test - x_predict)**powers[col]
+        err = np.mean(err, axis=1)
+        err = err.reshape(np.shape(err)[0])
+    
+        # >> get top n light curves
+        ranked = np.argsort(err)
+        largest_inds = np.copy(ranked[::-1][:n])
+        smallest_inds = np.copy(ranked[:n])
+    
+        for i in range(2):
+            if i == 0:
+                fig, ax = fig_large, ax_large
+                inds = largest_inds
+            else:
+                fig, ax = fig_small, ax_small
+                inds =smallest_inds
+            for k in range(n): # >> loop through each row
+                ind = inds[k]
+                
+                # >> plot light curve
+                ax[k, col].plot(time, intensity[ind], '.k')
+                ax[k, col].plot(time, x_predict[ind], '.')
+                # ax[k].text(0.98, 0.02, 'mse: ' +str(err[ind]),
+                #            transform=ax[k].transAxes, horizontalalignment='right',
+                #            verticalalignment='bottom', fontsize='xx-small')
+                format_axes(ax[k, col], ylabel=True)
+                ticid_label(ax[k, col], ticid_test[ind], target_info[ind],
+                            title=True)
+            ax[0, col].set_title('Power='+str(powers[col]))
+            ax[n-1, col].set_xlabel('Time [BJD - 2457000]')
+            
+    fig_large.suptitle('largest reconstruction error', fontsize=16, y=0.9)
+    fig_large.savefig(output_dir+prefix+'reconstruction_error-largest.png',
+                      bbox_inches='tight')
+
+    fig_small.suptitle('smallest reconstruction error', fontsize=16, y=0.9)
+    fig_small.savefig(output_dir+prefix+'reconstruction_error-smallest.png',
+                bbox_inches='tight')  
+
 
 def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
-                              output_dir='./', addend=1., mock_data=False,
+                              output_dir='./', err=None, mock_data=False,
                               feature_vector=False, n=20, target_info=False,
                               prefix=''):
-    '''For autoencoder, intensity = x_test'''
-    # >> calculate reconstruction error (mean squared error)
-    err = (x_test - x_predict)**2
-    err = np.mean(err, axis=1)
-    err = err.reshape(np.shape(err)[0])
+    if type(err) == type(None):
+        print('Calculating reconstruction error ...')
+        err = (x_test - x_predict)**2
+        err = np.mean(err, axis=1)
+        err = err.reshape(np.shape(err)[0])
     
     # >> get top n light curves
     ranked = np.argsort(err)
@@ -2117,10 +2189,7 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
     if not mock_data:
         out = np.column_stack([ticid_test.astype('int'), err])
         np.savetxt(output_dir+prefix+'reconstruction_error.txt', out, fmt='%-16s')
-        
-        # with open(output_dir+'reconstruction_error.txt', 'w') as f:
-        #     for i in range(len(ticid_test)):
-        #         f.write('{}\t\t{}\n'.format(ticid_test[i], err[i]))
+    
     
     plt.figure()
     plt.hist(err, bins=50)
@@ -2135,9 +2204,12 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
             else: ind = random_inds[k]
             
             # >> plot light curve
-            ax[k].plot(time, intensity[ind]+addend, '.k')
+            ax[k].plot(time, intensity[ind], '.k')
             if not feature_vector:
-                ax[k].plot(time, x_predict[ind]+addend, '.')
+                ax[k].plot(time, x_predict[ind], '.')
+            text='mae: '+str(np.mean(np.abs(intensity[ind]-x_predict[ind])))+\
+                '\nmse: '+str(err[ind])+\
+                '\nmce: '+str(np.mean(np.abs((intensity[ind]-x_predict[ind])**3)))
             ax[k].text(0.98, 0.02, 'mse: ' +str(err[ind]),
                        transform=ax[k].transAxes, horizontalalignment='right',
                        verticalalignment='bottom', fontsize='xx-small')
@@ -2163,7 +2235,7 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
             fig.savefig(output_dir+prefix+'reconstruction_error-random.png',
                         bbox_inches='tight')            
         plt.close(fig)
-    
+
 def classification_diagnosis(features, labels_feat, output_dir, prefix='',
                              figsize=(15,15)):
 
@@ -2213,7 +2285,7 @@ def classification_diagnosis(features, labels_feat, output_dir, prefix='',
                     ax[i,j].lines.remove(ax[i,j].get_lines()[-1]) 
     
 def quick_plot_classification(time, intensity, targets, target_info, features, labels,
-                              path='./', prefix='', addend=1.,
+                              path='./', prefix='', 
                               simbad_database_txt='./simbad_database.txt',
                               title='', ncols=10, nrows=5,
                               database_dir='./databases/', single_file=False):
@@ -2271,7 +2343,7 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
             for k in range(min(nrows, len(classified_inds))): 
                 ind = classified_inds[k] # >> to index targets
                 classified_ind = np.nonzero(ticid_classified == targets[ind])[0][0]
-                ax[k, j].plot(time, intensity[ind]+addend, '.k')
+                ax[k, j].plot(time, intensity[ind], '.k')
                 # simbad_label(ax[k,j], targets[ind], simbad_info[simbad_ind])
                 classification_label(ax[k,j], targets[ind],
                                      class_info[classified_ind])
@@ -2282,7 +2354,7 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
             # >> now plot non-classified light curves
             for l in range(k+1, min(nrows, len(not_classified_inds))):
                 ind = not_classified_inds[l]
-                ax[l,j].plot(time, intensity[ind]+addend, '.k')
+                ax[l,j].plot(time, intensity[ind], '.k')
                 ticid_label(ax[l,j], targets[ind], target_info[ind],
                             title=True, color=color)
                 format_axes(ax[l,j], ylabel=False)
@@ -2353,7 +2425,7 @@ def get_colors():
 def plot_classification(time, intensity, targets, labels, path,
                         momentum_dump_csv = './Table_of_momentum_dumps.csv',
                         n=20, target_info=False,
-                        prefix='', mock_data=False, addend=1.,
+                        prefix='', mock_data=False,
                         feature_vector=False):
     """ 
     """
@@ -2390,7 +2462,7 @@ def plot_classification(time, intensity, targets, labels, path,
                            transform=ax[k].transAxes)            
             
             # >> plot light curve
-            ax[k].plot(time, intensity[ind] + addend, '.k')
+            ax[k].plot(time, intensity[ind], '.k')
             ax[k].text(0.98, 0.02, str(labels[ind]), transform=ax[k].transAxes,
                        horizontalalignment='right', verticalalignment='bottom',
                        fontsize='xx-small')
@@ -2763,8 +2835,9 @@ def make_6_bucket_dict():
 
 
 def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
-                       data_dir='./data/', class_info=None,
-                       merge_classes=False, parent_dict=None, parents=None):
+                       data_dir='./data/', class_info=None, output_dir='./',
+                       prefix='', merge_classes=False, parent_dict=None,
+                       parents=None, figsize=(30,30)):
     
     '''
     Outputs:
@@ -2826,22 +2899,37 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
     while len(label_pred) < len(cm):
         label_pred = np.append(label_pred, 'X')     
     while len(label_true) < len(cm):
-        rows = np.append(label_true, 'X')
+        label_true = np.append(label_true, 'X')
         
     # >> make confusion matrix diagonal by re-ordering columns
     row_ind, col_ind = linear_sum_assignment(-1*cm)
     cm = cm[:,col_ind]
     label_pred = label_pred[col_ind]
     
+    # -- plot confusion matrix -------------------------------------------------
+    
+    print('Saving confusion matrix...')
+    df_cm = pd.DataFrame(cm, index=label_true, columns=label_pred)
+    fig, ax = plt.subplots(figsize=figsize)
+    sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
+    ax.set_aspect(1)
+    fig.savefig(output_dir+prefix+'confusion_matrix_ordered.png')
+    plt.close()    
+
+    # -- make assignment dictionary --------------------------------------------
+
     # >> create a list of tuples [label_pred, label_true]
+    print('Saving assignment dictionary...')
     assignments = []
+    f = open(output_dir+prefix+'assignments.txt', 'a')
     for i in range(len(label_pred)):
         # >> check if there is a real label assigned
         if label_pred[i] != 'X' and label_true[i] != 'X':
             assignments.append([label_pred[i], label_true[i]])
+            f.write(str(label_pred[i])+','+str(label_true[i])+'\n')
     assignments = np.array(assignments)
 
-    # -- compute evaluation metrics --------------------------
+    # -- compute evaluation metrics --------------------------------------------
     recalls = []
     false_discovery_rates = []
     precisions = []
@@ -2866,9 +2954,9 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
     # >> convert arbitrary number labels to real labels
     y_true = class_info_new[:,1]
     
-
-    return cm, assignments, ticid_true, y_true, class_info_new, recalls, false_discovery_rates,\
-        counts_true, counts_pred, precisions, accuracy
+    return cm, assignments, ticid_true, y_true, class_info_new, recalls,\
+        false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
+        label_true, label_pred
 
 
 
@@ -2952,7 +3040,7 @@ def plot_fail_cases(time, flux, ticid, y_true, y_pred, assignments, class_info,
     for i in range(len(assignments)):
         fig, ax = plt.subplots(nrows, 3, sharex=True, figsize=(8*3*0.75, 3*nrows))
         
-        ticid_pred = ticid[np.nonzero(y_pred == int(assignments[i][0]))]
+        ticid_pred = ticid[np.nonzero(y_pred == int(float(assignments[i][0])))]
         ticid_true = ticid[np.nonzero(y_true == assignments[i][1])]
         
         
@@ -2992,7 +3080,8 @@ def plot_fail_cases(time, flux, ticid, y_true, y_pred, assignments, class_info,
         plt.close(fig)
         
 
-def ensemble_summary(ticid_pred, y_pred, database_dir='./databases/',
+def ensemble_summary(ticid_pred, y_pred, cm, assignments, y_true_labels,
+                     columns, database_dir='databases/',
                    output_dir='./', prefix='', data_dir='./data/',
                    labels = [], merge_classes=False, class_info=None,
                    parents=None, fontsize=6., 
@@ -3004,118 +3093,27 @@ def ensemble_summary(ticid_pred, y_pred, database_dir='./databases/',
     orig_classes, counts = np.unique(y_pred, return_counts=True)
     orig_classes = orig_classes.astype('str')
     num_samples = len(ticid_pred)
-    
-    # >> get clusterer classes
-    inds = np.nonzero(y_pred > -1)
-    ticid_pred = ticid_pred[inds]
-    y_pred = y_pred[inds]
-    
-    # >> get 'ground truth' classifications
-    if type(class_info) == type(None):
-        class_info = df.get_true_classifications(ticid_pred,
-                                                 database_dir=database_dir)
-    ticid_true = class_info[:,0].astype('int')
-
-    if merge_classes:
-        if type(parent_dict) == type(None):
-            parent_dict= make_parent_dict()
-        if type(parents) == type(None):
-            parents = list(parent_dict.keys())
-        class_info = df.get_parents_only(class_info, parents=parents,
-                                         parent_dict=parent_dict)
         
-    
-    if len(labels) > 0:
-        ticid_new = []
-        class_info_new = []
-        for i in range(len(ticid_true)):
-            for j in range(len(labels)):
-                if labels[j] in class_info[i][1] and \
-                    ticid_true[i] not in ticid_new:
-                    class_info_new.append([ticid_true[i], labels[j], class_info[i][2]])
-                    ticid_new.append(ticid_true[i])
-                    
-        class_info = np.array(class_info_new)
-        ticid_true = np.array(ticid_new)
-     
-
-    # >> find intersection
-    intersection, comm1, comm2 = np.intersect1d(ticid_pred, ticid_true,
-                                                return_indices=True)
-    ticid_pred = ticid_pred[comm1]
-    y_pred = y_pred[comm1]
-    ticid_true = ticid_true[comm2]
-    class_info_new = class_info[comm2]           
-        
-    columns = np.unique(y_pred).astype('str')
-    y_true_labels = np.unique(class_info_new[:,1])
-
-    y_true = []
-    for i in range(len(ticid_true)):
-        class_num = np.nonzero(y_true_labels == class_info_new[i][1])[0][0]
-        y_true.append(class_num)
-    y_true = np.array(y_true).astype('int')
-    
-    cm = confusion_matrix(y_true, y_pred)
-    while len(columns) < len(cm):
-        columns = np.append(columns, 'X')     
-    while len(y_true_labels) < len(cm):
-        y_true_labels = np.append(y_true_labels, 'X')            
-        
-    row_ind, col_ind = linear_sum_assignment(-1*cm)
-    cm = cm[:,col_ind]
-    columns = columns[col_ind]
-    
-    df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
-    fig, ax = plt.subplots(figsize=figsize)
-    sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
-    ax.set_aspect(1)
-    fig.savefig(output_dir+prefix+'confusion_matrix_ordered.png')
-    plt.close()    
-    
-    # >> make dictionary, where keys are true labels and values are learned labels
-    assigned_labels = {} # >> keys are true labels
-    true_labels = []
-    recalls = []
-    false_discovery_rate = []
-    accuracy = []
-    class_counts = [] # >> prediction
-    target_counts = []
-    
-    for i in range(len(columns)):
-        if columns[i] != 'X' and y_true_labels[i] != 'X':
-            assigned_labels[y_true_labels[i]] = int(columns[i])
-            true_labels.append(y_true_labels[i])
-            
-            TP = cm[i,i] # >> number of true positives
-            FP = np.sum(cm[:,i]) - cm[i,i]
-            FN = np.sum(cm[i]) - cm[i,i]
-            TN = np.sum(cm) - TP - FP - FN
-        
-            recalls.append(TP/(TP+FN))
-            false_discovery_rate.append(FP/(FP+TN))
-            accuracy.append((TP+TN)/(TP+TN+FP+FN))
-            class_counts.append(np.sum(cm[:,i]))
-            target_counts.append(np.sum(cm[i]))
-                
-    recalls = np.array(recalls)
-    avg_recall = np.nanmean(recalls)
-    print('Recall: ' + str(avg_recall))
-    
     # >> make dictionary, where keys are learned labels and values are true labels
     assigned_classes = {} # >> keys are learned classes
     for i in range(len(columns)):
-        if columns[i] != 'X':
+        if columns[i] != 'NONE':
             if i < len(y_true_labels):
-                if y_true_labels[i] != 'X':
+                if y_true_labels[i] != 'NONE':
                     if y_true_labels[i] in list(d.keys()):
-                        assigned_classes[str(columns[i])] = str(columns[i])+' = '+y_true_labels[i]+' = '+d[y_true_labels[i]]
+                        assigned_classes[str(columns[i])] = str(columns[i])+\
+                                         ' = '+y_true_labels[i]+' = '+\
+                                         d[y_true_labels[i]]
                     else:
-                        assigned_classes[str(columns[i])] = str(columns[i])+' = '+y_true_labels[i]
+                        assigned_classes[str(columns[i])] = str(columns[i])+\
+                                         ' = '+y_true_labels[i]
                 else:
                     assigned_classes[str(columns[i])] = str(columns[i])
             else:
                 assigned_classes[str(columns[i])] = str(columns[i])
+
+
+
     for label in orig_classes:
         if label not in assigned_classes:
             assigned_classes[label] = label    
@@ -3130,11 +3128,12 @@ def ensemble_summary(ticid_pred, y_pred, database_dir='./databases/',
             
     import matplotlib as mpl
     mpl.rcParams['font.size'] = fontsize            
-            
+
+    # fig_labels = assignments[:,1]
     fig_labels = []
     for label in orig_classes:
         fig_labels.append(assigned_classes[label])
-        
+
     # >> plot all classes
     fig, ax = plt.subplots()
     fig.suptitle('Number of classes: '+str(num_classes) + \
@@ -3220,54 +3219,54 @@ def ensemble_summary(ticid_pred, y_pred, database_dir='./databases/',
     plt.close(fig)
         
     
-    # -- target summary table -------------------------------------------------
+    # # -- target summary table -------------------------------------------------
     
-    # table_columns = ['recall', 'false discovery rate', 'accuracy', 'number of objects']
-    # table_data = np.array([recalls, false_discovery_rate, accuracy, class_counts]).T
+    # # table_columns = ['recall', 'false discovery rate', 'accuracy', 'number of objects']
+    # # table_data = np.array([recalls, false_discovery_rate, accuracy, class_counts]).T
+    # # table_data = np.round(table_data, 2)
+    # # # table= pd.DataFrame(table_data, index=true_labels, columns=table_columns)
+    # # fig, ax = plt.subplots(1,1, figsize=(15,0.25*len(true_labels)))
+    
+    # # ax.table(cellText=table_data, rowLabels=true_labels, fontsize=12.,
+    # #          colLabels=table_columns, loc='center', colWidths=[0.2]*len(table_columns))
+    # # # pd.plotting.table(ax, table.describe())
+    # # ax.axis('off')
+    # # fig.tight_layout()
+    # # plt.subplots_adjust(left=0.2)
+    # # fig.savefig(output_dir+prefix+'ensemble_summary_table_all.png')
+    
+    # table_columns = ['recall', 'accuracy', 'number of targets']
+    # table_data = np.array([recalls, accuracy, target_counts]).T
     # table_data = np.round(table_data, 2)
-    # # table= pd.DataFrame(table_data, index=true_labels, columns=table_columns)
     # fig, ax = plt.subplots(1,1, figsize=(15,0.25*len(true_labels)))
     
     # ax.table(cellText=table_data, rowLabels=true_labels, fontsize=12.,
-    #          colLabels=table_columns, loc='center', colWidths=[0.2]*len(table_columns))
-    # # pd.plotting.table(ax, table.describe())
+    #          colLabels=table_columns, loc='center',
+    #          colWidths=[0.2]*len(table_columns))
     # ax.axis('off')
     # fig.tight_layout()
     # plt.subplots_adjust(left=0.2)
-    # fig.savefig(output_dir+prefix+'ensemble_summary_table_all.png')
+    # fig.savefig(output_dir+prefix+'ensemble_summary_table_all_target.png')
     
-    table_columns = ['recall', 'accuracy', 'number of targets']
-    table_data = np.array([recalls, accuracy, target_counts]).T
-    table_data = np.round(table_data, 2)
-    fig, ax = plt.subplots(1,1, figsize=(15,0.25*len(true_labels)))
+    # target_labels = ['E', 'EA', 'EW', 'EB', 'L', 'LB', 'S', 'V', 'SB', 'HS']
+    # rowLabels = []
+    # cellText = []
+    # for i in range(len(true_labels)):
+    #     if true_labels[i] in target_labels:
+    #         rowLabels.append(d[true_labels[i]])
+    #         cellText.append(table_data[i])
+    # fig, ax = plt.subplots(1,1, figsize=(10,0.25*len(rowLabels)))
+    # ax.table(cellText=cellText, rowLabels=rowLabels, fontsize=12.,
+    #          colLabels=table_columns, loc='center', colWidths=[0.2]*len(table_columns))
+    # ax.axis('off')
+    # fig.tight_layout()
+    # plt.subplots_adjust(left=0.2)
+    # fig.savefig(output_dir+prefix+'ensemble_summary_table_target.png')
     
-    ax.table(cellText=table_data, rowLabels=true_labels, fontsize=12.,
-             colLabels=table_columns, loc='center',
-             colWidths=[0.2]*len(table_columns))
-    ax.axis('off')
-    fig.tight_layout()
-    plt.subplots_adjust(left=0.2)
-    fig.savefig(output_dir+prefix+'ensemble_summary_table_all_target.png')
-    
-    target_labels = ['E', 'EA', 'EW', 'EB', 'L', 'LB', 'S', 'V', 'SB', 'HS']
-    rowLabels = []
-    cellText = []
-    for i in range(len(true_labels)):
-        if true_labels[i] in target_labels:
-            rowLabels.append(d[true_labels[i]])
-            cellText.append(table_data[i])
-    fig, ax = plt.subplots(1,1, figsize=(10,0.25*len(rowLabels)))
-    ax.table(cellText=cellText, rowLabels=rowLabels, fontsize=12.,
-             colLabels=table_columns, loc='center', colWidths=[0.2]*len(table_columns))
-    ax.axis('off')
-    fig.tight_layout()
-    plt.subplots_adjust(left=0.2)
-    fig.savefig(output_dir+prefix+'ensemble_summary_table_target.png')
-    
-    intersection, comm1, comm2 = np.intersect1d(target_labels, true_labels,
-                                                return_indices=True)
-    plot_confusion_matrix(cm[comm1], intersection, columns, output_dir=output_dir,
-                          prefix=prefix, figsize=figsize)
+    # intersection, comm1, comm2 = np.intersect1d(target_labels, true_labels,
+    #                                             return_indices=True)
+    # # plot_confusion_matrix(cm[comm1], intersection, columns, output_dir=output_dir,
+    # #                       prefix=prefix, figsize=figsize)
     
 
     
@@ -3316,7 +3315,7 @@ def ensemble_summary(ticid_pred, y_pred, database_dir='./databases/',
     # fig.savefig(output_dir+prefix+'ensemble_summary_table.png')      
         
     
-    return assigned_labels, assigned_classes
+#     return assigned_labels, assigned_classes
 
 # def plot_confusion_matrix(cm, rows, columns, output_dir='./', prefix='',
 #                           figsize=(30,30)):
@@ -3434,7 +3433,7 @@ def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
 
 def paper_plot_lof(features=None, time=None, flux=None, target_info=None, 
                    targets=[192980481,  18783433], n_neighbors=20, nrows=4,
-                   addend=1., output_dir='./', lof=None,
+                   output_dir='./', lof=None,
                    momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
                    fontsize=6, load_from_metafiles=True,
                    dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/' ,
@@ -3594,7 +3593,7 @@ def paper_schematic(x_test, x_predict, output_dir='./'):
 
 def plot_lc(time, flux, target_info, ticid, ind, output_dir='./',
             momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
-            addend=1., plot_mom_dump=False):
+            plot_mom_dump=False):
     # -- momentum dumps ------------------------------------------------------
     # >> get momentum dump times
     print('Loading momentum dump times')
@@ -3611,7 +3610,7 @@ def plot_lc(time, flux, target_info, ticid, ind, output_dir='./',
         for t in mom_dumps:
             ax.axvline(t, color='g', linestyle='--')
         
-    ax.plot(time, flux[ind][0] + addend, '.k', ms=2)
+    ax.plot(time, flux[ind][0], '.k', ms=2)
     format_axes(ax, xlabel=True)
     ticid_label(ax, ticid[ind], target_info[ind][0], title=True)      
     ax.set_ylabel('Flux')
@@ -3736,9 +3735,9 @@ def presentation_validation(model, p, ind):
     
     
 def presentation_plot_classifications(x, flux, ticid, target_info, output_dir,
-                                      ticid_list, classnum, addend=1.,
+                                      ticid_list, classnum, 
                                       plot_psd=False, plot_mom_dump=False,
-                                      momentum_dump_csv = '../../Table_of_momentum_dumps.csv'):  
+                                      momentum_dump_csv = 'Table_of_momentum_dumps.csv'):  
     from astropy.timeseries import LombScargle
     
     color = get_colors()[classnum+1]
@@ -3766,7 +3765,7 @@ def presentation_plot_classifications(x, flux, ticid, target_info, output_dir,
                     ax[i].axvline(t, color='g', linestyle='--')                  
             
             ind = np.nonzero(ticid == ticid_list[i])
-            ax[i].plot(x, flux[ind].reshape(-1)+addend, '.k')
+            ax[i].plot(x, flux[ind].reshape(-1), '.k')
             ticid_label(ax[i], ticid[ind], target_info[ind][0], title=True,
                         color=color, fontsize='small')
             format_axes(ax[i], xlabel=True, ylabel=True)
@@ -3785,7 +3784,7 @@ def presentation_plot_classifications(x, flux, ticid, target_info, output_dir,
                     ax[i,0].axvline(t, color='g', linestyle='--')            
             
             ind = np.nonzero(ticid == ticid_list[i])
-            ax[i,0].plot(x, flux[ind].reshape(-1)+addend, '.k')
+            ax[i,0].plot(x, flux[ind].reshape(-1), '.k')
             ticid_label(ax[i,0], ticid[ind], target_info[ind][0], title=True,
                         color=color, fontsize='small')
             format_axes(ax[i,0], xlabel=True, ylabel=True)
@@ -3809,7 +3808,7 @@ def presentation_plot_classifications(x, flux, ticid, target_info, output_dir,
 def plot_lof_2col(time, intensity, targets, features, n, path,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
              n_neighbors=20, target_info=False, p=2,
-             prefix='', mock_data=False, addend=1., feature_vector=False, log=False):
+             prefix='', mock_data=False, feature_vector=False, log=False):
     """ lof plotting variant to specifically make a plot for the paper with
     two columns per plot
     """
@@ -3862,7 +3861,7 @@ def plot_lof_2col(time, intensity, targets, features, n, path,
         for t in mom_dumps:
                     ax[row, col].axvline(t, color='g', linestyle='--')
         
-        ax[row, col].plot(time, intensity[ind] + addend, '.k')
+        ax[row, col].plot(time, intensity[ind], '.k')
         ax[row,col].text(0.98, 0.02, '%.3g'%lof[ind],
                            transform=ax[row, col].transAxes,
                            horizontalalignment='right',
@@ -3893,7 +3892,7 @@ def plot_lof_2col(time, intensity, targets, features, n, path,
         for t in mom_dumps:
                     ax[row, col].axvline(t, color='g', linestyle='--')
         
-        ax[row, col].plot(time, intensity[ind] + addend, '.k')
+        ax[row, col].plot(time, intensity[ind], '.k')
         ax[row,col].text(0.98, 0.02, '%.3g'%lof[ind],
                            transform=ax[row, col].transAxes,
                            horizontalalignment='right',
@@ -3934,7 +3933,7 @@ def plot_lof_2col(time, intensity, targets, features, n, path,
     
     
 def plot_cross_identifications(time, intensity, targets, target_info, features,
-                               labels, path='./', prefix='', addend=0.,
+                               labels, path='./', prefix='', 
                                database_dir='./databases/', ncols=10,
                                nrows=10, data_dir='./'):
     colors = get_colors()
@@ -3977,7 +3976,7 @@ def plot_cross_identifications(time, intensity, targets, target_info, features,
                     color = colors[class_num]
                 else:
                     color='black'                
-                ax[k, j].plot(time, intensity[flux_ind]+addend, '.k')
+                ax[k, j].plot(time, intensity[flux_ind], '.k')
                 classification_label(ax[k,j], ticid, class_info[ind])
                 ticid_label(ax[k,j], ticid, target_info[flux_ind], title=True,
                             color=color)
@@ -4003,7 +4002,7 @@ def plot_class_dists(assignments, ticid, y_pred, y_true, data_dir, sectors,
         # >> create plot for every class
         for i in range(len(assignments)):
             # >> find TICIDs of the true positives
-            ticid_pred = ticid[np.nonzero(y_pred == int(assignments[i][0]))]
+            ticid_pred = ticid[np.nonzero(y_pred == int(float(assignments[i][0])))]
             ticid_true = ticid[np.nonzero(y_true == assignments[i][1])]
             intersection = np.intersect1d(ticid_pred, ticid_true)
             
@@ -4011,14 +4010,15 @@ def plot_class_dists(assignments, ticid, y_pred, y_true, data_dir, sectors,
                          prefix=assignments[i][1])
             
     else:
-        ind = np.nonzero(assignments[:,1] == true_label)[0][0]
-        # >> find TICIDs of the true positives
-        ticid_pred = ticid[np.nonzero(y_pred == int(assignments[ind][0]))]
-        ticid_true = ticid[np.nonzero(y_true == true_label)]
-        intersection = np.intersect1d(ticid_pred, ticid_true)
-        
-        sector_dists(data_dir, sectors, intersection, output_dir,
-                     prefix=true_label)        
+        if len( np.nonzero(assignments[:,1] == true_label)[0]) > 0:
+            ind = np.nonzero(assignments[:,1] == true_label)[0][0]
+            # >> find TICIDs of the true positives
+            ticid_pred = ticid[np.nonzero(y_pred == int(float(assignments[ind][0])))]
+            ticid_true = ticid[np.nonzero(y_true == true_label)]
+            intersection = np.intersect1d(ticid_pred, ticid_true)
+
+            sector_dists(data_dir, sectors, intersection, output_dir,
+                         prefix=true_label)        
     
 def sector_dists(data_dir, sectors, ticid_list=[], output_dir='./', figsize=(3,3),
                  prefix=''):
@@ -4075,260 +4075,10 @@ def sector_dists(data_dir, sectors, ticid_list=[], output_dir='./', figsize=(3,3
         a.set_xscale('log')
         a.set_yscale('log')
         fig.tight_layout()
-        fig.savefig(output_dir+sector_name+prefix+suffix+'.png')
+        # fig.savefig(output_dir+sector_name+prefix+suffix+'.png')
+        fig.savefig(output_dir+prefix+suffix+'.png')
     fig1.tight_layout()
 
-    fig1.savefig(output_dir+sector_name+prefix+'_dists.png')
-        
-        
-
-    
-    # cm = cm[:len(labels)]
-    # cm = cm[:, list(range(len(columns)))]
-    
-    # # !! Currently fails if more than 24 classes are found
-    # if np.shape(cm)[0] > len(index):
-    #     for i in range(np.shape(cm)[0] - len(index)):
-    #         index = np.insert(index, -1, 'unknown_class_'+str(i))
-    # if np.shape(cm)[0] > len(columns):
-    #     for i in range(np.shape(cm)[0] - len(columns)):
-    #         columns = np.insert(columns, -1, 'unknown_class_'+str(i))
-    # # columns = list(range(-1, len(labels)))      
-
-# if plot_clustering:
-#     bottleneck_ind = np.nonzero(['dense' in x.name for x in \
-#                                  model.layers])[0][0]
-#     bottleneck = activations[bottleneck_ind - 1]        
-#     latent_space_clustering(bottleneck, x_test, x, ticid_test,
-#                             out=output_dir+prefix+\
-#                                 'clustering-x_test-', addend=addend)
-
-# def features_plotting_2D(feature_vectors, cluster_columns, path, clustering):
-#     """plotting (n 2) features against each other
-#     feature_vectors is the list of ALL feature_vectors
-#     cluster_columns is the vectors that you want to use to do the clustering based on
-#         this can be the same as feature_vectors
-#     date must be a string in the format of the folder you are saving into ie "4-13"
-#     clustering must equal 'dbscan', 'kmeans', or 'empty'
-#     """
-#     clustering = "empty"
-#     folder_label = "blank"
-#     if clustering == 'dbscan':
-#         db = DBSCAN(eps=2.2, min_samples=18).fit(cluster_columns) #eps is NOT epochs
-#         classes_dbscan = db.labels_
-#         numclasses = str(len(set(classes_dbscan)))
-#         folder_label = "dbscan-colored"
-#     elif clustering == 'kmeans': 
-#         Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
-#         x = Kmean.fit(cluster_columns)
-#         classes_kmeans = x.labels_
-#         folder_label = "kmeans-colored"
-#     else: 
-#         print("no clustering chosen")
-#         folder_label = "2DFeatures-NoCluster"
-#     #makes folder and saves to it    
-#     folder_path = path + "/" + folder_label
-#     try:
-#         os.makedirs(folder_path)
-#     except OSError:
-#         print ("Creation of the directory %s failed" % folder_path)
-#         print("New folder created will have -new at the end. Please rename.")
-#         os.makedirs(folder_path + "-new")
-#     else:
-#         print ("Successfully created the directory %s" % folder_path) 
- 
-#     graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-#                     "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-#                     "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-#                     "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
-#     fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-#                     "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-#                     "P0", "P1", "P2", "Period0to0_1"]
-#     color = ["red", "blue", "green", "purple", "black"]
-#     for n in range(16):
-#         feat1 = feature_vectors[:,n]
-#         graph_label1 = graph_labels[n]
-#         fname_label1 = fname_labels[n]
-#         for m in range(16):
-#             if m == n:
-#                 continue
-#             graph_label2 = graph_labels[m]
-#             fname_label2 = fname_labels[m]                
-#             feat2 = feature_vectors[:,m]
-            
-#             if clustering == 'dbscan':
-#                 for p in range(len(feature_vectors)):
-#                     plt.scatter(feat1[p], feat2[p], c = color[classes_dbscan[p]], s = 5)
-#                 plt.xlabel(graph_label1)
-#                 plt.ylabel(graph_label2)
-#                 plt.savefig((folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.pdf"))
-#                 plt.show()
-#             elif clustering == 'kmeans':
-#                 for p in range(len(feature_vectors)):
-#                     plt.scatter(feat1[p], feat2[p], c = color[classes_kmeans[p]])
-#                 plt.xlabel(graph_label1)
-#                 plt.ylabel(graph_label2)
-#                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.pdf")
-#                 plt.show()
-#             elif clustering == 'none':
-#                 plt.scatter(feat1, feat2, s = 2, color = 'black')
-#                 #plt.autoscale(enable=True, axis='both', tight=True)
-#                 plt.xlabel(graph_label1)
-#                 plt.ylabel(graph_label2)
-#                 plt.savefig(folder_path + "/" + fname_label1 + "-vs-" + fname_label2 + ".pdf")
-#                 plt.show()
-        # else:
-        #     plot_lof(x, x_test, ticid_test, bottleneck, 20, output_dir,
-        #              prefix = 'test-'+prefix, n_neighbors=n,
-        #              mock_data=mock_data, feature_vector=feature_vector,
-        #              n_tot=n_tot, target_info=target_info_test,
-        #              log=True)                
-            # else:
-            #     plot_lof(x, x_train, ticid_train, bottleneck_train, 20,
-            #              output_dir, prefix = 'train-'+prefix, n_neighbors=n,
-            #              mock_data=mock_data, feature_vector=feature_vector,
-            #              n_tot=n_tot, target_info=target_info_train,
-            #              log=True)   
-     
-        # else:
-        #     plot_lof(x, np.concatenate([x_test, x_train], axis=0),
-        #              np.concatenate([ticid_test, ticid_train], axis=0),
-        #              bottleneck_all, 20, output_dir, prefix='all-'+prefix,
-        #              n_neighbors=20, n_tot=n_tot, log=True,
-        #              mock_data=mock_data, feature_vector=feature_vector,
-        #              target_info=np.concatenate([target_info_test,
-        #                                          target_info_train], axis=0))
-        # # >> save to fits file
-        # hdr = fits.Header()
-        # hdu=fits.PrimaryHDU(bottleneck_all, header=hdr)
-        # hdu.writeto(output_dir+'bottleneck.fits')
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-    # best_accuracy = 0.
-    # perm1 = permutations(list(range(len(columns))))
-    
-    # accuracy = []
-    # # perm2 = permutations(list(range(len(index))))
-    
-    # # !! re-arranging columns won't work as well when we learn few classes
-    # # >> re-order rows so that most popular classes are first
-    # row_order = np.flip(np.argsort(np.sum(cm, axis=1)))
-    # cm = cm[row_order]
-    # index = index[row_order]
-    
-    # for col_order in list(perm1):
-    #     # >> re-arrange cm by column
-    #     col_order = np.array(col_order)
-    #     cm_tmp = cm[:,col_order]        
-        
-    #     # >> calculate accuracy
-    #     diag_length = np.min(np.shape(cm))
-    #     acc = np.sum(np.diag(cm_tmp)) / np.sum(cm_tmp[:diag_length,:diag_length])
-    #     accuracy.append(acc)
-        
-    #     if acc > best_accuracy:
-    #         best_col_ordering = col_order
-    #         best_accuracy = acc
-        
-    # # >> re-arrange confusion matrix to get the best accuracy  
-    # cm = cm[:,best_col_ordering]
-        
-    # # pdb.set_trace()
-    # # for col_order in list(perm1):
-    # #     # >> re-arrange cm by column
-    # #     col_order = np.array(col_order)
-    # #     cm_tmp = cm[:,col_order]        
-        
-    # #     col_accuracy = []
-    # #     for row_order in list(perm2):            
-    # #         # >> re-arrange cm by row
-    # #         row_order = np.array(row_order)
-    # #         cm_tmp = cm[row_order]
-            
-    # #         # >> calculate accuracy
-    # #         diag_length = np.min(np.shape(cm))
-    # #         acc = np.sum(np.diag(cm_tmp)) / np.sum(cm_tmp[:diag_length,:diag_length])
-            
-    # #         if acc > best_accuracy:
-    # #             best_row_ordering = row_order
-    # #             best_col_ordering = col_order
-        
-    # # # >> re-arrange confusion matrix to get the best accuracy
-    # # # best_ind = np.argmax(np.array(accuracy))
-    # # # best_order = col_ordering[best_ind]
-    # # # cm = cm[:,best_order]
-    # # cm = cm[best_row_ordering,best_col_ordering]
-#def features_2D_colorshape(feature_vectors, path, clusteralg, hand_classes):
- #   """ plots features against each other
-  #  COLORING based on the given hand classes. 
-   # SHAPE based on the assigned class by the given cluster algorithm
-  #  folderpath and clusteralg should be strings
-  #  """
-  #  if clusteralg == 'dbscan':
-   #     db = DBSCAN(eps=2.2, min_samples=18).fit(feature_vectors) #eps is NOT epochs
-   #     classes_dbscan = db.labels_
-
-    #elif clusteralg == 'kmeans': 
-     #   Kmean = KMeans(n_clusters=4, max_iter=700, n_init = 20)
-    #    x = Kmean.fit(feature_vectors)
-    #    classes_kmeans = x.labels_
-   # else: 
-    #    print("please enter a valid clustering algorithm")
- 
-    #try:
-     #   os.makedirs(path)
-   # except OSError:
-    #    print ("Creation of the directory %s failed" % path)
-     #   print("New folder created will have -new at the end. Please rename.")
-      #  os.makedirs(path + "-new")
-   # else:
-    #    print ("Successfully created the directory %s" % path) 
- 
-  #  graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-   #                 "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-    #                "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-     #               "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
-    #fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-     #               "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-      #              "P0", "P1", "P2", "Period0to0_1"]
-    #for n in range(16):
-     #   feat1 = feature_vectors[:,n]
-      #  graph_label1 = graph_labels[n]
-       # fname_label1 = fname_labels[n]
-       # for m in range(16):
-        #    if m == n:
-         #       continue
-          #  graph_label2 = graph_labels[m]
-      #      fname_label2 = fname_labels[m]                
-       #     feat2 = feature_vectors[:,m]
-            
-        #    colors = ["red", "blue", "green", "purple", "yellow", "magenta", "black"]
-         #   shapes = ['.', 'P', 'h', '+', 'x']
-            
-          #  if clusteralg == 'dbscan':
-           #     for p in range(len(feature_vectors)):
-            #        #assign a color
-             #       c = colors[classes_dbscan[p]]
-                    
-              #      if classes_dbscan[p] == hand_classes[p]:
-               #         s = '^' #if they match the arrow goes up
-                #    else:
-                 #       s = 'v' #if they do not match the arrow goes down
-                    
-                  #  plt.scatter(feat1[p], feat2[p], c = c, s = 1, marker=s)
-               # plt.xlabel(graph_label1)
-                #plt.ylabel(graph_label2)
-              #  plt.savefig((path + "/" + fname_label1 + "-vs-" + fname_label2 + "-dbscan.pdf"))
-               # plt.show()
-            #elif clusteralg == 'kmeans':
-             #   for p in range(len(feature_vectors)):
-                    #assign color
-              #      c = colors[classes_kmeans[p]]
-               #     if classes_kmeans[p] == hand_classes[p]:
-                #        s = '^'
-                 #   else:
-                  #      s = 'v'
-                   # plt.scatter(feat1[p], feat2[p], c = c,s = 1, marker=s)
-            #    plt.xlabel(graph_label1)
-             #   plt.ylabel(graph_label2)
-              #  plt.savefig(path + "/" + fname_label1 + "-vs-" + fname_label2 + "-kmeans.pdf")
-        
+    # fig1.savefig(output_dir+sector_name+prefix+'_dists.png')
+    plt.close(fig)
+    plt.close(fig1)
