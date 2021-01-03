@@ -107,6 +107,14 @@ def test_data():
     """make sure the module loads in"""
     print("Data functions loaded in.")
 
+def download_data(output_dir='./data/'):
+    '''TODO'''
+    # >> light curves
+    # >> TICv8 catalog
+    # >> GCVS to Simbad label conversion dictionary
+    # >> classifications (put in data/databases/)
+    # >> momentum dump table
+    pass
 
 def representation_learning(flux, x, ticid, target_info, 
                             output_dir='./',
@@ -536,8 +544,9 @@ def load_group_from_fits(path, sector, camera, ccd):
 
 def data_access_sector_by_bulk(yourpath, sectorfile, sector,
                                bulk_download_dir, custom_mask=[],
-                               apply_nan_mask=False, query_tess_feats=True,
-                               query_catalogs=True, make_fits=True):
+                               apply_nan_mask=False, query_tess_feats=False,
+                               query_catalogs=True, make_fits=True,
+                               data_dir=''):
     '''Get interpolated flux array for each group, if you already have all the
     _lc.fits files downloaded in bulk_download_dir.
     Parameters:
@@ -571,20 +580,21 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
     for line in lines[6:]:
         ticid_list.append(int(line.split()[0]))        
             
-    if query_tess_feats:
-        # >> download TIC-v8 features
-        get_tess_feature_txt(ticid_list,
-                             yourpath+'tess_features_sector'+str(sector)+'.txt')
+    # if query_tess_feats:
+    #     # >> download TIC-v8 features
+    #     get_tess_feature_txt(ticid_list,
+    #                          yourpath+'tess_features_sector'+str(sector)+'.txt')
 
     if query_catalogs:
         # >> query GCVS
         query_vizier(ticid_list=ticid_list, dat_dir=yourpath, sector=sector,
-                     out=yourpath+'Sector'+str(sector)+'_GCVS.txt')
+                     out=yourpath+'Sector'+str(sector)+'_GCVS.txt', query_mast=False)
 
         # >> query SIMBAD
         out_f=yourpath+'Sector'+str(sector)+'_simbad.txt'
         ticid_simbad, otypes_simbad, main_id_simbad = \
-            query_simbad_classifications(ticid_list, out_f=out_f)
+            query_simbad_classifications(ticid_list, out_f=out_f, data_dir=data_dir,
+                                         sector=sector, query_mast=False)
         correct_simbad_to_vizier(in_f=yourpath+'Sector'+str(sector)+'_simbad.txt',
                                  out_f=yourpath+'Sector'+str(sector)+'_simbad_revised.txt')
     
@@ -1700,6 +1710,24 @@ def feature_gen_from_lc_fits(path, sector, feature_version=0):
     
     return feats_all, ticids_all
 
+def calculate_variability_statistics(data_dir):
+    for sector in range(1,27):
+        flux, x, ticid, target_info = \
+            load_data_from_metafiles(data_dir, sector, nan_mask_check=False)
+
+        variability = []
+        for i in range(len(flux)):
+            norm = flux[i] / np.nanmedian(flux[i])
+            norm = np.delete(norm, np.nonzero(np.isnan(norm)))
+            var = np.percentile(norm, 95) - np.percentile(norm, 5)
+            variability.append(var)
+        np.savetxt(data_dir+'Sector'+str(sector)+'/Sector'+\
+                   str(sector)+'variability_statistics.txt',
+                   [ticid, variability])
+
+
+
+
 def get_tess_features(ticid):
     '''Query catalog data https://arxiv.org/pdf/1905.10694.pdf'''
     
@@ -1719,6 +1747,69 @@ def get_tess_features(ticid):
     # lum = catalog_data[0]["lum"]
 
     return target, Teff, rad, mass, GAIAmag, d, objType, Tmag
+
+def get_tess_feature_all(data_dir='./data/'):
+    columns = np.loadtxt(data_dir+'exo_CTL_08.01xTIC_v8.1_header.csv',
+                         dtype='str', delimiter=',')
+    columns = np.char.replace(columns, '[', '') # >> clean up
+    columns = np.char.split(columns, ']')
+    columns = [x[0] for x in columns]
+    columns.remove('objID')
+
+    sectors =  [26] # np.arange(8,27)
+    for sector in sectors:
+        print('Sector '+str(sector))
+        output_dir = data_dir + 'Sector'+str(sector)+'/'
+        fname = output_dir+'all_targets_S%03d'%sector+'_v1.txt'
+        ticid = np.loadtxt(fname)[:,0] # >> take first column
+
+        fname = output_dir+'Sector'+str(sector)+'tic_cat.csv'
+        data = pd.read_csv(fname) # !! need to first do get_TIC_catalog_sector
+        data_ticid = data['ID'].to_numpy()
+        with open(fname, 'r') as f:
+            lines=f.readlines()[1:]
+
+        # >> make new file
+        fname = output_dir+'Sector'+str(sector)+'tic_cat_all.csv'
+        if os.path.exists(fname):
+            prog = pd.read_csv(fname, index_col=False)
+            prog.to_csv(output_dir+'Sector'+str(sector)+'backup.csv',
+                        index=False)
+            ticid_prog = prog['ID'].to_numpy()
+
+        with open(fname, 'w') as f:
+            f.write(','.join(columns)+'\n')
+
+        for i in range(len(ticid)):
+            if i % 100 == 0:
+                print(str(i) + '/' + str(len(ticid)))
+
+
+            if ticid[i] not in ticid_prog:
+                if ticid[i] in data_ticid:
+                    ind = np.nonzero(data_ticid == ticid[i])[0][0]
+                    with open(fname, 'a') as f:
+                        f.write(','.join(lines[ind].split(',')[:124])+'\n')
+                else:
+                    target = 'TIC ' + str(int(ticid[i]))
+                    print('Querying '+target)
+                    catalog_data = \
+                        Catalogs.query_object(target, radius=0.02, catalog='TIC')
+                    line = []
+                    for col in columns:
+                        line.append(catalog_data[0][col])
+                    line = np.array(line) # >> clean up
+                    line[np.nonzero(line == 'nan')] = ''
+                    with open(fname, 'a') as f:
+                        f.write(','.join(line) +'\n')
+            else:
+                print('Already completed '+str(ticid[i]))
+                ind = np.nonzero(ticid_prog == ticid[i])[0][0]
+                with open(fname, 'a') as f:
+                    f.write(','.join(prog.loc[ind].to_numpy().astype('str'))+'\n')
+                
+
+    
 
 def get_tess_feature_txt(ticid_list, out='./tess_features_sectorX.txt'):
     '''Queries 'TESS features' (i.e. Teff, rad, mass, GAIAmag, d) for each
@@ -1745,8 +1836,184 @@ def get_tess_feature_txt(ticid_list, out='./tess_features_sectorX.txt'):
             with open('./failed_get_tess_features.txt', 'a') as f:
                 f.write(str(ticid_list[i])+'\n')
 
+def download_TIC_catalog(output_dir='./'):
+    '''Downloads TICv8 catalog in CSV format from:
+    https://archive.stsci.edu/tess/tic_ctl.html'''
+    url = 'https://archive.stsci.edu/missions/tess/catalogs/tic_v81/'
+    # >> make a list of filenames
+    fnames = []
+    dec = np.arange(2,92,2)
+    for i in range(len(dec)-1):
+        fname = 'tic_dec%02d'%dec[i]+'_00N__%02d'%dec[i+1]+'_00N.csv.gz'
+        fnames.append(fname)
+        fname = 'tic_dec%02d'%dec[-i-1]+'_00S__%02d'%dec[-i-2]+'_00S.csv.gz'
+        fnames.append(fname)
+    fnames.append('tic_dec02_00S__00_00N.csv.gz')
+    fnames.append('tic_dec00_00N__02_00N.csv.gz')    
 
+    # >> download csv files
+    for fname in fnames:
+        if os.path.exists(output_dir+fname[:-3]):
+            print('Skipping '+fname+' (already downloaded)')
+        else:
+            print('Downloading '+fname+' ...')
+            os.system('curl -# -o '+output_dir+fname+' '+url+fname)
+
+    # >> extract csv files
+    for fname in fnames:
+        if os.path.exists(output_dir+fname):
+            print('Unzipping '+fname+' ...')
+            os.system('gunzip '+output_dir+fname)
+
+    # >> combine all csv files
+    os.system('cat tic_dec*.csv > tic_dec_all.csv')
+
+    # >> also download column descriptions
+    fname = 'tic_column_description.txt'
+    os.system('curl -# -o '+output_dir+fname+' '+url+fname)
     
+def get_TIC_catalog_sector(data_dir='data/'):
+    '''Will read TICv8 CSV files and return a pandas dataframe as another csv.'''
+    # import glob
+
+    # >> get column descriptions
+    # columns = np.loadtxt(data_dir+'tic_column_description.txt',
+    #                      dtype='str')[:,0] # >> take first column
+    # columns = np.char.replace(columns, '[', '') # >> clean up
+    # columns = np.char.replace(columns, ']', '')
+    columns = np.loadtxt(data_dir+'exo_CTL_08.01xTIC_v8.1_header.csv',
+                         dtype='str', delimiter=',')
+    columns = np.char.replace(columns, '[', '') # >> clean up
+    columns = np.char.split(columns, ']')
+    columns = [x[0] for x in columns]
+
+    # >> get TICIDs for each sector
+    ticid = []
+    sectors = np.arange(1,27)
+    for sector in sectors:
+        fname = 'Sector'+str(sector)+'/all_targets_S%03d'%sector+'_v1.txt'
+        ticid_sector = np.loadtxt(data_dir+fname)[:,0] # >> take first column
+        ticid.append(ticid_sector)
+
+    # # >> initialize sector_df
+    # sector_df = {}
+    # for i in range(len(sectors)):
+    #     sector_df[i] = []
+
+    # for fname in fnames:
+        # print('Loading ' + fname + ' ...')
+        # for chunk in pd.read_csv(fname, header=None, chunksize=50000,
+        #                          low_memory=False):
+
+        #     for i in range(len(sectors)):
+        #         # >> find data only for our desired TICIDs
+        #         _, _, inds = np.intersect1d(ticid[i], chunk[0],
+        #                                     return_indices=True)
+
+        #         if len(inds) > 0:
+        #             sector_df[i].append(chunk.iloc[inds])
+        #             if len(sector_df[i]) > 1:
+        #                 sector_df[i] = [pd.concat(sector_df[i])]
+        #             sector_df[i][0].to_csv(data_dir+'Sector'+str(i+1)+'/Sector'+\
+        #                                    str(i+1)+'tic_cat.csv')
+
+    sector_df = {}
+
+    # # >> find all TICv8 csv files
+    # fnames = glob.glob(data_dir+'tic_dec*')
+    fname = data_dir + 'exo_CTL_08.01xTIC_v8.1.csv'
+
+    print('Loading ' + fname + ' ...')
+    cat = pd.read_csv(fname, header=None, low_memory=False)
+
+    for i in range(len(sectors)):
+        # >> find data only for our desired TICIDs
+        _, _, inds = np.intersect1d(ticid[i], cat[0], return_indices=True)
+
+        sector_df[i] = cat.iloc[inds]
+        sector_df[i].columns = columns
+
+        sector_df[i].to_csv(data_dir+'Sector'+str(i+1)+'/Sector'+\
+                            str(i+1)+'tic_cat.csv', index=False)
+
+
+    # # >> put column descriptions in each .csv file
+    # for i in range(len(sectors)):
+    #     sector_df[i][0].columns = columns
+    #     sector_df[i][0].to_csv(data_dir+'Sector'+str(i+1)+'/Sector'+\
+    #                            str(i+1)+'tic_cat.csv')
+
+
+def get_TIC_check_success(data_dir):
+    for sector in range(1,27):
+        print('Sector '+str(sector))
+        fname = data_dir+'Sector'+str(sector)+'/all_targets_S%03d'%sector+\
+                '_v1.txt'
+        ticid = np.loadtxt(fname)[:,0]
+        fname = data_dir+'Sector'+str(sector)+'/Sector'+str(sector)+\
+                'tic_cat_all.csv'
+        df = pd.read_csv(fname, index_col=False)
+        inter = np.intersect1d(ticid, df['ID'])
+        print('Number of targets in tic_cat_all: '+str(len(inter)))
+        print('Right order? '+str(ticid==df['ID']))
+
+        fname = data_dir+'Sector'+str(sector)+'/Sector'+str(sector)+\
+                'tic_cat_v2.csv'
+        df = pd.read_csv(fname, index_col=False)
+        inter = np.intersect1d(ticid, df['ID'])
+        print('Number of targets: ' + str(len(ticid)))
+        print('Number of targets in tic_cat_v2: '+str(len(inter)))
+
+
+def get_TIC_catalog_sector_v2(data_dir='data/'):
+    '''Will read TICv8 CSV files and return a pandas dataframe as another csv.'''
+
+    # >> get column descriptions
+    columns = np.loadtxt(data_dir+'tic_column_description.txt',
+                         dtype='str')[:,0] # >> take first column
+    columns = np.char.replace(columns, '[', '') # >> clean up
+    columns = np.char.replace(columns, ']', '')
+
+    # >> get TICIDs for each sector
+    ticid = []
+    sectors = np.arange(1,27)
+    for sector in sectors:
+        fname = 'Sector'+str(sector)+'/all_targets_S%03d'%sector+'_v1.txt'
+        ticid_sector = np.loadtxt(data_dir+fname)[:,0] # >> take first column
+        ticid.append(ticid_sector)
+
+    # >> initialize sector_df
+    sector_df = {}
+    for i in range(len(sectors)):
+        sector_df[i] = []
+
+    import glob
+    fnames = glob.glob(data_dir+'tic_dec*')
+
+    for fname in fnames:
+        print('Loading ' + fname + ' ...')
+        for chunk in pd.read_csv(fname, header=None, chunksize=50000,
+                                 low_memory=False):
+
+            for i in range(len(sectors)):
+                # >> find data only for our desired TICIDs
+                _, _, inds = np.intersect1d(ticid[i], chunk[0],
+                                            return_indices=True)
+
+                if len(inds) > 0:
+                    sector_df[i].append(chunk.iloc[inds])
+                    if len(sector_df[i]) > 1:
+                        sector_df[i] = [pd.concat(sector_df[i])]
+                    sector_df[i][0].to_csv(data_dir+'Sector'+str(i+1)+'/Sector'+\
+                                           str(i+1)+'tic_cat_v2.csv')
+
+    # >> put column descriptions in each .csv file
+    for i in range(len(sectors)):
+        sector_df[i][0].columns = columns
+        sector_df[i][0].to_csv(data_dir+'Sector'+str(i+1)+'/Sector'+\
+                               str(i+1)+'tic_cat_v2.csv')
+
+
 def build_simbad_database(out='./simbad_database.txt'):
     '''Object type follows format in:
     http://vizier.u-strasbg.fr/cgi-bin/OType?$1
@@ -1819,7 +2086,9 @@ def query_associated_catalogs(ticid):
     for i in ['HIP', 'TYC', 'UCAC', 'TWOMASS', 'ALLWISE', 'GAIA', 'KIC', 'APASS']:
         print(i + ' ' + str(res[i]) + '\n')
 
-def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt'):
+def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
+                                 data_dir='data/', query_mast=False, 
+                                 sector=1):
     '''Call like this:
     query_simbad_classifications([453370125.0, 356473029])
     '''
@@ -1843,6 +2112,11 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt'):
         for line in lines:
             ticid_already_classified.append(float(line.split(',')[0]))
     
+    if not query_mast:
+        catalog_data_all=pd.read_csv(data_dir+'Sector'+str(sector)+'/Sector'+str(sector)+\
+                                 'tic_cat_all.csv', index_col=False)
+
+
 
     for tic in ticid_list:
         
@@ -1855,11 +2129,16 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt'):
                     
                 else:
                     print('get coords for TIC' + str(int(tic)))
-                    
-                    # >> get coordinates
-                    target = 'TIC ' + str(int(tic))
-                    catalog_data = Catalogs.query_object(target, radius=0.02,
-                                                         catalog='TIC')[0]
+
+                    target = 'TIC ' + str(int(tic))                    
+                    if query_mast:
+                        # >> get coordinates
+                        catalog_data = Catalogs.query_object(target, radius=0.02,
+                                                             catalog='TIC')[0]
+
+                    else:
+                        ind = np.nonzero(catalog_data_all['ID'].to_numpy() == tic)[0][0]
+                        catalog_data=catalog_data_all.iloc[ind]
                     # time.sleep(6)
             
                     
@@ -1959,7 +2238,7 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt'):
         
 def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
                  dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/',
-                 sector=20):
+                 sector=20, query_mast=False):
     '''http://www.sai.msu.su/gcvs/gcvs/vartype.htm'''
     
     # Vizier.ROW_LIMIT=-1
@@ -1978,8 +2257,9 @@ def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
     ticid_already_classified = []
     
     # >> make sure output file exists
-    with open(out, 'a') as f:
-        f.write('')    
+    if not os.path.exists(out):
+        with open(out, 'a') as f:
+            f.write('')    
     
     with open(out, 'r') as f:
         lines = f.readlines()
@@ -1987,6 +2267,11 @@ def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
         for line in lines:
             ticid_already_classified.append(float(line.split(',')[0]))
             
+
+    if not query_mast:
+        catalog_data = pd.read_csv(dat_dir+'Sector'+str(sector)+'/Sector'+\
+                                   str(sector)+'tic_cat_all.csv',
+                                   index_col=False)
     
     for tic in ticid_list:
         if tic  in ticid_already_classified:
@@ -1994,12 +2279,17 @@ def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
         else:
             try:
                 print('Running '+str(tic))
-                target = 'TIC ' + str(int(tic))
-                print('Query Catalogs')
-                catalog_data = Catalogs.query_object(target, radius=0.02,
-                                                     catalog='TIC')[0]
-                ra = catalog_data['ra']
-                dec = catalog_data['dec']            
+                if query_mast:
+                    target = 'TIC ' + str(int(tic))
+                    print('Query Catalogs')
+                    catalog_data = Catalogs.query_object(target, radius=0.02,
+                                                         catalog='TIC')[0]
+                    ra = catalog_data['ra']
+                    dec = catalog_data['dec']            
+                else:
+                    ind = np.nonzero(catalog_data['ID'].to_numpy()==tic)[0][0]
+                    ra = catalog_data.iloc[ind]['ra']
+                    dec = catalog_data.iloc[ind]['dec']
                 # coords = coord.SkyCoord(ra, dec, unit=(u.deg, u.deg)) 
                 # ra = coords.ra.deg
                 # dec = coords
@@ -2028,7 +2318,29 @@ def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
                 
     return ticid_viz, otypes_viz, main_id_viz
 
+def query_vizier_v2(data_dir='./data/', sector=1, catalog='gcvs'):
+    df = get_TIC_catalog_sector(data_dir, sector)
+    
+    # >> make sure output file exists
+    if not os.path.exists(out):
+        with open(out, 'a') as f:
+            f.write('')    
+    
+    with open(out, 'r') as f:
+        lines = f.readlines()
+        ticid_already_classified = []
+        for line in lines:
+            ticid_already_classified.append(float(line.split(',')[0]))
 
+    for i in range(len(df)):
+        ticid = df[0][i]
+        if ticid in ticid_already_classified:
+            print('Skipping '+str(ticid)+ ' (already found classification)')
+        else:
+            target = 'TIC ' + str(int(ticid))
+            ra = df['ra'][i]
+            dec = df['dec'][i]
+            
 
 def get_otype_dict(data_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/',
                    uncertainty_flags=[':', '?', '*']):

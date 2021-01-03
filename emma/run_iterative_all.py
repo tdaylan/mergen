@@ -5,16 +5,15 @@ sector_list = [[4], [5], [6], [7], [8], [9], [10], [11], [12], [13], [14], [15],
                [16,17], [17,18], [18,19], [19,20], [20,21], [21,22], [22,23],
                [23,24], [24,25], [25,26], [26,27], [27,28]]
 
-sector_list = [[3], [21], [22], [23], [24], [25], [26]]
 
-# sector_list = [[4], [5], [6], [7], [8], [9], [10], [11], [12], [13], [14],
-#                [17], [18], [19], [20], [27], [15], [16], [21], [22], [23],
-#                [24], [25], [26]]
+sector_list = [[6], [7], [8], [9], [10], [11], [12], [13],
+               [14], [15], [16], [17], [18], [19], [21], [22], [23], [24], [25],
+               [26]]
 
-# sector_list = [[1]]
+sector_list = [[15], [16], [21], [22]]
 
 
-# sector_list = [[1]]
+# sector_list = [[20]]
 
 # sector_list=[[16]]
 
@@ -28,9 +27,11 @@ for sectors in sector_list:
         # data_dir = '/nfs/ger/home/echickle/data/'
         data_dir = '/nfs/blender/data/tdaylan/data/'
 
-
         # !!
-        output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_'+str(sectors[0])+'/'
+        # output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_'+str(sectors[0])+'/'
+        output_dir = '/nfs/blender/data/tdaylan/Mergen_Run_1/'+\
+                     'Ensemble-Sector_'+str(sectors[0])+'/'
+
         # mom_dump = '/nfs/ger/home/echickle/data/Table_of_momentum_dumps.csv'
         mom_dump = '/nfs/blender/data/tdaylan/data/Table_of_momentum_dumps.csv'
         # database_dir = '/nfs/ger/home/echickle/data/databases/'
@@ -215,6 +216,67 @@ for sectors in sector_list:
           'cvae': False,
           'share_pool_inds': False,
           'batch_norm': True}      
+
+    p = {'kernel_size': 5,
+          'latent_dim': 35,
+          'strides': 1,
+          'epochs': 30,
+          'dropout': 0.2,
+          'num_filters': 32,
+          'num_conv_layers': 6,
+          'batch_size': 32,
+          'activation': 'elu',
+          'optimizer': 'adam',
+          'last_activation': 'linear',
+          'losses': 'mean_squared_error',
+          'lr': 0.0001,
+          'initializer': 'random_normal',
+          'num_consecutive': 2,
+          'pool_size': 2, 
+          'pool_strides': 2,
+          'units': [1024, 512, 64, 16],
+          'kernel_regularizer': None,
+          'bias_regularizer': None,
+          'activity_regularizer': None,
+          'fully_conv': False,
+          'encoder_decoder_skip': False,
+          'encoder_skip': False,
+          'decoder_skip': False,
+          'full_feed_forward_highway': False,
+          'cvae': False,
+          'share_pool_inds': False,
+          'batch_norm': True}      
+
+    p2 = {'kernel_size': 5,
+          'latent_dim': 35,
+          'strides': 1,
+          'epochs': 30,
+          'dropout': 0.2,
+          'num_filters': 32,
+          'num_conv_layers': 6,
+          'batch_size': 32,
+          'activation': 'elu',
+          'optimizer': 'adam',
+          'last_activation': 'linear',
+          'losses': 'mean_squared_error',
+          'lr': 0.0001,
+          'initializer': 'random_normal',
+          'num_consecutive': 2,
+          'pool_size': 2, 
+          'pool_strides': 2,
+          'units': [1024, 512, 64, 16],
+          'kernel_regularizer': None,
+          'bias_regularizer': None,
+          'activity_regularizer': None,
+          'fully_conv': False,
+          'encoder_decoder_skip': False,
+          'encoder_skip': False,
+          'decoder_skip': False,
+          'full_feed_forward_highway': False,
+          'cvae': False,
+          'share_pool_inds': False,
+          'batch_norm': True}      
+
 
     # -- create output directory --------------------------------------------------
 
@@ -423,11 +485,9 @@ for sectors in sector_list:
                          momentum_dump_csv=mom_dump, sectors=sectors,
                          concat_ext_feats=concat_ext_feats,
                          hyperparam_opt=hyperparameter_optimization,
-                         p_opt=p_opt, run=True, do_diagnostic_plots=False,
-                         do_ensemble_summary=False, novelty_detection=False,
+                         p_opt=p_opt, run=False, do_diagnostic_plots=False,
+                         do_ensemble_summary=True, novelty_detection=False,
                          do_iteration_summary=False)
-
-
 
     if train_split:
         ml.split_cae(time, x_train, x_test, p, target_info_train, target_info_test,

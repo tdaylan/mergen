@@ -1596,6 +1596,9 @@ def split_cae(x, flux_train, flux_test, p, target_info_train, target_info_test,
         if len(x_test) > 0:
             with fits.open(output_dir+prefix+'segment'+str(i)+'-x_predict_test.fits') as hdul:
                 x_predict_test=np.append(x_predict_test, hdul[0].data, axis=1)
+    if len(x_predict_test) == 0:
+        x_predict_test=np.empty((0, x_predict_train.shape[1]))
+
     return x_train, x_test, x_predict_train, x_predict_test
     
 
@@ -1619,7 +1622,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                   momentum_dump_csv='./Table_of_momentum_dumps.csv', sectors=[],
                   concat_ext_feats=False, use_rms=False, do_diagnostic_plots=True,
                   do_iteration_summary=True, do_ensemble_summary=True,
-                  novelty_detection=True,
+                  novelty_detection=True, 
                   run=True, hyperparam_opt=False, p_opt={}):
     '''len(n_split)=iterations'''
 
@@ -1738,55 +1741,56 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                           momentum_dump_csv=momentum_dump_csv, debug=True,
                           save_model_epoch=False, plot=do_diagnostic_plots,
                           hyperparam_opt=hyperparam_opt)
-        else:
-            x_predict_test = np.empty((len(flux_test), 0))
-            x_predict_train = np.empty((len(flux_train), 0))
-            x_train = np.empty((len(flux_train), 0))
-            x_test = np.empty((len(flux_test), 0))
-            features = np.empty((len(x_train)+len(x_test), 0))
-            for j in range(n_split[i-1]):
-                fname=output_dir+prefix+'segment'+str(j)+'-x_predict_train.fits'
-                with fits.open(fname) as hdul:
-                    segment_predict_train = hdul[0].data
-                segment_len = segment_predict_train.shape[1]
-                if len(flux_test) > 0:
-                    fname=output_dir+prefix+'segment'+str(j)+'-x_predict_test.fits'              
-                    with fits.open(fname) as hdul:
-                        segment_predict_test = hdul[0].data
-                else:
-                    segment_predict_test = np.empty((0,segment_len))
-                fname=output_dir+prefix+'segment'+str(j)+'-bottleneck_train.fits'                
-                with fits.open(fname) as hdul:
-                    bottleneck_train = hdul[0].data
-                fname=output_dir+prefix+'segment'+str(j)+'-bottleneck_test.fits'                
-                with fits.open(fname) as hdul:
-                    bottleneck_test = hdul[0].data
 
-                start = x_predict_train.shape[1]
-                end = start+segment_len
-                segment_train = df.standardize(flux_train[:,start:end])
-                segment_test = df.standardize(flux_test[:,start:end])
-                
-                if do_diagnostic_plots:
-                    pf.diagnostic_plots(history, model, p, output_dir,
-                                        x[start:start+segment_len],
-                                        segment_train, segment_test,
-                                        segment_predict_test,
-                                        segment_predict_train,
-                                        target_info_test=info_test,
-                                        target_info_train=info_train,
-                                        prefix=prefix+'segment'+str(j)+'-',
-                                        ticid_train=ticid_train, ticid_test=ticid_test, 
-                                        bottleneck_train=bottleneck_train,
-                                        bottleneck=bottleneck_test,
-                                        plot_epoch=plot_epoch, load_bottleneck=False)
 
-                x_predict_train = np.append(x_predict_train, segment_predict_train, axis=1)
-                x_predict_test = np.append(x_predict_test, segment_predict_test, axis=1)
-                x_train = np.append(x_train, segment_train, axis=1)
-                x_test = np.append(x_test, segment_test, axis=1)
-                bottleneck = np.concatenate([bottleneck_train, bottleneck_test], axis=0)
-                features = np.append(features, bottleneck, axis=1)
+        x_predict_test = np.empty((len(flux_test), 0))
+        x_predict_train = np.empty((len(flux_train), 0))
+        x_train = np.empty((len(flux_train), 0))
+        x_test = np.empty((len(flux_test), 0))
+        features = np.empty((len(x_train)+len(x_test), 0))
+        for j in range(n_split[i-1]):
+            fname=output_dir+prefix+'segment'+str(j)+'-x_predict_train.fits'
+            with fits.open(fname) as hdul:
+                segment_predict_train = hdul[0].data
+            segment_len = segment_predict_train.shape[1]
+            if len(flux_test) > 0:
+                fname=output_dir+prefix+'segment'+str(j)+'-x_predict_test.fits'              
+                with fits.open(fname) as hdul:
+                    segment_predict_test = hdul[0].data
+            else:
+                segment_predict_test = np.empty((0,segment_len))
+            fname=output_dir+prefix+'segment'+str(j)+'-bottleneck_train.fits'                
+            with fits.open(fname) as hdul:
+                bottleneck_train = hdul[0].data
+            fname=output_dir+prefix+'segment'+str(j)+'-bottleneck_test.fits'                
+            with fits.open(fname) as hdul:
+                bottleneck_test = hdul[0].data
+
+            start = x_predict_train.shape[1]
+            end = start+segment_len
+            segment_train = df.standardize(flux_train[:,start:end])
+            segment_test = df.standardize(flux_test[:,start:end])
+
+            if do_diagnostic_plots:
+                pf.diagnostic_plots(history, model, p, output_dir,
+                                    x[start:start+segment_len],
+                                    segment_train, segment_test,
+                                    segment_predict_test,
+                                    segment_predict_train,
+                                    target_info_test=info_test,
+                                    target_info_train=info_train,
+                                    prefix=prefix+'segment'+str(j)+'-',
+                                    ticid_train=ticid_train, ticid_test=ticid_test, 
+                                    bottleneck_train=bottleneck_train,
+                                    bottleneck=bottleneck_test,
+                                    plot_epoch=plot_epoch, load_bottleneck=False)
+
+            x_predict_train = np.append(x_predict_train, segment_predict_train, axis=1)
+            x_predict_test = np.append(x_predict_test, segment_predict_test, axis=1)
+            x_train = np.append(x_train, segment_train, axis=1)
+            x_test = np.append(x_test, segment_test, axis=1)
+            bottleneck = np.concatenate([bottleneck_train, bottleneck_test], axis=0)
+            features = np.append(features, bottleneck, axis=1)
 
 
     # -- plots for last iteration ----------------------------------------------
@@ -1813,55 +1817,65 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
             fname=output_dir+'iteration'+str(i)+'-ticid_to_label.txt'
             filo = np.loadtxt(fname, dtype='str', delimiter=',')
             ticid_label = np.append(ticid_label, filo, axis=0)
+
+
+        prefix='Sector'+str(sectors[0])+'-'
+
+        np.savetxt(output_dir+prefix+'ticid_to_label.txt', ticid_label,
+                   fmt='%s', delimiter=',')
+
         ticid = ticid_label[:,0].astype('float')
         labels = ticid_label[:,1]
 
-        # >> before making a confusion matrix, we need to assign each science 
-        # >> label a number
-        underlying_classes  = np.unique(labels)
-        assignments = []
-        for i in range(len(underlying_classes)):
-            assignments.append([i, underlying_classes[i]])
-        assignments = np.array(assignments)
+        pf.ensemble_summary_plots(ticid, labels, output_dir, data_dir,
+                                  sectors, prefix)
 
-        # >> get the predicted labels (in numbers)
-        y_pred = []
-        for i in range(len(ticid)):
-            ind = np.nonzero(assignments[:,1] == labels[i])
-            y_pred.append(float(assignments[ind][0][0]))
-        y_pred = np.array(y_pred)
+        # # >> before making a confusion matrix, we need to assign each science 
+        # # >> label a number
+        # underlying_classes  = np.unique(labels)
+        # assignments = []
+        # for i in range(len(underlying_classes)):
+        #     assignments.append([i, underlying_classes[i]])
+        # assignments = np.array(assignments)
+
+        # # >> get the predicted labels (in numbers)
+        # y_pred = []
+        # for i in range(len(ticid)):
+        #     ind = np.nonzero(assignments[:,1] == labels[i])
+        #     y_pred.append(float(assignments[ind][0][0]))
+        # y_pred = np.array(y_pred)
 
 
-        # >> create confusion matrix
-        cm, assignments, ticid_true, y_true, class_info_new, recalls,\
-        false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
-        label_true, label_pred=\
-            pf.assign_real_labels(ticid, y_pred, database_dir, data_dir,
-                                  output_dir=output_dir)
+        # # >> create confusion matrix
+        # cm, assignments, ticid_true, y_true, class_info_new, recalls,\
+        # false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
+        # label_true, label_pred=\
+        #     pf.assign_real_labels(ticid, y_pred, database_dir, data_dir,
+        #                           output_dir=output_dir)
 
-        # >> create summary pie charts
-        pf.ensemble_summary(ticid, labels, cm, assignments, label_true, label_pred,
-                            database_dir=database_dir, output_dir=output_dir, 
-                            prefix=prefix, data_dir=data_dir)
-        pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
-                                precisions, accuracy, counts_true, counts_pred,
-                                output_dir+prefix)
-        pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
-                                precisions, accuracy, counts_true, counts_pred,
-                                output_dir+prefix, target_labels=[])
+        # # >> create summary pie charts
+        # pf.ensemble_summary(ticid, labels, cm, assignments, label_true, label_pred,
+        #                     database_dir=database_dir, output_dir=output_dir, 
+        #                     prefix=prefix, data_dir=data_dir)
+        # pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+        #                         precisions, accuracy, counts_true, counts_pred,
+        #                         output_dir+prefix)
+        # pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+        #                         precisions, accuracy, counts_true, counts_pred,
+        #                         output_dir+prefix, target_labels=[])
 
-        # >> distribution plots
-        inter, comm1, comm2 = np.intersect1d(ticid_feat, ticid_true,
-                                             return_indices=True)
-        y_pred = labels[comm1]
-        x_true = flux_feat[comm1]
+        # # >> distribution plots
+        # inter, comm1, comm2 = np.intersect1d(ticid_feat, ticid_true,
+        #                                      return_indices=True)
+        # y_pred = labels[comm1]
+        # x_true = flux_feat[comm1]
 
-        classes, counts = np.unique(y_true, return_counts=True)
-        classes = classes[np.argsort(counts)]
-        for class_label in classes[-20:]:
-            pf.plot_class_dists(assignments, ticid_true, y_pred, y_true,
-                                data_dir, sectors, true_label=class_label,
-                                output_dir=output_dir+'Sector'+str(sectors[0]))
+        # classes, counts = np.unique(y_true, return_counts=True)
+        # classes = classes[np.argsort(counts)]
+        # for class_label in classes[-20:]:
+        #     pf.plot_class_dists(assignments, ticid_true, y_pred, y_true,
+        #                         data_dir, sectors, true_label=class_label,
+        #                         output_dir=output_dir+'Sector'+str(sectors[0]))
 
 
 def cnn(x_train, y_train, x_test, y_test, params, num_classes=4):

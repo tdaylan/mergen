@@ -3078,7 +3078,74 @@ def plot_fail_cases(time, flux, ticid, y_true, y_pred, assignments, class_info,
             
         fig.savefig(output_dir+'fail_analysis_'+assignments[i][1].replace('/', '-')+'.png')
         plt.close(fig)
-        
+                                    
+
+def two_years_ensemble_summary(output_dir, data_dir, prefix='Mergen_Run_1'):
+
+    sectors=list(range(1,27))
+    
+    # >> get science label for every light curve in ensemble
+    ticid_label = np.empty((0,2)) # >> list of [ticid, science label]
+    for i in sectors:
+        fname=output_dir+'Ensemble-Sector_'+str(i)+'/Sector'+str(i)+'-ticid_to_label.txt'
+        filo = np.loadtxt(fname, dtype='str', delimiter=',')
+        ticid_label = np.append(ticid_label, filo, axis=0)
+    ticid = ticid_label[:,0].astype('float')
+    labels = ticid_label[:,1]
+
+    ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix)
+
+def ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix=''):
+    # >> before making a confusion matrix, we need to assign each science 
+    # >> label a number
+    underlying_classes  = np.unique(labels)
+    assignments = []
+    for i in range(len(underlying_classes)):
+        assignments.append([i, underlying_classes[i]])
+    assignments = np.array(assignments)
+
+    # >> get the predicted labels (in numbers)
+    y_pred = []
+    for i in range(len(ticid)):
+        ind = np.nonzero(assignments[:,1] == labels[i])
+        y_pred.append(float(assignments[ind][0][0]))
+    y_pred = np.array(y_pred)
+
+    # >> create confusion matrix
+    cm, assignments, ticid_true, y_true, class_info_new, recalls,\
+    false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
+    label_true, label_pred=\
+        assign_real_labels(ticid, y_pred, data_dir+'/databases/', data_dir,
+                              output_dir=output_dir+prefix)
+
+    # >> create summary pie charts
+    # ensemble_summary(ticid, labels, cm, assignments, label_true, label_pred,
+    #                     database_dir=data_dir+'./databases', output_dir=output_dir, 
+    #                     prefix=prefix, data_dir=data_dir)
+    # ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+    #                            precisions, accuracy, counts_true, counts_pred,
+    #                            output_dir+prefix)
+    # ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+    #                         precisions, accuracy, counts_true, counts_pred,
+    #                         output_dir+prefix, target_labels=[])
+
+    # >> distribution plots
+    inter, comm1, comm2 = np.intersect1d(ticid, ticid_true, return_indices=True)
+    y_pred = labels[comm1]
+    # x_true = flux_feat[comm1]
+
+    classes, counts = np.unique(y_true, return_counts=True)
+    classes = classes[np.argsort(counts)]
+
+    print('Plot feature ditsributions...')
+    plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
+                     label_list=classes[-20:], output_dir=output_dir+prefix)
+
+    # for class_label in classes[-20:]:
+    #     plot_class_dists(assignments, ticid_true, y_pred, y_true,
+    #                         data_dir, sectors, true_label=class_label,
+    #                         output_dir=output_dir+prefix)
+
 
 def ensemble_summary(ticid_pred, y_pred, cm, assignments, y_true_labels,
                      columns, database_dir='databases/',
@@ -3996,89 +4063,154 @@ def plot_cross_identifications(time, intensity, targets, target_info, features,
         plt.close(fig)                
    
 def plot_class_dists(assignments, ticid, y_pred, y_true, data_dir, sectors, 
-                     true_label=None, output_dir='./'):
+                     label_list=[], output_dir='./'):
     
-    if type(true_label) == type(None):
+    data = []
+    var_data = []
+    var_tic = []
+    for sector in sectors:
+        print('Loading TICv8 catalog data: Sector '+str(sector))
+        sector_data = pd.read_csv(data_dir+'Sector'+str(sector)+\
+                                  '/Sector'+str(sector)+'tic_cat_all.csv')
+        data.append(sector_data)
+
+        tic, var = np.loadtxt(data_dir+'Sector'+str(sector)+\
+                              '/Sector'+str(sector)+'variability_statistics.txt')
+        var_tic.append(tic)
+        var_data.append(var)
+    data = pd.concat(data)
+    var_data = np.concatenate(var_data, axis=0)
+    var_tic = np.concatenate(var_tic)
+
+    _, _, inds = np.intersect1d(ticid, data['ID'],
+                                return_indices=True)
+    data = data.iloc[inds]
+
+    _, _, inds = np.intersect1d(ticid, var_tic, return_indices=True)
+    var_data = var_data[inds]
+
+    if len(label_list) == 0:
         # >> create plot for every class
         for i in range(len(assignments)):
             # >> find TICIDs of the true positives
             ticid_pred = ticid[np.nonzero(y_pred == int(float(assignments[i][0])))]
             ticid_true = ticid[np.nonzero(y_true == assignments[i][1])]
-            intersection = np.intersect1d(ticid_pred, ticid_true)
             
-            sector_dists(data_dir, sectors, intersection, output_dir,
-                         prefix=assignments[i][1])
+            sector_dists(data,  var_data, ticid_pred, output_dir,
+                         prefix=assignments[i][1]+'_PRED_')
+
+            sector_dists(data, var_data, ticid_true, output_dir,
+                         prefix=assignments[i][1]+'_TRUE_')
             
     else:
-        if len( np.nonzero(assignments[:,1] == true_label)[0]) > 0:
-            ind = np.nonzero(assignments[:,1] == true_label)[0][0]
-            # >> find TICIDs of the true positives
-            ticid_pred = ticid[np.nonzero(y_pred == int(float(assignments[ind][0])))]
-            ticid_true = ticid[np.nonzero(y_true == true_label)]
-            intersection = np.intersect1d(ticid_pred, ticid_true)
+        for true_label in label_list:
+            if len( np.nonzero(assignments[:,1] == true_label)[0]) > 0:
+                ind = np.nonzero(assignments[:,1] == true_label)[0][0]
+                # >> find TICIDs of the true positives
+                inds = np.nonzero(y_pred == int(float(assignments[ind][0])))
+                ticid_pred = ticid[inds]
+                
+                if len(inds[0]) > 0:
+                    sector_dists(data.iloc[inds], var_data[inds], ticid_pred,
+                                 output_dir, prefix=true_label+'_PRED_')
 
-            sector_dists(data_dir, sectors, intersection, output_dir,
-                         prefix=true_label)        
+                inds = np.nonzero(y_true == true_label)
+                ticid_true = ticid[inds]
+                if len(inds[0]) > 0:
+                    sector_dists(data.iloc[inds], var_data[inds], ticid_true,
+                                 output_dir, prefix=true_label+'_TRUE_')
     
-def sector_dists(data_dir, sectors, ticid_list=[], output_dir='./', figsize=(3,3),
-                 prefix=''):
+    
+
+
+
+def sector_dists(data, var_data, ticid_list=[], output_dir='./',
+                 figsize=(2,2), prefix='', bins=40):
     
     # >> make sure prefix doesn't have '/'
     prefix = prefix.replace('/', '-')
     
-    # >> read TIC-v8 text files
-    tess_features = np.empty((0,6))
-    if len(sectors) == 1:
-        sector_name = 'Sector'+str(sectors[0])+'_'
-    else:
-        sector_name='Sectors_'+'_'.join(np.array(sectors).astype('str'))+'_'
-    for sector in sectors:
-        sector_data = np.loadtxt(data_dir + 'Sector'+str(sector)+\
-                                 '/tess_features_sector'+str(sector)+'.txt',
-                                 delimiter=' ', usecols=[1,2,3,4,5,6])
-        tess_features = np.append(tess_features, sector_data, axis=0)
-    
     # >> get features for TICIDs in ticid_list
-    if len(ticid_list) > 0:
-        intersection, comm1, comm2 = \
-            np.intersect1d(tess_features[:,0], ticid_list, return_indices=True)
-        tess_features = tess_features[comm1]
-        
-    fig1, ax1 = plt.subplots(2,3)
-    for i in range(5):
+    columns = ['Teff', 'rad', 'mass', 'GAIAmag', 'd']
+    xlabels = ['$T_{eff}$ [K]', 'Radius [$R_{\odot}$]', 'Mass [$M_{\odot}$]',
+               'GAIA Mag', 'Distance [kpc]']
+
+
+    for i in range(len(columns)):
         fig, ax = plt.subplots(figsize=figsize)
-        if i == 0:
-            # ax.set_xlabel('log $T_{eff}$ [K]')
-            ax.set_xlabel('$T_{eff}$ [K]')
-            suffix='-Teff'
-        elif i == 1:
-            ax.set_xlabel('Radius [$R_{\odot}$]')
-            suffix='-rad'
-        elif i == 2:
-            ax.set_xlabel('Mass [$M_{\odot}$]')
-            suffix='-mass'
-        elif i == 3:
-            ax.set_xlabel('GAIA Mag')
-            suffix='-GAIAmag'
-        else:
-            ax.set_xlabel('Distance [kpc]')
-            suffix='-d'
-        feat=tess_features[:,i+1]
-        feat=feat[np.nonzero(~np.isnan(feat))]
-        # feat=np.log(feat)
-        ax.hist(feat, bins=30)
-        ax.set_ylabel('Number of light curves')
-        a = ax1[int(i/3),i//3]
-        a.hist(feat, bins=30)
+        ax.hist(data[columns[i]], bins=bins)
+        ax.set_xlabel(xlabels[i])
         ax.set_xscale('log')
         ax.set_yscale('log')
-        a.set_xscale('log')
-        a.set_yscale('log')
         fig.tight_layout()
-        # fig.savefig(output_dir+sector_name+prefix+suffix+'.png')
-        fig.savefig(output_dir+prefix+suffix+'.png')
-    fig1.tight_layout()
+        fig.savefig(output_dir+prefix+columns[i]+'.png')
 
-    # fig1.savefig(output_dir+sector_name+prefix+'_dists.png')
-    plt.close(fig)
-    plt.close(fig1)
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.hist(var_data, bins=bins)
+    ax.set_xlabel('$R_{var}$')
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    fig.tight_layout()
+    fig.savefig(output_dir+prefix+'Rvar.png')
+
+    fig, ax = plt.subplots(figsize=(4,4))
+    ax.plot(data['Teff'], var_data, '.k', markersize=1)
+    ax.set_xlabel('$T_{eff}$ [K]')
+    ax.set_ylabel('$R_{var}$')
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    fig.tight_layout()
+    fig.savefig(output_dir+prefix+'Rvar_Teff.png')
+
+    fig, ax = plt.subplots(figsize=(4,4))
+    ax.plot(data['GAIAmag'], var_data, '.k', markersize=1)
+    ax.set_xlabel('GAIA Mag')
+    ax.set_ylabel('$R_{var}$')
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    fig.tight_layout()
+    fig.savefig(output_dir+prefix+'Rvar_GAIAmag.png')
+
+    # if len(ticid_list) > 0:
+    #     intersection, comm1, comm2 = \
+    #         np.intersect1d(tess_features[:,0], ticid_list, return_indices=True)
+    #     tess_features = tess_features[comm1]
+        
+    # fig1, ax1 = plt.subplots(2,3)
+    # for i in range(5):
+    #     fig, ax = plt.subplots(figsize=figsize)
+    #     if i == 0:
+    #         # ax.set_xlabel('log $T_{eff}$ [K]')
+    #         ax.set_xlabel('$T_{eff}$ [K]')
+    #         suffix='-Teff'
+    #     elif i == 1:
+    #         ax.set_xlabel('Radius [$R_{\odot}$]')
+    #         suffix='-rad'
+    #     elif i == 2:
+    #         ax.set_xlabel('Mass [$M_{\odot}$]')
+    #         suffix='-mass'
+    #     elif i == 3:
+    #         ax.set_xlabel('GAIA Mag')
+    #         suffix='-GAIAmag'
+    #     else:
+    #         ax.set_xlabel('Distance [kpc]')
+    #         suffix='-d'
+    #     feat=tess_features[:,i+1]
+    #     feat=feat[np.nonzero(~np.isnan(feat))]
+    #     # feat=np.log(feat)
+    #     ax.hist(feat, bins=30)
+    #     ax.set_ylabel('Number of light curves')
+    #     a = ax1[int(i/3),i//3]
+    #     a.hist(feat, bins=30)
+    #     ax.set_xscale('log')
+    #     ax.set_yscale('log')
+    #     a.set_xscale('log')
+    #     a.set_yscale('log')
+    #     fig.tight_layout()
+    #     # fig.savefig(output_dir+sector_name+prefix+suffix+'.png')
+    #     fig.savefig(output_dir+prefix+suffix+'.png')
+    # fig1.tight_layout()
+
+    # # fig1.savefig(output_dir+sector_name+prefix+'_dists.png')
+    # plt.close(fig)
+    # plt.close(fig1)
