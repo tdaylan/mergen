@@ -49,7 +49,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)                
 import pdb # >> debugging tool
-import model as ml
 from astropy.timeseries import LombScargle
 
 
@@ -685,17 +684,21 @@ def histo_features(features, bins, t, intensities, targets, path, insets=False, 
             filename = folderpath + fname_labels[n] + "histogram-insets.png"
             plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=True)
 
-def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
-                   insets=True, log=True):
-    """ plot a histogram with one light curve from each bin plotted on top
-    data is the histogram data
-    bins is bins
-    x-label is what you want the xaxis to be labelled as
-    insetx is the SAME x-axis to plot
-    insety is the full list of light curves
-    filename is the exact place you want it saved
-    insets is a true/false of if you want them
-    modified [lcg 07012020]
+def plot_histogram(data, bins, x_label, insetx, insety, targets, filename,
+                   insets=True, log=True, multix = False):
+    """ 
+    Plot a histogram with one light curve from each bin plotted on top
+    * Data is the histogram data
+    * Bins is bins for the histogram
+    * x_label for the x-axis of the histogram
+    * insetx is the xaxis to plot. 
+        * if multix is False, assume that the xaxis is the same for all, 
+        * if multix is True, each intensity has a specific time axis
+    * insety is the full list of light curves
+    * filename is the exact place you want it saved
+    * insets is a true/false of if you want them
+    * log is true/false if you want the histogram on a logarithmic scale
+    modified [lcg 12302020]
     """
     fig, ax1 = plt.subplots()
     n_in, bins, patches = ax1.hist(data, bins, log=log)
@@ -715,10 +718,6 @@ def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
                 inset_x = bins[n] - (0.5*inset_width)
                 inset_y = n_in[n]
                 inset_height = 0.125 * y_range * 0.5
-                # if log: # >> use axes-relative coords
-                #     inset_width = 0.33*0.5
-                #     inset_height = 0.125*0.5
-                #     inset_x = 
                     
                 axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
                 
@@ -729,17 +728,21 @@ def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
                     #print(bins[n], bins[n+1])
                     if bins[n] <= data[m] <= bins[n+1]:
                         #print(data[m], m)
+                        if multix:
+                            lc_time_to_plot = insetx[m]
+                        else:
+                            lc_time_to_plot = insetx
                         lc_to_plot = insety[m]
                         lc_ticid = targets[m]
                         break
                     else: 
                         continue
                 
-                axis_name.scatter(insetx, lc_to_plot, c='black', s = 0.1, rasterized=True)
-                axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=6)
-                # >> change aspect ratio
-                # axis_name.set_adjustable("box")
-                # axis_name.set_aspect(3./8)
+                axis_name.scatter(lc_time_to_plot, lc_to_plot, c='black', s = 0.1, rasterized=True)
+                try:
+                    axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=6)
+                except ValueError:
+                    axis_name.set_title(lc_ticid, fontsize=6)
     plt.savefig(filename)
     plt.close()
 

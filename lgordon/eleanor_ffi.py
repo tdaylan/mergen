@@ -310,6 +310,97 @@ class eleanor_lc(object):
         
 
             
+#%%
+def eleanor_lc(savepath, RADECfile, plotting = True):
+    """ 
+    retrieves + produces eleanor light curves from FFI files
+    """
+    import eleanor
+    from astropy import units as u
+    from astropy.coordinates import SkyCoord
+    import warnings
+    warnings.filterwarnings('ignore')
+    from eleanor.utils import SearchError
+    from scipy.linalg.misc import LinAlgError
+    
+    
+    download_dir_tesscut = os.path.join(os.path.expanduser('~'), '.eleanor', 'tesscut')
         
+    download_dir_mastdownload = os.path.join(os.path.expanduser('~'), '.eleanor', 'mastDownload')
+    print(download_dir_tesscut, download_dir_mastdownload)
+    
+    with open(RADECfile, 'r') as f:
+        lines = f.readlines()
+        for line in lines:
+            ID, RA, DEC, sector = line.split(',')
+            print(ID, RA, DEC, sector)
+            sector_int = int(sector)
+            
+            filepath = savepath + ID + "_s" + str(sector_int) + "_lc.txt"
+                
+            if not os.path.isfile(filepath):
+                try: 
+                    coords = SkyCoord(ra=RA, dec=DEC, unit=(u.deg, u.deg))
+                    files = eleanor.Source(coords=coords, tic=0, gaia = 0, sector=sector_int)
+                    #print("files found: ", len(files))
+                    print('Found TIC {0} (Gaia {1}), with TESS magnitude {2}, RA {3}, and Dec {4}'
+                          .format(files.tic, files.gaia, files.tess_mag, files.coords[0], files.coords[1]))
+                    #try:
+                    data = eleanor.TargetData(files, do_pca=True)
+                    q = data.quality == 0
+                    
+                    timeandflux = np.asarray((data.time[q], data.corr_flux[q]))
+                                
+                    plt.scatter(data.time[q], data.raw_flux[q], label = "raw")
+                    plt.scatter(data.time[q], data.corr_flux[q], label = "corr")
+                    plt.legend(loc = "upper left")
+                    plt.show()
+                        
+                    np.savetxt(filepath, timeandflux)
+          
+                except (SearchError, ValueError):
+                    print("******************************")
+                    print("Search Error or ValueError occurred")
+                    print("******************************")
+                
+                except OSError: 
+                    print("******************************")
+                    print("Empty or corrupt FITS file")
+                    print("******************************")
+                except LinAlgError:
+                    print("******************************")
+                    print("SVD did not converge")
+                    print("******************************")
+                except IndexError:
+                    print("******************************")
+                    print("Couldn't find these coordinates in")
+                    print("******************************")
+                #except TypeError:
+                 #   print("******************************")
+                  #  print("Issue with internal function while trying to read file")
+                   # print("******************************")
+            else:
+                print("Already found this target")
+                
+    
+    
+            for root, dirs, files in os.walk(download_dir_tesscut):
+                for file in files:
+                    try: 
+                        os.remove(os.path.join(root, file))
+                        print("Deleted")
+                    except (PermissionError, OSError):
+                        #print("Unable to delete", os.path.join(root, file))
+                        continue
+            for root, dirs, files in os.walk(download_dir_mastdownload):
+                for file in files:
+                    try:
+                        os.remove(os.path.join(root, file))
+                        print("Deleted")
+                    except (PermissionError, OSError):
+                        #print("Deleted", os.path.join(root, file))
+                        continue
+    
+    return       
             
                 
