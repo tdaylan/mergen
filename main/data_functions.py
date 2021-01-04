@@ -596,7 +596,8 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
             query_simbad_classifications(ticid_list, out_f=out_f, data_dir=data_dir,
                                          sector=sector, query_mast=False)
         correct_simbad_to_vizier(in_f=yourpath+'Sector'+str(sector)+'_simbad.txt',
-                                 out_f=yourpath+'Sector'+str(sector)+'_simbad_revised.txt')
+                                 out_f=yourpath+'Sector'+str(sector)+'_simbad_revised.txt', 
+                                 simbad_gcvs_conversion=data_dir+'simbad_gcvs_label.txt')
     
             
 def bulk_download_helper(yourpath, shell_script):
@@ -1225,8 +1226,8 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     
 def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
              ticid=False, target_info=False,
-             output_dir='./', prefix='', tol1=0.05, tol2=0.1,
-             custom_mask=[], use_tol2=False):
+             output_dir='./', prefix='', tol1=0.05, tol2=0.5,
+             custom_mask=[], use_tol2=True):
     '''Apply nan mask to flux and time array.
     Returns masked, homogenous flux and time array.
     If there are only a few (less than tol1 light curves) light curves that
@@ -1303,11 +1304,16 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
        
     # >> check if only a few light curves contribute to NaN mask
     num_nan = np.array(num_nan)
-    worst_inds = np.nonzero( num_nan > tol2 )
-    if len(worst_inds[0]) < tol1 * len(flux) and use_tol2: # >> only a few bad light curves
-        np.delete(flux, worst_inds, 0)
-        
-        pdb.set_trace()
+    worst_inds = np.nonzero( num_nan > tol2*flux.shape[1] )[0]
+
+    if len(worst_inds)>0 and len(worst_inds)<tol1*len(flux) and use_tol2:
+        with open(output_dir+prefix+'removed_light_curves.txt', 'w') as f:
+            for i in range(len(worst_inds)):
+                f.write('TIC '+ str(ticid[worst_inds[i]])+'\n')
+
+        print('Removing '+str(len(worst_inds))+' light curves')
+        flux = np.delete(flux, worst_inds, 0)        
+
         # >> and calculate new mask
         mask = np.nonzero(np.prod(~np.isnan(flux), axis = 0) == False)    
         
