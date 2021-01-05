@@ -27,6 +27,8 @@ from tensorflow.keras import optimizers
 from tensorflow.keras import metrics
 from tensorflow.keras.models import load_model
 
+from sklearn.mixture import GaussianMixture
+
 import talos
 
 # from tensorflow.keras.utils.generic_utils import get_custom_objects
@@ -1404,7 +1406,8 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                 
         # -- GMM ---------------------------------------------------------------
         if run_gmm:
-            from sklearn.mixture import GaussianMixture
+            
+
             if os.path.exists(output_dir+prefix+'gmm_labels.txt'):
                 _, labels = np.loadtxt(output_dir+prefix+'gmm_labels.txt')
             else:

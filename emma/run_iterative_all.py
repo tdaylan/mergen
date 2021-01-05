@@ -10,10 +10,10 @@ sector_list = [[6], [7], [8], [9], [10], [11], [12], [13],
                [14], [15], [16], [17], [18], [19], [21], [22], [23], [24], [25],
                [26]]
 
-sector_list = [[15], [16], [21], [22]]
+# sector_list = [[15], [16], [21], [22]]
 
 
-# sector_list = [[20]]
+sector_list = [[23]]
 
 # sector_list=[[16]]
 
@@ -485,7 +485,7 @@ for sectors in sector_list:
                          momentum_dump_csv=mom_dump, sectors=sectors,
                          concat_ext_feats=concat_ext_feats,
                          hyperparam_opt=hyperparameter_optimization,
-                         p_opt=p_opt, run=False, do_diagnostic_plots=False,
+                         p_opt=p_opt, run=True, do_diagnostic_plots=False,
                          do_ensemble_summary=True, novelty_detection=False,
                          do_iteration_summary=False)
 

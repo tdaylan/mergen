@@ -542,11 +542,10 @@ def load_group_from_fits(path, sector, camera, ccd):
 
 
 
-def data_access_sector_by_bulk(yourpath, sectorfile, sector,
+def data_access_sector_by_bulk(data_dir, sector,
                                bulk_download_dir, custom_mask=[],
                                apply_nan_mask=False, query_tess_feats=False,
-                               query_catalogs=True, make_fits=True,
-                               data_dir=''):
+                               query_gcvs=True, query_simbad=True, make_fits=True):
     '''Get interpolated flux array for each group, if you already have all the
     _lc.fits files downloaded in bulk_download_dir.
     Parameters:
@@ -563,40 +562,43 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
                                        '../../all_targets_S020_v1.txt', 20,
                                        '../../tessdata_sector_20/')
     '''
+
+    print('Accessing Sector '+str(sector))
+    sectorpath=data_dir+'Sector'+str(sector)+'/'
+    sectorfile = sectorpath+'all_targets_S%03d'%sector+'_v1.txt'
     
     if make_fits:
         for cam in [1,2,3,4]:
             for ccd in [1,2,3,4]:
-                data_access_by_group_fits(yourpath, sectorfile, sector, cam,
+                data_access_by_group_fits(sectorpath, sectorfile, sector, cam,
                                           ccd, bulk_download=True,
                                           bulk_download_dir=bulk_download_dir,
                                           custom_mask=custom_mask,
                                           apply_nan_mask=apply_nan_mask)
             
     # >> get a list of TICIDs from sectorfile
-    with open(sectorfile, 'r') as f:
-        lines = f.readlines()
-    ticid_list = []
-    for line in lines[6:]:
-        ticid_list.append(int(line.split()[0]))        
-            
+    ticid_list = np.loadtxt(sectorfile)[:,0] # >> take first column only
+
     # if query_tess_feats:
     #     # >> download TIC-v8 features
     #     get_tess_feature_txt(ticid_list,
     #                          yourpath+'tess_features_sector'+str(sector)+'.txt')
 
-    if query_catalogs:
-        # >> query GCVS
-        query_vizier(ticid_list=ticid_list, dat_dir=yourpath, sector=sector,
-                     out=yourpath+'Sector'+str(sector)+'_GCVS.txt', query_mast=False)
+    database_dir = data_dir+'databases/'
 
+    if query_gcvs:
+        # >> query GCVS
+        query_vizier(ticid_list=ticid_list, data_dir=data_dir, sector=sector,
+                     out=database_dir+'Sector'+str(sector)+'_GCVS.txt', query_mast=False)
+
+    if query_simbad:
         # >> query SIMBAD
-        out_f=yourpath+'Sector'+str(sector)+'_simbad.txt'
+        out_f=data_dir+'Sector'+str(sector)+'_simbad.txt'
         ticid_simbad, otypes_simbad, main_id_simbad = \
             query_simbad_classifications(ticid_list, out_f=out_f, data_dir=data_dir,
                                          sector=sector, query_mast=False)
-        correct_simbad_to_vizier(in_f=yourpath+'Sector'+str(sector)+'_simbad.txt',
-                                 out_f=yourpath+'Sector'+str(sector)+'_simbad_revised.txt', 
+        correct_simbad_to_vizier(in_f=data_dir+'Sector'+str(sector)+'_simbad.txt',
+                                 out_f=database_dir+'Sector'+str(sector)+'_simbad_revised.txt', 
                                  simbad_gcvs_conversion=data_dir+'simbad_gcvs_label.txt')
     
             
@@ -2123,6 +2125,7 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
                                  'tic_cat_all.csv', index_col=False)
 
 
+    ticid_list = np.setdiff1d(ticid_list, ticid_already_classified)
 
     for tic in ticid_list:
         
@@ -2234,6 +2237,8 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
                         
                         with open(out_f, 'a') as f:
                             f.write('{},{},{}\n'.format(tic, otypes, main_id))
+
+                        del res
                             
                     # time.sleep(6)
             except:
@@ -2243,7 +2248,7 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
     return ticid_simbad, otypes_simbad, main_id_simbad
         
 def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
-                 dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/',
+                 data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/',
                  sector=20, query_mast=False):
     '''http://www.sai.msu.su/gcvs/gcvs/vartype.htm'''
     
@@ -2254,7 +2259,7 @@ def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
     
     if type(ticid_list) == type(None):
         flux, x, ticid_list, target_info = \
-            load_data_from_metafiles(dat_dir, sector, DEBUG=False,
+            load_data_from_metafiles(data_dir, sector, DEBUG=False,
                                      nan_mask_check=False)        
     
     ticid_viz = []
@@ -2275,77 +2280,82 @@ def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
             
 
     if not query_mast:
-        catalog_data = pd.read_csv(dat_dir+'Sector'+str(sector)+'/Sector'+\
+        catalog_data = pd.read_csv(data_dir+'Sector'+str(sector)+'/Sector'+\
                                    str(sector)+'tic_cat_all.csv',
                                    index_col=False)
     
+    print(str(len(ticid_list))+' targets')
+    print(str(len(ticid_already_classified))+' targets completed')
+    ticid_list = np.setdiff1d(ticid_list, ticid_already_classified)
+    print(str(len(ticid_list))+' targets to query')
+
     for tic in ticid_list:
-        if tic  in ticid_already_classified:
-            print('Skipping '+str(tic))
-        else:
-            try:
-                print('Running '+str(tic))
-                if query_mast:
-                    target = 'TIC ' + str(int(tic))
-                    print('Query Catalogs')
-                    catalog_data = Catalogs.query_object(target, radius=0.02,
-                                                         catalog='TIC')[0]
-                    ra = catalog_data['ra']
-                    dec = catalog_data['dec']            
-                else:
-                    ind = np.nonzero(catalog_data['ID'].to_numpy()==tic)[0][0]
-                    ra = catalog_data.iloc[ind]['ra']
-                    dec = catalog_data.iloc[ind]['dec']
-                # coords = coord.SkyCoord(ra, dec, unit=(u.deg, u.deg)) 
-                # ra = coords.ra.deg
-                # dec = coords
-                v = Vizier(columns=['VarType', 'VarName'])
-                print('Query Vizier')
-                res = v.query_region(coord.SkyCoord(ra=ra, dec=dec,
-                                                         unit=(u.deg, u.deg),
-                                                         frame='icrs'),
-                                          radius=0.003*u.deg, catalog=catalog)
-                if len(res) > 0:
-                    otype = res[0]['VarType'][0]
-                    main_id = res[0]['VarName'][0]
-                    ticid_viz.append(tic)
-                    otypes_viz.append(otype)
-                    main_id_viz.append(main_id)
-                    # with open(out, 'a') as f:
-                    #     f.write('{},{},{}\n'.format(tic, otype, main_id))              
-                else:
-                    otype = ''
-                    main_id = ''
-                    
-                with open(out, 'a') as f:
-                    f.write('{},{},{}\n'.format(tic, otype, main_id))    
-            except:
-                print('Connection failed! Trying again now')
+        try:
+            print('Running '+str(tic))
+            if query_mast:
+                target = 'TIC ' + str(int(tic))
+                print('Query Catalogs')
+                catalog_data = Catalogs.query_object(target, radius=0.02,
+                                                     catalog='TIC')[0]
+                ra = catalog_data['ra']
+                dec = catalog_data['dec']            
+            else:
+                ind = np.nonzero(catalog_data['ID'].to_numpy()==tic)[0][0]
+                ra = catalog_data.iloc[ind]['ra']
+                dec = catalog_data.iloc[ind]['dec']
+            # coords = coord.SkyCoord(ra, dec, unit=(u.deg, u.deg)) 
+            # ra = coords.ra.deg
+            # dec = coords
+            v = Vizier(columns=['VarType', 'VarName'])
+            print('Query Vizier')
+            res = v.query_region(coord.SkyCoord(ra=ra, dec=dec,
+                                                     unit=(u.deg, u.deg),
+                                                     frame='icrs'),
+                                      radius=0.003*u.deg, catalog=catalog)
+            if len(res) > 0:
+                otype = res[0]['VarType'][0]
+                main_id = res[0]['VarName'][0]
+                ticid_viz.append(tic)
+                otypes_viz.append(otype)
+                main_id_viz.append(main_id)
+                # with open(out, 'a') as f:
+                #     f.write('{},{},{}\n'.format(tic, otype, main_id))              
+            else:
+                otype = ''
+                main_id = ''
+
+            with open(out, 'a') as f:
+                f.write('{},{},{}\n'.format(tic, otype, main_id))    
+
+            del res
+        except:
+            print('Connection failed! Trying again now')
                 
+    print('Completed!')
     return ticid_viz, otypes_viz, main_id_viz
 
-def query_vizier_v2(data_dir='./data/', sector=1, catalog='gcvs'):
-    df = get_TIC_catalog_sector(data_dir, sector)
+# def query_vizier_v2(data_dir='./data/', sector=1, catalog='gcvs'):
+#     df = get_TIC_catalog_sector(data_dir, sector)
     
-    # >> make sure output file exists
-    if not os.path.exists(out):
-        with open(out, 'a') as f:
-            f.write('')    
+#     # >> make sure output file exists
+#     if not os.path.exists(out):
+#         with open(out, 'a') as f:
+#             f.write('')    
     
-    with open(out, 'r') as f:
-        lines = f.readlines()
-        ticid_already_classified = []
-        for line in lines:
-            ticid_already_classified.append(float(line.split(',')[0]))
+#     with open(out, 'r') as f:
+#         lines = f.readlines()
+#         ticid_already_classified = []
+#         for line in lines:
+#             ticid_already_classified.append(float(line.split(',')[0]))
 
-    for i in range(len(df)):
-        ticid = df[0][i]
-        if ticid in ticid_already_classified:
-            print('Skipping '+str(ticid)+ ' (already found classification)')
-        else:
-            target = 'TIC ' + str(int(ticid))
-            ra = df['ra'][i]
-            dec = df['dec'][i]
+#     for i in range(len(df)):
+#         ticid = df[0][i]
+#         if ticid in ticid_already_classified:
+#             print('Skipping '+str(ticid)+ ' (already found classification)')
+#         else:
+#             target = 'TIC ' + str(int(ticid))
+#             ra = df['ra'][i]
+#             dec = df['dec'][i]
             
 
 def get_otype_dict(data_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/',
@@ -2433,29 +2443,63 @@ def get_parents_only(class_info, parents=['EB'],
                                     'ACV': ['ACVO'],
                                     'D': ['DM', 'DS', 'DW'],
                                     'K': ['KE', 'KW'],
-                                    'Ir': ['Or', 'RI', 'IA', 'IB', 'INA', 'INB']}):
+                                    'Ir': ['Or', 'RI', 'IA', 'IB', 'INA', 'INB']},
+                     remove_classes=[], remove_flags=[]):
     '''Finds all the objects with same parent and combines them into the same
     class
     '''
     classes = []
     new_class_info = []
+
+    # >> turn into array
+    subclasses = []
+    for parent in parents:
+        subclasses.extend(parent_dict[parent])
+
     for i in range(len(class_info)):
-        otype_list = class_info[i][1].split('|')
+        otype_list = class_info[i][1]
+
+        # >> remove any flags
+        for flag in remove_flags:
+            otype_list = otype_list.replace(flag, '|')
+        otype_list = otype_list.split('|')
+
         new_otype_list=[]
         for otype in otype_list:
-            for parent in parents:
-                if otype in parent_dict[parent]:
-                    new_otype = parent
+            if not otype in remove_classes:
+                if otype in subclasses:
+                    # >> find parent
+                    for parent in parents:
+                        if otype in parent_dict[parent]:
+                            new_otype = parent
+
+                    new_otype_list.append(new_otype)
                 else:
-                    new_otype = otype
-                new_otype_list.append(new_otype)
-                
+                    new_otype_list.append(otype)
+
+        # >> remove repeats
         new_otype_list = np.unique(new_otype_list)
+
+        # >> don't want e.g. E|EA or E|EW (redundant)
+        if 'E' in new_otype_list:
+            if len(np.intersect1d(new_otype_list, ['EA', 'EP', 'EW', 'EB']))>0:
+                new_otype_list = np.delete(new_otype_list, np.nonzero(new_otype_list=='E'))
+
+        if '' in new_otype_list:
+            new_otype_list = np.delete(new_otype_list, np.nonzero(new_otype_list==''))
+
+        if '|'.join(new_otype_list) == '|AR|EA|EB|RS|SB':
+            pdb.set_trace()
+
         new_class_info.append([class_info[i][0], '|'.join(new_otype_list),
                                class_info[i][2]])
+
+    # >> get rid of empty classes
+    new_class_info = np.array(new_class_info)
+    new_class_info = np.delete(new_class_info, np.nonzero(new_class_info[:,1]==''), 0)
             
     
-    return np.array(new_class_info)
+    return new_class_info
 
 def correct_vizier_to_simbad(in_f='./SectorX_GCVS.txt',
                              out_f='./SectorX_GCVS_revised.txt',
@@ -2508,7 +2552,7 @@ def correct_simbad_to_vizier(in_f='./SectorX_simbad.txt',
     renamed = {'EB':'E', 'Al': 'EA', 'bL': 'EB', 'WU': 'EW', 'a2': 'ACV',
                'a2': 'ACVO', 'bC': 'BCEP', 'Be': 'BE', 'cC': 'DCEP',
                'dS': 'DSCT', 'dS': 'DSCTC', 'El': 'ELL', 'gD': 'GDOR',
-               'Ir': 'I', 'Or': 'IN', 'RI': 'IS', 'LP': 'L'}    
+               'Ir': 'I', 'Or': 'IN', 'RI': 'IS', 'No' : 'N'}  
     
     
     with open(simbad_gcvs_conversion, 'r') as f:
@@ -3066,44 +3110,59 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
     return parameter_sets, num_classes, acc         
              
 
-def gmm_param_search(features, time, flux, ticid, target_info,
-                            num_components=[20, 100, 200, 500],
-                            output_dir='./', DEBUG=False,
-                            simbad_database_txt='./simbad_database.txt',
-                            database_dir='./databases/',
-                            pca=False, tsne=False, confusion_matrix=True,
-                            single_file=False,
-                            data_dir='./data/', save=False,
-                            parents=[], labels=[]):
+def gmm_param_search(features, ticid, data_dir,
+                     num_components=[20, 100, 200, 500],
+                     output_dir='./'):
     from sklearn.mixture import GaussianMixture       
-    classes = []
-    num_classes = []
-    counts = []
-    accuracy = []  
+    from sklearn.metrics import silhouette_score
 
-    with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
-        f.write('{} {} {}\n'.format('num_components', 'acc', 'recall'))
+    with open(output_dir+'gmm_param_search.txt', 'a') as f:
+        f.write('{}\t{}\t{}\t{}\n'.format('num_components', 'recall',
+                                          'accuracy', 'silhouette'))
 
+    scores = []
+    recall = []
+    accuracies = []
     for i in range(len(num_components)):
         clusterer = GaussianMixture(n_components=num_components[i])
         labels = clusterer.fit_predict(features)
-                    
-        print(np.unique(labels, return_counts=True))
-        classes_1, counts_1 = np.unique(labels, return_counts=True)
-                
-                        
-        
-        title='Parameter Set '+str(i)+': '+'{}'.format(num_components[i])
-                    
-        prefix='gmm-p'+str(i)                            
-                                    
-        acc = pf.plot_confusion_matrix(ticid, labels,
-                                       database_dir=database_dir,
-                                       single_file=single_file,
-                                       output_dir=output_dir,
-                                       prefix=prefix)       
-        
-    return num_classes, acc          
+
+        score = silhouette_score(features, labels)
+        scores.append(score)
+
+        prefix='gmm_n_'+str(i)+'-'
+        cm, assignments, ticid_true, y_true, class_info_new, recalls,\
+        false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
+        label_true, label_pred=\
+            pf.assign_real_labels(ticid, labels, data_dir+'/databases/',
+                                  data_dir, output_dir=output_dir+prefix)
+        recall.append(np.mean(recalls))
+        accuracies.append(np.mean(accuracy))
+
+        with open(output_dir+'gmm_param_search.txt', 'a') as f:
+            f.write('{}\t{}\t{}\t{}\n'.format(num_components[i], np.mean(recalls),
+                                              accuracy, score))
+
+    fig, ax = plt.subplots()
+    ax.plot(num_components, recall, '.')
+    ax.set_xlabel('Number of clusters')
+    ax.set_ylabel('Recalls')
+    fig.tight_layout()
+    fig.savefig(output_dir+'gmm_recall.png')
+
+    fig, ax = plt.subplots()
+    ax.plot(num_components, accuracies, '.')
+    ax.set_xlabel('Number of clusters')
+    ax.set_ylabel('Accuracy')
+    fig.tight_layout()
+    fig.savefig(output_dir+'gmm_accuracy.png')
+
+    fig, ax = plt.subplots()
+    ax.plot(num_components, scores, '.')
+    ax.set_xlabel('Number of clusters')
+    ax.set_ylabel('Silhouette scores (-1 worst, 1 best)')
+    fig.tight_layout()
+    fig.savefig(output_dir+'gmm_silhouette.png')
 
 def get_class_objects(ticid_feat, class_info, label):    
     ticid_rare = []

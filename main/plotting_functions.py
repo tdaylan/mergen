@@ -1161,14 +1161,14 @@ def classification_plots(features, time, flux_feat, ticid_feat, info_feat, label
     # x_predict = x_predict[comm1]
 
         
-    # -- sector distributions --------------------------------------------------
-    # >> find top 20 most popular classes
-    classes, counts = np.unique(y_true, return_counts=True)
-    classes = classes[np.argsort(counts)]
-    for class_label in classes[-20:]:
-        plot_class_dists(assignments, ticid_true, y_pred, y_true,
-                            data_dir, sectors, true_label=class_label,
-                            output_dir=output_dir+prefix)
+    # # -- sector distributions --------------------------------------------------
+    # # >> find top 20 most popular classes
+    # classes, counts = np.unique(y_true, return_counts=True)
+    # classes = classes[np.argsort(counts)]
+    # for class_label in classes[-20:]:
+    #     plot_class_dists(assignments, ticid_true, y_pred, y_true,
+    #                         data_dir, sectors, true_label=class_label,
+    #                         output_dir=output_dir+prefix)
 
 
     # pf.plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors, output_dir=output_dir)
@@ -2745,7 +2745,7 @@ def make_parent_dict():
          'N': ['NA', 'NB', 'NC', 'NL', 'NR'],
          'SN': ['SNI', 'SNII'],
          
-         'E': ['EA', 'EB', 'EP', 'EW'],
+         # 'E': ['EA', 'EB', 'EP', 'EW'],
          'D': ['DM', 'DS', 'DW'],
          'K': ['KE', 'KW'],
          
@@ -2837,7 +2837,7 @@ def make_6_bucket_dict():
 def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
                        data_dir='./data/', class_info=None, output_dir='./',
                        prefix='', merge_classes=False, parent_dict=None,
-                       parents=None, figsize=(30,30)):
+                       parents=None, figsize=(30,30), make_diagonal=True):
     
     '''
     Outputs:
@@ -2863,16 +2863,24 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
     if type(class_info) == type(None):
         class_info = df.get_true_classifications(ticid_pred,
                                                  database_dir=database_dir)
-    ticid_true = class_info[:,0].astype('int')
+
     if merge_classes:
         if type(parent_dict) == type(None):
             parent_dict=make_parent_dict()
         if type(parents) == type(None):
             parents = list(parent_dict.keys())
+
+        remove_classes=['V', 'VAR', '**', '*i', '*iC', '*iA','*iN', 'Em']
+
         class_info = df.get_parents_only(class_info, parents=parents,
-                                         parent_dict=parent_dict)
-        
-        # >> remove double classes
+                                         parent_dict=parent_dict,
+                                         remove_classes=remove_classes,
+                                         remove_flags=['+', '/', ':'])
+    
+
+
+    ticid_true = class_info[:,0].astype('int')
+
         
     # -- match real labels to learned classes ---------------------------------
         
@@ -2902,9 +2910,10 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
         label_true = np.append(label_true, 'X')
         
     # >> make confusion matrix diagonal by re-ordering columns
-    row_ind, col_ind = linear_sum_assignment(-1*cm)
-    cm = cm[:,col_ind]
-    label_pred = label_pred[col_ind]
+    if make_diagonal:
+        row_ind, col_ind = linear_sum_assignment(-1*cm)
+        cm = cm[:,col_ind]
+        label_pred = label_pred[col_ind]
     
     # -- plot confusion matrix -------------------------------------------------
     
@@ -3076,11 +3085,12 @@ def plot_fail_cases(time, flux, ticid, y_true, y_pred, assignments, class_info,
             ticid_label(ax[j,2], ticid[ind], target_info[ind], title=True)
         ax[0,2].set_title('False negatives\n'+ax[0,2].get_title())
             
-        fig.savefig(output_dir+'fail_analysis_'+assignments[i][1].replace('/', '-')+'.png')
+        fig.savefig(output_dir+'fail_analysis_'+\
+                    assignments[i][1].replace('/', '-')+'.png')
         plt.close(fig)
                                     
 
-def two_years_ensemble_summary(output_dir, data_dir, prefix='Mergen_Run_1'):
+def two_years_ensemble_summary(output_dir, data_dir, prefix='Mergen_Run_1-'):
 
     sectors=list(range(1,27))
     
@@ -3093,9 +3103,11 @@ def two_years_ensemble_summary(output_dir, data_dir, prefix='Mergen_Run_1'):
     ticid = ticid_label[:,0].astype('float')
     labels = ticid_label[:,1]
 
-    ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix)
+    ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix,
+                           make_diagonal=False, merge_classes=True)
 
-def ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix=''):
+def ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix='',
+                           make_diagonal=True, merge_classes=False):
     # >> before making a confusion matrix, we need to assign each science 
     # >> label a number
     underlying_classes  = np.unique(labels)
@@ -3116,18 +3128,21 @@ def ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix=
     false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
     label_true, label_pred=\
         assign_real_labels(ticid, y_pred, data_dir+'/databases/', data_dir,
-                              output_dir=output_dir+prefix)
+                              output_dir=output_dir+prefix,
+                           make_diagonal=make_diagonal, merge_classes=merge_classes)
 
     # >> create summary pie charts
-    # ensemble_summary(ticid, labels, cm, assignments, label_true, label_pred,
-    #                     database_dir=data_dir+'./databases', output_dir=output_dir, 
-    #                     prefix=prefix, data_dir=data_dir)
-    # ensemble_summary_tables(assignments, recalls, false_discovery_rates,
-    #                            precisions, accuracy, counts_true, counts_pred,
-    #                            output_dir+prefix)
-    # ensemble_summary_tables(assignments, recalls, false_discovery_rates,
-    #                         precisions, accuracy, counts_true, counts_pred,
-    #                         output_dir+prefix, target_labels=[])
+    ensemble_summary(ticid, labels, cm, assignments, label_true, label_pred,
+                        database_dir=data_dir+'./databases', output_dir=output_dir, 
+                        prefix=prefix, data_dir=data_dir)
+    ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+                               precisions, accuracy, counts_true, counts_pred,
+                               output_dir+prefix)
+    ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+                            precisions, accuracy, counts_true, counts_pred,
+                            output_dir+prefix, target_labels=[])
+
+    pdb.set_trace()
 
     # >> distribution plots
     inter, comm1, comm2 = np.intersect1d(ticid, ticid_true, return_indices=True)
@@ -3202,6 +3217,7 @@ def ensemble_summary(ticid_pred, y_pred, cm, assignments, y_true_labels,
         fig_labels.append(assigned_classes[label])
 
     # >> plot all classes
+    print('Saving '+output_dir+prefix+'ensemble_budget_all.png')
     fig, ax = plt.subplots()
     fig.suptitle('Number of classes: '+str(num_classes) + \
                  '\nNumber of samples: '+str(num_samples))
@@ -3209,6 +3225,7 @@ def ensemble_summary(ticid_pred, y_pred, cm, assignments, y_true_labels,
     fig.savefig(output_dir+prefix+'ensemble_budget_all.png')
     plt.close(fig)
     
+    print('Saving '+output_dir+prefix+'ensemble_budget_top5.png')
     explode = np.zeros(len(orig_classes))
     inds = np.argsort(counts)[:-5]
     explode[inds] = 0.1
@@ -3281,6 +3298,7 @@ def ensemble_summary(ticid_pred, y_pred, cm, assignments, y_true_labels,
         ax[i,0].pie(counts, labels=fig_labels, explode=explode)
         ax[i,1].pie(counts[inds_list[i]],
                     labels=np.array(fig_labels)[inds_list[i]])
+    print('Saving '+output_dir+prefix+'ensemble_budget.png')
     fig.tight_layout()
     fig.savefig(output_dir+prefix+'ensemble_budget.png')
     plt.close(fig)
