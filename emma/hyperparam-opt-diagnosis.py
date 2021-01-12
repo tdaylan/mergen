@@ -9,9 +9,10 @@ sys.path.insert(0, '../main/')
 import plotting_functions as pl
 import model as ml
 
-output_dir = '../../plots/CAE-hyperparam/'
+output_dir = '../../plots/Ensemble-Sectors_2_3/'
 # report_path = './TESS-unsupervised/072320203633.csv'
-report_path = './TESS-unsupervised/080220093603.csv'
+# report_path = './TESS-unsupervised/080220093603.csv'
+report_path = './DAE/100120203712.csv'
 
 # >> load experiment log
 # res = pd.read_csv(report_path, header=0, usecols=list(range(20)))

@@ -452,6 +452,7 @@ class FFI_lc(object):
         modified: [lcg 08212020]"""
         
         feature_list = []
+        self.savetrue = True
         
         if self.version == 0:
             fname_features = self.features0path
@@ -1535,22 +1536,28 @@ class FFI_lc(object):
         self.intensities = np.asarray(self.scintensities)
         self.corrected_intensities = np.asarray(self.scintcorr)
         
+    def normalize(self):
+        print("Normalizing")
+        for i in range(len(self.times)):
+            median = np.median(self.intensities[i])
+            self.intensities[i] = self.intensities[i] / median
+        
     def cae_truncate(self):
         """ truncates arrays into homogenous cube of data
         modified [lcg 08312020 - created]"""
         lengths = []
-        for n in range(len(self.sctimes)):
-            lengths.append(len(self.sctimes[n]))
+        for n in range(len(self.times)):
+            lengths.append(len(self.times[n]))
         
         
         crop = np.asarray(lengths).min()
         print(crop)
         
-        self.cropped_times = self.times[n][:crop]
-        self.cropped_intensities = np.zeros((len(self.scintensities), crop))
+        self.cropped_times = self.times[0][:crop]
+        self.cropped_intensities = np.zeros((len(self.intensities), crop))
         
         for n in range(len(self.scintensities)):
-            self.cropped_intensities[n] = self.scintensities[n][:crop]
+            self.cropped_intensities[n] = self.intensities[n][:crop]
             
         
             
