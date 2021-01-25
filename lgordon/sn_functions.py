@@ -258,7 +258,7 @@ def produce_all_best_params(savepath, all_labels, all_t, all_i, all_e,
     returns parameters, upper errors, and lower errors"""
     num_curves = len(all_i)
     if polynomial: 
-        ndim = 9
+        ndim = 8
     else: 
         ndim = 7
     
@@ -288,7 +288,7 @@ def produce_all_best_params(savepath, all_labels, all_t, all_i, all_e,
                 t_start = discovery_times[all_labels[k][:-4]] - 5
             else:
                 t_start = 0
-            bestparams, uppererror, lowererror = run_mcmc_fit_stepped_powerlaw(savepath, filelabel, t,i,e, sector, t_start, 
+            bestparams, uppererror, lowererror = run_mcmc_fit_stepped_powerlaw_t0(savepath, filelabel, t,i,e, sector, t_start, 
                                                                               discovery_times, t_starts, plot = plot, savefile = savefile, sn_names = sn_names)
                
         all_best_params[k] = bestparams
@@ -297,7 +297,140 @@ def produce_all_best_params(savepath, all_labels, all_t, all_i, all_e,
      
     return all_best_params, upper_error, lower_error
 
+def mcmc_fit_stepped_powerlaw_t0(path, targetlabel, t, intensity, error, sector,
+                                  discovery_times, t_starts, plot = True, 
+                                 quaternion_folder = "/users/conta/urop/quaternions/", 
+                                 CBV_folder = "C:/Users/conta/.eleanor/metadata/", 
+                                 savefile = None, sn_names = None):
+    """ Runs MCMC fitting for stepped power law fit
+    
+    """
+    
+    
+    def log_likelihood(theta, x, y, yerr, t0):
+        """ calculates the log likelihood function. 
+        constrain beta between 0.5 and 4.0
+        A is positive
+        need to add in cQ and CBVs!!
+        only fit up to 40% of the flux"""
+        t0, A, beta, B, cQ, cbv1, cbv2, cbv3 = theta #, cQ, cbv1, cbv2, cbv3
+        #print(A, beta, B)
+        t1 = x - t0
+        model = np.heaviside((t1), 1) * A *(t1)**beta + B + cQ * Qall + cbv1 * CBV1 + cbv2 * CBV2 + cbv3 * CBV3
+        
+        yerr2 = yerr**2.0
+        returnval = -0.5 * np.nansum((y - model) ** 2 / yerr2 + np.log(yerr2))
+        return returnval
+    
+    def log_prior(theta):
+        """ calculates the log prior value """
+        t0, A, beta, B, cQ, cbv1, cbv2, cbv3 = theta #, cQ, cbv1, cbv2, cbv3
+        #print(A, beta, B, cQ, cbv1, cbv2, cbv3)
+        if 0 < t0 < 20 and 0.5 < beta < 6.0 and 0.0 < A < 5.0 and -10 < B < 10 and -5000 < cQ < 5000 and -5000 < cbv1 < 5000 and -5000 < cbv2 < 5000 and -5000 < cbv3 < 5000:
+            return 0.0
+        return -np.inf
+        
+        #log probability
+    def log_probability(theta, x, y, yerr, t0):
+        """ calculates log probabilty"""
+        lp = log_prior(theta)
+            
+        if not np.isfinite(lp) or np.isnan(lp): #if lp is not 0.0
+            return -np.inf
+        
+        return lp + log_likelihood(theta, x, y, yerr, t0)
+    
+    import matplotlib.pyplot as plt
+    import emcee
+    rcParams['figure.figsize'] = 16,6
+     
+    x = t
+    y = intensity
+    yerr = error
+    
+    #load quaternions and CBVs
+    x,y,yerr, tQ, Qall, CBV1, CBV2, CBV3 = generate_clip_quats_cbvs(sector, x, y, yerr,targetlabel, CBV_folder)
+        
+    
+    #running MCMC
+    np.random.seed(42)   
+    nwalkers = 32
+    ndim = 8
+    labels = ["t0", "A", "beta", "B", "cQ", "cbv1", "cbv2", "cbv3"] #, "cQ", "cbv1", "cbv2", "cbv3"
+    p0 = np.ones((nwalkers, ndim)) + 1 * np.random.rand(nwalkers, ndim)
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, args=(x, y, yerr, t0))
+    
+   # try:
+    state = sampler.run_mcmc(p0, 15000, progress=True)
+    if plot:
+        plot_chain(path, targetlabel, "-burn-in-plot.png", sampler, labels, ndim)
+    
+    
+    flat_samples = sampler.get_chain(discard=4000, thin=15, flat=True)
+    print(flat_samples.shape)
 
+    #print out the best fit params based on 16th, 50th, 84th percentiles
+    best_mcmc = np.zeros((1,ndim))
+    upper_error = np.zeros((1,ndim))
+    lower_error = np.zeros((1,ndim))
+    for i in range(ndim):
+        mcmc = np.percentile(flat_samples[:, i], [16, 50, 84])
+        q = np.diff(mcmc)
+        print(labels[i], mcmc[1], -1 * q[0], q[1] )
+        best_mcmc[0][i] = mcmc[1]
+        upper_error[0][i] = q[1]
+        lower_error[0][i] = q[0]
+ 
+    
+    if plot:
+        #corner plot the samples
+        import corner
+        fig = corner.corner(
+            flat_samples, labels=labels,
+            quantiles = [0.16, 0.5, 0.84],
+                           show_titles=True,title_fmt = ".4f", title_kwargs={"fontsize": 12}
+        );
+        fig.savefig(path + targetlabel + 'corner-plot-params.png')
+        plt.show()
+        plt.close()
+        
+
+        plt.scatter(x, y, label = "FFI data", color = 'gray')
+         
+        #best fit model
+        t1 = x - best_mcmc[0][0]
+        A = best_mcmc[0][1]
+        beta = best_mcmc[0][2]
+        B = best_mcmc[0][3]
+        cQ = best_mcmc[0][4]
+        cbv1 = best_mcmc[0][5]
+        cbv2 = best_mcmc[0][6]
+        cbv3 = best_mcmc[0][7]
+        
+        best_fit_model = np.heaviside((t1), 1) * A *(t1)**beta + B + cQ * Qall + cbv1 * CBV1 + cbv2 * CBV2 + cbv3 * CBV3
+        
+        #residual = y - best_fit_model
+        plt.scatter(x, best_fit_model, label="best fit model", s = 5, color = 'red')
+        
+        discotime = discovery_times[targetlabel[:-4]] - t_starts["SN" + targetlabel[:-4]]
+        plt.axvline(discotime, color = 'green')
+        
+        plt.legend(fontsize=8, loc="upper left")
+        plt.title(targetlabel)
+        plt.xlabel("BJD")
+        #plt.show()
+        plt.savefig(path + targetlabel + "-MCMCmodel-stepped-powerlaw.png")
+        
+        
+    if savefile is not None:
+        with open(savefile, 'a') as f:
+            for i in range(ndim):
+                f.write(str(best_mcmc[0][i]))
+            f.write("\n")
+        with open(sn_names, 'a') as f:
+            f.write(targetlabel)
+            f.write("\n")
+    return best_mcmc, upper_error, lower_error
 
 def run_mcmc_fit_stepped_powerlaw(path, targetlabel, t, intensity, error, sector, t0,
                                   discovery_times, t_starts, plot = True, 
@@ -427,133 +560,7 @@ def run_mcmc_fit_stepped_powerlaw(path, targetlabel, t, intensity, error, sector
             f.write("\n")
     return best_mcmc, upper_error, lower_error
 
-def run_mcmc_fit_stepped_powerlaw_nocbvs(path, targetlabel, t, intensity, error, sector, t0,
-                                  discovery_times, t_starts, plot = True, 
-                                 quaternion_folder = "/users/conta/urop/quaternions/", 
-                                 CBV_folder = "C:/Users/conta/.eleanor/metadata/", 
-                                 savefile = None, sn_names = None):
-    """ Runs MCMC fitting for stepped power law fit
-    
-    """
-    
-    
-    def log_likelihood(theta, x, y, yerr, t0):
-        """ calculates the log likelihood function. 
-        constrain beta between 0.5 and 4.0
-        A is positive
-        need to add in cQ and CBVs!!
-        only fit up to 40% of the flux"""
-        A, beta, B = theta #, cQ, cbv1, cbv2, cbv3
-        #print(A, beta, B)
-        model = np.heaviside((x - t0), 1) * A *(x-t0)**beta + B
-        
-        yerr2 = yerr**2.0
-        returnval = -0.5 * np.nansum((y - model) ** 2 / yerr2 + np.log(yerr2))
-        return returnval
-    
-    def log_prior(theta):
-        """ calculates the log prior value """
-        A, beta, B= theta #, cQ, cbv1, cbv2, cbv3
-        #print(A, beta, B, cQ, cbv1, cbv2, cbv3)
-        if 0.5 < beta < 6.0 and 0.0 < A < 5.0 and -10 < B < 10:
-            return 0.0
-        return -np.inf
-        
-        #log probability
-    def log_probability(theta, x, y, yerr, t0):
-        """ calculates log probabilty"""
-        lp = log_prior(theta)
-            
-        if not np.isfinite(lp) or np.isnan(lp): #if lp is not 0.0
-            return -np.inf
-        
-        return lp + log_likelihood(theta, x, y, yerr, t0)
-    
-    import matplotlib.pyplot as plt
-    import emcee
-    rcParams['figure.figsize'] = 16,6
-     
-    x = t
-    y = intensity
-    yerr = error
-    
-    #load quaternions and CBVs
-    #x,y,yerr, tQ, Qall, CBV1, CBV2, CBV3 = generate_clip_quats_cbvs(sector, x, y, yerr,targetlabel, CBV_folder)
-        
-    
-    #running MCMC
-    np.random.seed(42)   
-    nwalkers = 32
-    ndim = 3
-    labels = ["A", "beta", "B"] #, "cQ", "cbv1", "cbv2", "cbv3"
-    p0 = np.ones((nwalkers, ndim)) + 1 * np.random.rand(nwalkers, ndim)
-    sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, args=(x, y, yerr, t0))
-    
-   # try:
-    state = sampler.run_mcmc(p0, 15000, progress=True)
-    if plot:
-        plot_chain(path, targetlabel, "-burn-in-plot.png", sampler, labels, ndim)
-    
-    
-    flat_samples = sampler.get_chain(discard=4000, thin=15, flat=True)
-    print(flat_samples.shape)
 
-    #print out the best fit params based on 16th, 50th, 84th percentiles
-    best_mcmc = np.zeros((1,ndim))
-    upper_error = np.zeros((1,ndim))
-    lower_error = np.zeros((1,ndim))
-    for i in range(ndim):
-        mcmc = np.percentile(flat_samples[:, i], [16, 50, 84])
-        q = np.diff(mcmc)
-        print(labels[i], mcmc[1], -1 * q[0], q[1] )
-        best_mcmc[0][i] = mcmc[1]
-        upper_error[0][i] = q[1]
-        lower_error[0][i] = q[0]
-        
-    print(best_mcmc)
-    
-    if plot:
-        #corner plot the samples
-        import corner
-        fig = corner.corner(
-            flat_samples, labels=labels,
-            quantiles = [0.16, 0.5, 0.84],
-                           show_titles=True,title_fmt = ".4f", title_kwargs={"fontsize": 12}
-        );
-        fig.savefig(path + targetlabel + 'corner-plot-params.png')
-        plt.show()
-        plt.close()
-        
-
-        plt.scatter(x, y, label = "FFI data", color = 'gray')
-         
-        #raw best fit model
-        #print(best_mcmc[0][0])
-        best_fit_model = np.heaviside((x - t0), 1) * best_mcmc[0][0] * ((x-t0)**(best_mcmc[0][1])) + best_mcmc[0][2]
-        #best_fit_model = best_fit_model + best_mcmc[0][3] * Qall + best_mcmc[0][4] * CBV1 + best_mcmc[0][5] * CBV2 + best_mcmc[0][6] * CBV3
-        
-        #residual = y - best_fit_model
-        plt.scatter(x, best_fit_model, label="best fit model", s = 5, color = 'red')
-        
-        discotime = discovery_times[targetlabel[:-4]]
-        plt.axvline(discotime, color = 'green')
-        
-        plt.legend(fontsize=8, loc="upper left")
-        plt.title(targetlabel)
-        plt.xlabel("BJD")
-        #plt.show()
-        plt.savefig(path + targetlabel + "-MCMCmodel.png")
-        
-        
-    if savefile is not None:
-        with open(savefile, 'a') as f:
-            for i in range(ndim):
-                f.write(str(best_mcmc[0][i]))
-            f.write("\n")
-        with open(sn_names, 'a') as f:
-            f.write(targetlabel)
-            f.write("\n")
-    return best_mcmc, upper_error, lower_error
 
 def mcmc_fit_polynomial_heaviside(path, targetlabel, t, intensity, error, 
                                   sector, discovery_times,t_starts, plot = True,
