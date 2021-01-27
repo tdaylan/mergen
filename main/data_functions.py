@@ -1012,7 +1012,7 @@ def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
 def normalize(flux, axis=1):
     '''Dividing by median.
     !!Current method blows points out of proportion if the median is too close to 0?'''
-    medians = np.median(flux, axis = axis, keepdims=True)
+    medians = np.nanmedian(flux, axis = axis, keepdims=True)
     flux = flux / medians
     return flux
 
@@ -2124,12 +2124,16 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
         catalog_data_all=pd.read_csv(data_dir+'Sector'+str(sector)+'/Sector'+str(sector)+\
                                  'tic_cat_all.csv', index_col=False)
 
-
+    print(str(len(ticid_list))+' targets')
+    print(str(len(ticid_already_classified))+' targets completed')
     ticid_list = np.setdiff1d(ticid_list, ticid_already_classified)
+    print(str(len(ticid_list))+' targets to query')
+
+    res=None
 
     for tic in ticid_list:
         
-        res=None
+        res = None
         
         while res is None:
             try:
@@ -2237,8 +2241,6 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
                         
                         with open(out_f, 'a') as f:
                             f.write('{},{},{}\n'.format(tic, otypes, main_id))
-
-                        del res
                             
                     # time.sleep(6)
             except:
@@ -2438,18 +2440,20 @@ def get_otype_dict(data_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/',
         
     return d
 
-def get_parents_only(class_info, parents=['EB'],
-                     parent_dict = {'EB': ['Al', 'bL', 'WU', 'EP', 'SB', 'SD'],
-                                    'ACV': ['ACVO'],
-                                    'D': ['DM', 'DS', 'DW'],
-                                    'K': ['KE', 'KW'],
-                                    'Ir': ['Or', 'RI', 'IA', 'IB', 'INA', 'INB']},
+
+
+def get_parents_only(class_info, parent_dict=None,
                      remove_classes=[], remove_flags=[]):
     '''Finds all the objects with same parent and combines them into the same
     class
     '''
     classes = []
     new_class_info = []
+
+    if type(parent_dict) == type(None):
+        parent_dict = pf.make_parent_dict()
+
+    parents = list(parent_dict.keys())
 
     # >> turn into array
     subclasses = []
@@ -2485,11 +2489,16 @@ def get_parents_only(class_info, parents=['EB'],
             if len(np.intersect1d(new_otype_list, ['EA', 'EP', 'EW', 'EB']))>0:
                 new_otype_list = np.delete(new_otype_list, np.nonzero(new_otype_list=='E'))
 
-        if '' in new_otype_list:
-            new_otype_list = np.delete(new_otype_list, np.nonzero(new_otype_list==''))
+        if 'L' in new_otype_list and len(new_otype_list) > 1:
+            new_otype_list = np.delete(new_otype_list,
+                                       np.nonzero(new_otype_list=='L'))
 
-        if '|'.join(new_otype_list) == '|AR|EA|EB|RS|SB':
-            pdb.set_trace()
+        if '' in new_otype_list:
+            new_otype_list = np.delete(new_otype_list,
+                                       np.nonzero(new_otype_list==''))
+
+        # if '|'.join(new_otype_list) == '|AR|EA|EB|RS|SB':
+        #     pdb.set_trace()
 
         new_class_info.append([class_info[i][0], '|'.join(new_otype_list),
                                class_info[i][2]])
@@ -2500,6 +2509,49 @@ def get_parents_only(class_info, parents=['EB'],
             
     
     return new_class_info
+
+# def merge_classes(labels, remove_classes=[], remove_flags=[' ']):
+#     new_labels=[]
+#     for i in range(len(labels)):
+#         otype_list = labels[i]
+
+#         # >> remove any flags
+#         for flag in remove_flags:
+#             otype_list = otype_list.replace(flag, '|')
+#         otype_list = otype_list.split('|')
+
+#         new_otype_list=[]
+#         for otype in otype_list:
+#             if not otype in remove_classes:
+#                 if otype in subclasses:
+#                     # >> find parent
+#                     for parent in parents:
+#                         if otype in parent_dict[parent]:
+#                             new_otype = parent
+
+#                     new_otype_list.append(new_otype)
+#                 else:
+#                     new_otype_list.append(otype)
+
+#         # >> remove repeats
+#         new_otype_list = np.unique(new_otype_list)
+
+#         if '' in new_otype_list:
+#             new_otype_list = np.delete(new_otype_list, np.nonzero(new_otype_list==''))
+
+#         # if '|'.join(new_otype_list) == '|AR|EA|EB|RS|SB':
+#         #     pdb.set_trace()
+
+#         new_class_info.append([class_info[i][0], '|'.join(new_otype_list),
+#                                class_info[i][2]])
+
+#     # >> get rid of empty classes
+#     new_class_info = np.array(new_class_info)
+#     new_class_info = np.delete(new_class_info, np.nonzero(new_class_info[:,1]==''), 0)
+            
+    
+#     return new_labels
+
 
 def correct_vizier_to_simbad(in_f='./SectorX_GCVS.txt',
                              out_f='./SectorX_GCVS_revised.txt',
@@ -2675,6 +2727,45 @@ def get_true_classifications(ticid_list,
                     
     # >> check for any repeats
     return np.array(class_info)
+
+
+
+def get_gcvs_classifications(database_dir='./databases/',
+                             remove_flags=True,
+                             remove_classes=['D','DM','DS','DW','K','KE','KW','SD',
+                                             'GS', 'PN', 'RS', 'WD', 'WR',
+                                             'CST','GAL']):
+    ''' D, DM, DS, DW, K, KE, KW, SD ... are subsets of eclipsing binaries'''
+    ticid = []
+    labels = []
+    
+    fnames = fm.filter(os.listdir(database_dir), '*_GCVS.txt')
+    
+    for fname in fnames:
+        data = np.loadtxt(database_dir+fname, delimiter=',', dtype='str')
+        ticid_sector, otype = data[:,0], data[:,1]
+        inds = np.nonzero(otype != '')
+        ticid_sector, otype = ticid_sector[inds], otype[inds]
+        otype = np.char.replace(otype, ' ', '') # >> remove spaces
+        otype = np.char.replace(otype, '+', '|')
+        otype = np.char.replace(otype, '/', '|')        
+        if remove_flags:
+            otype = np.char.replace(otype, ':', '')
+
+        for i in range(len(otype)):
+            label_list = otype[i].split('|')
+            label_list = np.setdiff1d(label_list, remove_classes)
+            label_list = np.unique(label_list) # >> remove repeats
+            otype[i] = '|'.join(label_list)
+
+        ticid.extend(ticid_sector)
+        labels.extend(otype)
+                    
+    # >> check for any repeats
+    return np.array(ticid), np.array(labels)
+
+
+
                            
 def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                         eps=list(np.arange(0.1,1.5,0.1)),

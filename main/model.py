@@ -1,4 +1,4 @@
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+#  :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # 
 # 2020-05-26 - modellibrary.py
 # Keras novelty detection in TESS dataset
@@ -17,6 +17,8 @@ from astropy.timeseries import LombScargle
 import random
 import time
 from sklearn.cluster import KMeans    
+import fnmatch as fm
+import pandas as pd
 
 import tensorflow as tf
 import tensorflow.keras.backend as K
@@ -429,18 +431,24 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
         
         
     if use_tess_features:
-        tess_features = np.loadtxt(data_dir + 'Sector'+str(sector)+\
-                                   '/tess_features_sector'+str(sector)+'.txt',
-                                   delimiter=' ', usecols=[1,2,3,4,5,6,8])
+        tess_features = pd.read_csv(data_dir+'Sector'+str(sector)+\
+                                  '/Sector'+str(sector)+'tic_cat_all.csv')
+        ticid_tess = tess_features['ID'].to_numpy()
+        columns = ['Teff', 'rad', 'mass', 'GAIAmag', 'd']
+        tess_features = tess_features[columns].to_numpy()
+        
+        # tess_features = np.loadtxt(data_dir + 'Sector'+str(sector)+\
+        #                            '/tess_features_sector'+str(sector)+'.txt',
+        #                            delimiter=' ', usecols=[1,2,3,4,5,6,8])
+
         # >> take out any light curves with nans
         inds = np.nonzero(np.prod(~np.isnan(tess_features), axis=1))
         tess_features = tess_features[inds]
-        
-        
-        intersection, comm1, comm2 = np.intersect1d(tess_features[:,0], ticid,
+        ticid_tess = ticid_tess[inds]
+        intersection, comm1, comm2 = np.intersect1d(ticid_tess, ticid,
                                                     return_indices=True)
         # >> take intersection, and get rid of TICID column
-        tess_features = tess_features[:,1:][comm1]
+        tess_features = tess_features[comm1]
         if log:
             tess_features = np.log(tess_features)        
         features = []
@@ -1332,7 +1340,6 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
 
     # -- novelty detection -----------------------------------------------------
 
-    novelty_detection=False
     if novelty_detection:
 
         pf.plot_lof(x, flux_feat, ticid_feat, features, 20,
@@ -1879,6 +1886,92 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
         #     pf.plot_class_dists(assignments, ticid_true, y_pred, y_true,
         #                         data_dir, sectors, true_label=class_label,
         #                         output_dir=output_dir+'Sector'+str(sectors[0]))
+
+def iterative_cae_clustering(ensemble_dir, data_dir, sectors=[], num_iter=2,
+                             n_clusters=[100,100,100], first_iter_only=False):
+    '''Do clustering'''
+    for sector in sectors:
+        print('Sector '+ str(sector))
+        output_dir=ensemble_dir+'Ensemble-Sector_'+str(sector)+'/'
+
+        flux, time, ticid, target_info = \
+            df.load_data_from_metafiles(data_dir, sector,
+                                        output_dir=output_dir)
+        flux = df.normalize(flux)
+
+        iterations = [0,2] # list(range(num_iter))
+        if first_iter_only:
+            iterations = [0]
+        files = []
+        for i in iterations: # reverse range(num_iter)
+
+            if first_iter_only:
+                with fits.open(output_dir+'iteration0-bottleneck_train.fits') as f:
+                    ticid = f[1].data
+            else:
+                if i == iterations[-1]:
+                    ticid=np.loadtxt(output_dir+'iteration'+str(iterations[-2])+\
+                                     '-ticid_highest_error_train.txt')
+                else:
+                    ticid=np.loadtxt(output_dir+'iteration'+str(i)+\
+                                     '-ticid_lowest_error_train.txt')
+
+            prefix = 'iteration'+str(i)+'-'
+            
+            if first_iter_only:
+                out_file = output_dir+prefix+'all-gmm_labels-n'+\
+                           str(n_clusters[i])+'.txt'
+            else:
+                out_file = output_dir+prefix+'gmm_labels-n'+\
+                           str(n_clusters[i])+'.txt'
+   
+            if os.path.exists(out_file):
+                _, y_pred = np.loadtxt(out_file)
+            else:
+
+                fnames = fm.filter(os.listdir(output_dir),
+                                   prefix+'*bottleneck_train.fits')
+
+                features = []
+                ticid_feat = []
+                for fname in fnames:
+                    with fits.open(output_dir+fname) as f:
+                        features.append(f[0].data)
+                        ticid_feat.extend(f[1].data)
+                features = np.concatenate(features, axis=1)
+
+                # if use_tess_features
+
+                if first_iter_only:
+                    ticid = np.array(ticid_feat)
+                else:
+                    inter, comm1, comm2 = np.intersect1d(ticid_feat, ticid,
+                                                         return_indices=True)
+                    features = features[comm1]
+                    ticid = ticid[comm2]
+                
+                gmm = GaussianMixture(n_components=n_clusters[i])
+                y_pred = gmm.fit_predict(features)
+                np.savetxt(out_file,
+                           np.array([ticid, y_pred]))
+
+            assignments = pf.assign_real_labels(ticid, y_pred, data_dir=data_dir,
+                                        output_dir=output_dir, prefix=prefix)
+            with open(output_dir+prefix+'ticid_to_label.txt', 'w') as f:
+                for i in range(len(y_pred)):
+                    ind = np.nonzero(assignments[:,0].astype('float') == y_pred[i])
+                    if len(ind[0]) == 0:
+                        f.write(str(ticid[i])+',NONE\n')
+                    else:
+                        f.write(str(ticid[i])+','+str(assignments[:,1][ind][0])+'\n')
+            print('Saved '+output_dir+prefix+'ticid_to_label.txt')
+            files.append(output_dir+prefix+'ticid_to_label.txt')
+
+        os.system('cat '+' '.join(files)+' > '+\
+                  output_dir+'Sector'+str(sector)+'-ticid_to_label.txt')
+        print('Saved '+output_dir+'Sector'+str(sector)+'-ticid_to_label.txt')
+
+
 
 
 def cnn(x_train, y_train, x_test, y_test, params, num_classes=4):
