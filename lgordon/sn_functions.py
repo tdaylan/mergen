@@ -41,7 +41,15 @@ import data_functions as df
 
 
 ############ HELPER FUNCTIONS ####################
-def preclean_mcmc_polynomial(file):
+def conv_lygos_to_mag(i, galmag):
+    if galmag > 19.0 or galmag is None:
+        galmag = 19.0
+        
+    mA = -2.5* np.log10(i) + galmag
+    return mA
+
+
+def preclean_mcmc(file):
     """ opens the file and cleans the data for use in MCMC modeling"""
     #load data
     t,ints,error = da.load_lygos_csv(file)
@@ -57,29 +65,10 @@ def preclean_mcmc_polynomial(file):
     
     t_sub = t - t.min() #put the start at 0 for better curve fitting
     
-    ints = df.normalize(ints, axis=0)
+    #ints = df.normalize(ints, axis=0)
     
     return t_sub, ints, error, t.min()
 
-def preclean_mcmc_powerlaw(file):
-    """ opens the file and cleans the data for use in MCMC modeling"""
-    #load data
-    t,ints,error = da.load_lygos_csv(file)
-
-    #sigma clip - set outliers to the mean value because idk how to remove them
-    #is sigma clipping fucking up quaternions?
-    mean = np.mean(ints)
-    
-    sigclip = SigmaClip(sigma=4, maxiters=None, cenfunc='median')
-    clipped_inds = np.nonzero(np.ma.getmask(sigclip(ints)))
-    ints[clipped_inds] = mean #reset those values to the mean value (or remove??)
-    
-    
-    t -= 2457000
-    
-    ints = df.normalize(ints, axis=0)
-    
-    return t, ints, error
 
 def crop_to_40(t, y, err):
     """ only fit first 40% of brightness of curve"""
@@ -145,21 +134,15 @@ def retrieve_quaternions_bigfiles(savepath, quaternion_folder, sector, x):
                                            31, x)
     return tQ, Q1, Q2, Q3, outliers 
 
-def produce_discovery_time_dictionary(filename, t_starts):
+def produce_discovery_time_dictionary(all_labels,disc_dates, t_starts):
     """ returns the discovery time MINUS the start time of the sector"""
     discovery_dictionary = {}
-    with open(filename, 'r') as f:
-        lines = f.readlines()[1:]
-        from astropy.time import Time
-        for line in lines:
-            line = line.replace('\n', '')
-            name, ra, dec, discoverytime = line.split(',')
-            discotime = Time(discoverytime, format='iso', scale='utc')
-            try: 
-                discotime = discotime.jd - t_starts[name[2:]]
-            except KeyError:
-                discotime = discotime.jd
-            discovery_dictionary[name[2:]] = discotime
+    from astropy.time import Time
+    for n in range(len(disc_dates)):
+        discotime = Time(disc_dates[n], format = 'iso', scale='utc')
+        discotime = discotime.jd - t_starts[all_labels[n]]
+        discovery_dictionary[all_labels[n]] = discotime
+
     return discovery_dictionary
 
 def generate_clip_quats_cbvs(sector, x, y, yerr, targetlabel, CBV_folder):
@@ -229,68 +212,60 @@ def retrieve_all_TNS_and_NED(savepath, SN_list):
         with open(file, 'a') as f:
             f.write("{},{},{},{},{},{},{},{},{}\n".format(name, RA, DEC, type_sn, 
                                                           discodate, discomag, redshift,
-                                                          gal_mag, gal_filter)
+                                                          gal_mag, gal_filter))
 
 ############### BIG BOYS ##############
-def mcmc_access_all(folderpath, savepath, polynomial = True, newlabels = False):
+def mcmc_access_all(datapath, savepath):
     """ Opens all Lygos files and loads them in."""
     
     all_t = [] 
-    t_starts = {}
     all_i = []
     all_e = []
     all_labels = []
     sector_list = []
     discovery_dictionary = {}
+    t_starts = {}
     
-    for root, dirs, files in os.walk(folderpath):
+    infofile = datapath + "TNS_information.csv"
+    runproduce = False
+
+    if os.path.isfile(infofile):
+        #load file info
+        info = pd.read_csv(infofile)
+        disc_dates = info["DISCDATE"]
+          
+    else:
+        #run file generation at the end
+        runproduce = True
+        sn_names = []
+    
+    for root, dirs, files in os.walk(datapath):
         for name in files:
-            if name.startswith(("SNe")):
+            if name.startswith(("rflx")):
                 filepath = root + "/" + name 
                 print(name)
-                discovery_dictionary = produce_discovery_time_dictionary(filepath, t_starts)
-
-            if newlabels: #new file labelling
-                if name.startswith(("rflx")):
-                    filepath = root + "/" + name 
-                    print(name)
-                    label = name.split("_")
-                    filelabel = label[1] + label[2]
-                    all_labels.append(filelabel)
-                    sector = label[2][0:2]
-                    sector_list.append(sector)
-                    if polynomial:
-                        t,i,e, t_start = preclean_mcmc_polynomial(filepath)
-                        t_starts[label[1]] = t_start
-                    else:
-                        t,i,e = preclean_mcmc_powerlaw(filepath)
-                        t_starts[label[1]] = 2457000
+                label = name.split("_")
+                full_label = label[1] + label[2]
+                all_labels.append(full_label)
+                sector = label[2][0:2]
+                sector_list.append(sector)
+                t,i,e, t_start = preclean_mcmc(filepath)
+                t_starts[full_label] = t_start
+                
+                all_t.append(t)
+                all_i.append(i)
+                all_e.append(e)
+                if runproduce:
+                    sn_names.append(label[1])
+    
+    if runproduce:
+       retrieve_all_TNS_and_NED(datapath, sn_names) 
+       info = pd.read_csv(infofile)             
+       disc_dates = info["DISCDATE"]
+       
+    discovery_dictionary = produce_discovery_time_dictionary(all_labels, disc_dates, t_starts)
                     
-                    all_t.append(t)
-                    all_i.append(i)
-                    all_e.append(e)
-            
-            else: #old file labelling
-                if name.startswith(("rflx")):
-                    filepath = root + "/" + name 
-                    print(name)
-                    label = name.split("_")
-                    filelabel = label[4] + label[5]
-                    all_labels.append(filelabel[2:])
-                    sector = label[5][0:2]
-                    sector_list.append(sector)
-                    if polynomial:
-                        t,i,e, t_start = preclean_mcmc_polynomial(filepath)
-                        t_starts[label[4]] = t_start
-                    else:
-                        t,i,e = preclean_mcmc_powerlaw(filepath)
-                        t_starts[label[4]] = 2457000
-                    
-                    all_t.append(t)
-                    all_i.append(i)
-                    all_e.append(e)
-                    
-    return all_t, all_i, all_e, all_labels, sector_list, discovery_dictionary, t_starts
+    return all_t, all_i, all_e, all_labels, sector_list, discovery_dictionary, t_starts,info
 
 
 def produce_all_best_params(savepath, all_labels, all_t, all_i, all_e,
