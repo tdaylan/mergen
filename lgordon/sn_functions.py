@@ -188,6 +188,49 @@ def generate_clip_quats_cbvs(sector, x, y, yerr, targetlabel, CBV_folder):
     CBV3 = CBV3[:length_corr]
     return x,y,yerr, tQ, Qall, CBV1, CBV2, CBV3
 
+def retrieve_all_TNS_and_NED(savepath, SN_list):
+    import tns_py as tns
+    from astroquery.ned import Ned
+    import astropy.units as u
+    from astropy import coordinates
+    
+    file = savepath + "TNS_information.csv"
+    with open(file, 'a') as f:
+        f.write("ID,RA,DEC,TYPE,DISCDATE,DISCMAG,Z,GALMAG,GALFILTER\n")
+    
+    for n in range(len(SN_list)):
+        name = SN_list[n][:-4]
+        if name.startswith("SN") or name.startswith("AT"):
+            name = name[2:]
+            
+        RA_DEC_hr, RA_DEC_decimal, type_sn, redshift, discodate, discomag = tns.SN_page(name)
+        #print(RA_DEC_decimal, type_sn)
+        RA, DEC = RA_DEC_decimal.split(" ")
+        
+        co = coordinates.SkyCoord(ra=RA, dec=DEC,
+                                   unit=(u.deg, u.deg), frame='fk4')
+        #constrain it to within a four pixel square
+        result_table = Ned.query_region(co, radius=0.01 * u.deg) #equiox defaults to J2000
+        #print(result_table)
+        
+        gal_mag = 19
+        gal_filter = "x"
+        for n in range(len(result_table)):
+            if result_table[n]["Type"] == "G":
+                print("Found most likely host galaxy")
+                if result_table[n]["Magnitude and Filter"] != "":
+                    gal_mag = float(result_table[n]["Magnitude and Filter"][:-1])
+                    gal_filter = result_table[n]["Magnitude and Filter"][-1]
+                else:
+                    print("No recorded information about gal.mag. in NED")
+                    
+        print("Galaxy magnitude: ", gal_mag)
+        
+        with open(file, 'a') as f:
+            f.write("{},{},{},{},{},{},{},{},{}\n".format(name, RA, DEC, type_sn, 
+                                                          discodate, discomag, redshift,
+                                                          gal_mag, gal_filter)
+
 ############### BIG BOYS ##############
 def mcmc_access_all(folderpath, savepath, polynomial = True, newlabels = False):
     """ Opens all Lygos files and loads them in."""
