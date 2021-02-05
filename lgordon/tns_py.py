@@ -47,17 +47,21 @@ class TNSParser(HTMLParser):
 def SN_page(SN_name, printfortesting = False):
     """ Retrieves the webpage for the given SN
     Parses HTML and returns the RA and DEC in hours and in decimal form, 
-    the type (if it exists) the redshift (if it exists) and the discovery date and magnitude"""
+    the type (if it exists) the redshift (if it exists) and the discovery date and magnitude]
+    
+    """
     url = "https://www.wis-tns.org/object/" + SN_name 
     parser = TNSParser()
     r = requests.get(url)
-    if printfortesting:
-        print(r.status_code) #200 indicates a success
-        print(parser.info_of_interest)
+    
     
     parser.info_of_interest = list()
     parser.feed(r.text)
     returner = parser.info_of_interest
+    
+    if printfortesting:
+        print(r.status_code) #200 indicates a success
+        print(parser.info_of_interest)
     
     RA_DEC_hr = ""
     RA_DEC_decimal = ""
@@ -67,20 +71,24 @@ def SN_page(SN_name, printfortesting = False):
     discomag = ""
     
     
-    if returner[0] == "RA/DEC (2000)":
-        RA_DEC_hr = returner[1]
-        RA_DEC_decimal = returner[2]
-        type_sn = returner[4]
     
-    #if there is a redshift
-    if returner[6] != "Discovery Report":
-        redshift = returner[6]
-        discodate = returner[14] 
-        discomag = returner[20]
-    else: #no redshift, everything shifted backwards
-        discodate = returner[12]
-        discomag = returner[18]
     
+    for n in range(len(returner)):
+        #
+        if returner[n] == "RA/DEC (2000)":
+            RA_DEC_hr = returner[n+1]
+            RA_DEC_decimal = returner[n+2]
+        
+        if returner[n].startswith("SN"):
+            type_sn = returner[n]
+        
+        if returner[n] == "Redshift" and returner[n+1] != "Discovery Report":
+            redshift = returner[n+1]
+        if returner[n] == "Discovery Date":
+            discodate = returner[n+1]
+        if returner[n] == "Discovery Mag":
+            discomag = returner[n+1]
+            
     r.close()
     del(returner, parser)
         
@@ -124,8 +132,8 @@ def CSV_URL(date_start = None, date_end = None, discovered_within = None,
     download_suffix = "&num_page=500&format=csv"
     
     #eventually will need to iterate through pages for max results
-    i = 0
-    page_suffix = "&page=" + str(i)
+    #i = 0
+    #page_suffix = "&page=" + str(i)
     
     query = ""
     if date_start is not None and date_end is not None:
@@ -174,29 +182,38 @@ def CSV_URL(date_start = None, date_end = None, discovered_within = None,
     if decl_range_max is not None:
         query = query + "&decl_range_max=" + decl_range_max
     
-    url = prefix + query + download_suffix + page_suffix
+    url = prefix + query + download_suffix #+ page_suffix
     
     return url
 
 
     
-def TNS_get_CSV(savefile, url):
+def TNS_get_CSV(savepath, filelabel, url):
     """ Function to download a CSV from TNS given the URL for that search"""
-    data = requests.get(url, allow_redirects = True)
-    with open(savefile, 'wb') as f:
-        f.write(data.content)
+
+    for i in range(2): #ifthere's more than 1000 results...sucks
+        savefile = savepath + filelabel + "-" + str(i) + ".csv"
+        url = url + "&page=" + str(i)
+        data = requests.get(url, allow_redirects = True)
+        #print(data.content)
+        #print("\n\n\n")
+        #ie,"./filelabel-1.png"
+        with open(savefile, 'wb') as f:
+            f.write(data.content)
 
  #%% 
 #TESTING
-#RA_DEC_hr, RA_DEC_decimal, type_sn, redshift, discodate, discomag = SN_page("2020udr")
+#RA_DEC_hr, RA_DEC_decimal, type_sn, redshift, discodate, discomag = SN_page("2019dke", printfortesting = True)
+#SN_page("2018eod", printfortesting=True)
 #print(RA_DEC_hr, RA_DEC_decimal, type_sn, redshift, discodate, discomag)  
 #url = CSV_URL(date_start = "2020-11-10", date_end = "2020-11-12", discovered_within = None, 
  #           discovered_within_units = None, unclassified_at = False, classified_sne = False,
   #          include_frb = False, name = None, name_like = False, discovery_mag_min = None,
    #         discovery_mag_max= None)
 #print(url)    
-#TNS_get_CSV("/tns-results.csv", url)
-    
+#savehere = "C:/Users/conta/Downloads/"
+#filelabel= "testinggetcsv"
+#TNS_get_CSV(savehere,filelabel, url)  
 
     
     

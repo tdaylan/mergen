@@ -38,6 +38,115 @@ import data_access as da
 import data_functions as df
 
   
+####### CROSS MATCHING ######
+
+def cross_check_TNS(savepath, sector, sector_start, sector_end):
+    """"
+    sector start/end like: "2020-11-10"
+    okay so this:
+        - retrieves the CSV file(s) with all the TNS targets for the date range
+        - saves that into a file
+        - opens and reads the file (pandas)
+        - runs each set of coordinates into Tesscut.getsectors()
+        - checks for ones that match and adds their information to a new CSV file of matches
+        - empty return
+        """
+    import tns_py as tns
+    url = tns.CSV_URL(date_start = sector_start, date_end = sector_end,
+                      classified_sne = True)
+    filelabel = "Sector-" + str(sector)
+    TNS_get_CSV(savepath, filelabel, url)
+    
+    #open and read file
+    import pandas as pd
+    info = pd.DataFrame()
+    for i in range(2):
+        file = savepath + filelabel + "-" + str(i) + ".csv"
+        pand = pd.read_csv(file)
+        if info.empty:
+            #putintothing
+            info = pand
+            
+        if pand.empty:
+            #dont concatenate
+            continue
+        else:
+            #concatenate
+            pd.concat((info, pand))
+    
+    #run each set of coordinates into tesscut
+    observed_targets = pd.DataFrame(columns = info.columns)
+    from astroquery.mast import Tesscut
+    from astropy.coordinates import SkyCoord
+    import warnings
+    import astropy.units as u
+
+    with warnings.catch_warnings():
+        for n in range(len(info)):#for each entry
+            coord = SkyCoord(info["RA"][n], info["DEC"][n], unit=(u.hourangle, u.deg))
+            sector_table = Tesscut.get_sectors(coordinates=coord)
+            #print(sector_table)
+            
+            #check each table item
+            for i in range(len(sector_table)):
+                if sector_table["sector"][i] == sector or sector_table["sector"][i] == sector - 1:
+                    #if in this sector or the previous one, add to list of ones to save   
+                    #if observed_targets.empty:
+                     #   observed_targets = info[n]
+                    #else:
+                    observed_targets = observed_targets.append(info.iloc[[n]])
+    
+    savefile = savepath + filelabel + "-crossmatched.csv"
+    observed_targets.to_csv(savefile)
+            
+    return info, observed_targets
+
+def retrieve_all_TNS_and_NED(savepath, SN_list):
+    """"For a given list of SN, retrieves the TNS information
+    and the magnitude of the most likely host galaxy (nearest)
+    If no Gal in NED, sets to 19 as background."""
+    import tns_py as tns
+    from astroquery.ned import Ned
+    import astropy.units as u
+    from astropy import coordinates
+    
+    file = savepath + "TNS_information.csv"
+    with open(file, 'a') as f:
+        f.write("ID,RA,DEC,TYPE,DISCDATE,DISCMAG,Z,GALMAG,GALFILTER\n")
+    
+    for n in range(len(SN_list)):
+        name = SN_list[n][:-4]
+        if name.startswith("SN") or name.startswith("AT"):
+            name = name[2:]
+            
+        RA_DEC_hr, RA_DEC_decimal, type_sn, redshift, discodate, discomag = tns.SN_page(name)
+        #print(RA_DEC_decimal, type_sn)
+        RA, DEC = RA_DEC_decimal.split(" ")
+        
+        co = coordinates.SkyCoord(ra=RA, dec=DEC,
+                                   unit=(u.deg, u.deg), frame='fk4')
+        #constrain it to within a four pixel square
+        result_table = Ned.query_region(co, radius=0.01 * u.deg) #equiox defaults to J2000
+        #print(result_table)
+        
+        gal_mag = 19
+        gal_filter = "x"
+        for n in range(len(result_table)):
+            if result_table[n]["Type"] == "G":
+                print("Found most likely host galaxy")
+                if result_table[n]["Magnitude and Filter"] != "":
+                    gal_mag = float(result_table[n]["Magnitude and Filter"][:-1])
+                    gal_filter = result_table[n]["Magnitude and Filter"][-1]
+                    break
+                else:
+                    print("No recorded information about gal.mag. in NED")
+                    
+        print("Galaxy magnitude: ", gal_mag)
+        
+        with open(file, 'a') as f:
+            f.write("{},{},{},{},{},{},{},{},{}\n".format(name, RA, DEC, type_sn, 
+                                                          discodate, discomag, redshift,
+                                                          gal_mag, gal_filter))
 
 
 ############ HELPER FUNCTIONS ####################
@@ -145,6 +254,14 @@ def produce_discovery_time_dictionary(all_labels,disc_dates, t_starts):
 
     return discovery_dictionary
 
+def produce_gal_mag_dictionary(info):
+    gal_mag_dict = {}
+    for n in range(len(info)):
+        gal_mag_dict[info["ID"][n]] = info["GALMAG"][n]
+        
+    return gal_mag_dict
+        
+
 def generate_clip_quats_cbvs(sector, x, y, yerr, targetlabel, CBV_folder):
     tQ, Q1, Q2, Q3, outliers = df.metafile_load_smooth_quaternions(sector, x)
     Qall = Q1 + Q2 + Q3
@@ -171,50 +288,8 @@ def generate_clip_quats_cbvs(sector, x, y, yerr, targetlabel, CBV_folder):
     CBV3 = CBV3[:length_corr]
     return x,y,yerr, tQ, Qall, CBV1, CBV2, CBV3
 
-def retrieve_all_TNS_and_NED(savepath, SN_list):
-    import tns_py as tns
-    from astroquery.ned import Ned
-    import astropy.units as u
-    from astropy import coordinates
-    
-    file = savepath + "TNS_information.csv"
-    with open(file, 'a') as f:
-        f.write("ID,RA,DEC,TYPE,DISCDATE,DISCMAG,Z,GALMAG,GALFILTER\n")
-    
-    for n in range(len(SN_list)):
-        name = SN_list[n][:-4]
-        if name.startswith("SN") or name.startswith("AT"):
-            name = name[2:]
-            
-        RA_DEC_hr, RA_DEC_decimal, type_sn, redshift, discodate, discomag = tns.SN_page(name)
-        #print(RA_DEC_decimal, type_sn)
-        RA, DEC = RA_DEC_decimal.split(" ")
-        
-        co = coordinates.SkyCoord(ra=RA, dec=DEC,
-                                   unit=(u.deg, u.deg), frame='fk4')
-        #constrain it to within a four pixel square
-        result_table = Ned.query_region(co, radius=0.01 * u.deg) #equiox defaults to J2000
-        #print(result_table)
-        
-        gal_mag = 19
-        gal_filter = "x"
-        for n in range(len(result_table)):
-            if result_table[n]["Type"] == "G":
-                print("Found most likely host galaxy")
-                if result_table[n]["Magnitude and Filter"] != "":
-                    gal_mag = float(result_table[n]["Magnitude and Filter"][:-1])
-                    gal_filter = result_table[n]["Magnitude and Filter"][-1]
-                else:
-                    print("No recorded information about gal.mag. in NED")
-                    
-        print("Galaxy magnitude: ", gal_mag)
-        
-        with open(file, 'a') as f:
-            f.write("{},{},{},{},{},{},{},{},{}\n".format(name, RA, DEC, type_sn, 
-                                                          discodate, discomag, redshift,
-                                                          gal_mag, gal_filter))
 
-############### BIG BOYS ##############
+############### BAYESIAN CURVE FITS ##############
 def mcmc_access_all(datapath, savepath):
     """ Opens all Lygos files and loads them in."""
     
@@ -249,12 +324,14 @@ def mcmc_access_all(datapath, savepath):
                 all_labels.append(full_label)
                 sector = label[2][0:2]
                 sector_list.append(sector)
+                
                 t,i,e, t_start = preclean_mcmc(filepath)
                 t_starts[full_label] = t_start
                 
                 all_t.append(t)
                 all_i.append(i)
                 all_e.append(e)
+                
                 if runproduce:
                     sn_names.append(label[1])
     
@@ -264,8 +341,8 @@ def mcmc_access_all(datapath, savepath):
        disc_dates = info["DISCDATE"]
        
     discovery_dictionary = produce_discovery_time_dictionary(all_labels, disc_dates, t_starts)
-                    
-    return all_t, all_i, all_e, all_labels, sector_list, discovery_dictionary, t_starts,info
+    gal_mags = produce_gal_mag_dictionary(info)              
+    return all_t, all_i, all_e, all_labels, sector_list, discovery_dictionary, t_starts, gal_mags, info
 
 
 def produce_all_best_params(savepath, all_labels, all_t, all_i, all_e,
@@ -717,140 +794,6 @@ def mcmc_fit_polynomial_heaviside(path, targetlabel, t, intensity, error,
             
             
         return best_mcmc, upper_error, lower_error
-
-def run_mcmc_fit_polynomial(path, targetlabel, t, intensity, error, sector, discovery_times,
-                 plot = True,
-                 quaternion_folder = "/users/conta/urop/quaternions/",
-                 CBV_folder = "C:/Users/conta/.eleanor/metadata/", savefile = None,
-                 sn_names = None):
-    """ Runs MCMC fitting, mandatory quaternions AND CBV_folder"""
-    
-    
-    def log_likelihood(theta, x, y, yerr):
-        """ calculates the log likelihood function. theta = [c0, c1, c2, c3, c4]"""
-        c0, c1, c2, c3, c4, cQ, cbv1, cbv2, cbv3 = theta
-        model = c0 + c1 * x + c2 * x**2 + c3 * x**3 + c4 * x**4 + cQ * Qall + cbv1 * CBV1 + cbv2 * CBV2 + cbv3 * CBV3
-        yerr2 = yerr ** 2
-        return -0.5 * np.sum((y - model) ** 2 / yerr2 + np.log(yerr2))
-    
-    def log_prior(theta):
-        """ calculates the log prior value """
-        c0, c1, c2, c3, c4, cQ, cbv1, cbv2, cbv3 = theta
-        if -2.0 < c0 < 2 and -2 < c1 < 2 and -2 < c2 < 2 and -2 < c3 < 2 and -2 < c4 < 2:
-            return 0.0
-        return -np.inf
-        
-        #log probability
-    def log_probability(theta, x, y, yerr):
-        """ calculates log probabilty"""
-        lp = log_prior(theta)
-        if not np.isfinite(lp):
-            return -np.inf
-        return lp + log_likelihood(theta, x, y, yerr)
-    
-           
-    import matplotlib.pyplot as plt
-    import emcee
-    rcParams['figure.figsize'] = 16,6
-    
-    ndim = 9
-    print(int(sector))
-    if int(sector) > 26:
-        print("sector out of range")
-        return np.zeros((1,ndim))
-    else: 
-        x = t
-        y = intensity
-        yerr = error
-        
-        np.random.seed(42)
-               
-        nwalkers = 32 
-        
-        #load quaternions and CBVs
-        x,y,yerr, tQ, Qall, CBV1, CBV2, CBV3 = generate_clip_quats_cbvs(sector, x, y, yerr,targetlabel, CBV_folder)
-        
-        #running MCMC
-        
-        labels = ["c0", "c1", "c2", "c3", "c4", "cQ", "cbv1", "cbv2", "cbv3"]
-        p0 = np.zeros((nwalkers, ndim)) + 1e-2 * (np.random.rand(nwalkers, ndim) - 0.5)
-        #p0[:,5] += 10000
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, args=(x, y, yerr))
-        
-        try:
-            state = sampler.run_mcmc(p0, 15000, progress=True)
-            if plot:
-                plot_chain(path, targetlabel, "-burn-in-plot.png", sampler, labels, ndim)
-            
-            
-            flat_samples = sampler.get_chain(discard=5000, thin=15, flat=True)
-            print(flat_samples.shape)
-        
-            #print out the best fit params based on 16th, 50th, 84th percentiles
-            best_mcmc = np.zeros((1,ndim))
-            for i in range(ndim):
-                mcmc = np.percentile(flat_samples[:, i], [16, 50, 84])
-                #q = np.diff(mcmc)
-                #print(labels[i], mcmc[1], -1 * q[0], q[1] )
-                best_mcmc[0][i] = mcmc[1]
-            
-            if plot:
-                #corner plot the samples
-                import corner
-                fig = corner.corner(
-                    flat_samples, labels=labels,
-                    quantiles = [0.16, 0.5, 0.84],
-                                   show_titles=True,title_fmt = ".4f", title_kwargs={"fontsize": 12}
-                );
-                fig.savefig(path + targetlabel + 'corner-plot-params.png')
-                plt.close()
-                #plotting mcmc stuff
-                for ind in range(100):
-                    sample = flat_samples[ind]
-                    modeltoplot = sample[0] + sample[1] * x + sample[2] * x**2 + sample[3] * x**3 + sample[4] * x**4 + sample[5] * Qall
-                    modeltoplot = modeltoplot + sample[6] * CBV1 + sample[7] * CBV2 + sample[8] * CBV3
-                    plt.plot(x, modeltoplot, color = 'blue', alpha = 0.1)
-                
-        
-                plt.scatter(x, y, label = "FFI data", color = 'gray')
-                 
-                #raw best fit model
-                best_fit_model = best_mcmc[0][0] + best_mcmc[0][1] * x + best_mcmc[0][2] * x**2 + best_mcmc[0][3] * x**3 + best_mcmc[0][4] * x**4 
-                
-                
-                
-                residual = y - best_fit_model
-                #plt.scatter(x, best_fit_model, label="best fit model", color = 'red')
-                #plt.scatter(x, residual, label = "residual", color = "green")
-                
-                
-                #best fit model with cbv/quats in it
-                best_fit_model = best_fit_model + best_mcmc[0][5] * Qall + best_mcmc[0][6] * CBV1 + best_mcmc[0][7] * CBV2 + best_mcmc[0][8] * CBV3
-                plt.scatter(x, best_fit_model, label = "best fit with correction terms")
-                
-                discotime = discovery_times[targetlabel[0:9]]
-                plt.axvline(discotime, color = 'green')
-                plt.legend(fontsize=8, loc="upper left")
-                plt.title(targetlabel)
-                plt.xlabel("BJD")
-                plt.savefig(path + targetlabel + "-MCMCmodel.png")
-            
-            if savefile is not None:
-                with open(savefile, 'a') as f:
-                    for i in range(ndim):
-                        f.write(str(best_mcmc[0][i]))
-                    f.write("\n")
-                with open(sn_names, 'a') as f:
-                    f.write(targetlabel)
-                    f.write("\n")
-                
-                
-            return best_mcmc
-        except ValueError:
-            print("Probability function returned Nan")
-            return np.zeros((1,ndim))
-
-
 
 
 
