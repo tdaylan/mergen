@@ -264,6 +264,59 @@ def representation_learning(flux, x, ticid, target_info,
                             eps=[best_param_set[0]])      
     
 
+def sector_mask_diag(sectors=[1,2,3,17,18,19,20], data_dir='./',
+                      output_dir='./', custom_masks=None):
+    
+    num_sectors = len(sectors)
+    all_flux = []
+    all_ticid = []
+    all_target_info = []
+    all_x = []
+    if type(custom_masks) == type(None):
+        custom_masks = [[]]*num_sectors
+    for i in range(num_sectors):
+        flux, x, ticid, target_info = \
+            df.load_data_from_metafiles(data_dir, sectors[i],
+                                        nan_mask_check=True,
+                                        custom_mask=custom_masks[i])       
+        all_flux.append(flux)
+        all_ticid.append(ticid)
+        all_target_info.append(target_info)
+        all_x.append(x)
+        
+    fig, ax  = plt.subplots(num_sectors)
+    for i in range(num_sectors):
+        ax[i].plot(all_x[i], all_flux[i][0], '.k', ms=2)
+        pf.ticid_label(ax[i], all_ticid[i][0], all_target_info[i][0],
+                       title=True)
+        ax[i].set_title('Sector '+str(sectors[i])+'\n'+ax[i].get_title(),
+                        fontsize='small')
+    
+    fig.tight_layout()
+    fig.savefig(output_dir+'sector_masks.png')
+    
+def merge_sector_diag(data_dir, sectors=list(range(1, 29)), output_dir='./',
+                      ncols=3):
+    
+    num_sectors = len(sectors)
+    fig, ax = plt.subplots(num_sectors, ncols,
+                           figsize=(5*ncols, 1.43*num_sectors))
+    for i in range(num_sectors):
+        sectorfile=np.loadtxt(data_dir+'Sector'+str(sectors[i])+\
+                              '/all_targets_S'+'%03d'%sectors[i]+'_v1.txt')
+        for j in range(ncols):
+            if ncols == 1:
+                a = ax[i]
+            else:
+                a = ax[i,j]
+            ticid = sectorfile[j][0]
+            time, flux, ticid = df.get_lc_file_and_data(output_dir, ticid)
+            a.plot(time, flux, '.k', ms=2)
+            a.set_title('Sector '+str(sectors[i]), fontsize='small')
+        
+    fig.tight_layout()
+    fig.savefig(output_dir + 'sector_lightcurves.png')
+                              
     
 def lc_by_camera_ccd(sectorfile, camera, ccd):
     """gets all the targets for a given sector, camera, ccd
@@ -2249,6 +2302,8 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
             
     return ticid_simbad, otypes_simbad, main_id_simbad
         
+
+
 def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
                  data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/',
                  sector=20, query_mast=False):

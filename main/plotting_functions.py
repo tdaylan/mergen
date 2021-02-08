@@ -1164,64 +1164,18 @@ def classification_plots(features, time, flux_feat, ticid_feat, info_feat, label
     # -- assign number labels to science labels --------------------------------
 
     print('Assigning science labels to number labels')
-    assignments = assign_real_labels(ticid_feat, labels, data_dir=data_dir,
+    assignments, ticid_label = assign_real_labels(ticid_feat, labels, data_dir=data_dir,
                                      output_dir=output_dir, prefix=prefix)
-
-    # cm, assignments, ticid_true, y_true, class_info_new, recalls, \
-    #     false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
-    #     rows, columns =\
-    #     assign_real_labels(ticid_feat, labels, database_dir, data_dir, class_info,
-    #                        output_dir, prefix)
-
-    # with open(output_dir+prefix+'param_summary.txt', 'a') as f:
-    #     f.write('accuracy: ' + str(np.max(accuracy)))   
-
-    # -- save science labels for each ticid ------------------------------------
-
-    with open(output_dir+prefix+'ticid_to_label.txt', 'w') as f:
-        for i in range(len(labels)):
-            ind = np.nonzero(assignments[:,0].astype('float') == labels[i])
-            if len(ind[0]) == 0:
-                f.write(str(ticid_feat[i])+',NONE\n')
-            else:
-                f.write(str(ticid_feat[i])+','+str(assignments[:,1][ind][0])+'\n')
-
     # -- ensemble summary plots ------------------------------------------------
 
     if do_summary:
         print('Ensemble summary...')
-        ensemble_budget(ticid_feat, labels, cm, assignments, rows, columns,
-                         database_dir=database_dir, output_dir=output_dir, 
-                         prefix=prefix, data_dir=data_dir, class_info=class_info)
-        ensemble_summary_tables(assignments, recalls, false_discovery_rates,
-                                   precisions, accuracy, counts_true, counts_pred,
-                                   output_dir+prefix)
-        ensemble_summary_tables(assignments, recalls, false_discovery_rates,
-                                   precisions, accuracy, counts_true, counts_pred,
-                                   output_dir+prefix, target_labels=[])
-    # inter, comm1, comm2 = np.intersect1d(ticid_feat, ticid_true, return_indices=True)
-    # y_pred = labels[comm1]
-    # x_true = flux_feat[comm1]
-    # x_predict = x_predict[comm1]
-
-        
-    # # -- sector distributions --------------------------------------------------
-    # # >> find top 20 most popular classes
-    # classes, counts = np.unique(y_true, return_counts=True)
-    # classes = classes[np.argsort(counts)]
-    # for class_label in classes[-20:]:
-    #     plot_class_dists(assignments, ticid_true, y_pred, y_true,
-    #                         data_dir, sectors, true_label=class_label,
-    #                         output_dir=output_dir+prefix)
-
-
-    # pf.plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors, output_dir=output_dir)
-    # sector_dists(data_dir, sectors, output_dir=output_dir+prefix)
+        ensemble_summary_plots(ticid_feat, ticid_label, output_dir, data_dir, sectors,
+                               prefix=prefix)
 
     # -- plot light curves from each class -------------------------------------
 
     if do_diagnostic_plots:
-        pdb.set_trace()
         quick_plot_classification(time, flux_feat, ticid_feat, info_feat, 
                                      features, labels, path=output_dir,
                                      prefix=prefix+'learned_classes',
@@ -2719,7 +2673,12 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
         # >> row 1 column 1 is first latent dimension (phi1)
         for i in range(latentDim):
             axes[i,i].hist(activation[:,i], n_bins, log=log)
-            axes[i,i].set_aspect(aspect=1)
+            # f1, a1 = plt.subplots()
+            # a1.set_xlabel(ax_label+str(i))
+            # a1.hist(activation[:,i], n_bins, log=log)
+            # f1.savefig(out.split('.')[0]+'-phi'+str(i)+'.png')
+
+            # axes[i,i].set_aspect(aspect='equal', adjustable='box')
             for j in range(i):
                 if log:
                     norm = LogNorm()
@@ -2742,7 +2701,8 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
         plt.subplots_adjust(hspace=0, wspace=0)
         
     if save:
-        plt.savefig(out)
+        fig.savefig(out)
+        pdb.set_trace()
         plt.close(fig)
     
     return fig, axes
@@ -2995,6 +2955,9 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
         * A dictionary with keys of real_labels and values of English
           descriptions.'''
 
+    orig_ticid = ticid_pred
+    orig_y = y_pred
+
     database_dir = data_dir+'databases/'
     # d = df.get_otype_dict(data_dir=data_dir)
     num_samples = len(ticid_pred)
@@ -3069,21 +3032,24 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
             f.write(str(label_pred[i])+','+str(label_true[i])+'\n')
     assignments = np.array(assignments)
 
-    return assignments
-    # # -- evaluate confusion matrix ---------------------------------------------
-    
-    # plot_confusion_matrix(cm, label_true, label_pred, output_dir, prefix)
-    # recall, false_discovery_rate, precision, accuracy, counts_true, counts_pred=\
-    #     evaluate_classifications(cm, assignments)
+    # -- save results ----------------------------------------------------------
 
-    # --------------------------------------------------------------------------
+    y_pred = orig_y
+    ticid = orig_ticid
+    ticid_label = []
+    with open(output_dir+prefix+'ticid_to_label.txt', 'w') as f:
+        for i in range(len(orig_ticid)):
+            ind = np.nonzero(assignments[:,0].astype('float') == y_pred[i])
+            if len(ind[0]) == 0:
+                ticid_label.append('NONE')
+                f.write(str(ticid[i])+',NONE\n')
+            else:
+                ticid_label.append(str(assignments[:,1][ind][0]))
+                f.write(str(ticid[i])+','+str(assignments[:,1][ind][0])+'\n')
+    print('Saved '+output_dir+prefix+'ticid_to_label.txt')
+    # files.append(output_dir+prefix+'ticid_to_label.txt')
 
-    # # >> convert arbitrary number labels to real labels
-    # y_true = class_info_new[:,1]
-    
-    # return cm, assignments, ticid_true, y_true, class_info_new, recall,\
-    #     false_discovery_rate, counts_true, counts_pred, precision, accuracy,\
-    #     label_true, label_pred
+    return assignments, ticid_label
 
 
 def evaluate_classifications(cm, row_labels):
@@ -3280,7 +3246,7 @@ def two_years_ensemble_summary(output_dir, data_dir='/nfs/blender/data/tdaylan/d
                            derive_assignments=False, merge_classes=True)
 
 def ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix='',
-                           derive_assignments=False, merge_classes=True,
+                            merge_classes=True,
                            gcvs_only=True):
     # >> before making a confusion matrix, we need to assign each science 
     # >> label a number
@@ -3305,9 +3271,9 @@ def ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix=
 
     class_info_pred = np.repeat(np.expand_dims(labels,1),3, axis=1)
     class_info_pred[:,0]  = ticid
-    class_info_pred = df.get_parents_only(class_info_pred)
+    # class_info_pred = df.get_parents_only(class_info_pred)
     labels = class_info_pred[:,1]
-    ticid = class_info_pred[:,0]
+    ticid = class_info_pred[:,0].astype('float')
 
     inter, comm1, comm2 = np.intersect1d(ticid_true, ticid,
                                          return_indices=True)
@@ -3341,7 +3307,6 @@ def ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix=
     inter, comm1, comm2 = np.intersect1d(ticid.astype('float'), ticid_true.astype('float'),
                                          return_indices=True)
     y_pred = labels[comm1]
-    # x_true = flux_feat[comm1]
 
     classes, counts = np.unique(y_true, return_counts=True)
     classes = classes[np.argsort(counts)]
@@ -3351,14 +3316,6 @@ def ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix=
                      label_list=classes[-20:], output_dir=output_dir+prefix)
     plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
                      label_list=target_labels, output_dir=output_dir+prefix)
-
-    # for class_label in classes[-20:]:label_list=target_labels, output_dir=output_dir+prefix)
-    #     plot_class_dists(assignments, ticid_true, y_pred, y_true,
-    #                         data_dir, sectors, true_label=class_label,
-    #                         output_dir=output_dir+prefix)
-
-
-    pdb.set_trace()
 
 def ensemble_budget(ticid_pred, y_pred, cm, assignments, y_true_labels,
                      columns, database_dir='databases/',
