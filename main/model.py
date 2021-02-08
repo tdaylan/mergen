@@ -517,8 +517,8 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
 
     if plot_feat_space:
         print('Plotting feature space')
-        pf.latent_space_plot(features, output_dir+prefix+'feature_space.png')    
-        pdb.set_trace()
+        pf.latent_space_plot(features, output_dir+prefix+'feature_space.png')
+
     # -- deep autoencoder ------------------------------------------------------
 
     if DAE or VAE:

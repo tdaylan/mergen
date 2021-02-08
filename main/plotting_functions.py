@@ -2638,7 +2638,7 @@ def plot_light_curves(targets, sector, output_dir='', prefix='', figsize=(8,8)):
     fig.savefig(output_dir+prefix+'lightcurves.png', dpi=300)
 
 
-def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
+def latent_space_plot(activation, out='./latent_space.png', n_bins = 20,
                       log = True, save=True,
                       units='phi', figsize=(10,10), fontsize='x-small'):
     '''Creates corner plot of latent space.
@@ -2702,7 +2702,6 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
         
     if save:
         fig.savefig(out)
-        pdb.set_trace()
         plt.close(fig)
     
     return fig, axes

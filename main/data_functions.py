@@ -2391,29 +2391,48 @@ def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
     print('Completed!')
     return ticid_viz, otypes_viz, main_id_viz
 
-# def query_vizier_v2(data_dir='./data/', sector=1, catalog='gcvs'):
-#     df = get_TIC_catalog_sector(data_dir, sector)
-    
-#     # >> make sure output file exists
-#     if not os.path.exists(out):
-#         with open(out, 'a') as f:
-#             f.write('')    
-    
-#     with open(out, 'r') as f:
-#         lines = f.readlines()
-#         ticid_already_classified = []
-#         for line in lines:
-#             ticid_already_classified.append(float(line.split(',')[0]))
+def query_asas_sn(data_dir='./', sector='all', tol=10):
+    '''Reads asas_sn_database.csv and assigns label to each TICID in sector.
+    * tol in arcseconds'''
+    data = pd.read_csv(data_dir+'asas_sn_database.csv')
+    print('Loaded asas_sn_database.csv')
+    data_coords = coord.SkyCoord(data['RAJ2000'], data['DEJ2000'],
+                                 unit=(u.deg, u.deg))
 
-#     for i in range(len(df)):
-#         ticid = df[0][i]
-#         if ticid in ticid_already_classified:
-#             print('Skipping '+str(ticid)+ ' (already found classification)')
-#         else:
-#             target = 'TIC ' + str(int(ticid))
-#             ra = df['ra'][i]
-#             dec = df['dec'][i]
-            
+    if sector=='all':
+        sectors = list(range(1,27))
+    else:
+        sectors=[sector]
+
+    for sector in sectors:
+        sector_data = pd.read_csv(data_dir+'Sector'+str(sector)+\
+                                  '/Sector'+str(sector)+'tic_cat_all.csv',
+                                  index_col=False)
+        print('Loaded Sector'+str(sector)+'tic_cat_all.csv')
+        out_fname = data_dir+'databases/Sector'+str(sector)+'_asassn.txt'
+        min_sep = []
+        for i in range(len(sector_data)):
+            print('TIC '+str(int(sector_data['ID'][i]))+'/t'+str(i)+'/'+str(len(sector_data)))                
+            ticid_coord = coord.SkyCoord(sector_data['ra'][i],
+                                         sector_data['dec'][i], unit=(u.deg, u.deg)) 
+            sep = ticid_coord.separation(data_coords)
+            min_sep.append(np.min(sep))
+            ind = np.argmin(sep)
+            if sep[ind] < tol*u.arcsec:
+                with open(out_fname, 'a') as f:
+                    f.write(str(int(sector_data['ID'][i]))+','+\
+                            str(data['Type'][ind])+','+str(data['ID'][ind])+'\n')
+    
+            else:
+                with open(out_fname, 'a') as f:
+                    f.write(str(int(sector_data['ID'][i]))+',,\n')
+
+        plt.figure()
+        plt.hist(min_sep)
+        plt.xlabel('degrees')
+        plt.savefig(data_dir+'databases/Sector'+str(sector)+'_asassn_sep.png')
+        plt.close()
+        pdb.set_trace()
 
 def get_otype_dict(data_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/',
                    uncertainty_flags=[':', '?', '*']):
