@@ -264,6 +264,59 @@ def representation_learning(flux, x, ticid, target_info,
                             eps=[best_param_set[0]])      
     
 
+def sector_mask_diag(sectors=[1,2,3,17,18,19,20], data_dir='./',
+                      output_dir='./', custom_masks=None):
+    
+    num_sectors = len(sectors)
+    all_flux = []
+    all_ticid = []
+    all_target_info = []
+    all_x = []
+    if type(custom_masks) == type(None):
+        custom_masks = [[]]*num_sectors
+    for i in range(num_sectors):
+        flux, x, ticid, target_info = \
+            df.load_data_from_metafiles(data_dir, sectors[i],
+                                        nan_mask_check=True,
+                                        custom_mask=custom_masks[i])       
+        all_flux.append(flux)
+        all_ticid.append(ticid)
+        all_target_info.append(target_info)
+        all_x.append(x)
+        
+    fig, ax  = plt.subplots(num_sectors)
+    for i in range(num_sectors):
+        ax[i].plot(all_x[i], all_flux[i][0], '.k', ms=2)
+        pf.ticid_label(ax[i], all_ticid[i][0], all_target_info[i][0],
+                       title=True)
+        ax[i].set_title('Sector '+str(sectors[i])+'\n'+ax[i].get_title(),
+                        fontsize='small')
+    
+    fig.tight_layout()
+    fig.savefig(output_dir+'sector_masks.png')
+    
+def merge_sector_diag(data_dir, sectors=list(range(1, 29)), output_dir='./',
+                      ncols=3):
+    
+    num_sectors = len(sectors)
+    fig, ax = plt.subplots(num_sectors, ncols,
+                           figsize=(5*ncols, 1.43*num_sectors))
+    for i in range(num_sectors):
+        sectorfile=np.loadtxt(data_dir+'Sector'+str(sectors[i])+\
+                              '/all_targets_S'+'%03d'%sectors[i]+'_v1.txt')
+        for j in range(ncols):
+            if ncols == 1:
+                a = ax[i]
+            else:
+                a = ax[i,j]
+            ticid = sectorfile[j][0]
+            time, flux, ticid = df.get_lc_file_and_data(output_dir, ticid)
+            a.plot(time, flux, '.k', ms=2)
+            a.set_title('Sector '+str(sectors[i]), fontsize='small')
+        
+    fig.tight_layout()
+    fig.savefig(output_dir + 'sector_lightcurves.png')
+                              
     
 def lc_by_camera_ccd(sectorfile, camera, ccd):
     """gets all the targets for a given sector, camera, ccd
@@ -1012,7 +1065,7 @@ def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
 def normalize(flux, axis=1):
     '''Dividing by median.
     !!Current method blows points out of proportion if the median is too close to 0?'''
-    medians = np.median(flux, axis = axis, keepdims=True)
+    medians = np.nanmedian(flux, axis = axis, keepdims=True)
     flux = flux / medians
     return flux
 
@@ -2124,12 +2177,16 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
         catalog_data_all=pd.read_csv(data_dir+'Sector'+str(sector)+'/Sector'+str(sector)+\
                                  'tic_cat_all.csv', index_col=False)
 
-
+    print(str(len(ticid_list))+' targets')
+    print(str(len(ticid_already_classified))+' targets completed')
     ticid_list = np.setdiff1d(ticid_list, ticid_already_classified)
+    print(str(len(ticid_list))+' targets to query')
+
+    res=None
 
     for tic in ticid_list:
         
-        res=None
+        res = None
         
         while res is None:
             try:
@@ -2237,8 +2294,6 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
                         
                         with open(out_f, 'a') as f:
                             f.write('{},{},{}\n'.format(tic, otypes, main_id))
-
-                        del res
                             
                     # time.sleep(6)
             except:
@@ -2247,6 +2302,8 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
             
     return ticid_simbad, otypes_simbad, main_id_simbad
         
+
+
 def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
                  data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/',
                  sector=20, query_mast=False):
@@ -2334,29 +2391,48 @@ def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
     print('Completed!')
     return ticid_viz, otypes_viz, main_id_viz
 
-# def query_vizier_v2(data_dir='./data/', sector=1, catalog='gcvs'):
-#     df = get_TIC_catalog_sector(data_dir, sector)
-    
-#     # >> make sure output file exists
-#     if not os.path.exists(out):
-#         with open(out, 'a') as f:
-#             f.write('')    
-    
-#     with open(out, 'r') as f:
-#         lines = f.readlines()
-#         ticid_already_classified = []
-#         for line in lines:
-#             ticid_already_classified.append(float(line.split(',')[0]))
+def query_asas_sn(data_dir='./', sector='all', tol=10):
+    '''Reads asas_sn_database.csv and assigns label to each TICID in sector.
+    * tol in arcseconds'''
+    data = pd.read_csv(data_dir+'asas_sn_database.csv')
+    print('Loaded asas_sn_database.csv')
+    data_coords = coord.SkyCoord(data['RAJ2000'], data['DEJ2000'],
+                                 unit=(u.deg, u.deg))
 
-#     for i in range(len(df)):
-#         ticid = df[0][i]
-#         if ticid in ticid_already_classified:
-#             print('Skipping '+str(ticid)+ ' (already found classification)')
-#         else:
-#             target = 'TIC ' + str(int(ticid))
-#             ra = df['ra'][i]
-#             dec = df['dec'][i]
-            
+    if sector=='all':
+        sectors = list(range(1,27))
+    else:
+        sectors=[sector]
+
+    for sector in sectors:
+        sector_data = pd.read_csv(data_dir+'Sector'+str(sector)+\
+                                  '/Sector'+str(sector)+'tic_cat_all.csv',
+                                  index_col=False)
+        print('Loaded Sector'+str(sector)+'tic_cat_all.csv')
+        out_fname = data_dir+'databases/Sector'+str(sector)+'_asassn.txt'
+        min_sep = []
+        for i in range(len(sector_data)):
+            print('TIC '+str(int(sector_data['ID'][i]))+'/t'+str(i)+'/'+str(len(sector_data)))                
+            ticid_coord = coord.SkyCoord(sector_data['ra'][i],
+                                         sector_data['dec'][i], unit=(u.deg, u.deg)) 
+            sep = ticid_coord.separation(data_coords)
+            min_sep.append(np.min(sep))
+            ind = np.argmin(sep)
+            if sep[ind] < tol*u.arcsec:
+                with open(out_fname, 'a') as f:
+                    f.write(str(int(sector_data['ID'][i]))+','+\
+                            str(data['Type'][ind])+','+str(data['ID'][ind])+'\n')
+    
+            else:
+                with open(out_fname, 'a') as f:
+                    f.write(str(int(sector_data['ID'][i]))+',,\n')
+
+        plt.figure()
+        plt.hist(min_sep)
+        plt.xlabel('degrees')
+        plt.savefig(data_dir+'databases/Sector'+str(sector)+'_asassn_sep.png')
+        plt.close()
+        pdb.set_trace()
 
 def get_otype_dict(data_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/',
                    uncertainty_flags=[':', '?', '*']):
@@ -2438,18 +2514,20 @@ def get_otype_dict(data_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/',
         
     return d
 
-def get_parents_only(class_info, parents=['EB'],
-                     parent_dict = {'EB': ['Al', 'bL', 'WU', 'EP', 'SB', 'SD'],
-                                    'ACV': ['ACVO'],
-                                    'D': ['DM', 'DS', 'DW'],
-                                    'K': ['KE', 'KW'],
-                                    'Ir': ['Or', 'RI', 'IA', 'IB', 'INA', 'INB']},
+
+
+def get_parents_only(class_info, parent_dict=None,
                      remove_classes=[], remove_flags=[]):
     '''Finds all the objects with same parent and combines them into the same
     class
     '''
     classes = []
     new_class_info = []
+
+    if type(parent_dict) == type(None):
+        parent_dict = pf.make_parent_dict()
+
+    parents = list(parent_dict.keys())
 
     # >> turn into array
     subclasses = []
@@ -2485,11 +2563,16 @@ def get_parents_only(class_info, parents=['EB'],
             if len(np.intersect1d(new_otype_list, ['EA', 'EP', 'EW', 'EB']))>0:
                 new_otype_list = np.delete(new_otype_list, np.nonzero(new_otype_list=='E'))
 
-        if '' in new_otype_list:
-            new_otype_list = np.delete(new_otype_list, np.nonzero(new_otype_list==''))
+        if 'L' in new_otype_list and len(new_otype_list) > 1:
+            new_otype_list = np.delete(new_otype_list,
+                                       np.nonzero(new_otype_list=='L'))
 
-        if '|'.join(new_otype_list) == '|AR|EA|EB|RS|SB':
-            pdb.set_trace()
+        if '' in new_otype_list:
+            new_otype_list = np.delete(new_otype_list,
+                                       np.nonzero(new_otype_list==''))
+
+        # if '|'.join(new_otype_list) == '|AR|EA|EB|RS|SB':
+        #     pdb.set_trace()
 
         new_class_info.append([class_info[i][0], '|'.join(new_otype_list),
                                class_info[i][2]])
@@ -2500,6 +2583,49 @@ def get_parents_only(class_info, parents=['EB'],
             
     
     return new_class_info
+
+# def merge_classes(labels, remove_classes=[], remove_flags=[' ']):
+#     new_labels=[]
+#     for i in range(len(labels)):
+#         otype_list = labels[i]
+
+#         # >> remove any flags
+#         for flag in remove_flags:
+#             otype_list = otype_list.replace(flag, '|')
+#         otype_list = otype_list.split('|')
+
+#         new_otype_list=[]
+#         for otype in otype_list:
+#             if not otype in remove_classes:
+#                 if otype in subclasses:
+#                     # >> find parent
+#                     for parent in parents:
+#                         if otype in parent_dict[parent]:
+#                             new_otype = parent
+
+#                     new_otype_list.append(new_otype)
+#                 else:
+#                     new_otype_list.append(otype)
+
+#         # >> remove repeats
+#         new_otype_list = np.unique(new_otype_list)
+
+#         if '' in new_otype_list:
+#             new_otype_list = np.delete(new_otype_list, np.nonzero(new_otype_list==''))
+
+#         # if '|'.join(new_otype_list) == '|AR|EA|EB|RS|SB':
+#         #     pdb.set_trace()
+
+#         new_class_info.append([class_info[i][0], '|'.join(new_otype_list),
+#                                class_info[i][2]])
+
+#     # >> get rid of empty classes
+#     new_class_info = np.array(new_class_info)
+#     new_class_info = np.delete(new_class_info, np.nonzero(new_class_info[:,1]==''), 0)
+            
+    
+#     return new_labels
+
 
 def correct_vizier_to_simbad(in_f='./SectorX_GCVS.txt',
                              out_f='./SectorX_GCVS_revised.txt',
@@ -2675,6 +2801,45 @@ def get_true_classifications(ticid_list,
                     
     # >> check for any repeats
     return np.array(class_info)
+
+
+
+def get_gcvs_classifications(database_dir='./databases/',
+                             remove_flags=True,
+                             remove_classes=['D','DM','DS','DW','K','KE','KW','SD',
+                                             'GS', 'PN', 'RS', 'WD', 'WR',
+                                             'CST','GAL']):
+    ''' D, DM, DS, DW, K, KE, KW, SD ... are subsets of eclipsing binaries'''
+    ticid = []
+    labels = []
+    
+    fnames = fm.filter(os.listdir(database_dir), '*_GCVS.txt')
+    
+    for fname in fnames:
+        data = np.loadtxt(database_dir+fname, delimiter=',', dtype='str')
+        ticid_sector, otype = data[:,0], data[:,1]
+        inds = np.nonzero(otype != '')
+        ticid_sector, otype = ticid_sector[inds], otype[inds]
+        otype = np.char.replace(otype, ' ', '') # >> remove spaces
+        otype = np.char.replace(otype, '+', '|')
+        otype = np.char.replace(otype, '/', '|')        
+        if remove_flags:
+            otype = np.char.replace(otype, ':', '')
+
+        for i in range(len(otype)):
+            label_list = otype[i].split('|')
+            label_list = np.setdiff1d(label_list, remove_classes)
+            label_list = np.unique(label_list) # >> remove repeats
+            otype[i] = '|'.join(label_list)
+
+        ticid.extend(ticid_sector)
+        labels.extend(otype)
+                    
+    # >> check for any repeats
+    return np.array(ticid), np.array(labels)
+
+
+
                            
 def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                         eps=list(np.arange(0.1,1.5,0.1)),

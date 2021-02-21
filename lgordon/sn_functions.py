@@ -38,9 +38,126 @@ import data_access as da
 import data_functions as df
 
   
+####### CROSS MATCHING ######
+
+def cross_check_TNS(savepath, sector, sector_start, sector_end):
+    """"
+    sector start/end like: "2020-11-10"
+    okay so this:
+        - retrieves the CSV file(s) with all the TNS targets for the date range
+        - saves that into a file
+        - opens and reads the file (pandas)
+        - runs each set of coordinates into Tesscut.getsectors()
+        - checks for ones that match and adds their information to a new CSV file of matches
+        - empty return
+        """
+    import tns_py as tns
+    url = tns.CSV_URL(date_start = sector_start, date_end = sector_end,
+                      classified_sne = True)
+    filelabel = "Sector-" + str(sector)
+    TNS_get_CSV(savepath, filelabel, url)
+    
+    #open and read file
+    import pandas as pd
+    info = pd.DataFrame()
+    for i in range(2):
+        file = savepath + filelabel + "-" + str(i) + ".csv"
+        pand = pd.read_csv(file)
+        if info.empty:
+            #putintothing
+            info = pand
+            
+        if pand.empty:
+            #dont concatenate
+            continue
+        else:
+            #concatenate
+            pd.concat((info, pand))
+    
+    #run each set of coordinates into tesscut
+    observed_targets = pd.DataFrame(columns = info.columns)
+    from astroquery.mast import Tesscut
+    from astropy.coordinates import SkyCoord
+    import warnings
+    import astropy.units as u
+
+    with warnings.catch_warnings():
+        for n in range(len(info)):#for each entry
+            coord = SkyCoord(info["RA"][n], info["DEC"][n], unit=(u.hourangle, u.deg))
+            sector_table = Tesscut.get_sectors(coordinates=coord)
+            #print(sector_table)
+            
+            #check each table item
+            for i in range(len(sector_table)):
+                if sector_table["sector"][i] == sector or sector_table["sector"][i] == sector - 1:
+                    #if in this sector or the previous one, add to list of ones to save   
+                    #if observed_targets.empty:
+                     #   observed_targets = info[n]
+                    #else:
+                    observed_targets = observed_targets.append(info.iloc[[n]])
+    
+    savefile = savepath + filelabel + "-crossmatched.csv"
+    observed_targets.to_csv(savefile)
+            
+    return info, observed_targets
+
+def retrieve_all_TNS_and_NED(savepath, SN_list):
+    """"For a given list of SN, retrieves the TNS information
+    and the magnitude of the most likely host galaxy (nearest)
+    If no Gal in NED, sets to 19 as background."""
+    import tns_py as tns
+    from astroquery.ned import Ned
+    import astropy.units as u
+    from astropy import coordinates
+    
+    file = savepath + "TNS_information.csv"
+    with open(file, 'a') as f:
+        f.write("ID,RA,DEC,TYPE,DISCDATE,DISCMAG,Z,GALMAG,GALFILTER\n")
+    
+    for n in range(len(SN_list)):
+        name = SN_list[n][:-4]
+        if name.startswith("SN") or name.startswith("AT"):
+            name = name[2:]
+            
+        RA_DEC_hr, RA_DEC_decimal, type_sn, redshift, discodate, discomag = tns.SN_page(name)
+        #print(RA_DEC_decimal, type_sn)
+        RA, DEC = RA_DEC_decimal.split(" ")
+        
+        co = coordinates.SkyCoord(ra=RA, dec=DEC,
+                                   unit=(u.deg, u.deg), frame='fk4')
+        #constrain it to within a four pixel square
+        result_table = Ned.query_region(co, radius=0.01 * u.deg) #equiox defaults to J2000
+        #print(result_table)
+        
+        gal_mag = 19
+        gal_filter = "x"
+        for n in range(len(result_table)):
+            if result_table[n]["Type"] == "G":
+                print("Found most likely host galaxy")
+                if result_table[n]["Magnitude and Filter"] != "":
+                    gal_mag = float(result_table[n]["Magnitude and Filter"][:-1])
+                    gal_filter = result_table[n]["Magnitude and Filter"][-1]
+                    break
+                else:
+                    print("No recorded information about gal.mag. in NED")
+                    
+        print("Galaxy magnitude: ", gal_mag)
+        
+        with open(file, 'a') as f:
+            f.write("{},{},{},{},{},{},{},{},{}\n".format(name, RA, DEC, type_sn, 
+                                                          discodate, discomag, redshift,
+                                                          gal_mag, gal_filter))
 
 
 ############ HELPER FUNCTIONS ####################
+def conv_lygos_to_mag(i, galmag):
+    if galmag > 19.0 or galmag is None:
+        galmag = 19.0
+        
+    mA = -2.5* np.log10(i) + galmag
+    return mA
+
+
 def preclean_mcmc(file):
     """ opens the file and cleans the data for use in MCMC modeling"""
     #load data
@@ -57,9 +174,10 @@ def preclean_mcmc(file):
     
     t_sub = t - t.min() #put the start at 0 for better curve fitting
     
-    ints = df.normalize(ints, axis=0)
+    #ints = df.normalize(ints, axis=0)
     
     return t_sub, ints, error, t.min()
+
 
 def crop_to_40(t, y, err):
     """ only fit first 40% of brightness of curve"""
@@ -125,69 +243,125 @@ def retrieve_quaternions_bigfiles(savepath, quaternion_folder, sector, x):
                                            31, x)
     return tQ, Q1, Q2, Q3, outliers 
 
-def produce_discovery_time_dictionary(filename, t_starts):
+def produce_discovery_time_dictionary(all_labels,disc_dates, t_starts):
+    """ returns the discovery time MINUS the start time of the sector"""
     discovery_dictionary = {}
-    with open(filename, 'r') as f:
-        lines = f.readlines()[1:]
-        from astropy.time import Time
-        for line in lines:
-            line = line.replace('\n', '')
-            name, ra, dec, discoverytime = line.split(',')
-            discotime = Time(discoverytime, format='iso', scale='utc')
-            try: 
-                discotime = discotime.jd - t_starts[name]
-            except KeyError:
-                discotime = discotime.jd
-            discovery_dictionary[name] = discotime
+    from astropy.time import Time
+    for n in range(len(disc_dates)):
+        discotime = Time(disc_dates[n], format = 'iso', scale='utc')
+        discotime = discotime.jd - t_starts[all_labels[n]]
+        discovery_dictionary[all_labels[n]] = discotime
+
     return discovery_dictionary
 
-############### BIG BOYS ##############
-def mcmc_access_all(folderpath, savepath):
-    """ Opens all Lygos files and loads them in. 
-    Currently does not produce best_params"""
+def produce_gal_mag_dictionary(info):
+    gal_mag_dict = {}
+    for n in range(len(info)):
+        gal_mag_dict[info["ID"][n]] = info["GALMAG"][n]
+        
+    return gal_mag_dict
+        
+
+def generate_clip_quats_cbvs(sector, x, y, yerr, targetlabel, CBV_folder):
+    tQ, Q1, Q2, Q3, outliers = df.metafile_load_smooth_quaternions(sector, x)
+    Qall = Q1 + Q2 + Q3
+    #load CBVs
+    camera = targetlabel[-2]
+    ccd = targetlabel[-1]
+    cbv_file = CBV_folder + "s00{sector}/cbv_components_s00{sector}_000{camera}_000{ccd}.txt".format(sector = sector,
+                                                                                          camera = camera,
+                                                                                          ccd = ccd)
+    cbvs = np.genfromtxt(cbv_file)
+    CBV1 = cbvs[:,0]
+    CBV2 = cbvs[:,1]
+    CBV3 = cbvs[:,2]
+    #correct length differences:
+    lengths = np.array((len(x), len(tQ), len(CBV1)))
+    length_corr = lengths.min()
+    x = x[:length_corr]
+    y = y[:length_corr]
+    yerr = yerr[:length_corr]
+    tQ = tQ[:length_corr]
+    Qall = Qall[:length_corr]
+    CBV1 = CBV1[:length_corr]
+    CBV2 = CBV2[:length_corr]
+    CBV3 = CBV3[:length_corr]
+    return x,y,yerr, tQ, Qall, CBV1, CBV2, CBV3
+
+
+############### BAYESIAN CURVE FITS ##############
+def mcmc_access_all(datapath, savepath):
+    """ Opens all Lygos files and loads them in."""
     
     all_t = [] 
-    t_starts = {}
     all_i = []
     all_e = []
     all_labels = []
     sector_list = []
     discovery_dictionary = {}
+    t_starts = {}
     
-    for root, dirs, files in os.walk(folderpath):
+    infofile = datapath + "TNS_information.csv"
+    runproduce = False
+
+    if os.path.isfile(infofile):
+        #load file info
+        info = pd.read_csv(infofile)
+        disc_dates = info["DISCDATE"]
+          
+    else:
+        #run file generation at the end
+        runproduce = True
+        sn_names = []
+    
+    for root, dirs, files in os.walk(datapath):
         for name in files:
-            if name.startswith(("rflxtarg")):
+            if name.startswith(("rflx")):
                 filepath = root + "/" + name 
                 print(name)
                 label = name.split("_")
-                filelabel = label[4] + label[5]
-                all_labels.append(filelabel)
-                sector = label[5][0:2]
+                full_label = label[1] + label[2]
+                all_labels.append(full_label)
+                sector = label[2][0:2]
                 sector_list.append(sector)
+                
                 t,i,e, t_start = preclean_mcmc(filepath)
-                t_starts[filelabel[0:9]] = t_start
+                t_starts[full_label] = t_start
                 
                 all_t.append(t)
                 all_i.append(i)
                 all_e.append(e)
-            elif name.startswith(("SNe")):
-                filepath = root + "/" + name 
-                print(name)
-                discovery_dictionary = produce_discovery_time_dictionary(filepath, t_starts)
                 
-                                
-
-    return all_t, all_i, all_e, all_labels, sector_list, discovery_dictionary
+                if runproduce:
+                    sn_names.append(label[1])
+    
+    if runproduce:
+       retrieve_all_TNS_and_NED(datapath, sn_names) 
+       info = pd.read_csv(infofile)             
+       disc_dates = info["DISCDATE"]
+       
+    discovery_dictionary = produce_discovery_time_dictionary(all_labels, disc_dates, t_starts)
+    gal_mags = produce_gal_mag_dictionary(info)              
+    return all_t, all_i, all_e, all_labels, sector_list, discovery_dictionary, t_starts, gal_mags, info
 
 
 def produce_all_best_params(savepath, all_labels, all_t, all_i, all_e,
-                            sector_list, plot = False, withquats = True):
-    
+                            sector_list, discovery_times, t_starts, 
+                            plot = False,polynomial = True, 
+                            savefile = None, sn_names = None):
+    """ produces all best parameter sets for the given light curves. 
+    returns parameters, upper errors, and lower errors"""
     num_curves = len(all_i)
-    if not withquats:
-        all_best_params = np.zeros((num_curves,5))
-    else:
-        all_best_params = np.zeros((num_curves,6))
+    if polynomial: 
+        ndim = 8
+    else: 
+        ndim = 7
+    
+    
+    upper_error = np.zeros((num_curves, ndim))
+    lower_error = np.zeros((num_curves, ndim))
+    all_best_params = np.zeros((num_curves, ndim))
+    
     
     for k in range(num_curves):
         
@@ -197,74 +371,69 @@ def produce_all_best_params(savepath, all_labels, all_t, all_i, all_e,
         filelabel = all_labels[k]
         sector = sector_list[k]
         
-        #try: 
-        bestparams = run_mcmc_fit(savepath, filelabel, t,i,e, sector, plot = plot,
-                                  quaternions = withquats)
-       # except: 
-        #    print("Initial state got stuck again")
-         #   if not withquats:
-          #      bestparams = np.zeros((1,5))
-           # else:
-            #    bestparams = np.zeros((1,6))
+        if polynomial: 
+            bestparams, uppererror, lowererror = mcmc_fit_polynomial_heaviside(savepath, filelabel, t, i, e, 
+                                  sector, discovery_times, t_starts, plot = plot, 
+                                  savefile = savefile, sn_names = sn_names)
+            
+        else:
+            #offset the discovery time by like five days - if this pushes negative, do not?
+            if discovery_times[all_labels[k][:-4]] - 5 > 0:
                 
+                t_start = discovery_times[all_labels[k][:-4]] - 5
+            else:
+                t_start = 0
+            bestparams, uppererror, lowererror = run_mcmc_fit_stepped_powerlaw_t0(savepath, filelabel, t,i,e, sector, t_start, 
+                                                                              discovery_times, t_starts, plot = plot, savefile = savefile, sn_names = sn_names)
+               
         all_best_params[k] = bestparams
-        #print(all_best_params)
+        upper_error[k] = uppererror
+        lower_error[k] = lowererror
+     
+    return all_best_params, upper_error, lower_error
+
+def mcmc_fit_stepped_powerlaw_t0(path, targetlabel, t, intensity, error, sector,
+                                  discovery_times, t_starts, plot = True, 
+                                 quaternion_folder = "/users/conta/urop/quaternions/", 
+                                 CBV_folder = "C:/Users/conta/.eleanor/metadata/", 
+                                 savefile = None, sn_names = None):
+    """ Runs MCMC fitting for stepped power law fit
+    
+    """
+    
+    
+    def log_likelihood(theta, x, y, yerr, t0):
+        """ calculates the log likelihood function. 
+        constrain beta between 0.5 and 4.0
+        A is positive
+        need to add in cQ and CBVs!!
+        only fit up to 40% of the flux"""
+        t0, A, beta, B, cQ, cbv1, cbv2, cbv3 = theta #, cQ, cbv1, cbv2, cbv3
+        #print(A, beta, B)
+        t1 = x - t0
+        model = np.heaviside((t1), 1) * A *(t1)**beta + B + cQ * Qall + cbv1 * CBV1 + cbv2 * CBV2 + cbv3 * CBV3
         
-    return all_best_params
-
-
-def run_mcmc_fit(path, targetlabel, t, intensity, error, sector, plot = True,
-                 quaternions = False,
-                 quaternion_folder = "/users/conta/urop/quaternions/"):
+        yerr2 = yerr**2.0
+        returnval = -0.5 * np.nansum((y - model) ** 2 / yerr2 + np.log(yerr2))
+        return returnval
     
-    def log_likelihood_no_quats(theta, x, y, yerr):
-        """ calculates the log likelihood function. theta = [c0, c1, c2, c3, c4]"""
-        c0, c1, c2, c3, c4 = theta
-        model = c0 + c1 * x + c2 * x**2 + c3 * x**3 + c4 * x**4
-        yerr2 = yerr ** 2
-        return -0.5 * np.sum((y - model) ** 2 / yerr2 + np.log(yerr2))
-    
-    #YYY, this probably needs something from the user?
-    def log_prior_no_quats(theta):
-        """ calculates the log prior value and -2 < c3 < 2 and -2 < c4 < 2"""
-        c0, c1, c2, c3, c4= theta
-        if -2.0 < c0 < 2.0 and -2.0 < c1 < 2.0 and -2.0 < c2 < 2.0 and -2.0 < c3 < 2.0 and -2.0 < c4 < 2.0:
-       
-                #what the fuck does this do
-            return 0.0
-        return -np.inf
-    
-    def log_likelihood_quats(theta, x, y, yerr):
-        """ calculates the log likelihood function. theta = [c0, c1, c2, c3, c4]"""
-        c0, c1, c2, c3, c4, cQ = theta
-        model = c0 + c1 * x + c2 * x**2 + c3 * x**3 + c4 * x**4 + cQ * Qall
-        yerr2 = yerr ** 2
-        return -0.5 * np.sum((y - model) ** 2 / yerr2 + np.log(yerr2))
-    
-    #YYY, this probably needs something from the user?
-    def log_prior_quats(theta):
-        """ calculates the log prior value and -2 < c3 < 2 and -2 < c4 < 2"""
-        c0, c1, c2, c3, c4, cQ = theta
-        if -2.0 < c0 < 2 and -2 < c1 < 2 and -2 < c2 < 2 and -2 < c3 < 2 and -2 < c4 < 2:
-        #if -2 < c1 < 2 and -2 < c2 < 2 and -2 < c3 < 2 and -2 < c4 < 2:
-                #what the fuck does this do
+    def log_prior(theta):
+        """ calculates the log prior value """
+        t0, A, beta, B, cQ, cbv1, cbv2, cbv3 = theta #, cQ, cbv1, cbv2, cbv3
+        #print(A, beta, B, cQ, cbv1, cbv2, cbv3)
+        if 0 < t0 < 20 and 0.5 < beta < 6.0 and 0.0 < A < 5.0 and -10 < B < 10 and -5000 < cQ < 5000 and -5000 < cbv1 < 5000 and -5000 < cbv2 < 5000 and -5000 < cbv3 < 5000:
             return 0.0
         return -np.inf
         
         #log probability
-    def log_probability_quats(theta, x, y, yerr):
+    def log_probability(theta, x, y, yerr, t0):
         """ calculates log probabilty"""
-        lp = log_prior_quats(theta)
-        if not np.isfinite(lp):
+        lp = log_prior(theta)
+            
+        if not np.isfinite(lp) or np.isnan(lp): #if lp is not 0.0
             return -np.inf
-        return lp + log_likelihood_quats(theta, x, y, yerr)
-    
-    def log_probability_no_quats(theta, x, y, yerr):
-        """ calculates log probabilty"""
-        lp = log_prior_no_quats(theta)
-        if not np.isfinite(lp):
-            return -np.inf
-        return lp + log_likelihood_no_quats(theta, x, y, yerr)
+        
+        return lp + log_likelihood(theta, x, y, yerr, t0)
     
     import matplotlib.pyplot as plt
     import emcee
@@ -273,63 +442,40 @@ def run_mcmc_fit(path, targetlabel, t, intensity, error, sector, plot = True,
     x = t
     y = intensity
     yerr = error
-    #plt.scatter(x,y)
-    #plt.show()
     
-    np.random.seed(42)
+    #load quaternions and CBVs
+    x,y,yerr, tQ, Qall, CBV1, CBV2, CBV3 = generate_clip_quats_cbvs(sector, x, y, yerr,targetlabel, CBV_folder)
         
-    #print(len(x), len(tQ), len(Q1))   
-    nwalkers = 32 
     
-    if not quaternions: 
+    #running MCMC
+    np.random.seed(42)   
+    nwalkers = 32
+    ndim = 8
+    labels = ["t0", "A", "beta", "B", "cQ", "cbv1", "cbv2", "cbv3"] #, "cQ", "cbv1", "cbv2", "cbv3"
+    p0 = np.ones((nwalkers, ndim)) + 1 * np.random.rand(nwalkers, ndim)
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, args=(x, y, yerr, t0))
     
-        ndim = 5
-        labels = ["c0", "c1", "c2", "c3", "c4"]
-        p0 = np.zeros((nwalkers, ndim)) + 1e-2 * (np.random.rand(nwalkers, ndim) - 0.5)
-        
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability_no_quats, args=(x, y, yerr))
-
-    else:
-        #create quaternions -- load from other file
-        tQ, Q1, Q2, Q3, outliers = df.metafile_load_smooth_quaternions(sector, x)
-        Qall = Q1 + Q2 + Q3
-        
-        # correct length differences between tQ and x
-        if len(x) > len(tQ): #main is longer, truncate main
-            x = x[:len(tQ)]
-            y = y[:len(tQ)]
-            yerr = yerr[:len(tQ)]
-        elif len(tQ) > len(x): # if  tQ is longer, truncate tQ
-            tQ = tQ[:len(x)]
-            Q1 = Q1[:len(x)]
-            Q2 = Q2[:len(x)]
-            Q3 = Q3[:len(x)]
-            Qall = Qall[:len(x)]
-        
-        ndim = 6
-        labels = ["c0", "c1", "c2", "c3", "c4", "cQ"]
-        p0 = np.zeros((nwalkers, ndim)) + 1e-2 * (np.random.rand(nwalkers, ndim) - 0.5)
-        #p0[:,5] += 10000
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability_quats, args=(x, y, yerr))
-    
-    
-    #burn in stage
-    state = sampler.run_mcmc(p0, 10000, progress=True)
-    #state = sampler.run_mcmc(p0, 5000, progress=True)
+   # try:
+    state = sampler.run_mcmc(p0, 15000, progress=True)
     if plot:
         plot_chain(path, targetlabel, "-burn-in-plot.png", sampler, labels, ndim)
     
     
-    flat_samples = sampler.get_chain(discard=2000, thin=15, flat=True)
+    flat_samples = sampler.get_chain(discard=4000, thin=15, flat=True)
     print(flat_samples.shape)
 
     #print out the best fit params based on 16th, 50th, 84th percentiles
     best_mcmc = np.zeros((1,ndim))
+    upper_error = np.zeros((1,ndim))
+    lower_error = np.zeros((1,ndim))
     for i in range(ndim):
         mcmc = np.percentile(flat_samples[:, i], [16, 50, 84])
-        #q = np.diff(mcmc)
-        #print(labels[i], mcmc[1], -1 * q[0], q[1] )
+        q = np.diff(mcmc)
+        print(labels[i], mcmc[1], -1 * q[0], q[1] )
         best_mcmc[0][i] = mcmc[1]
+        upper_error[0][i] = q[1]
+        lower_error[0][i] = q[0]
+ 
     
     if plot:
         #corner plot the samples
@@ -340,36 +486,314 @@ def run_mcmc_fit(path, targetlabel, t, intensity, error, sector, plot = True,
                            show_titles=True,title_fmt = ".4f", title_kwargs={"fontsize": 12}
         );
         fig.savefig(path + targetlabel + 'corner-plot-params.png')
+        plt.show()
         plt.close()
-        #plotting mcmc stuff
-        for ind in range(100):
-            sample = flat_samples[ind]
-            if not quaternions: 
-                modeltoplot = sample[0] + sample[1] * x + sample[2] * x**2 + sample[3] * x**3 + sample[4] * x**4
-            else: 
-                modeltoplot = sample[0] + sample[1] * x + sample[2] * x**2 + sample[3] * x**3 + sample[4] * x**4 + sample[5] * Qall
-            plt.plot(x, modeltoplot, color = 'blue', alpha = 0.1)
+        
 
         plt.scatter(x, y, label = "FFI data", color = 'gray')
+         
+        #best fit model
+        t1 = x - best_mcmc[0][0]
+        A = best_mcmc[0][1]
+        beta = best_mcmc[0][2]
+        B = best_mcmc[0][3]
+        cQ = best_mcmc[0][4]
+        cbv1 = best_mcmc[0][5]
+        cbv2 = best_mcmc[0][6]
+        cbv3 = best_mcmc[0][7]
         
-        if not quaternions:
-            best_fit_model = best_mcmc[0][0] + best_mcmc[0][1] * x + best_mcmc[0][2] * x**2 + best_mcmc[0][3] * x**3 + best_mcmc[0][4] * x**4
-        else: 
-            best_fit_model = best_mcmc[0][0] + best_mcmc[0][1] * x + best_mcmc[0][2] * x**2 + best_mcmc[0][3] * x**3 + best_mcmc[0][4] * x**4 + best_mcmc[0][5] * Qall
+        best_fit_model = np.heaviside((t1), 1) * A *(t1)**beta + B + cQ * Qall + cbv1 * CBV1 + cbv2 * CBV2 + cbv3 * CBV3
         
+        #residual = y - best_fit_model
+        plt.scatter(x, best_fit_model, label="best fit model", s = 5, color = 'red')
         
-        residual = y - best_fit_model
-        plt.scatter(x, best_fit_model, label="best fit model", color = 'red')
-        #plt.scatter(x, residual, label = "residual", color = "green")
-        
-        t_8, i_8, e_8 = bin_8_hours(x, y, yerr)
-        plt.errorbar(t_8, i_8, e_8, fmt='.k', color='black', label="binned data")
+        discotime = discovery_times[targetlabel[:-4]] - t_starts["SN" + targetlabel[:-4]]
+        plt.axvline(discotime, color = 'green')
         
         plt.legend(fontsize=8, loc="upper left")
         plt.title(targetlabel)
-        plt.savefig(path + targetlabel + "-MCMCmodel.png")
+        plt.xlabel("BJD")
+        #plt.show()
+        plt.savefig(path + targetlabel + "-MCMCmodel-stepped-powerlaw.png")
+        
+        
+    if savefile is not None:
+        with open(savefile, 'a') as f:
+            for i in range(ndim):
+                f.write(str(best_mcmc[0][i]))
+            f.write("\n")
+        with open(sn_names, 'a') as f:
+            f.write(targetlabel)
+            f.write("\n")
+    return best_mcmc, upper_error, lower_error
+
+def run_mcmc_fit_stepped_powerlaw(path, targetlabel, t, intensity, error, sector, t0,
+                                  discovery_times, t_starts, plot = True, 
+                                 quaternion_folder = "/users/conta/urop/quaternions/", 
+                                 CBV_folder = "C:/Users/conta/.eleanor/metadata/", 
+                                 savefile = None, sn_names = None):
+    """ Runs MCMC fitting for stepped power law fit
     
-    return best_mcmc
+    """
+    
+    
+    def log_likelihood(theta, x, y, yerr, t0):
+        """ calculates the log likelihood function. 
+        constrain beta between 0.5 and 4.0
+        A is positive
+        need to add in cQ and CBVs!!
+        only fit up to 40% of the flux"""
+        A, beta, B, cQ, cbv1, cbv2, cbv3 = theta #, cQ, cbv1, cbv2, cbv3
+        #print(A, beta, B)
+        model = np.heaviside((x - t0), 1) * A *(x-t0)**beta + B + cQ * Qall + cbv1 * CBV1 + cbv2 * CBV2 + cbv3 * CBV3
+        
+        yerr2 = yerr**2.0
+        returnval = -0.5 * np.nansum((y - model) ** 2 / yerr2 + np.log(yerr2))
+        return returnval
+    
+    def log_prior(theta):
+        """ calculates the log prior value """
+        A, beta, B, cQ, cbv1, cbv2, cbv3 = theta #, cQ, cbv1, cbv2, cbv3
+        #print(A, beta, B, cQ, cbv1, cbv2, cbv3)
+        if 0.5 < beta < 6.0 and 0.0 < A < 5.0 and -10 < B < 10 and -5000 < cQ < 5000 and -5000 < cbv1 < 5000 and -5000 < cbv2 < 5000 and -5000 < cbv3 < 5000:
+            return 0.0
+        return -np.inf
+        
+        #log probability
+    def log_probability(theta, x, y, yerr, t0):
+        """ calculates log probabilty"""
+        lp = log_prior(theta)
+            
+        if not np.isfinite(lp) or np.isnan(lp): #if lp is not 0.0
+            return -np.inf
+        
+        return lp + log_likelihood(theta, x, y, yerr, t0)
+    
+    import matplotlib.pyplot as plt
+    import emcee
+    rcParams['figure.figsize'] = 16,6
+     
+    x = t
+    y = intensity
+    yerr = error
+    
+    #load quaternions and CBVs
+    x,y,yerr, tQ, Qall, CBV1, CBV2, CBV3 = generate_clip_quats_cbvs(sector, x, y, yerr,targetlabel, CBV_folder)
+        
+    
+    #running MCMC
+    np.random.seed(42)   
+    nwalkers = 32
+    ndim = 7
+    labels = ["A", "beta", "B", "cQ", "cbv1", "cbv2", "cbv3"] #, "cQ", "cbv1", "cbv2", "cbv3"
+    p0 = np.ones((nwalkers, ndim)) + 1 * np.random.rand(nwalkers, ndim)
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, args=(x, y, yerr, t0))
+    
+   # try:
+    state = sampler.run_mcmc(p0, 15000, progress=True)
+    if plot:
+        plot_chain(path, targetlabel, "-burn-in-plot.png", sampler, labels, ndim)
+    
+    
+    flat_samples = sampler.get_chain(discard=4000, thin=15, flat=True)
+    print(flat_samples.shape)
+
+    #print out the best fit params based on 16th, 50th, 84th percentiles
+    best_mcmc = np.zeros((1,ndim))
+    upper_error = np.zeros((1,ndim))
+    lower_error = np.zeros((1,ndim))
+    for i in range(ndim):
+        mcmc = np.percentile(flat_samples[:, i], [16, 50, 84])
+        q = np.diff(mcmc)
+        print(labels[i], mcmc[1], -1 * q[0], q[1] )
+        best_mcmc[0][i] = mcmc[1]
+        upper_error[0][i] = q[1]
+        lower_error[0][i] = q[0]
+        
+    print(best_mcmc)
+    
+    if plot:
+        #corner plot the samples
+        import corner
+        fig = corner.corner(
+            flat_samples, labels=labels,
+            quantiles = [0.16, 0.5, 0.84],
+                           show_titles=True,title_fmt = ".4f", title_kwargs={"fontsize": 12}
+        );
+        fig.savefig(path + targetlabel + 'corner-plot-params.png')
+        plt.show()
+        plt.close()
+        
+
+        plt.scatter(x, y, label = "FFI data", color = 'gray')
+         
+        #raw best fit model
+        #print(best_mcmc[0][0])
+        best_fit_model = np.heaviside((x - t0), 1) * best_mcmc[0][0] * ((x-t0)**(best_mcmc[0][1])) + best_mcmc[0][2]
+        best_fit_model = best_fit_model + best_mcmc[0][3] * Qall + best_mcmc[0][4] * CBV1 + best_mcmc[0][5] * CBV2 + best_mcmc[0][6] * CBV3
+        
+        #residual = y - best_fit_model
+        plt.scatter(x, best_fit_model, label="best fit model", s = 5, color = 'red')
+        
+        discotime = discovery_times[targetlabel[:-4]]
+        plt.axvline(discotime, color = 'green')
+        
+        plt.legend(fontsize=8, loc="upper left")
+        plt.title(targetlabel)
+        plt.xlabel("BJD")
+        #plt.show()
+        plt.savefig(path + targetlabel + "-MCMCmodel.png")
+        
+        
+    if savefile is not None:
+        with open(savefile, 'a') as f:
+            for i in range(ndim):
+                f.write(str(best_mcmc[0][i]))
+            f.write("\n")
+        with open(sn_names, 'a') as f:
+            f.write(targetlabel)
+            f.write("\n")
+    return best_mcmc, upper_error, lower_error
+
+
+
+def mcmc_fit_polynomial_heaviside(path, targetlabel, t, intensity, error, 
+                                  sector, discovery_times,t_starts, plot = True,
+                                  quaternion_folder = "/users/conta/urop/quaternions/",
+                                  CBV_folder = "C:/Users/conta/.eleanor/metadata/", 
+                                  savefile = None, sn_names = None):
+    """ Runs MCMC fitting, mandatory quaternions AND CBV_folder"""
+    
+    
+    def log_likelihood(theta, x, y, yerr):
+        """ calculates the log likelihood function. """
+        t0, c0, c1, c2, cQ, cbv1, cbv2, cbv3 = theta
+        t1 = x - t0
+        model = np.heaviside((c1 * t1 + c2 * t1 **2), 1) + c0 + cQ * Qall + cbv1 * CBV1 + cbv2 * CBV2 + cbv3 * CBV3
+        yerr2 = yerr ** 2
+        return -0.5 * np.nansum((y - model) ** 2 / yerr2 + np.log(yerr2))
+    
+    def log_prior(theta):
+        """ calculates the log prior value """
+        t0, c0, c1, c2, cQ, cbv1, cbv2, cbv3 = theta
+        if -2.0 < c0 < 2 and -2 < c1 < 2 and -2 < c2 < 2 and 0 < t0 < 30:
+            return 0.0
+        return -np.inf
+        
+        #log probability
+    def log_probability(theta, x, y, yerr):
+        """ calculates log probabilty"""
+        lp = log_prior(theta)
+        if not np.isfinite(lp):
+            return -np.inf
+        return lp + log_likelihood(theta, x, y, yerr)
+    
+           
+    import matplotlib.pyplot as plt
+    import emcee
+    rcParams['figure.figsize'] = 16,6
+    
+    ndim = 8
+    print(int(sector))
+    if int(sector) > 26:
+        print("sector out of range")
+        return np.zeros((1,ndim))
+    else: 
+        x = t
+        y = intensity
+        yerr = error
+        
+        np.random.seed(42)
+               
+        nwalkers = 32 
+        
+        #load quaternions and CBVs
+        x,y,yerr, tQ, Qall, CBV1, CBV2, CBV3 = generate_clip_quats_cbvs(sector, x, y, yerr,targetlabel, CBV_folder)
+        
+        #running MCMC
+        labels = ["t0", "c0", "c1", "c2", "cQ", "cbv1", "cbv2", "cbv3"]
+        p0 = np.zeros((nwalkers, ndim)) + 1e-2 * (np.random.rand(nwalkers, ndim) - 0.5)
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, log_probability, args=(x, y, yerr))
+        state = sampler.run_mcmc(p0, 15000, progress=True)
+        
+        if plot:
+            plot_chain(path, targetlabel, "-burn-in-plot.png", sampler, labels, ndim)
+        
+        
+        flat_samples = sampler.get_chain(discard=5000, thin=15, flat=True)
+        best_mcmc = np.zeros((1,ndim))
+        upper_error = np.zeros((1,ndim))
+        lower_error = np.zeros((1,ndim))
+        for i in range(ndim):
+            mcmc = np.percentile(flat_samples[:, i], [16, 50, 84])
+            q = np.diff(mcmc)
+            #print(labels[i], mcmc[1], -1 * q[0], q[1] )
+            best_mcmc[0][i] = mcmc[1]
+            upper_error[0][i] = q[1]
+            lower_error[0][i] = q[0]
+        print(best_mcmc)
+    
+        
+        if plot:
+            #corner plot the samples
+            import corner
+            fig = corner.corner(
+                flat_samples, labels=labels,
+                quantiles = [0.16, 0.5, 0.84],
+                               show_titles=True,title_fmt = ".4f", title_kwargs={"fontsize": 12}
+            );
+            fig.savefig(path + targetlabel + 'corner-plot-params.png')
+            plt.close()
+            #plotting mcmc stuff
+            for ind in range(100):
+                sample = flat_samples[ind]
+                t1 = x - sample[0]
+                c0 = sample[1]
+                c1 = sample[2]
+                c2 = sample[3]
+                cQ = sample[4]
+                cbv1 = sample[5]
+                cbv2 = sample[6]
+                cbv3 = sample[7]
+                
+                modeltoplot = np.heaviside((c1 * t1 + c2 * t1 **2), 1) + c0 + cQ * Qall + cbv1 * CBV1 + cbv2 * CBV2 + cbv3 * CBV3
+                plt.plot(x, modeltoplot, color = 'blue', alpha = 0.1)
+            
+    
+            plt.scatter(x, y, label = "FFI data", color = 'gray')
+             
+            #raw best fit model
+            t1 = x - best_mcmc[0][0]
+            c0 = best_mcmc[0][1]
+            c1 = best_mcmc[0][2]
+            c2 = best_mcmc[0][3]
+            cQ = best_mcmc[0][4]
+            cbv1 = best_mcmc[0][5]
+            cbv2 = best_mcmc[0][6]
+            cbv3 = best_mcmc[0][7]
+            best_fit_model = np.heaviside((c1 * t1 + c2 * t1 **2), 1) + c0 + cQ * Qall + cbv1 * CBV1 + cbv2 * CBV2 + cbv3 * CBV3
+            
+            plt.scatter(x, best_fit_model, label = "best fit")
+            
+            discotime = discovery_times[targetlabel[:-4]] - t_starts["SN" + targetlabel[:-4]]
+            
+            plt.axvline(discotime, color = 'green')
+            plt.legend(fontsize=8, loc="upper left")
+            plt.title(targetlabel)
+            plt.xlabel("BJD")
+            plt.savefig(path + targetlabel + "-MCMC-polynomial-heaviside.png")
+        
+        if savefile is not None:
+            with open(savefile, 'a') as f:
+                for i in range(ndim):
+                    f.write(str(best_mcmc[0][i]))
+                f.write("\n")
+            with open(sn_names, 'a') as f:
+                f.write(targetlabel)
+                f.write("\n")
+            
+            
+        return best_mcmc, upper_error, lower_error
 
 
 
