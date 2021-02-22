@@ -916,3 +916,28 @@ class mergen(object):
                           ticid_test, target_info_train, target_info_test, num_split=2,
                           output_dir=output_dir, split=split_at_orbit_gap,
                           input_psd=input_psd)
+        
+#%% mergen
+
+my_obj = mergen('/Users/conta/UROP/Sector28_20s/', "SPOC", '/Users/conta/UROP/Sector28_20s/', 
+                   filelabel = "Sector28_20s",
+                 momentum_dump_csv = '/users/conta/urop/Table_of_momentum_dumps.csv',
+                 sector = [28],  
+                 cadence = "20_s", ENF_exists = True, remove_quaternions = False)
+
+
+my_obj.autoencoder(sectors = [28], fast = True,
+                    model_init = None, train_test_ratio = 0.9, hyperparameter_optimization = False)
+
+#my_obj.isolate_outlier_features(sigma = 7)
+my_obj.features_plotting(featuretype = "ENF", clustering = "none", eps = 0.5, version = 1)
+
+
+my_obj.create_ENF_features(version=0, save=True)
+
+my_obj.plot_lof()
+
+df.KNN_plotting('/Users/conta/UROP/Sector28_20s/ENF/', my_obj.features, [2,4,6,10])
+
+           
+my_obj.plot_duration_range_lc(duration_max = 1)

@@ -55,7 +55,7 @@ def cross_check_TNS(savepath, sector, sector_start, sector_end):
     url = tns.CSV_URL(date_start = sector_start, date_end = sector_end,
                       classified_sne = True)
     filelabel = "Sector-" + str(sector)
-    TNS_get_CSV(savepath, filelabel, url)
+    tns.TNS_get_CSV(savepath, filelabel, url)
     
     #open and read file
     import pandas as pd
@@ -72,7 +72,7 @@ def cross_check_TNS(savepath, sector, sector_start, sector_end):
             continue
         else:
             #concatenate
-            pd.concat((info, pand))
+            info = pd.concat((info, pand))
     
     #run each set of coordinates into tesscut
     observed_targets = pd.DataFrame(columns = info.columns)

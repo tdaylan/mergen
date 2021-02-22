@@ -525,6 +525,7 @@ def metafile_load_smooth_quaternions(sector, maintimeaxis,
     for root, dirs, files in os.walk(quaternion_folder):
             for name in files:
                 if name.endswith(("S"+sector+"-quat.txt")):
+                    print(name)
                     filepath = root + "/" + name
                     c = np.genfromtxt(filepath)
                     tQ = c[0]
