@@ -543,25 +543,37 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
             p_DAE = {'max_dim': 50, 'step': 4, 'latent_dim': 30,
                      'activation': 'elu', 'last_activation': 'elu',
                      'optimizer': 'adam', 'batch_norm': True,
-                     'lr':0.001, 'epochs': 100, 'losses': 'mean_squared_error',
+                     'lr':0.001, 'epochs': 20, 'losses': 'mean_squared_error',
                      'batch_size': 128, 'initializer': 'glorot_uniform',
                      'fully_conv': False}    
 
         if DAE:
             suffix = '_DAE'
-            history_DAE, model_DAE = deep_autoencoder(features, features,
-                                                      None, None, p_DAE)
-            new_features = get_bottleneck(model_DAE, features, p_DAE)
-            features=new_features
+
+            if os.path.exists(output_dir+prefix+'feature_space_DAE.fits'):
+                with fits.open(output_dir+prefix+'feature_space_DAE.fits') as f:
+                    features = f[0].data
+            else:
+                history_DAE, model_DAE = deep_autoencoder(features, features,
+                                                          None, None, p_DAE)
+                new_features = get_bottleneck(model_DAE, features, p_DAE)
+                features=new_features
+                hdu = fits.PrimaryHDU(features)
+                hdu.writeto(output_dir+prefix+'feature_space_DAE.fits')
+                pf.epoch_plots(history_DAE, p_DAE, output_dir)
         elif VAE:
             suffix = '_VAE'
-            history_DAE, model_DAE, encoder = \
-                variational_autoencoder(features, features, None, None, p_DAE)
-            new_features = encoder.predict(features)
-            features = new_features[2]
-
-
-        pf.epoch_plots(history_DAE, p_DAE, output_dir)
+            if os.path.exists(output_dir+prefix+'feature_space_VAE.fits'):
+                with fits.open(output_dir+prefix+'feature_space_VAE.fits') as f:
+                    features = f[0].data
+            else:
+                history_DAE, model_DAE, encoder = \
+                    variational_autoencoder(features, features, None, None, p_DAE)
+                new_features = encoder.predict(features)
+                features = new_features[2]
+                hdu = fits.PrimaryHDU(features)
+                hdu.writeto(output_dir+prefix+'feature_space'+suffix+'.fits')
+                pf.epoch_plots(history_DAE, p_DAE, output_dir)
 
         if plot_feat_space:
             print('Plotting feature space')
@@ -643,25 +655,18 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                 
         # -- GMM ---------------------------------------------------------------
         if run_gmm:
-            
-
-            # if os.path.exists(output_dir+prefix+'gmm_labels.txt'):
-            #     _, labels = np.loadtxt(output_dir+prefix+'gmm_labels.txt')
-            # else:
             print('Training GMM with '+str(n_components)+' components...')
             gmm = GaussianMixture(n_components=n_components)
             labels = gmm.fit_predict(features)
             np.savetxt(output_dir+prefix+'gmm_labels.txt',
                        np.array([ticid_feat, labels]))
-
         
         pf.classification_plots(features, x, flux_feat, ticid_feat, info_feat,
                                 labels, output_dir=output_dir, prefix=prefix,
-                                database_dir=database_dir, data_dir=data_dir,
+                                data_dir=data_dir,
                                 x_predict=x_predict, do_summary=do_summary,
                                 do_diagnostic_plots=do_diagnostic_plots)
             
-
 def param_summary(history, x_train, x_test, x_predict_train, x_predict, p,
                   output_dir, param_set_num,
                   title, supervised=False, y_test=False):
