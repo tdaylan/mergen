@@ -1150,78 +1150,18 @@ def diagnostic_plots(history, model, p, output_dir,
         kernel_filter_plot(model, output_dir+prefix+'kernel-')    
 
 def classification_plots(features, time, flux_feat, ticid_feat, info_feat, labels,
-                         x_predict, output_dir='./', prefix='', database_dir='./',
+                         x_predict, output_dir='./', prefix='', 
                          data_dir='./', do_diagnostic_plots=True, do_summary=True,
                          sectors=[1], true_label = 'EW'):
 
-        
-    # acc = plot_confusion_matrix(ticid_feat, labels, database_dir=database_dir,
-    #                                output_dir=output_dir, prefix=prefix)         
-
-
-    class_info = df.get_true_classifications(ticid_feat, database_dir)
-
-    # -- assign number labels to science labels --------------------------------
-
-    print('Assigning science labels to number labels')
-    assignments = assign_real_labels(ticid_feat, labels, data_dir=data_dir,
-                                     output_dir=output_dir, prefix=prefix)
-
-    # cm, assignments, ticid_true, y_true, class_info_new, recalls, \
-    #     false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
-    #     rows, columns =\
-    #     assign_real_labels(ticid_feat, labels, database_dir, data_dir, class_info,
-    #                        output_dir, prefix)
-
-    # with open(output_dir+prefix+'param_summary.txt', 'a') as f:
-    #     f.write('accuracy: ' + str(np.max(accuracy)))   
-
-    # -- save science labels for each ticid ------------------------------------
-
-    with open(output_dir+prefix+'ticid_to_label.txt', 'w') as f:
-        for i in range(len(labels)):
-            ind = np.nonzero(assignments[:,0].astype('float') == labels[i])
-            if len(ind[0]) == 0:
-                f.write(str(ticid_feat[i])+',NONE\n')
-            else:
-                f.write(str(ticid_feat[i])+','+str(assignments[:,1][ind][0])+'\n')
-
     # -- ensemble summary plots ------------------------------------------------
-
     if do_summary:
         print('Ensemble summary...')
-        ensemble_budget(ticid_feat, labels, cm, assignments, rows, columns,
-                         database_dir=database_dir, output_dir=output_dir, 
-                         prefix=prefix, data_dir=data_dir, class_info=class_info)
-        ensemble_summary_tables(assignments, recalls, false_discovery_rates,
-                                   precisions, accuracy, counts_true, counts_pred,
-                                   output_dir+prefix)
-        ensemble_summary_tables(assignments, recalls, false_discovery_rates,
-                                   precisions, accuracy, counts_true, counts_pred,
-                                   output_dir+prefix, target_labels=[])
-    # inter, comm1, comm2 = np.intersect1d(ticid_feat, ticid_true, return_indices=True)
-    # y_pred = labels[comm1]
-    # x_true = flux_feat[comm1]
-    # x_predict = x_predict[comm1]
-
-        
-    # # -- sector distributions --------------------------------------------------
-    # # >> find top 20 most popular classes
-    # classes, counts = np.unique(y_true, return_counts=True)
-    # classes = classes[np.argsort(counts)]
-    # for class_label in classes[-20:]:
-    #     plot_class_dists(assignments, ticid_true, y_pred, y_true,
-    #                         data_dir, sectors, true_label=class_label,
-    #                         output_dir=output_dir+prefix)
-
-
-    # pf.plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors, output_dir=output_dir)
-    # sector_dists(data_dir, sectors, output_dir=output_dir+prefix)
+        ensemble_summary_plots(ticid_feat, labels, sectors[0],
+                               data_dir, output_dir, prefix)
 
     # -- plot light curves from each class -------------------------------------
-
     if do_diagnostic_plots:
-        pdb.set_trace()
         quick_plot_classification(time, flux_feat, ticid_feat, info_feat, 
                                      features, labels, path=output_dir,
                                      prefix=prefix+'learned_classes',
@@ -2684,7 +2624,7 @@ def plot_light_curves(targets, sector, output_dir='', prefix='', figsize=(8,8)):
     fig.savefig(output_dir+prefix+'lightcurves.png', dpi=300)
 
 
-def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
+def latent_space_plot(activation, out='./latent_space.png', n_bins = 20,
                       log = True, save=True,
                       units='phi', figsize=(10,10), fontsize='x-small'):
     '''Creates corner plot of latent space.
@@ -2719,7 +2659,12 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
         # >> row 1 column 1 is first latent dimension (phi1)
         for i in range(latentDim):
             axes[i,i].hist(activation[:,i], n_bins, log=log)
-            axes[i,i].set_aspect(aspect=1)
+            # f1, a1 = plt.subplots()
+            # a1.set_xlabel(ax_label+str(i))
+            # a1.hist(activation[:,i], n_bins, log=log)
+            # f1.savefig(out.split('.')[0]+'-phi'+str(i)+'.png')
+
+            # axes[i,i].set_aspect(aspect='equal', adjustable='box')
             for j in range(i):
                 if log:
                     norm = LogNorm()
@@ -2742,7 +2687,7 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
         plt.subplots_adjust(hspace=0, wspace=0)
         
     if save:
-        plt.savefig(out)
+        fig.savefig(out)
         plt.close(fig)
     
     return fig, axes
@@ -2779,50 +2724,6 @@ def get_tsne(bottleneck, n_components=2):
     X = TSNE(n_components=n_components).fit_transform(bottleneck)
     return X
     
-def make_parent_dict():
-    # d = {'EB': ['Al', 'bL', 'WU', 'EP', 'SB'],
-    #      'ACV': ['ACVO'],
-    #      'D': ['DM', 'DS', 'DW'],
-    #      'K': ['KE', 'KW'],
-    #      'Ir': ['Or', 'RI', 'IA', 'IB', 'INA', 'INB'],
-    #      'Pu': ['RR', 'Ce', 'dS', 'RV', 'WV', 'bC', 'cC', 'gD', 'SX'],
-    #      'sg': ['s*r', 's*y', 's*b'],
-    #      'Er': ['Fl', 'FU', 'RC'],
-    #      'Ro': ['a2', 'Psr', 'BY', 'RS'],
-    #      'Em': ['Be']
-    #      }
-    
-    d = {'I': ['IA', 'IB'],
-         'IN': ['FU', 'INA', 'INB', 'INTIT', 'IN(YY)', 'INAT', 'INS', 'INSA',
-                'INSB', 'INST', 'INT', 'INT(YY)', 'IT'],
-         'IS': ['ISA', 'ISB'],
-         'Fl': ['UV', 'UVN'],
-         
-         'BCEP': ['BCEPS', 'BCEP(B)'],
-         'CEP': ['CEP(B)', 'DCEP', 'DCEPS'],
-         'CW': ['CWA', 'CWB'],
-         'DSCT': ['DSCTC', 'DSCTC(B)'],
-         'L': ['LB', 'LC', 'LPB', 'LP', 'LBV'],
-         'RR': ['RR(B)', 'RRAB', 'RRC'],
-         'RV': ['RVA', 'RVB'],
-         'SR': ['SRA', 'SRB', 'SRC', 'SRD', 'SRS'],
-         'ZZ': ['ZZA', 'ZZB', 'ZZO'],
-         
-         'ACV': ['ACVO'],
-         
-         'N': ['NA', 'NB', 'NC', 'NL', 'NR'],
-         'SN': ['SNI', 'SNII'],
-         'UG': ['UGSS', 'UGSU', 'UGZ'],
-         
-         # 'E': ['EA', 'EB', 'EP', 'EW'],
-         'D': ['DM', 'DS', 'DW'],
-         'K': ['KE', 'KW'],
-         
-         'X': ['XB', 'XF', 'XI', 'XJ', 'XND', 'XNG', 'XP', 'XPR',
-               'XPRM', 'XM', 'XRM', 'XN','XNA','XNGP','XPM','XPNG',
-               'XNP']
-         }    
-    return d
 
 def get_gcvs_variability_types(labels):
     var_d = {'eruptive':
@@ -2876,90 +2777,6 @@ def get_gcvs_variability_types(labels):
 
     return type_inds
             
-        
-
-# def make_6_bucket_dict():
-#     # d = {'Eruptive Variable Stars': ['Be', 'FU', 'GCAS', 'Ir', 'IA', 'IB', 'Or',
-#     #                                  'INA', 'INB', 'INT,IT', 'IN(YY)', 'RI',
-#     #                                  'ISA', 'ISB']}
-#     d = {'Eruptive Variable Stars':
-#          ['Fl', 'BE', 'FU', 'GCAS', 'I', 'IA', 'IB', 'IN', 'INA', 'INB', 'INT,IT',
-#           'IN(YY)', 'IS', 'ISA', 'ISB', 'RCB', 'RS', 'SDOR', 'UV', 'UV', 'UVN',
-#           'WR', 'INTIT'],
-#          'Pulsating Variable Stars':
-#              ['Pu', 'ACYG', 'BCEP', 'BCEPS', 'BLBOO', 'CEP', 'CEP(B)', 'CW', 'CWA',
-#               'CWB', 'DCEP', 'DCEPS', 'DSCT', 'DSCTC', 'GDOR', 'L', 'LB', 'LC',
-#               'LPB', 'M', 'PVTEL', 'RPHS', 'RR', 'RR(B)', 'RRAB', 'RRC', 'RV',
-#               'RVA', 'RVB', 'SR', 'SRA', 'SRB' 'SRC', 'SRD', 'SRS', 'SXPHE',
-#               'ZZ', 'ZZA', 'ZZB', 'ZZO'],
-#          'Rotating Variable Stars': ['ACV', 'ACVO', 'BY', 'ELL', 'FKCOM', 'PSR',
-#                                      'R', 'SXARI'],
-#          'Cataclysmic (Explosive and Novalike) Variables':
-#              ['N', 'NA', 'NB', 'NC', 'NL', 'NR', 'SN', 'SNI', 'SNII', 'UG',
-#               'UGSS', 'UGSU', 'UGZ', 'ZAND'],
-#          'Eclipsing Systems':
-#              ['E', 'EA', 'EB', 'EP', 'EW', 'GS', 'PN', 'RS', 'WD', 'WR', 'AR',
-#               'D', 'DM', 'DS', 'DW', 'K', 'KE', 'KW', 'SD'],
-#          'Optically Variable Close Binary Sources of Strong, Variable X-ray Radiation (X-ray Sources)': 
-#              ['AM', 'X', 'XB', 'XR', 'XI', 'XJ', 'XND', 'XNG', 'XP', 'XPR',
-#               'XPRM', 'XM']
-#          } 
-# def make_6_bucket_dict():
-    # d = {'Eruptive Variable Stars': ['Be', 'FU', 'GCAS', 'Ir', 'IA', 'IB', 'Or',
-    #                                  'INA', 'INB', 'INT,IT', 'IN(YY)', 'RI',
-    #                                  'ISA', 'ISB']}
-        
-    # # >> include vizier
-    # d = {'Eruptive Variable Stars':
-    #      ['Be', 'Fl', 'Ir', 'Or', 'RI', 'BE', 'FU', 'GCAS', 'I', 'IA', 'IB', 'IN', 'INA', 'INB', 'INT,IT',
-    #       'IN(YY)', 'IS', 'ISA', 'ISB', 'RCB', 'RS', 'SDOR', 'UV', 'UV', 'UVN',
-    #       'WR'],
-    #      'Pulsating Variable Stars':
-    #          ['bC', 'cC', 'dS', 'gD', 'ACYG', 'BCEP', 'BCEPS', 'BLBOO', 'CEP', 'CEP(B)', 'CW', 'CWA',
-    #           'CWB', 'DCEP', 'DCEPS', 'DSCT', 'DSCTC', 'GDOR', 'L', 'LB', 'LC',
-    #           'LPB', 'M', 'PVTEL', 'RPHS', 'RR', 'RR(B)', 'RRAB', 'RRC', 'RV',
-    #           'RVA', 'RVB', 'SR', 'SRA', 'SRB' 'SRC', 'SRD', 'SRS', 'SXPHE',
-    #           'ZZ', 'ZZA', 'ZZB', 'ZZO'],
-    #      'Rotating Variable Stars': ['a2', 'El', 'ACV', 'ACVO', 'BY', 'ELL', 'FKCOM', 'PSR',
-    #                                  'R', 'SXARI'],
-    #      'Cataclysmic (Explosive and Novalike) Variables':
-    #          ['N', 'NA', 'NB', 'NC', 'NL', 'NR', 'SN', 'SNI', 'SNII', 'UG',
-    #           'UGSS', 'UGSU', 'UGZ', 'ZAND'],
-    #      'Eclipsing Systems':
-    #          ['Al', 'bL', 'WU', 'E', 'EA', 'EB', 'EP', 'EW', 'GS', 'PN', 'RS',
-    #           'WD', 'WR', 'AR',
-    #           'D', 'DM', 'DS', 'DW', 'K', 'KE', 'KW', 'SD'],
-    #      'Optically Variable Close Binary Sources of Strong, Variable X-ray Radiation (X-ray Sources)': 
-    #          ['AM', 'X', 'XB', 'XR', 'XI', 'XJ', 'XND', 'XNG', 'XP', 'XPR',
-    #           'XPRM', 'XM']
-    #      }         
-#     return d
-    
-# def get_statistic(ticid_feat, labels, class_info, class_label='Al'):
-#     class_ticid = []
-#     for i in class_info:
-#         if class_label in i[1]:
-#             class_ticid.append(float(i[0]))
-            
-#     inter, comm1, comm2 = np.intersect1d(ticid_feat, np.array(class_ticid),
-#                                          return_indices=True)
-#     print('Number of ' + class_label + 's: ' + str(len(class_ticid)))
-    
-#     class_labels = labels[comm1]
-#     print(class_labels)
-    
-#     classes, counts = np.unique(class_labels, return_counts=True)
-    
-#     ranked = np.argsort(counts)
-#     if classes[ranked][-1] == -1:
-#         c = -2
-#     else:
-#         c = -1
-#     print('Number of ' + class_label + 's in class #' + str(classes[ranked][c])+\
-#           ': ' + str(counts[ranked][c]))
-    
-#     return class_labels
-
 
 def get_classifications(ticid_pred, database_dir, class_info=None, parents=None,
                              parent_dict=None, merge_classes=True):
@@ -2969,7 +2786,7 @@ def get_classifications(ticid_pred, database_dir, class_info=None, parents=None,
 
     if merge_classes:
         if type(parent_dict) == type(None):
-            parent_dict=make_parent_dict()
+            parent_dict=df.make_parent_dict()
         if type(parents) == type(None):
             parents = list(parent_dict.keys())
 
@@ -2983,11 +2800,9 @@ def get_classifications(ticid_pred, database_dir, class_info=None, parents=None,
 
     return class_info
 
-def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
-                       data_dir='./data/', class_info=None, output_dir='./',
-                       prefix='', merge_classes=True, parent_dict=None,
-                       parents=None, figsize=(30,30),gcvs_only=True,
-                       derive_assignments=True, assignments=None):
+def ensemble_summary_plots(ticid_pred, y_pred, sector='all',
+                       data_dir='./data/', output_dir='./',
+                       prefix=''):
     
     '''
     Outputs:
@@ -2995,50 +2810,35 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
         * A dictionary with keys of real_labels and values of English
           descriptions.'''
 
+    orig_ticid = ticid_pred
+    orig_y = y_pred
+
     database_dir = data_dir+'databases/'
-    # d = df.get_otype_dict(data_dir=data_dir)
     num_samples = len(ticid_pred)
     
-    # -- get learned classifications -------------------------------------------
-    
-    # >> get assigned classes from clusterer
-    label_pred, counts = np.unique(y_pred, return_counts=True)
-    label_pred = label_pred.astype('str')
-    
-    # >> remove unclassified objects
-    inds = np.nonzero(y_pred > -1) # >> assigned class is -1 if unclassified
-    ticid_pred = ticid_pred[inds]
-    y_pred = y_pred[inds]
-    
-    # -- get 'ground truth' classifications -----------------------------------
-    if gcvs_only:
-        ticid_true, label_true = df.get_gcvs_classifications(database_dir)
-        class_info = np.concatenate([np.expand_dims(ticid_true,1),
-                                     np.repeat(np.expand_dims(label_true, 1),
-                                               2, 1)], 1)
-        class_info =  df.get_parents_only(class_info)
+    # -- create confusion matrix -----------------------------------------------
 
-    else:
-        class_info = get_classifications(ticid_pred, database_dir, class_info,
-                                         parents, parent_dict, merge_classes)
-    ticid_true = class_info[:,0].astype('float')
-
+    # >> get learned classifications
+    class_list_pred, counts = np.unique(y_pred, return_counts=True)
+    class_list_pred = class_list_pred.astype('str')
         
-    # -- match real labels to learned classes ---------------------------------
+    # >> get 'ground truth' classifications
+    ticid_true, label_true = df.get_true_classifications(ticid_pred, data_dir,
+                                                         sector=sector)
+    ticid_true, label_true = df.get_parent_otypes(ticid_true, label_true)
         
-    # >> get classified objects with real labels
-    intersection, comm1, comm2 = np.intersect1d(ticid_pred, ticid_true,
-                                                return_indices=True)
+    # >> get classified objects
+    _, comm1, comm2 = np.intersect1d(ticid_pred,ticid_true,return_indices=True)
     ticid_pred = ticid_pred[comm1]
     y_pred = y_pred[comm1]
     ticid_true = ticid_true[comm2]
-    class_info_new = class_info[comm2]       
-    label_true = np.unique(class_info_new[:,1])    
+    label_true = label_true[comm2]
+    class_list_true = np.unique(label_true)
     
     # >> create number labels for true labels so we can make confusion matrix
     y_true = []
     for i in range(len(ticid_true)):
-        class_num = np.nonzero(label_true == class_info_new[i][1])[0][0]
+        class_num = np.nonzero(class_list_true == label_true[i])[0][0]
         y_true.append(class_num)
     y_true = np.array(y_true).astype('int')
     
@@ -3046,15 +2846,15 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
     cm = confusion_matrix(y_true, y_pred)
     
     # >> make the matrix square so that we can apply linear_sum_assignment
-    while len(label_pred) < len(cm):
-        label_pred = np.append(label_pred, 'X')     
-    while len(label_true) < len(cm):
-        label_true = np.append(label_true, 'X')
+    while len(class_list_pred) < len(cm):
+        class_list_pred = np.append(class_list_pred, 'X')     
+    while len(class_list_true) < len(cm):
+        class_list_true = np.append(class_list_true, 'X')
         
     # >> make confusion matrix diagonal by re-ordering columns
     row_ind, col_ind = linear_sum_assignment(-1*cm)
     cm = cm[:,col_ind]
-    label_pred = label_pred[col_ind]
+    class_list_pred = class_list_pred[col_ind]
     
     # -- make assignment dictionary --------------------------------------------
 
@@ -3062,28 +2862,62 @@ def assign_real_labels(ticid_pred, y_pred, database_dir='./databases/',
     print('Saving assignment dictionary...')
     assignments = []
     f = open(output_dir+prefix+'assignments.txt', 'a')
-    for i in range(len(label_pred)):
+    for i in range(len(class_list_pred)):
         # >> check if there is a real label assigned
-        if label_pred[i] != 'X' and label_true[i] != 'X':
-            assignments.append([label_pred[i], label_true[i]])
-            f.write(str(label_pred[i])+','+str(label_true[i])+'\n')
+        if class_list_pred[i] != 'X' and class_list_true[i] != 'X':
+            assignments.append([class_list_pred[i], class_list_true[i]])
+            f.write(class_list_pred[i]+','+class_list_true[i]+'\n')
     assignments = np.array(assignments)
 
-    return assignments
-    # # -- evaluate confusion matrix ---------------------------------------------
-    
-    # plot_confusion_matrix(cm, label_true, label_pred, output_dir, prefix)
-    # recall, false_discovery_rate, precision, accuracy, counts_true, counts_pred=\
-    #     evaluate_classifications(cm, assignments)
+    # -- save results ----------------------------------------------------------
+    y_pred = orig_y
+    ticid = orig_ticid
+    ticid_label = []
+    with open(output_dir+prefix+'ticid_to_label.txt', 'w') as f:
+        for i in range(len(orig_ticid)):
+            ind = np.nonzero(assignments[:,0].astype('float') == y_pred[i])
+            if len(ind[0]) == 0:
+                ticid_label.append('NONE')
+                f.write(str(ticid[i])+',NONE\n')
+            else:
+                ticid_label.append(str(assignments[:,1][ind][0]))
+                f.write(str(ticid[i])+','+str(assignments[:,1][ind][0])+'\n')
+    print('Saved '+output_dir+prefix+'ticid_to_label.txt')
 
-    # --------------------------------------------------------------------------
+    # -- plotting --------------------------------------------------------------
+    plot_confusion_matrix(cm, class_list_pred, class_list_true, output_dir, prefix)
+    recall, false_discovery_rate, precision, accuracy, counts_true, counts_pred=\
+        evaluate_classifications(cm, class_list_true)
 
-    # # >> convert arbitrary number labels to real labels
-    # y_true = class_info_new[:,1]
-    
-    # return cm, assignments, ticid_true, y_true, class_info_new, recall,\
-    #     false_discovery_rate, counts_true, counts_pred, precision, accuracy,\
-    #     label_true, label_pred
+    # >> create summary pie charts
+    ensemble_budget(ticid, y_pred, cm, assignments, class_list_true, class_list_true,
+                    database_dir=data_dir+'databases/', output_dir=output_dir, 
+                    prefix=prefix, data_dir=data_dir)
+    recall=np.array(recall)
+    # target_labels = row_labels[np.nonzero((recall > 0.5) * (recall <1.))]
+    target_labels = ['CW', 'ELL|X', 'EW', 'RV']
+    ensemble_summary_tables(row_labels, recall, false_discovery_rate,
+                               precision, accuracy, counts_true, counts_pred,
+                               output_dir+prefix, target_labels=target_labels)
+    ensemble_summary_tables(row_labels, recall, false_discovery_rate,
+                            precision, accuracy, counts_true, counts_pred,
+                            output_dir+prefix, target_labels=[])
+
+    # >> distribution plots
+    inter, comm1, comm2 = np.intersect1d(ticid.astype('float'), ticid_true.astype('float'),
+                                         return_indices=True)
+    y_pred = labels[comm1]
+
+    classes, counts = np.unique(y_true, return_counts=True)
+    classes = classes[np.argsort(counts)]
+
+    print('Plot feature ditsributions...')
+    plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
+                     label_list=classes[-20:], output_dir=output_dir+prefix)
+    plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
+                     label_list=target_labels, output_dir=output_dir+prefix)
+
+    return assignments, ticid_label
 
 
 def evaluate_classifications(cm, row_labels):
@@ -3279,86 +3113,74 @@ def two_years_ensemble_summary(output_dir, data_dir='/nfs/blender/data/tdaylan/d
     ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix,
                            derive_assignments=False, merge_classes=True)
 
-def ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix='',
-                           derive_assignments=False, merge_classes=True,
-                           gcvs_only=True):
-    # >> before making a confusion matrix, we need to assign each science 
-    # >> label a number
-    underlying_classes  = np.unique(labels)
-    assignments = []
-    for i in range(len(underlying_classes)):
-        assignments.append([i, underlying_classes[i]])
-    assignments = np.array(assignments)
+# def ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors,
+#                            prefix='', merge_classes=True):
+#     # >> before making a confusion matrix, assign each science label a number
+#     underlying_classes  = np.unique(labels)
+#     assignments = []
+#     for i in range(len(underlying_classes)):
+#         assignments.append([i, underlying_classes[i]])
+#     assignments = np.array(assignments)
 
-    # >> get the true labels
-    if gcvs_only:
-        ticid_true, label_true = df.get_gcvs_classifications(data_dir+'databases/')
-        class_info = np.concatenate([np.expand_dims(ticid_true,1),
-                                     np.repeat(np.expand_dims(label_true, 1),
-                                               2, 1)], 1)
-        class_info =  df.get_parents_only(class_info)
+#     # >> get the true labels (looks for data_dir/databases/SectorX_true_labels.txt')
+#     if gcvs_only:
+#         ticid_true, label_true = df.get_gcvs_classifications(data_dir+'databases/')
+#         class_info = np.concatenate([np.expand_dims(ticid_true,1),
+#                                      np.repeat(np.expand_dims(label_true, 1),
+#                                                2, 1)], 1)
+#         class_info =  df.get_parents_only(class_info)
 
-    else:
-        class_info = get_classifications(ticid_pred, data_dir+'databases/')
-    ticid_true = class_info[:,0].astype('float')
-    y_true = class_info[:,1]
+#     else:
+#         class_info = get_classifications(ticid_pred, data_dir+'databases/')
+#     ticid_true = class_info[:,0].astype('float')
+#     y_true = class_info[:,1]
 
-    class_info_pred = np.repeat(np.expand_dims(labels,1),3, axis=1)
-    class_info_pred[:,0]  = ticid
-    class_info_pred = df.get_parents_only(class_info_pred)
-    labels = class_info_pred[:,1]
-    ticid = class_info_pred[:,0]
+#     class_info_pred = np.repeat(np.expand_dims(labels,1),3, axis=1)
+#     class_info_pred[:,0]  = ticid
+#     labels = class_info_pred[:,1]
+#     ticid = class_info_pred[:,0].astype('float')
 
-    inter, comm1, comm2 = np.intersect1d(ticid_true, ticid,
-                                         return_indices=True)
-    ticid_true = ticid_true[comm1]
-    y_true = y_true[comm1]
-    y_pred = labels[comm2]
+#     inter, comm1, comm2 = np.intersect1d(ticid_true, ticid,
+#                                          return_indices=True)
+#     ticid_true = ticid_true[comm1]
+#     y_true = y_true[comm1]
+#     y_pred = labels[comm2]
 
-    row_labels = np.unique(np.concatenate([y_true, y_pred]))
+#     row_labels = np.unique(np.concatenate([y_true, y_pred]))
 
-    # >> create confusion matrix
-    cm = confusion_matrix(y_true, y_pred, labels=row_labels)
-    plot_confusion_matrix(cm, row_labels, row_labels, output_dir, prefix)
-    recall, false_discovery_rate, precision, accuracy, counts_true, counts_pred=\
-        evaluate_classifications(cm, row_labels)
+#     # >> create confusion matrix
+#     cm = confusion_matrix(y_true, y_pred, labels=row_labels)
+#     plot_confusion_matrix(cm, row_labels, row_labels, output_dir, prefix)
+#     recall, false_discovery_rate, precision, accuracy, counts_true, counts_pred=\
+#         evaluate_classifications(cm, row_labels)
 
-    # >> create summary pie charts
-    ensemble_budget(ticid, labels, cm, assignments, row_labels, row_labels,
-                        database_dir=data_dir+'./databases', output_dir=output_dir, 
-                        prefix=prefix, data_dir=data_dir)
-    recall=np.array(recall)
-    # target_labels = row_labels[np.nonzero((recall > 0.5) * (recall <1.))]
-    target_labels = ['CW', 'ELL|X', 'EW', 'RV']
-    ensemble_summary_tables(row_labels, recall, false_discovery_rate,
-                               precision, accuracy, counts_true, counts_pred,
-                               output_dir+prefix, target_labels=target_labels)
-    ensemble_summary_tables(row_labels, recall, false_discovery_rate,
-                            precision, accuracy, counts_true, counts_pred,
-                            output_dir+prefix, target_labels=[])
+#     # >> create summary pie charts
+#     ensemble_budget(ticid, labels, cm, assignments, row_labels, row_labels,
+#                         database_dir=data_dir+'./databases', output_dir=output_dir, 
+#                         prefix=prefix, data_dir=data_dir)
+#     recall=np.array(recall)
+#     # target_labels = row_labels[np.nonzero((recall > 0.5) * (recall <1.))]
+#     target_labels = ['CW', 'ELL|X', 'EW', 'RV']
+#     ensemble_summary_tables(row_labels, recall, false_discovery_rate,
+#                                precision, accuracy, counts_true, counts_pred,
+#                                output_dir+prefix, target_labels=target_labels)
+#     ensemble_summary_tables(row_labels, recall, false_discovery_rate,
+#                             precision, accuracy, counts_true, counts_pred,
+#                             output_dir+prefix, target_labels=[])
 
-    # >> distribution plots
-    inter, comm1, comm2 = np.intersect1d(ticid.astype('float'), ticid_true.astype('float'),
-                                         return_indices=True)
-    y_pred = labels[comm1]
-    # x_true = flux_feat[comm1]
+#     # >> distribution plots
+#     inter, comm1, comm2 = np.intersect1d(ticid.astype('float'), ticid_true.astype('float'),
+#                                          return_indices=True)
+#     y_pred = labels[comm1]
 
-    classes, counts = np.unique(y_true, return_counts=True)
-    classes = classes[np.argsort(counts)]
+#     classes, counts = np.unique(y_true, return_counts=True)
+#     classes = classes[np.argsort(counts)]
 
-    print('Plot feature ditsributions...')
-    plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
-                     label_list=classes[-20:], output_dir=output_dir+prefix)
-    plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
-                     label_list=target_labels, output_dir=output_dir+prefix)
-
-    # for class_label in classes[-20:]:label_list=target_labels, output_dir=output_dir+prefix)
-    #     plot_class_dists(assignments, ticid_true, y_pred, y_true,
-    #                         data_dir, sectors, true_label=class_label,
-    #                         output_dir=output_dir+prefix)
-
-
-    pdb.set_trace()
+#     print('Plot feature ditsributions...')
+#     plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
+#                      label_list=classes[-20:], output_dir=output_dir+prefix)
+#     plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
+#                      label_list=target_labels, output_dir=output_dir+prefix)
 
 def ensemble_budget(ticid_pred, y_pred, cm, assignments, y_true_labels,
                      columns, database_dir='databases/',
@@ -3491,7 +3313,6 @@ def ensemble_budget(ticid_pred, y_pred, cm, assignments, y_true_labels,
     fig.tight_layout()
     fig.savefig(output_dir+prefix+'ensemble_budget.png', dpi=300)
     plt.close(fig)
-        
 
 def plot_confusion_matrix(cm, rows, columns, output_dir='./', prefix='',
                           figsize=(30,30)):
@@ -3503,111 +3324,6 @@ def plot_confusion_matrix(cm, rows, columns, output_dir='./', prefix='',
     fig.savefig(output_dir+prefix+'confusion_matrix.png')
     print('Saved '+output_dir+prefix+'confusion_matrix.png')
     plt.close()        
-
-# def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
-#                           output_dir='./', prefix='', single_file=False,
-#                           labels = [], merge_classes=False, class_info=None,
-#                           parents=['EB'],
-#                           parent_dict = None, figsize=(30,30)):
-
-    
-#     if type(parent_dict) == type(None):
-#         parent_dict= make_parent_dict()
-    
-#     # >> get clusterer classes
-#     inds = np.nonzero(y_pred > -1)
-#     ticid_pred = ticid_pred[inds]
-#     y_pred = y_pred[inds]
-    
-#     # >> get 'ground truth' classifications
-#     if type(class_info) == type(None):
-#         class_info = df.get_true_classifications(ticid_pred,
-#                                                   database_dir=database_dir,
-#                                                   single_file=single_file)
-#     ticid_true = class_info[:,0].astype('int')
-
-#     if merge_classes:
-#         class_info = df.get_parents_only(class_info, parents=parents,
-#                                           parent_dict=parent_dict)
-        
-    
-#     if len(labels) > 0:
-#         ticid_new = []
-#         class_info_new = []
-#         for i in range(len(ticid_true)):
-#             for j in range(len(labels)):
-#                 if labels[j] in class_info[i][1] and \
-#                     ticid_true[i] not in ticid_new:
-#                     class_info_new.append([ticid_true[i], labels[j], class_info[i][2]])
-#                     ticid_new.append(ticid_true[i])
-                    
-#         class_info = np.array(class_info_new)
-#         ticid_true = np.array(ticid_new)
-     
-
-#     # >> find intersection
-#     intersection, comm1, comm2 = np.intersect1d(ticid_pred, ticid_true,
-#                                                 return_indices=True)
-#     ticid_pred = ticid_pred[comm1]
-#     y_pred = y_pred[comm1]
-#     ticid_true = ticid_true[comm2]
-#     class_info = class_info[comm2]           
-        
-#     columns = np.unique(y_pred).astype('str')
-#     y_true_labels = np.unique(class_info[:,1])
-
-#     y_true = []
-#     for i in range(len(ticid_true)):
-#         class_num = np.nonzero(y_true_labels == class_info[i][1])[0][0]
-#         y_true.append(class_num)
-#     y_true = np.array(y_true).astype('int')
-    
-#     # -- make confusion matrix ------------------------------------------------       
-#     cm = confusion_matrix(y_true, y_pred)
-#     while len(columns) < len(cm):
-#         columns = np.append(columns, 'X')       
-#     while len(y_true_labels) < len(cm):
-#         y_true_labels = np.append(y_true_labels, 'X')     
-#     # df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
-#     # fig, ax = plt.subplots(figsize=figsize)
-#     # sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
-#     # ax.set_aspect(1)
-#     # fig.savefig(output_dir+prefix+'confusion_matrix_raw.png')
-#     # plt.close()    
-#     # index = np.insert(labels, -1, 'Outlier')
-    
-#     # >> find order of columns that gives the best accuracy using the
-#     # >> Hungarian algorithm (tries to minimize the diagonal)
-#     row_ind, col_ind = linear_sum_assignment(-1*cm)
-#     cm = cm[:,col_ind]
-#     columns = columns[col_ind] # !! TODO need to reorder columns label
-    
-#     df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
-#     fig, ax = plt.subplots(figsize=figsize)
-#     sn.heatmap(df_cm, annot=True, annot_kws={'size':8})
-#     ax.set_aspect(1)
-#     fig.savefig(output_dir+prefix+'confusion_matrix_ordered.png')
-#     plt.close()
-    
-#     # >> remove rows and columns that are all zeros
-#     cm = np.delete(cm, np.nonzero(np.prod(cm == 0, axis=0)), axis=1)
-#     cm = np.delete(cm, np.nonzero(np.prod(cm == 0, axis=1)), axis=0)
-#     accuracy = np.sum(np.diag(cm)) / np.sum(cm)
-#     columns = np.delete(columns, np.nonzero(columns=='X'))
-#     y_true_labels = np.delete(y_true_labels, np.nonzero(y_true_labels=='X'))
-    
-#     # >> plot
-#     df_cm = pd.DataFrame(cm, index=y_true_labels, columns=columns)
-#     fig, ax = plt.subplots(figsize=figsize)
-#     sn.heatmap(df_cm, annot=True, annot_kws={'size':6}, square=True, ax=ax)
-
-#     fig.savefig(output_dir+prefix+'confusion_matrix.png')
-#     fig.tight_layout()
-#     plt.close()
-    
-#     return accuracy
-
-
 
 def paper_plot_lof(features=None, time=None, flux=None, target_info=None, 
                    targets=[192980481,  18783433], n_neighbors=20, nrows=4,

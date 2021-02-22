@@ -5,7 +5,6 @@ Data access, data processing, feature vector creation functions.
 @author: Lindsey Gordon (@lcgordon) and Emma Chickles (@emmachickles)
 Updated: July 8 2020
 Data access
-* test_data()           : confirms module loaded in 
 * lc_by_camera_ccd()    : divides sector TIC list into groups by ccd/camera
 * load_data_from_metafiles()    : loads LC from ALL metafiles for sector and
                                   applies NaN mask
@@ -24,6 +23,8 @@ Data processing
 * interpolate_all() : sigma clip and interpolate flux array
 * interpolate_lc()  : sigma clip and interpolate one light curve
 * nan_mask()        : apply NaN mask to flux array
+* sector_mask_diag()
+* merge_sector_diag()
 
 Engineered features
 * create_save_featvec()     : creates and saves a fits file containing all features
@@ -37,6 +38,7 @@ Engineered features
 
 Depreciated Functions
 * load_group_from_txt()
+* representation learning() # >> will instead be put in model.py
 """
 
 import numpy as np
@@ -101,169 +103,7 @@ from transitleastsquares import transitleastsquares
 
 import model as ml
 
-
-
-def test_data():
-    """make sure the module loads in"""
-    print("Data functions loaded in.")
-
-def download_data(output_dir='./data/'):
-    '''TODO'''
-    # >> light curves
-    # >> TICv8 catalog
-    # >> GCVS to Simbad label conversion dictionary
-    # >> classifications (put in data/databases/)
-    # >> momentum dump table
-    pass
-
-def representation_learning(flux, x, ticid, target_info, 
-                            output_dir='./',
-                            dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/',
-                            mom_dump = '/Users/studentadmin/Dropbox/TESS_UROP/Table_of_momentum_dumps.csv',
-                            database_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/databases/',
-                            p=None,
-                            validation_targets=[],
-                            norm_type='minmax_normalization',
-                            input_rms=True, input_psd=False, load_psd=False,
-                            train_test_ratio=0.9, split=False):
-    '''
-    Parameters you have to change:
-        * flux : np.array, with shape (num_samples, num_data_points)
-        * x : np.array, with shape (num_data_points)
-        * ticid : np.array, with shape (num_samples)
-        * target_info : np.array, with shape (num_samples, 5)
-        * dat_dir : Dropbox directory with all of our metafiles
-        * mom_dump : path to momentum dump csv file
-        * data_base_dir : Dropbox directory with all of the database .txt files
         
-    Parameters to ignore:
-        * p : dictionary of parameters        
-        * validation_targets
-        * 
-    '''
-    
-    # >> use default parameter set if not given
-    if type(p) == type(None):
-        p = {'kernel_size': 3,
-              'latent_dim': 35,
-              'strides': 1,
-              'epochs': 10,
-              'dropout': 0.,
-              'num_filters': 16,
-              'num_conv_layers': 12,
-              'batch_size': 64,
-              'activation': 'elu',
-              'optimizer': 'adam',
-              'last_activation': 'linear',
-              'losses': 'mean_squared_error',
-              'lr': 0.0001,
-              'initializer': 'random_normal',
-              'num_consecutive': 2,
-              'pool_size': 2, 
-              'pool_strides': 2,
-              'kernel_regularizer': None,
-              'bias_regularizer': None,
-              'activity_regularizer': None,
-              'fully_conv': False,
-              'encoder_decoder_skip': False,
-              'encoder_skip': False,
-              'decoder_skip': False,
-              'full_feed_forward_highway': False,
-              'cvae': False,
-              'share_pool_inds': False,
-              'batchnorm_before_act': False} 
-        
-    print('Preprocessing')
-    x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
-        target_info_test, rms_train, rms_test, x = \
-        ml.autoencoder_preprocessing(flux, ticid, x, target_info, p,
-                                     validation_targets=validation_targets,
-                                     norm_type=norm_type,
-                                     input_rms=input_rms, input_psd=input_psd,
-                                     load_psd=load_psd,
-                                     train_test_ratio=train_test_ratio,
-                                     split=split,
-                                     output_dir=output_dir)       
-        
-    print('Training CAE')
-    history, model, x_predict = \
-        ml.conv_autoencoder(x_train, y_train, x_test, y_test, p,
-                            input_rms=True, rms_train=rms_train, rms_test=rms_test,
-                            ticid_train=ticid_train, ticid_test=ticid_test,
-                            output_dir=output_dir)
-        
-    print('Diagnostic plots')
-    pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
-                        x_test, x_predict, mock_data=False, addend=0.,
-                        target_info_test=target_info_test,
-                        target_info_train=target_info_train,
-                        ticid_train=ticid_train,
-                        ticid_test=ticid_test, percentage=False,
-                        input_features=False,
-                        input_rms=input_rms, rms_test=rms_test,
-                        input_psd=input_psd,
-                        rms_train=rms_train, n_tot=40,
-                        plot_epoch = False,
-                        plot_in_out = True,
-                        plot_in_bottle_out=False,
-                        plot_latent_test = True,
-                        plot_latent_train = True,
-                        plot_kernel=False,
-                        plot_intermed_act=True,
-                        make_movie = False,
-                        plot_lof_test=False,
-                        plot_lof_train=False,
-                        plot_lof_all=False,
-                        plot_reconstruction_error_test=False,
-                        plot_reconstruction_error_all=True,
-                        load_bottleneck=True)            
-
-    features, flux_feat, ticid_feat, info_feat = \
-        ml.bottleneck_preprocessing(None,
-                                    np.concatenate([x_train, x_test], axis=0),
-                                    np.concatenate([ticid_train, ticid_test]),
-                                    np.concatenate([target_info_train,
-                                                    target_info_test]),
-                                    data_dir=dat_dir,
-                                    output_dir=output_dir,
-                                    use_learned_features=True,
-                                    use_tess_features=False,
-                                    use_engineered_features=False,
-                                    use_tls_features=False)         
-        
-    print('Novelty detection')
-    pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
-                n_tot=40, target_info=info_feat, prefix='',
-                cross_check_txt=database_dir, debug=False, addend=0.)        
-    
-    print('DBSCAN parameter search')
-    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
-    dbscan_param_search(features, x, flux_feat, ticid_feat,
-                            info_feat, DEBUG=False, 
-                            output_dir=output_dir, 
-                            leaf_size=[30], algorithm=['auto'],
-                            min_samples=[5],
-                            metric=['minkowski'], p=[3,4],
-                            database_dir=database_dir,
-                            eps=list(np.arange(1.5, 4., 0.1)),
-                            confusion_matrix=False, pca=False, tsne=False,
-                            tsne_clustering=False)    
-    
-    best_ind = np.argmax(silhouette_scores)
-    best_param_set = parameter_sets[best_ind]   
-        
-    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
-    dbscan_param_search(features, x, flux_feat, ticid_feat,
-                            info_feat, DEBUG=True, 
-                            output_dir=output_dir+'best', single_file=True,
-                            leaf_size=[best_param_set[4]],
-                            algorithm=[best_param_set[3]],
-                            min_samples=[best_param_set[1]],
-                            metric=[best_param_set[2]], p=[best_param_set[5]],
-                            database_dir=database_dir,
-                            eps=[best_param_set[0]])      
-    
-
     
 def lc_by_camera_ccd(sectorfile, camera, ccd):
     """gets all the targets for a given sector, camera, ccd
@@ -1007,6 +847,11 @@ def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
     
     return sorted_ticids, sorted_tmags
 
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :: Data processing :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 #normalizing each light curve
 def normalize(flux, axis=1):
@@ -1333,6 +1178,60 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
     else:
         return flux, time
     
+def sector_mask_diag(sectors=[1,2,3,17,18,19,20], data_dir='./',
+                      output_dir='./', custom_masks=None):
+    
+    num_sectors = len(sectors)
+    all_flux = []
+    all_ticid = []
+    all_target_info = []
+    all_x = []
+    if type(custom_masks) == type(None):
+        custom_masks = [[]]*num_sectors
+    for i in range(num_sectors):
+        flux, x, ticid, target_info = \
+            df.load_data_from_metafiles(data_dir, sectors[i],
+                                        nan_mask_check=True,
+                                        custom_mask=custom_masks[i])       
+        all_flux.append(flux)
+        all_ticid.append(ticid)
+        all_target_info.append(target_info)
+        all_x.append(x)
+        
+    fig, ax  = plt.subplots(num_sectors)
+    for i in range(num_sectors):
+        ax[i].plot(all_x[i], all_flux[i][0], '.k', ms=2)
+        pf.ticid_label(ax[i], all_ticid[i][0], all_target_info[i][0],
+                       title=True)
+        ax[i].set_title('Sector '+str(sectors[i])+'\n'+ax[i].get_title(),
+                        fontsize='small')
+    
+    fig.tight_layout()
+    fig.savefig(output_dir+'sector_masks.png')
+
+def merge_sector_diag(data_dir, sectors=list(range(1, 29)), output_dir='./',
+                      ncols=3):
+    
+    num_sectors = len(sectors)
+    fig, ax = plt.subplots(num_sectors, ncols,
+                           figsize=(5*ncols, 1.43*num_sectors))
+    for i in range(num_sectors):
+        sectorfile=np.loadtxt(data_dir+'Sector'+str(sectors[i])+\
+                              '/all_targets_S'+'%03d'%sectors[i]+'_v1.txt')
+        for j in range(ncols):
+            if ncols == 1:
+                a = ax[i]
+            else:
+                a = ax[i,j]
+            ticid = sectorfile[j][0]
+            time, flux, ticid = df.get_lc_file_and_data(output_dir, ticid)
+            a.plot(time, flux, '.k', ms=2)
+            a.set_title('Sector '+str(sectors[i]), fontsize='small')
+        
+    fig.tight_layout()
+    fig.savefig(output_dir + 'sector_lightcurves.png')
+
+
 # Target-Wise Metafile Production ----------------------------------
 def targetwise_data_access_by(yourpath, target_list, startindex, increment, filelabel):
     """given a list of TICIDs, accesses SPOC light curve for those targets,
@@ -2088,60 +1987,63 @@ def get_simbad_classifications(ticid_list,
                             bibcode_list[i]])
     return simbad_info
 
-def query_associated_catalogs(ticid):
-    res=Catalogs.query_object('TIC ' + str(int(ticid)), radius=0.02,
-                              catalog='TIC')[0]
-    for i in ['HIP', 'TYC', 'UCAC', 'TWOMASS', 'ALLWISE', 'GAIA', 'KIC', 'APASS']:
-        print(i + ' ' + str(res[i]) + '\n')
+# ::::::::::::::::::::::::;::::::::::::::::;;;;:::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :: Query catalogs ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
-                                 data_dir='data/', query_mast=False, 
-                                 sector=1):
-    '''Call like this:
-    query_simbad_classifications([453370125.0, 356473029])
-    '''
-    import time
+def query_simbad(sector='all', data_dir='data/', query_mast=False):
+    # import time
     
     customSimbad = Simbad()
     customSimbad.add_votable_fields('otypes')
     # customSimbad.add_votable_fields('biblio')
-    
-    ticid_simbad = []
-    otypes_simbad = []
-    main_id_simbad = []
-    bibcode_simbad = []
-    
-    with open(out_f, 'a') as f:
-        f.write('')    
-    
-    with open(out_f, 'r') as f:
-        lines = f.readlines()
-        ticid_already_classified = []
-        for line in lines:
-            ticid_already_classified.append(float(line.split(',')[0]))
-    
-    if not query_mast:
-        catalog_data_all=pd.read_csv(data_dir+'Sector'+str(sector)+'/Sector'+str(sector)+\
-                                 'tic_cat_all.csv', index_col=False)
 
-    print(str(len(ticid_list))+' targets')
-    print(str(len(ticid_already_classified))+' targets completed')
-    ticid_list = np.setdiff1d(ticid_list, ticid_already_classified)
-    print(str(len(ticid_list))+' targets to query')
+    if sector=='all':
+        sectors = list(range(1,27))
+    else:
+        sectors=[sector]
 
-    res=None
+    for sector in sectors:
+        print('Sector '+str(sector))
+        out_f = data_dir+'databases/Sector'+str(sector)+'_simbad.txt'
 
-    for tic in ticid_list:
-        
-        res = None
-        
-        while res is None:
-            try:
-                if tic in ticid_already_classified:
-                    print('Skipping TIC')
-                    
-                else:
-                    print('get coords for TIC' + str(int(tic)))
+        ticid_simbad = []
+        otypes_simbad = []
+        main_id_simbad = []
+        bibcode_simbad = []
+
+        with open(out_f, 'a') as f: # >> make file if not already there
+            f.write('')    
+
+        with open(out_f, 'r') as f:
+            lines = f.readlines()
+            ticid_already_classified = []
+            for line in lines:
+                ticid_already_classified.append(float(line.split(',')[0]))
+
+        if not query_mast:
+            tic_cat=pd.read_csv(data_dir+'Sector'+str(sector)+'/Sector'+str(sector)+\
+                                     'tic_cat_all.csv', index_col=False)
+            ticid_list = tic_cat['ID']
+
+        print(str(len(ticid_list))+' targets')
+        print(str(len(ticid_already_classified))+' targets completed')
+        ticid_list = np.setdiff1d(ticid_list, ticid_already_classified)
+        print(str(len(ticid_list))+' targets to query')
+
+        count = 0
+        for tic in ticid_list:
+
+            count += 1
+            res = None
+
+            while res is None:
+                try:
+                    print(str(count)+'/'+str(len(ticid_list))+\
+                          ': finding object type for Sector ' +str(sector)+\
+                          ' TIC' + str(int(tic)))
 
                     target = 'TIC ' + str(int(tic))                    
                     if query_mast:
@@ -2150,83 +2052,31 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
                                                              catalog='TIC')[0]
 
                     else:
-                        ind = np.nonzero(catalog_data_all['ID'].to_numpy() == tic)[0][0]
-                        catalog_data=catalog_data_all.iloc[ind]
+                        ind = np.nonzero(tic_cat['ID'].to_numpy() == tic)[0][0]
+                        catalog_data=tic_cat.iloc[ind]
                     # time.sleep(6)
-            
-                    
-                    # -- get object type from Simbad --------------------------------------
-                    
-                    # >> first just try querying the TICID
+
+
+                    # -- get object type from Simbad ---------------------------
+
+                    # >> first just try querying Simbad with the TICID
                     res = customSimbad.query_object(target)
                     # time.sleep(6)
-                    
-                    # >> if no luck with that, try checking other IDs
-                    if type(res) == type(None):
-                        if type(catalog_data['TYC']) != np.ma.core.MaskedConstant:
-                            target_new = 'TYC ' + str(catalog_data['TYC'])
-                            res = customSimbad.query_object(target_new)
-                            # time.sleep(6)
-                            
-                    if type(res) == type(None):
-                        if type(catalog_data['HIP']) != np.ma.core.MaskedConstant:
-                            target_new = 'HIP ' + str(catalog_data['HIP'])
-                            res = customSimbad.query_object(target_new)
-                            # time.sleep(6)
-            
-                    # # >> UCAC not added to Simbad yet
-                    # if type(res) == type(None):
-                    #     if type(catalog_data['UCAC']) != np.ma.core.MaskedConstant:
-                    #         target_new = 'UCAC ' + str(catalog_data['UCAC'])
-                    #         res = customSimbad.query_object(target_new)
-                            
-                    if type(res) == type(None):
-                        if type(catalog_data['TWOMASS']) != np.ma.core.MaskedConstant:
-                            target_new = '2MASS ' + str(catalog_data['TWOMASS'])
-                            res = customSimbad.query_object(target_new)     
-                            # time.sleep(6)
-            
-                    if type(res) == type(None):
-                        if type(catalog_data['SDSS']) != np.ma.core.MaskedConstant:
-                            target_new = 'SDSS ' + str(catalog_data['SDSS'])
-                            res = customSimbad.query_object(target_new) 
-                            # time.sleep(6)
-            
-                    if type(res) == type(None):
-                        if type(catalog_data['ALLWISE']) != np.ma.core.MaskedConstant:
-                            target_new = 'ALLWISE ' + str(catalog_data['ALLWISE'])
-                            res = customSimbad.query_object(target_new)
-                            # time.sleep(6)
-                            
-                    if type(res) == type(None):
-                        if type(catalog_data['GAIA']) != np.ma.core.MaskedConstant:
-                            target_new = 'Gaia ' + str(catalog_data['GAIA'])
-                            res = customSimbad.query_object(target_new)      
-                            # time.sleep(6)
-                            
-                    if type(res) == type(None):
-                        if type(catalog_data['APASS']) != np.ma.core.MaskedConstant:
-                            target_new = 'APASS ' + str(catalog_data['APASS'])
-                            res = customSimbad.query_object(target_new)        
-                            # time.sleep(6)
-                            
-                    if type(res) == type(None):
-                        if type(catalog_data['KIC']) != np.ma.core.MaskedConstant:
-                            target_new = 'KIC ' + str(catalog_data['KIC'])
-                            res = customSimbad.query_object(target_new)    
-                            # time.sleep(6)
-                    
-                    # # >> if still nothing, query with coordinates
-                    # if type(res) == type(None):
-                    #     ra = catalog_data['ra']
-                    #     dec = catalog_data['dec']            
-                    #     coords = coord.SkyCoord(ra, dec, unit=(u.deg, u.deg))
-                    #     res = customSimbad.query_region(coords, radius='0d0m2s')         
-                    #     time.sleep(6)
-                    
+
+                    # >> if no luck with that, try checking other catalogs
+                    catalog_names = ['TYC', 'HIP', 'TWOMASS', 'SDSS', 'ALLWISE',
+                                     'GAIA', 'APASS', 'KIC']
+                    for name in catalog_names:
+                        if type(res) == type(None):
+                            if type(catalog_data[name]) != np.ma.core.MaskedConstant:
+                                target_new = name + ' ' + str(catalog_data[name])
+                                res = customSimbad.query_object(target_new)
+                                # time.sleep(6)
+
+
                     if type(res) == type(None):
                         print('failed :(')
-                        res=0
+                        res=0 
                         with open(out_f, 'a') as f:
                             f.write('{},{},{}\n'.format(tic, '', ''))              
                         ticid_simbad.append(tic)
@@ -2238,192 +2088,212 @@ def query_simbad_classifications(ticid_list, out_f='./SectorX_simbdad.txt',
                         ticid_simbad.append(tic)
                         otypes_simbad.append(otypes)
                         main_id_simbad.append(main_id)
-                        
+
                         with open(out_f, 'a') as f:
                             f.write('{},{},{}\n'.format(tic, otypes, main_id))
-                            
+
                     # time.sleep(6)
-            except:
-                pass
-                print('connection failed! Trying again now')
+                except:
+                    pass
+                    print('connection failed! Trying again now')
             
-    return ticid_simbad, otypes_simbad, main_id_simbad
-        
-def query_vizier(ticid_list=None, out='./SectorX_GCVS.txt', catalog='gcvs',
-                 data_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/',
-                 sector=20, query_mast=False):
-    '''http://www.sai.msu.su/gcvs/gcvs/vartype.htm'''
-    
-    # Vizier.ROW_LIMIT=-1
-    # catalog_list=Vizier.find_catalogs('B/gcvs')
-    # catalogs = Vizier.get_catalogs(catalog_list.keys())    
-    # catalogs=catalogs[0]
-    
-    if type(ticid_list) == type(None):
-        flux, x, ticid_list, target_info = \
-            load_data_from_metafiles(data_dir, sector, DEBUG=False,
-                                     nan_mask_check=False)        
-    
-    ticid_viz = []
-    otypes_viz = []
-    main_id_viz = []
-    ticid_already_classified = []
-    
-    # >> make sure output file exists
-    if not os.path.exists(out):
-        with open(out, 'a') as f:
-            f.write('')    
-    
-    with open(out, 'r') as f:
-        lines = f.readlines()
-        ticid_already_classified = []
-        for line in lines:
-            ticid_already_classified.append(float(line.split(',')[0]))
+def query_gcvs(data_dir='./', sector='all', tol=0.1, diag_plot=True):
+    '''Cross-matches GCVS catalog with TIC catalog.
+    * data_dir
+    * sector: 'all' or int, currently only handles short-cadence
+    * tol: maximum separation of TIC target and GCVS target (in arcsec)
+    '''
+    data = pd.read_csv(data_dir+'gcvs_database.csv')
+    print('Loaded gcvs_database.csv')
+    data_coords = coord.SkyCoord(data['RAJ2000'], data['DEJ2000'],
+                                 unit=(u.hourangle, u.deg))
+
+    if sector=='all':
+        sectors = list(range(1,27))
+    else:
+        sectors=[sector]
+
+    for sector in sectors:
+        prefix = data_dir+'databases/Sector'+str(sector)+'_gcvs'
+        out_fname = prefix+'.txt'
+
+        sector_data = pd.read_csv(data_dir+'Sector'+str(sector)+\
+                                  '/Sector'+str(sector)+'tic_cat_all.csv',
+                                  index_col=False)
+        print('Loaded Sector'+str(sector)+'tic_cat_all.csv')
+
+        # >> find GCVS target closest to each TIC target
+        if os.path.exists(prefix+'_sep.txt'):
+            sep_arcsec = np.loadtxt(prefix+'_sep.txt')
+            min_inds = np.loadtxt(prefix+'_sep_inds.txt').astype('int')
+            print('Loaded '+prefix+'_sep.txt')
+        else:
+            min_sep = []
+            min_inds = []
+            for i in range(len(sector_data)):
+                print('TIC '+str(int(sector_data['ID'][i]))+'\t'+str(i)+'/'+\
+                      str(len(sector_data)))
+                ticid_coord = coord.SkyCoord(sector_data['ra'][i],
+                                             sector_data['dec'][i],
+                                             unit=(u.deg, u.deg)) 
+                sep = ticid_coord.separation(data_coords)
+                min_sep.append(np.nanmin(sep))
+                ind = np.nanargmin(sep)
+                min_inds.append(ind)
+
+            sep_arcsec = np.array([sep.to(u.arcsec).value for sep in min_sep])
+            min_inds = np.array(min_inds).astype('int')
+            np.savetxt(prefix+'_sep.txt', sep_arcsec)
+            np.savetxt(prefix+'_sep_inds.txt', min_inds)
+
+        # >> save the variability type if GCVS target is close enough
+        with open(out_fname, 'w') as f:
+
+            for i in range(len(sector_data)):
+                if sep_arcsec[i] < tol:
+                    ind = min_inds[i]            
+                    f.write(str(int(sector_data['ID'][i]))+','+\
+                            str(data['VarType'][ind])+','+\
+                            str(data['VarName'][ind])+'\n')
+
+                else:
+                    f.write(str(int(sector_data['ID'][i]))+',,\n')
+
+        # >> plotting
+        if diag_plot:
+            # >> make histogram of minimum separations
+            fig, ax = plt.subplots()
+            bins = 10**np.linspace(np.floor(np.log10(np.nanmin(sep_arcsec))),
+                                   np.ceil(np.log10(np.nanmax(sep_arcsec))), 50)
+            ax.hist(sep_arcsec, bins=bins, log=True)
+            ax.set_xlabel('arcseconds')
+            ax.set_ylabel('number of targets in Sector '+str(sector))
+            ax.set_xscale('log')
+            fig.savefig(prefix+'_sep_arcsec.png')
             
-
-    if not query_mast:
-        catalog_data = pd.read_csv(data_dir+'Sector'+str(sector)+'/Sector'+\
-                                   str(sector)+'tic_cat_all.csv',
-                                   index_col=False)
-    
-    print(str(len(ticid_list))+' targets')
-    print(str(len(ticid_already_classified))+' targets completed')
-    ticid_list = np.setdiff1d(ticid_list, ticid_already_classified)
-    print(str(len(ticid_list))+' targets to query')
-
-    for tic in ticid_list:
-        try:
-            print('Running '+str(tic))
-            if query_mast:
-                target = 'TIC ' + str(int(tic))
-                print('Query Catalogs')
-                catalog_data = Catalogs.query_object(target, radius=0.02,
-                                                     catalog='TIC')[0]
-                ra = catalog_data['ra']
-                dec = catalog_data['dec']            
-            else:
-                ind = np.nonzero(catalog_data['ID'].to_numpy()==tic)[0][0]
-                ra = catalog_data.iloc[ind]['ra']
-                dec = catalog_data.iloc[ind]['dec']
-            # coords = coord.SkyCoord(ra, dec, unit=(u.deg, u.deg)) 
-            # ra = coords.ra.deg
-            # dec = coords
-            v = Vizier(columns=['VarType', 'VarName'])
-            print('Query Vizier')
-            res = v.query_region(coord.SkyCoord(ra=ra, dec=dec,
-                                                     unit=(u.deg, u.deg),
-                                                     frame='icrs'),
-                                      radius=0.003*u.deg, catalog=catalog)
-            if len(res) > 0:
-                otype = res[0]['VarType'][0]
-                main_id = res[0]['VarName'][0]
-                ticid_viz.append(tic)
-                otypes_viz.append(otype)
-                main_id_viz.append(main_id)
-                # with open(out, 'a') as f:
-                #     f.write('{},{},{}\n'.format(tic, otype, main_id))              
-            else:
-                otype = ''
-                main_id = ''
-
-            with open(out, 'a') as f:
-                f.write('{},{},{}\n'.format(tic, otype, main_id))    
-
-            del res
-        except:
-            print('Connection failed! Trying again now')
+            # >> compare magnitude from TIC and ASAS-SN of cross-matched targets
+            tol_tests = [10, 1, 0.1] 
+            for tol in tol_tests:
+                inds1 = np.nonzero(sep_arcsec < tol)
+                inds2 = min_inds[inds1]
+                print('Tolerance: '+str(tol)+' arcseconds, number of targets: '+\
+                      str(len(inds1[0])))
+                plt.figure()
+                plt.plot(sector_data['GAIAmag'][inds1[0]], data['magMax'][inds2], '.k')
+                plt.xlabel('GAIA magnitude (TIC)')
+                plt.ylabel('magMax (GCVS)')
+                plt.savefig(prefix+'_tol'+str(tol)+'.png')
+                plt.close()
                 
-    print('Completed!')
-    return ticid_viz, otypes_viz, main_id_viz
+def query_asas_sn(data_dir='./', sector='all', diag_plot=True):
+    '''Cross-matches ASAS-SN catalog with TIC catalog based on matching GAIA IDs
+    * data_dir
+    * sector: 'all' or int, currently only handles short-cadence
+    '''
+    data = pd.read_csv(data_dir+'asas_sn_database.csv')
+    print('Loaded asas_sn_database.csv')
+    data_coords = coord.SkyCoord(data['RAJ2000'], data['DEJ2000'],
+                                 unit=(u.deg, u.deg))
 
-# def query_vizier_v2(data_dir='./data/', sector=1, catalog='gcvs'):
-#     df = get_TIC_catalog_sector(data_dir, sector)
-    
-#     # >> make sure output file exists
-#     if not os.path.exists(out):
-#         with open(out, 'a') as f:
-#             f.write('')    
-    
-#     with open(out, 'r') as f:
-#         lines = f.readlines()
-#         ticid_already_classified = []
-#         for line in lines:
-#             ticid_already_classified.append(float(line.split(',')[0]))
+    if sector=='all':
+        sectors = list(range(1,27))
+    else:
+        sectors=[sector]
 
-#     for i in range(len(df)):
-#         ticid = df[0][i]
-#         if ticid in ticid_already_classified:
-#             print('Skipping '+str(ticid)+ ' (already found classification)')
-#         else:
-#             target = 'TIC ' + str(int(ticid))
-#             ra = df['ra'][i]
-#             dec = df['dec'][i]
-            
+    for sector in sectors:
+        # >> could also have retrieved ra dec from all_targets_S*_v1.txt
+        sector_data = pd.read_csv(data_dir+'Sector'+str(sector)+\
+                                  '/Sector'+str(sector)+'tic_cat_all.csv',
+                                  index_col=False)
+        print('Loaded Sector'+str(sector)+'tic_cat_all.csv')
+        out_fname = data_dir+'databases/Sector'+str(sector)+'_asassn.txt'
 
-def get_otype_dict(data_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/',
+        _, comm1, comm2 = np.intersect1d(sector_data['GAIA'], data['GDR2_ID'],
+                                         return_indices=True)
+
+        # >> save cross-matched target in text file
+        with open(out_fname, 'w') as f:
+            for i in range(len(sector_data)):            
+                if i in comm1:
+                    ind = comm2[np.nonzero(comm1 == i)][0]
+                    f.write(str(int(sector_data['ID'][i]))+','+\
+                            str(data['Type'][ind])+','+str(data['ID'][ind])+'\n')
+                else:
+                    f.write(str(int(sector_data['ID'][i]))+',,\n')
+        print('Saved '+out_fname)
+
+        if diag_plot:
+            prefix = data_dir+'databases/Sector'+str(sector)+'_'
+
+            # >> compare magnitude from TIC and ASAS-SN of cross-matched targets
+            plt.figure()
+            plt.plot(sector_data['GAIAmag'][comm1], data['Mean Vmag'][comm2], '.k')
+            plt.xlabel('GAIA magnitude (TIC)')
+            plt.ylabel('Mean Vmag (ASAS-SN)')
+            plt.savefig(prefix+'asassn_mag_cross_match.png')
+            plt.close()
+
+            # >> get minimum separations between TIC and ASAS-SN targts
+            if os.path.exists(prefix+'asassn_sep.txt'):
+                sep_arcsec = np.loadtxt(prefix+'asassn_sep.txt')
+                min_inds = np.loadtxt(prefix+'asassn_sep_inds.txt').astype('int')
+            else:
+                min_sep = []
+                min_inds = []
+                for i in range(len(sector_data)):
+                    print('TIC '+str(int(sector_data['ID'][i]))+'\t'+str(i)+'/'+\
+                          str(len(sector_data)))
+                    ticid_coord = coord.SkyCoord(sector_data['ra'][i],
+                                                 sector_data['dec'][i],
+                                                 unit=(u.deg, u.deg)) 
+                    sep = ticid_coord.separation(data_coords)
+                    min_sep.append(np.min(sep))
+                    min_inds.append(np.argmin(sep))
+                sep_arcsec = np.array([sep.to(u.arcsec).value for sep in min_sep])
+                min_inds = np.array(min_inds)
+                np.savetxt(prefix+'asassn_sep.txt', sep_arcsec)
+                np.savetxt(prefix+'asassn_sep_inds.txt', min_inds)
+
+            # >> make histogram of minimum separations
+            fig, ax = plt.subplots()
+            ax.hist(sep_arcsec, bins=10**np.linspace(-2, 4, 30), log=True)
+            ax.set_xlabel('arcseconds')
+            ax.set_ylabel('number of targets in Sector '+str(sector))
+            ax.set_xscale('log')
+            fig.savefig(prefix+'asassn_sep_arcsec.png')
+
+            fig1, ax1 = plt.subplots()
+            ax1.hist(sep_arcsec[comm1], bins=10**np.linspace(-2, 4, 30), log=True)
+            ax1.set_xlabel('arcseconds')
+            ax1.set_ylabel('number of cross-matched targets in Sector '+str(sector))
+            ax1.set_xscale('log')
+            ax1.set_ylim(ax.get_ylim())
+            fig1.savefig(prefix+'asassn_sep_cross_match.png')
+
+            # >> compare magnitude from TIC and ASAS-SN of cross-matched targets
+            tol_tests = [10, 1, 0.1]
+            for tol in tol_tests:
+                inds1 = np.nonzero(sep_arcsec < tol)
+                inds2 = min_inds[inds1]
+                plt.figure()
+                plt.plot(sector_data['GAIAmag'][inds1][0], data['Mean Vmag'][inds2], '.k')
+                plt.xlabel('GAIA magnitude (TIC)')
+                plt.ylabel('Mean Vmag (ASAS-SN)')
+                plt.savefig(prefix+'asassn_mag_tol'+str(tol)+'.png')
+                plt.close()
+
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :: Organizing object types :::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+        
+def get_otype_dict(data_dir='/nfs/blender/data/tdaylan/data/',
                    uncertainty_flags=[':', '?', '*']):
-    '''Return a dictionary of descriptions'''
-    # d = {'a2': 'Variable Star of alpha2 CVn type',
-    #      'ACYG': 'Variables of the Alpha Cygni type',
-    #      'IR': 'Infra-Red source',
-    #      'UV': 'UV-emission source',
-    #      'X': 'X-ray source',
-    #      'gB': 'gamma-ray Burst',
-    #      'AR': 'Detached systems of the AR Lacertae type',
-    #      'EB': 'Eclipsing binary',
-    #      'Al': 'Eclipsing binary of Algol type',
-    #      'bL': 'Eclipsing binary of beta Lyr type',
-    #      'WU': 'Eclipsing binary of W UMa type',
-    #      'EP': 'Star showing eclipses by its planet',
-    #      'SB': 'Spectroscopic binary',
-    #      'EI': 'Ellipsoidal variable Star',
-    #      'CV': 'Cataclysmic Variable Star',
-    #      'SNR': 'SuperNova Remnant',
-    #      'Be': 'Be star',
-    #      'Fl': 'Flare star',
-    #      'V': 'Variable star',
-    #      'HV': 'High-velocity star',
-    #      'PM': }
-    # d = {'ACYG': 'Variables of the Alpha Cygni type',
-    #      'AR': 'Detached systems of the AR Lacertae type',
-    #      'D': 'Detached systems',
-    #      'DM': 'Detached main-sequence systems',
-    #      'DW': 'Detached systems with a subgiant',
-    #      'K': 'Contact systems',
-    #      'KE': 'Contact systems of early (O-A) spectral type',
-    #      'KW': 'Contact systems of the W UMa type',
-    #      'SD': 'Semidetached systems',
-    #      'GS': 'Systems with one or both giant and supergiant components',
-    #      'RS': 'RS Canum Venaticorum-type systems',
-    #      'CST': 'Nonvariable stars',
-    #      'XPRM': 'X-ray systems consisting of a late-type dwarf (dK-dM) and a pulsar',
-    #      'FKCOM': 'FK Comae Berenices-type variables',
-    #      'GCAS': 'Eruptive irregular variables of the Gamma Cas type',
-    #      'IA': 'Poorly studied irregular variables of early (O-A) spectral type'}
+    '''Return a dictionary of object type descriptions.'''
     
     d = {}
-    
-    # with open(data_dir + 'otypes_gcvs.txt', 'r') as f:
-    #     lines = f.readlines()
         
-    # for line in lines:
-    #     if len(line.split(' '*3)) > 1:
-    #         otype = line.split(' '*3)[0]
-    #         explanation = line.split(' '*3)[1].split('.')[0]
-    #         d[otype] = explanation
-    
-    # with open(data_dir + 'otypes_simbad.txt', 'r') as f:
-    #     lines= f.readlines()
-        
-    # for line in lines:
-    #     if len(line.split('\t')) >= 3:
-    #         otype = line.split('\t')[-2].split()[0]
-    #         if len(otype) > 0:
-    #             if otype[-1] == '*' and otype != '**':
-    #                 otype = otype[:-1]
-    #         explanation = ' '.join(line.split('\t')[-1].split())
-    #         d[otype] = explanation
-    
     with open(data_dir + 'gcvs_labels.txt', 'r') as f:
         lines = f.readlines()
     for line in lines:
@@ -2441,17 +2311,101 @@ def get_otype_dict(data_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/',
     return d
 
 
+def make_parent_dict():    
+    d = {'I': ['IA', 'IB'],
+         'IN': ['FU', 'INA', 'INB', 'INTIT', 'IN(YY)', 'INAT', 'INS', 'INSA',
+                'INSB', 'INST', 'INT', 'INT(YY)', 'IT'],
+         'IS': ['ISA', 'ISB'],
+         'Fl': ['UV', 'UVN'],
+         
+         'BCEP': ['BCEPS', 'BCEP(B)'],
+         'CEP': ['CEP(B)', 'DCEP', 'DCEPS'],
+         'CW': ['CWA', 'CWB'],
+         'DSCT': ['DSCTC', 'DSCTC(B)'],
+         'L': ['LB', 'LC', 'LPB', 'LP', 'LBV'],
+         'RR': ['RR(B)', 'RRAB', 'RRC'],
+         'RV': ['RVA', 'RVB'],
+         'SR': ['SRA', 'SRB', 'SRC', 'SRD', 'SRS'],
+         'ZZ': ['ZZA', 'ZZB', 'ZZO', 'ZZLep'],
+         
+         'ACV': ['ACVO'],
+         
+         'N': ['NA', 'NB', 'NC', 'NL', 'NR'],
+         'SN': ['SNI', 'SNII'],
+         'UG': ['UGSS', 'UGSU', 'UGZ'],
+         
+         # 'E': ['EA', 'EB', 'EP', 'EW'],
+         'D': ['DM', 'DS', 'DW'],
+         'K': ['KE', 'KW'],
+         
+         'X': ['XB', 'XF', 'XI', 'XJ', 'XND', 'XNG', 'XP', 'XPR',
+               'XPRM', 'XM', 'XRM', 'XN','XNA','XNGP','XPM','XPNG',
+               'XNP'],
+         }    
+    return d
+
+
+def get_parent_otypes(ticid, otypes, remove_classes=['PM','IR','UV','X']):
+    '''Finds all the objects with same parent and combines them into the same
+    class
+    '''
+
+    parent_dict = make_parent_dict()
+    parents = list(parent_dict.keys())
+
+    # >> turn into array
+    subclasses = []
+    for parent in parents:
+        subclasses.extend(parent_dict[parent])
+
+    new_otypes = []
+    for i in range(len(otypes)):
+        otype = otypes[i].split('|')
+
+        new_otype=[]
+        for o in otype:
+            if not o in remove_classes:
+                if o in subclasses:
+                    for parent in parents: # >> find parent otype
+                        if o in parent_dict[parent]:
+                            new_o = parent
+                    new_otype.append(new_o)
+                else:
+                    new_otype.append(o)
+
+        # >> remove repeats
+        new_otype = np.unique(new_otype)
+
+        # >> remove parent if child in otype list e.g. E|EA or E|EW is redundant
+        for parent in parents:
+            if parent in new_otype:
+                if len(np.intersect1d(new_otype, parent_dict[parent]))>0:
+                    new_otype = np.delete(new_otype,
+                                          np.nonzero(new_otype==parent))
+
+        new_otypes.append('|'.join(new_otype.astype('str')))
+    
+    # >> get rid of empty classes
+    new_otypes = np.array(new_otypes)
+    inds = np.nonzero(new_otypes == '')
+    new_otypes = np.delete(new_otypes, inds)
+    ticid = np.delete(ticid, inds)
+                
+    return ticid, new_otypes
+
+
 
 def get_parents_only(class_info, parent_dict=None,
                      remove_classes=[], remove_flags=[]):
     '''Finds all the objects with same parent and combines them into the same
     class
+    TODO: get rid of this function
     '''
     classes = []
     new_class_info = []
 
     if type(parent_dict) == type(None):
-        parent_dict = pf.make_parent_dict()
+        parent_dict = make_parent_dict()
 
     parents = list(parent_dict.keys())
 
@@ -2505,107 +2459,90 @@ def get_parents_only(class_info, parent_dict=None,
 
     # >> get rid of empty classes
     new_class_info = np.array(new_class_info)
-    new_class_info = np.delete(new_class_info, np.nonzero(new_class_info[:,1]==''), 0)
+    new_class_info = np.delete(new_class_info,
+                               np.nonzero(new_class_info[:,1]==''), 0)
             
     
     return new_class_info
 
-# def merge_classes(labels, remove_classes=[], remove_flags=[' ']):
-#     new_labels=[]
-#     for i in range(len(labels)):
-#         otype_list = labels[i]
+def make_remove_class_list():
+    '''Currently, our pipeline can only do clustering based on photometric data.
+    So classes that require spectroscopic data, etc. are removed.'''
+    l = ['PM', 'IR', 'UV', 'X', 'nan', 'VAR']
+    return l
 
-#         # >> remove any flags
-#         for flag in remove_flags:
-#             otype_list = otype_list.replace(flag, '|')
-#         otype_list = otype_list.split('|')
+def make_true_label_txt(data_dir, sector):
+    '''Combine Sector*_simbad.txt, Sector*_GCVS.txt, and Sector*_asassn.txt
+    TODO: edit to handle 30-min cadence, etc.'''
+    prefix = data_dir+'databases/Sector'+str(sector)+'_'
+    ticid = np.loadtxt(data_dir+'Sector'+str(sector)+'/all_targets_S%03d'%sector\
+                       +'_v1.txt')[:,0]
+    otypes = {key: [] for key in ticid} # >> initialize
 
-#         new_otype_list=[]
-#         for otype in otype_list:
-#             if not otype in remove_classes:
-#                 if otype in subclasses:
-#                     # >> find parent
-#                     for parent in parents:
-#                         if otype in parent_dict[parent]:
-#                             new_otype = parent
-
-#                     new_otype_list.append(new_otype)
-#                 else:
-#                     new_otype_list.append(otype)
-
-#         # >> remove repeats
-#         new_otype_list = np.unique(new_otype_list)
-
-#         if '' in new_otype_list:
-#             new_otype_list = np.delete(new_otype_list, np.nonzero(new_otype_list==''))
-
-#         # if '|'.join(new_otype_list) == '|AR|EA|EB|RS|SB':
-#         #     pdb.set_trace()
-
-#         new_class_info.append([class_info[i][0], '|'.join(new_otype_list),
-#                                class_info[i][2]])
-
-#     # >> get rid of empty classes
-#     new_class_info = np.array(new_class_info)
-#     new_class_info = np.delete(new_class_info, np.nonzero(new_class_info[:,1]==''), 0)
-            
-    
-#     return new_labels
-
-
-def correct_vizier_to_simbad(in_f='./SectorX_GCVS.txt',
-                             out_f='./SectorX_GCVS_revised.txt',
-                             uncertainty_flags=[':', '?', '*']):
-    '''Make sure object types are the same'''
-    with open(in_f, 'r') as f:
+    # >> GCVS
+    with open(prefix+'gcvs.txt', 'r') as f:
         lines = f.readlines()
-        
-    renamed = {'E': 'EB', 'EA': 'Al', 'EB': 'bL', 'EW': 'WU', 'ACV': 'a2',
-               'ACVO': 'a2', 'BCEP': 'bC', 'BE':'Be', 'DCEP': 'cC',
-               'DSCT': 'dS', 'DSCTC': 'dS', 'ELL': 'El', 'GDOR': 'gD',
-               'I': 'Ir', 'IN': 'Or', 'IS': 'RI'}
-        
+        for i in range(len(lines)):
+            tic, otype, main_id = lines[i].split(',')
+            otype_list = otype.split('|')
+            otypes[float(tic)] += otype_list
+
+    # >> ASAS-SN
+    with open(prefix+'asassn.txt', 'r') as f:
+        lines = f.readlines()
+        for i in range(len(lines)):
+            tic, otype, main_id = lines[i].split(',')
+            otype = otype.replace('+', '|')
+            otype_list = otype.split('|')
+            otypes[float(tic)] += otype_list
+
+    # >> SIMBAD
+    with open(data_dir+'simbad_gcvs_label.txt', 'r') as f:
+        lines = f.readlines()
+    otype_dict = {}
     for line in lines:
-        tic, otype, main = line.split(',')
-        otype = otype.replace('+', '|')
-        otype_list = otype.split('|')
-        otype_list_new = []
-        
-        for o in otype_list:
-            
-            if len(o) > 0:
-                # >> remove uncertainty_flags
-                if o[-1] in uncertainty_flags:
-                    o = o[:-1]
-                    
-                # >> remove (B)
-                if '(' in o:
-                    o = o[:o.index('(')]
-                    
-                if o in list(renamed.keys()):
-                    o = renamed[o]
-                
-            otype_list_new.append(o)
-                
-                
-        otype = '|'.join(otype_list_new)
-        
-        
-        with open(out_f, 'a') as f:
-            f.write(','.join([tic, otype, main]))
+        otype, otype_gcvs = line.split(' = ')
+        otype_gcvs = otype_gcvs.replace('\n', '')
+        otype_dict[otype] = otype_gcvs
+
+    rmv_classes = make_remove_class_list()
+    with open(prefix+'simbad.txt', 'r') as f:
+        lines = f.readlines()
+        for i in range(len(lines)):
+            tic, otype, main_id = lines[i].split(',')
+            otype = otype.replace('+', '|')
+            otype_list = otype.split('|')
+            otype_list_new = []
+            for o in otype_list:
+                if len(o) > 0 and o != '**':
+                    if o[-1] in [':', '?', '*']:
+                        # >> remove uncertainty flags
+                        o = o[:-1]
+                    if '(' in o:                 # >> remove (B) flags
+                        o = o[:o.index('(')]
+                    if o in list(otype_dict.keys()): # >> use GCVS nomenclature
+                        o = otype_dict[o]
+                    if o in rmv_classes:
+                        o = ''
+                # if o == 'LB:':
+                #     pdb.set_trace()
+                otype_list_new.append(o)
+            otypes[float(tic)] += otype_list_new
+
+    # >> save to text file
+    out = prefix+'true_labels.txt'
+    with open(out, 'w') as f:
+        for i in range(len(lines)):
+            otype = np.unique(otypes[ticid[i]]).astype('str')
+            otype = np.delete(otype, np.where(otype == ''))
+            otype = '|'.join(otype)
+            f.write(str(int(ticid[i]))+','+otype+'\n')    
             
 def correct_simbad_to_vizier(in_f='./SectorX_simbad.txt',
                              out_f='./SectorX_simbad_revised.txt',
                              simbad_gcvs_conversion='./simbad_gcvs_label.txt',
                              uncertainty_flags=[':', '?', '*']):
-    '''Make sure object types are the same'''
-    
-    # >> make 
-    renamed = {'EB':'E', 'Al': 'EA', 'bL': 'EB', 'WU': 'EW', 'a2': 'ACV',
-               'a2': 'ACVO', 'bC': 'BCEP', 'Be': 'BE', 'cC': 'DCEP',
-               'dS': 'DSCT', 'dS': 'DSCTC', 'El': 'ELL', 'gD': 'GDOR',
-               'Ir': 'I', 'Or': 'IN', 'RI': 'IS', 'No' : 'N'}  
-    
+    '''TODO: Clean up args.'''
     
     with open(simbad_gcvs_conversion, 'r') as f:
         lines = f.readlines()
@@ -2666,67 +2603,94 @@ def quick_simbad(ticidasstring):
 
 
 
-def get_true_classifications(ticid_list,
-                             database_dir='./databases/',
-                             single_file=False,
-                             useless_classes = ['*', 'IR', 'UV', 'X', 'PM',
-                                                '?', ':'],
-                             uncertainty_flags = ['*', ':', '?']):
-    '''Query classifications and bibcode from *_database.txt file.
-    Returns a list where class_info[i] = [ticid, obj type, bibcode]
-    Object type follows format in:
-    http://vizier.u-strasbg.fr/cgi-bin/OType?$1
-    '''
-    ticid_classified = []
-    class_info = []
+def get_true_classifications(ticid=[], data_dir='./', sector='all'):
+    '''Reads Sector*_true_labels.txt, generated from make_true_label_txt()
+    * 
+    * sector: either 'all' or int'''
+    ticid_true = []
+    otypes = []
+    database_dir = data_dir+'databases/'
     
     # >> find all text files in directory
-    if single_file:
-        fnames = ['']
+    if sector == 'all':
+        fnames = fm.filter(os.listdir(database_dir), '*_true_labels.txt')
     else:
-        fnames = fm.filter(os.listdir(database_dir), '*.txt')
+        fnames = ['Sector'+str(sector)+'_true_labels.txt']
     
     for fname in fnames:
-        # >> read text file
-        with open(database_dir + fname, 'r') as f:
-            lines = f.readlines()
-            for line in lines:
-                ticid, otype, bibcode = line[:-1].split(',')
+        data = np.loadtxt(database_dir+fname, delimiter=',', dtype='str')
+        ticid_true.extend(data[:,0].astype('float'))
+        otypes.extend(data[:,1])
+
+    # >> only return classified targets in ticid list, if given
+    if len(ticid) > 0:
+        _, inds, _ = np.intersect1d(ticid_true, ticid, return_indices=True)
+        ticid_true = np.array(ticid_true)[inds]
+        otypes = np.array(otypes)[inds]
+    
+    return ticid_true, otypes
+
+# def get_true_classifications(ticid_list,
+#                              database_dir='./databases/',
+#                              single_file=False, sector=None,
+#                              useless_classes = ['*', 'IR', 'UV', 'X', 'PM',
+#                                                 '?', ':'],
+#                              uncertainty_flags = ['*', ':', '?']):
+#     '''Query classifications and bibcode from *_database.txt file.
+#     Returns a list where class_info[i] = [ticid, obj type, bibcode]
+#     Object type follows format in:
+#     http://vizier.u-strasbg.fr/cgi-bin/OType?$1
+#     '''
+#     ticid_classified = []
+#     class_info = []
+    
+#     # >> find all text files in directory
+#     if single_file:
+#         fnames = ['']
+#     else:
+#         fnames = fm.filter(os.listdir(database_dir), '*.txt')
+    
+#     for fname in fnames:
+#         # >> read text file
+#         with open(database_dir + fname, 'r') as f:
+#             lines = f.readlines()
+#             for line in lines:
+#                 ticid, otype, bibcode = line[:-1].split(',')
                 
 
                 
-                # >> remove any repeats and any empty classes and sort
-                otype_list = otype.split('|')
-                # >> remove any candidate indicators
-                for i in range(len(otype_list)):
-                    if otype_list[i] != '**' and len(otype_list[i])>0:
-                        if otype_list[i][-1] in uncertainty_flags:
-                            otype_list[i] = otype_list[i][:-1]
-                otype_list = np.unique(otype_list)
-                # >> remove useless classes
-                for u_c in useless_classes + ['']:
-                    if u_c in otype_list:
-                        otype_list =np.delete(otype_list,
-                                              np.nonzero(otype_list == u_c))
-                otype_list.sort()
-                otype = '|'.join(otype_list)
+#                 # >> remove any repeats and any empty classes and sort
+#                 otype_list = otype.split('|')
+#                 # >> remove any candidate indicators
+#                 for i in range(len(otype_list)):
+#                     if otype_list[i] != '**' and len(otype_list[i])>0:
+#                         if otype_list[i][-1] in uncertainty_flags:
+#                             otype_list[i] = otype_list[i][:-1]
+#                 otype_list = np.unique(otype_list)
+#                 # >> remove useless classes
+#                 for u_c in useless_classes + ['']:
+#                     if u_c in otype_list:
+#                         otype_list =np.delete(otype_list,
+#                                               np.nonzero(otype_list == u_c))
+#                 otype_list.sort()
+#                 otype = '|'.join(otype_list)
                 
-                # >> only get classifications for ticid_list, avoid repeats
-                # >> and only include objects with interesting lables
-                ticid = float(ticid)
-                if ticid in ticid_list and len(otype) > 0:
-                    if ticid in ticid_classified:
-                        ind = np.nonzero(np.array(ticid_classified) == ticid)[0][0]
-                        new_class_info = class_info[ind][1] + '|' + otype
-                        new_class_info = new_class_info.split('|')
-                        new_class_info = '|'.join(np.unique(new_class_info))
-                        class_info[ind][1] = new_class_info
-                    else:
-                        ticid_classified.append(ticid)
-                        class_info.append([int(ticid), otype, bibcode])
+#                 # >> only get classifications for ticid_list, avoid repeats
+#                 # >> and only include objects with interesting lables
+#                 ticid = float(ticid)
+#                 if ticid in ticid_list and len(otype) > 0:
+#                     if ticid in ticid_classified:
+#                         ind = np.nonzero(np.array(ticid_classified) == ticid)[0][0]
+#                         new_class_info = class_info[ind][1] + '|' + otype
+#                         new_class_info = new_class_info.split('|')
+#                         new_class_info = '|'.join(np.unique(new_class_info))
+#                         class_info[ind][1] = new_class_info
+#                     else:
+#                         ticid_classified.append(ticid)
+#                         class_info.append([int(ticid), otype, bibcode])
                     
-    # >> check for any repeats
-    return np.array(class_info)
+#     # >> check for any repeats
+#     return np.array(class_info)
 
 
 
@@ -3405,253 +3369,155 @@ def optimize_confusion_matrix(ticid_pred, y_pred, database_dir='./',
             
             
                 
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :: DEPRECIATED SCTION ::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-# DEPRECIATED SECTION -----------------------------------------------------
-
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-# def hdbscan_param_search(bottleneck, time, flux, ticid, target_info,
-#                          min_cluster_size=list(range(3,10, 2)),
-#                          min_samples=list(range(3,10, 2)),
-#                          metric=['euclidean', 'braycurtis'],
-#                          p_space=[1,2,3,4],
-#                          output_dir='./',
-#                          database_dir='./databases/', make_plots=True):
+def representation_learning(flux, x, ticid, target_info, 
+                            output_dir='./',
+                            dat_dir = '/Users/studentadmin/Dropbox/TESS_UROP/data/',
+                            mom_dump = '/Users/studentadmin/Dropbox/TESS_UROP/Table_of_momentum_dumps.csv',
+                            database_dir='/Users/studentadmin/Dropbox/TESS_UROP/data/databases/',
+                            p=None,
+                            validation_targets=[],
+                            norm_type='minmax_normalization',
+                            input_rms=True, input_psd=False, load_psd=False,
+                            train_test_ratio=0.9, split=False):
+    ''' Deprecated 210217
+    Parameters you have to change:
+        * flux : np.array, with shape (num_samples, num_data_points)
+        * x : np.array, with shape (num_data_points)
+        * ticid : np.array, with shape (num_samples)
+        * target_info : np.array, with shape (num_samples, 5)
+        * dat_dir : Dropbox directory with all of our metafiles
+        * mom_dump : path to momentum dump csv file
+        * data_base_dir : Dropbox directory with all of the database .txt files
         
-#     import hdbscan
-#     # !! wider p range?
+    Parameters to ignore:
+        * p : dictionary of parameters        
+        * validation_targets
+        * 
+    '''
     
-#     if metric[0] == 'all':
-#         metric = list(hdbscan.dist_metrics.METRIC_MAPPING.keys())
-#         metric.remove('seuclidean')
-#         metric.remove('mahalanobis')
-#         metric.remove('wminkowski')
-#         metric.remove('haversine')
-#         metric.remove('cosine')
-#         metric.remove('arccos')
-#         metric.remove('pyfunc')
-    
-#     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
-#         f.write('{}\t {}\t {}\t {}\n'.format("min_cluster_size", 
-#                                              'min_samples', 'metric',
-#                                              'silhouette'))    
-    
-#     param_num=0
-#     for i in range(len(min_cluster_size)):
-#         for j in range(len(min_samples)):
-#             for k in range(len(metric)):
-#                 if metric[k] == 'minkowski':
-#                     p = p_space
-#                 else:
-#                     p = [None]
-#                 for l in range(len(p)):
-                    
-#                     clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size[i],
-#                                                 min_samples=min_samples[j],
-#                                                 metric=metric[k], p=p[l])
-#                     clusterer.fit(bottleneck)
-#                     classes, counts = \
-#                         np.unique(clusterer.labels_, return_counts=True)    
-#                     print(classes, counts)
-                    
-                    
-#                     if len(classes) > 1:
-#                         silhouette = silhouette_score(bottleneck, clusterer.labels_)
-#                     else:
-#                         silhouette= np.nan
-                    
-#                     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
-#                         f.write('{}\t {}\t {}\t {}\n'.format(min_cluster_size[i],
-#                                                              min_samples[j],
-#                                                              metric[k],
-#                                                              silhouette))    
-#                     title='Parameter Set '+str(param_num)+': '+'{} {} {}'.format(min_cluster_size[i],
-#                                                                             min_samples[j],
-#                                                                             metric[k])
-                    
-#                     prefix='hdbscan-p'+str(param_num)
-                    
-#                     if make_plots:
-#                         acc = pf.plot_confusion_matrix(ticid, clusterer.labels_,
-#                                                        database_dir=database_dir,
-#                                                        output_dir=output_dir,
-#                                                        prefix=prefix)        
-#                         pf.plot_pca(bottleneck, clusterer.labels_,
-#                                     output_dir=output_dir, prefix=prefix)    
-#                         pf.plot_tsne(bottleneck, clusterer.labels_,
-#                                      output_dir=output_dir, prefix=prefix)   
-#                         pf.quick_plot_classification(time, flux, ticid,
-#                                                     target_info, bottleneck,
-#                                                     clusterer.labels_,
-#                                                     path=output_dir,
-#                                                     prefix=prefix,
-#                                                     title=title,
-#                                                     database_dir=database_dir)                    
-                        
-#                         plt.figure()
-#                         clusterer.condensed_tree_.plot()
-#                         plt.savefig(output_dir + prefix + '-tree.png')
-                    
-#                     param_num += 1
-                    
-#     return acc    
-
-    # TESS_features = np.array(TESS_features)
-
-    # hdr = fits.Header()
-    # hdu = fits.PrimaryHDU(TESS_features[:,1:-1].astype('float'))
-    # hdu.writeto(output_dir + 'tess_features.fits')
-    # fits.append(output_dir + 'tess_features.fits', ticid_list)
-    # fits.append(output_dir + 'tess_features.fits', TESS_features[:,-1])
-            
-# def get_abstracts(ticid_list):
-#     import time
-#     tables = []
-#     for i in range(len(ticid_list)):
-#         print(str(i) + '/' + str(len(ticid_list)) + '\n')
-#         res = Simbad.query_object('TIC ' + str(int(ticid_list[i])))
-#         if res == None:
-#             pass
-#         else:
-#             tables.append(res)
-#             print(ticid_list[i])
-#             print(res)
-#         time.sleep(6) # >> to avoid ConnectionError
-
-            # end_ind_spl = np.argmin(np.abs(t_spl - time[end_ind+1]))
-            # start_ind_spl = end_ind_spl - (end_ind-start_ind)
-
-    
-    # # -- spline interpolate large nan gaps -----------------------------------
-
-    
-    # # >> new time array (take out orbit gap)
-    # # t_spl = np.copy(time)
-    # # t_spl = np.delete(t_spl, range(num_inds[-1], len(t_spl)))
-    # # t_spl = np.delete(t_spl, range(orbit_gap_start, orbit_gap_end))
-    # # t_spl = np.delete(t_spl, range(num_inds[0]))
-
-    
-    # # >> spline fit for new time array
-    # i_spl = ius(t_spl)
-    
- 
-        # # >> find starting and ending time for nan gap
-        # if not np.isnan(time[run_starts[a]]):
-        #     start_ind = np.argmin(np.abs(t_interp - time[run_starts[a]]))
-        #     end_ind = start_ind + run_lengths[a]
-        # else:
-        #     start_time = time[run_starts[a]-1] + dt
-        #     start_ind = np.argmin(np.abs(t_interp - start_time))
-        #     end_ind = start_ind + run_lengths[a]
-            
-        # # >> spline interpolate if large nan gap
-        # if run_lengths[a] * dt > interp_tol:
-        #     spline_interp = fitted_spline[start_ind:end_ind]
-            
-        #     # >> check if RMS of interpolated section is 5x larger than RMS of 
-        #     # >> entire light curve        
-        #     rms_lc = np.sqrt(np.mean(i**2))
-        #     rms_interp = np.sqrt(np.mean(spline_interp))       
-        #     if rms_lc > rms_interp*5.:
-        #         i_interp[start_ind:end_ind] = spline_interp
-        #         flag=False
-        #     else:
-        #         # flag=True
-        #         flag = False # >> instead of flagging, linearly interpolate
-        #         i_interp[start_ind:end_ind] = \
-        #             np.interp(t_interp[start_ind:end_ind],
-        #                       time[num_inds],
-        #                       i[num_inds])  
-        # else: # >> linearly interpolate if small nan gap
-        #     i_interp[start_ind:end_ind] = \
-        #         np.interp(t_interp[start_ind:end_ind],
-        #                   time[num_inds],
-        #                   i[num_inds])       
-                
-        #     pdb.set_trace()
-            
-    
-    # # -- interpolate small nan gaps ------------------------------------------
-    # interp_gaps = np.nonzero(run_lengths * dt <= interp_tol)
-    # # interp_gaps = np.nonzero((run_lengths * tdim <= interp_tol) * \
-    # #                          np.isnan(i[run_starts]))    
-    # interp_inds = run_starts[interp_gaps]
-    # interp_lens = run_lengths[interp_gaps]
-    
-    # i_interp = np.copy(i)
-    # for a in range(np.shape(interp_inds)[0]):
-    #     start_ind = interp_inds[a]
-    #     end_ind = interp_inds[a] + interp_lens[a]
-    #     i_interp[start_ind:end_ind] = np.interp(time[start_ind:end_ind],
-    #                                             time[np.nonzero(~np.isnan(i))],
-    #                   
-    # # >> spline interpolate over remaining nan gaps
-    # interp_gaps = np.nonzero( ~np.isin(run_starts, interp_inds) )
-    # interp_inds = run_starts[interp_gaps]
-    # interp_lens = run_lengths[interp_gaps]
+    # >> use default parameter set if not given
+    if type(p) == type(None):
+        p = {'kernel_size': 3,
+              'latent_dim': 35,
+              'strides': 1,
+              'epochs': 10,
+              'dropout': 0.,
+              'num_filters': 16,
+              'num_conv_layers': 12,
+              'batch_size': 64,
+              'activation': 'elu',
+              'optimizer': 'adam',
+              'last_activation': 'linear',
+              'losses': 'mean_squared_error',
+              'lr': 0.0001,
+              'initializer': 'random_normal',
+              'num_consecutive': 2,
+              'pool_size': 2, 
+              'pool_strides': 2,
+              'kernel_regularizer': None,
+              'bias_regularizer': None,
+              'activity_regularizer': None,
+              'fully_conv': False,
+              'encoder_decoder_skip': False,
+              'encoder_skip': False,
+              'decoder_skip': False,
+              'full_feed_forward_highway': False,
+              'cvae': False,
+              'share_pool_inds': False,
+              'batchnorm_before_act': False} 
         
-    # # >> spline interpolate nan gaps
-    # i_interp = np.copy(i)
-    # for a in range(np.shape(interp_inds)[0]):
-    #     start_ind = interp_inds[a]
-    #     # end_ind   = interp_inds[a] + interp_lens[a] - 1
-    #     end_ind = interp_inds[a] + interp_lens[a]
-
-    #     if not np.isnan(time[start_ind]):
-    #         start_ind_spl = np.argmin(np.abs(t_spl - time[start_ind]))
-    #         end_ind_spl = start_ind_spl + (end_ind-start_ind)
-    #     else:
-    #         start_time = time[start_ind-1] + dt
-    #         start_ind_spl = np.argmin(np.abs(t_spl - start_time))
-    #         end_ind_spl = start_ind_spl + (end_ind-start_ind)
-            
-    #     spline_interp = i_spl[start_ind_spl:end_ind_spl]
-            
-    #     # >> check if RMS of interpolated section is 5x larger than RMS of 
-    #     # >> entire light curve
-    #     rms_lc = np.sqrt(np.mean(i**2))
-    #     rms_interp = np.sqrt(np.mean(spline_interp))
-    #     if rms_lc > rms_interp*5.:
-    #         i_interp[start_ind:end_ind] = spline_interp
-    #         flag=False
-    #     else:
-    #         # flag=True
-    #         flag = False # >> instead of flagging, linearly interpolate
-    #         i_interp[start_ind:end_ind] = \
-    #             np.interp(time[start_ind:end_ind],
-    #                       time[np.nonzero(~np.isnan(i))],
-    #                       i[np.nonzero(~np.isnan(i))])     
-    #         pdb.set_trace()
+    print('Preprocessing')
+    x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
+        target_info_test, rms_train, rms_test, x = \
+        ml.autoencoder_preprocessing(flux, ticid, x, target_info, p,
+                                     validation_targets=validation_targets,
+                                     norm_type=norm_type,
+                                     input_rms=input_rms, input_psd=input_psd,
+                                     load_psd=load_psd,
+                                     train_test_ratio=train_test_ratio,
+                                     split=split,
+                                     output_dir=output_dir)       
         
-    # if DEBUG_INTERP:
-    #     ax[4].plot(time_plot, i_interp, '.k')
-    #     ax[4].set_title('spline interpolate')
-    #     fig.tight_layout()
-    #     fig.savefig(output_dir + prefix + 'interpolate_debug.png',
-    #                 bbox_inches='tight')
-    #     plt.close(fig)
+    print('Training CAE')
+    history, model, x_predict = \
+        ml.conv_autoencoder(x_train, y_train, x_test, y_test, p,
+                            input_rms=True, rms_train=rms_train, rms_test=rms_test,
+                            ticid_train=ticid_train, ticid_test=ticid_test,
+                            output_dir=output_dir)
+        
+    print('Diagnostic plots')
+    pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
+                        x_test, x_predict, mock_data=False, addend=0.,
+                        target_info_test=target_info_test,
+                        target_info_train=target_info_train,
+                        ticid_train=ticid_train,
+                        ticid_test=ticid_test, percentage=False,
+                        input_features=False,
+                        input_rms=input_rms, rms_test=rms_test,
+                        input_psd=input_psd,
+                        rms_train=rms_train, n_tot=40,
+                        plot_epoch = False,
+                        plot_in_out = True,
+                        plot_in_bottle_out=False,
+                        plot_latent_test = True,
+                        plot_latent_train = True,
+                        plot_kernel=False,
+                        plot_intermed_act=True,
+                        make_movie = False,
+                        plot_lof_test=False,
+                        plot_lof_train=False,
+                        plot_lof_all=False,
+                        plot_reconstruction_error_test=False,
+                        plot_reconstruction_error_all=True,
+                        load_bottleneck=True)            
 
-    # num_inds = np.nonzero( ~np.isnan(i) )[0]    
-    # t_interp = np.arange(np.min(time[num_inds]), np.max(time[num_inds]), dt)
-    # # t_interp = np.linspace(np.nanmin(time), np.nanmax(time), len(i))
-    # orbit_gap_inds = np.nonzero( (t_interp > time[orbit_gap_start]) * \
-    #                               (t_interp < time[orbit_gap_end]) )
-    # t_interp = np.delete(t_interp, orbit_gap_inds)
-    # fitted_spline = ius(x)
-    # ius = interpolate.InterpolatedUnivariateSpline(time[num_inds], i[num_inds],
-    #                                                k=k)
-
-
-
-        #         ticid_classified.append(int(ticid))
-        #         otype_list.append(otype)
-        #         bibcode_list.append(bibcode)
-                
-        # # >> return classifications only for 
-        # intersection, comm1, comm2 = np.intersect1d(ticid_list,
-        #                                             ticid_classified,
-        #                                             return_indices=True)
-        # for i in comm2:
-        #     simbad_info.append([ticid_simbad[i], otype_list[i],
-        #                         bibcode_list[i]])
+    features, flux_feat, ticid_feat, info_feat = \
+        ml.bottleneck_preprocessing(None,
+                                    np.concatenate([x_train, x_test], axis=0),
+                                    np.concatenate([ticid_train, ticid_test]),
+                                    np.concatenate([target_info_train,
+                                                    target_info_test]),
+                                    data_dir=dat_dir,
+                                    output_dir=output_dir,
+                                    use_learned_features=True,
+                                    use_tess_features=False,
+                                    use_engineered_features=False,
+                                    use_tls_features=False)         
+        
+    print('Novelty detection')
+    pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
+                n_tot=40, target_info=info_feat, prefix='',
+                cross_check_txt=database_dir, debug=False, addend=0.)        
+    
+    print('DBSCAN parameter search')
+    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
+    dbscan_param_search(features, x, flux_feat, ticid_feat,
+                            info_feat, DEBUG=False, 
+                            output_dir=output_dir, 
+                            leaf_size=[30], algorithm=['auto'],
+                            min_samples=[5],
+                            metric=['minkowski'], p=[3,4],
+                            database_dir=database_dir,
+                            eps=list(np.arange(1.5, 4., 0.1)),
+                            confusion_matrix=False, pca=False, tsne=False,
+                            tsne_clustering=False)    
+    
+    best_ind = np.argmax(silhouette_scores)
+    best_param_set = parameter_sets[best_ind]   
+        
+    parameter_sets, num_classes, silhouette_scores, db_scores, ch_scores, acc = \
+    dbscan_param_search(features, x, flux_feat, ticid_feat,
+                            info_feat, DEBUG=True, 
+                            output_dir=output_dir+'best', single_file=True,
+                            leaf_size=[best_param_set[4]],
+                            algorithm=[best_param_set[3]],
+                            min_samples=[best_param_set[1]],
+                            metric=[best_param_set[2]], p=[best_param_set[5]],
+                            database_dir=database_dir,
+                            eps=[best_param_set[0]])      
