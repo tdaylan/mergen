@@ -5,8 +5,51 @@ Created on Thu Feb 25 18:50:41 2021
 @author: Lindsey Gordon, Emma Chickles
 learn_utils.py
 """
+import sklearn
 
+####### SIMPLEST WRAPPERS #####
 
+def run_kmeans(features, n_clusters = 2):
+    from sklearn.cluster import KMeans
+    kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(features)
+    labels = kmeans.labels_
+    return kmeans, labels
+    
+def run_dbscan(features, eps=0.2, min_samples=5, metric= 'minkowski', 
+               algorithm = 'auto', leaf_size = '30', p='2'):
+    from sklearn.cluster import DBSCAN
+    db = DBSCAN(eps=eps,min_samples=min_samples,metric=metric,
+                algorithm=algorithm,leaf_size=leaf_size,p=p).fit(features)
+    return db
+    
+def run_hdbscan(features, min_cluster_size = 10, metric = 'minkowski', min_samples = 10,
+                p = '2', algorithm = 'best'):
+    import hdbscan
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=int(min_cluster_size),
+                                metric=metric, min_samples=min_samples,
+                                p=p, algorithm=algorithm)
+    clusterer.fit(features)
+    labels = clusterer.labels_
+    return clusterer, labels
+    
+def run_GMM(features, n_components = 2):
+    from sklearn.mixture import GaussianMixture
+    GMM = GaussianMixture(n_components=n_components, random_state=0).fit(features)
+    return GMM
+    
+def run_LOF(features, n_neighbors = 20, p = 2, metric = 'minkowski', contamination =0.1,
+            algorithm = 'auto'):
+    from sklearn.neighbors import LocalOutlierFactor
+    
+    clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p, metric=metric,
+                             contamination=contamination, algorithm=algorithm)
+    #fit_predictor = clf.fit_predict(features)
+    negative_factor = clf.negative_outlier_factor_
+    
+    lof = -1 * negative_factor
+    return lof
+    
+    
 ##### PARAM SCANS #####
 def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                         eps=list(np.arange(0.1,1.5,0.1)),
