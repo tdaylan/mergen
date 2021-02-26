@@ -6,56 +6,12 @@ mergen.py
 @author: LG and EC
 """
 
-import numpy as np
-import numpy.ma as ma 
-import pandas as pd 
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)
-
-from pylab import rcParams
-rcParams['figure.figsize'] = 10,10
-
-rcParams["lines.markersize"] = 2
-from scipy.signal import argrelextrema, medfilt
-
-
-import astropy
-import astropy.units as u
-from astropy.io import fits
-import scipy.signal as signal
-from astropy.stats import SigmaClip
-from astropy.utils import exceptions
-from astroquery import exceptions
-from astroquery.exceptions import RemoteServiceError
-#from astropy.utils.exceptions import AstropyWarning, RemoteServiceError
-
-from datetime import datetime
-import os
-import shutil
-from scipy.stats import moment, sigmaclip
-
-import sklearn
-from sklearn.cluster import KMeans, DBSCAN
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import Normalizer
-from sklearn import metrics
-import fnmatch
-
-from sklearn.metrics import confusion_matrix
-from sklearn.neighbors import LocalOutlierFactor
-
-import astroquery
-from astroquery.simbad import Simbad
-from astroquery.mast import Catalogs
-from astroquery.mast import Observations
-
-import data_functions as df
-import plotting_functions as pf
-import ffi_hyperleda as fh
-import model as ml
-import data_access as da
-import ENF_functions as enf
-import sn_functions as sn
+#from init import *
+import data_utils as dt
+import catalog_utils as ct
+import learning_utils as lt
+import plot_utils as pt
+import feature_utils as ft
 
 
 class mergen(object):
@@ -91,29 +47,42 @@ class mergen(object):
     
     def load_lightcurves_local(self):
         """Loads in data saved in metafiles on datapath"""
-        #check for self.datatype to determine loading scheme. figure out consistent stuff for FFI original locations
-        return 6
-    
+        #check for self.datatype to determine loading scheme. 
+        #figure out consistent stuff for FFI original locations
+        if self.datatype == "FFI-Lygos":
+            self.times, self.intensities, self.errors, self.identifiers = dt.load_all_lygos(self.datapath)
+        
+        
             
     def download_and_load_lightcurves(self):
         """ ??? this is just the other option for if you want to run batch downloads and then make metafiles"""
+        #YYY EMMA FILL THIS IN
         return
 
     def data_clean(self):
         """ Cleans data up - just BASE cleanup of normalizing + sigma clipping. CAE additional cleans done later"""
+        self.intensities = dt.normalize(self.intensities)
+        #is there anything else to be done??
         return
     
-    def load_existing_features(self):
+    def load_existing_features(self, typeFeatures):
         """ Load in feature metafiles stored in the datapath"""
+        if typeFeatures == "ENF":
+            self.features = dt.load_ENF_feature_metafile(self.ENFpath)
+        elif typeFeatures == "CAE":
+            ### EMMA FILL THIS IN
+            k = 6
         return
     
-    def generate_engineered(self):
+    def generate_engineered(self, version = 0, save = True):
         """Run engineered feature creation"""
+        self.features = ft.create_save_featvec_homogenous_time(self.ENFpath, self.times, self.intensities, 
+                                                               self.filelabel, version=version, save=save):
+    
         return
     
     def generate_CAE(self):
         """Run CAE feature creation """
+        #EMMA FILL THIS IN
         return
 
-
-    s

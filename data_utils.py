@@ -305,6 +305,35 @@ def load_lygos_csv(file):
     error = np.asarray(data[2])
     return t, ints, error
 
+def load_all_lygos(datapath):
+    
+    all_t = [] 
+    all_i = []
+    all_e = []
+    all_labels = []
+    
+    for root, dirs, files in os.walk(datapath):
+        for name in files:
+            if name.startswith(("rflx")):
+                filepath = root + "/" + name 
+                print(name)
+                label = name.split("_")
+                full_label = label[1] + label[2]
+                all_labels.append(full_label)
+                
+                t,i,e = load_lygos_csv(name)
+                mean = np.mean(i)
+                sigclip = SigmaClip(sigma=4, maxiters=None, cenfunc='median')
+                clipped_inds = np.nonzero(np.ma.getmask(sigclip(i)))
+                i[clipped_inds] = mean #reset those values to the mean value (or remove??)
+    
+                all_t.append(t)
+                all_i.append(i)
+                all_e.append(e)
+                
+    return all_t, all_i, all_e, all_labels
+
+
 
 ######## DATA CLEANING ###########
 
