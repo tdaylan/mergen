@@ -6,43 +6,9 @@ Plotting functions only.
 
 @author: Lindsey Gordon @lcgordon and Emma Chickles @emmachickles
 
-Last updated: July 29 2020
-
-Helper functions
-* plot_lc()
-* ticid_label()
-* astroquery_pull_data !! combine with get_tess_features() and ticid_label()
-* format_axes()
-
-Feature visualization
-* features_plotting_2d()
-* features_insets()
-* inset_plotting()
-* get_extrema()
-* features_insets_colored()
-* inset_plotting_colored()
-* inset_histogram()
-* features_2D_colorshape()
-* plot_lof()
-* plot_pca()
-* isolate_plot_feature_outliers
-* lof_and_insets_on_sector
-* plot_paramscan_metrics
-
-Autoencoder visualizations
-* diagnostic_plots()
-* epoch_plots() 
-* input_output_plot()
-* kernel_filter_plot()
-* intermed_act_plot()
-* input_bottleneck_output_plot()
-* movie()
-* training_test_plot()
-* hyperparam_opt_diagnosis()
-* plot_reconstruction_error()
-* plot_classification()
-
+Last updated: Feb 26 2021
 """
+from init import *
 
 ##### HELPERS #######
 def get_colors():

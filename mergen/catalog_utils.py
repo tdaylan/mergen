@@ -5,6 +5,7 @@ Created on Thu Feb 25 18:14:55 2021
 @author: Emma Chickles, Lindsey Gordon
 catalog_utils.py
 """
+from init import *
 def get_tess_features(ticid):
     '''Query catalog data https://arxiv.org/pdf/1905.10694.pdf'''
     

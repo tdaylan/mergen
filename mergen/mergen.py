@@ -6,7 +6,7 @@ mergen.py
 @author: LG and EC
 """
 
-#from init import *
+from init import *
 import data_utils as dt
 import catalog_utils as ct
 import learning_utils as lt

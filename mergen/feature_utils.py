@@ -5,6 +5,8 @@ Created on Thu Feb 25 18:23:27 2021
 @author: Emma Chickles, Lindsey Gordon
 feature_utils.py
 """
+from init import *
+
 def create_save_featvec_homogenous_time(yourpath, times, intensities, filelabel, version=0, save=True):
     """Produces the feature vectors for each light curve and saves them all
     into a single fits file. requires all light curves on the same time axis

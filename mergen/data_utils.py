@@ -9,6 +9,7 @@ data_utils.py
 * feature loading
 """
 import numpy as np
+from init import *
 
 ######## DATA LOADING (SPOC) ############
 
