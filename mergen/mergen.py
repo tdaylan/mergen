@@ -4,6 +4,10 @@ Created on Thu Oct  8 20:27:13 2020
 
 mergen.py
 @author: LG and EC
+
+To Do List:
+    - fill in remaining functions
+    - Set up pipeline function (kind of a run-all thing)
 """
 
 from init import *

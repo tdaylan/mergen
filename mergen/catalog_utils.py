@@ -4,6 +4,11 @@ Created on Thu Feb 25 18:14:55 2021
 
 @author: Emma Chickles, Lindsey Gordon
 catalog_utils.py
+
+To Do List:
+    Emma:
+        -what is this is mergen and what of this is specific to your science stuff
+
 """
 from init import *
 def get_tess_features(ticid):

@@ -22,7 +22,6 @@ To Do List:
     - Easy forward-facing function calls
     - Better documentation on all functions
     Lindsey:
-        - fix features plotting to require user to provide labels from their own run
         - fix insets on histograms
     Emma:
         - place priority functions (user-used) at top for CAE diagnostic plots
@@ -33,84 +32,33 @@ from init import *
 
 ####### Forward-Facing Functions ##########
 
-def features_plotting_2D(features, savepath, engineered_features = True, version = 0,
-                         clustering = None, clustering_params = None,
-                         plot_LC_classes = None):
+def features_plotting_2D(savepath, features, labels = None, engineered_features = True, version = 0,
+                         clustering = 'unclustered', plot_LC_classes = None):
     """ Plot (n 2) features against each other to visualize distribution in feature space.
     Parameters:
-        * features: array of all feature vectors for all targets
         * savepath: save path for subfolder containing all plots to be saved into
+        * features: array of all feature vectors for all targets
+        * labels: classifier labels to use in color coded plotting
         * engineered_features: True if using ENF features, False if CAE features. Affects labels.
         * version: if using ENF features, which version (0/1/2). Value irrelevant for CAE features.
-        * clustering: clustering algorithm you want performed. options are: "dbscan", "kmeans", "hdbsca", or "GMM"
-            if no clustering is desired, leave as None
-        * clustering_params: list of params for the chosen clustering algorithms. if None, will use default values
-            kmeans = [num_clusters, max_iter, n_init]. 
-                default [4, 700, 20]
-            dbscan = [eps, min_samples, metric, algorithm, leaf_size, p] 
-                default [2,5,'minkowski', 'auto', 30, 2]
-            hdbscan = [metric, min_samples, min_cluster_size]
-                default ['minkowski', 3,3]
-            GMM = [num_components]
-                default [100]
+        * clustering: clustering algorithm used (optional). doubles as prefix on filelabels
         * plot_LC_classes: provides information to plot light curve classes, only runs if clustering != None
             structure like: [time_axis, rel_fluxes, target_labels, target_info, momentum_dump_csv]
             
-    Returns: labels if clustering, nothing otherwise
+    Returns: nothing
     
-    *** force user to bring their own labels from external call ***
     """ 
     rcParams['figure.figsize'] = 10,10
-    
-    if clustering == 'dbscan':
-        if clustering_params is None: #use preset values
-            clustering_params = [2,5,'minkowski', 'auto', 30, 2] 
-        db = DBSCAN(eps=clustering_params[0], min_samples=clustering_params[1], metric=clustering_params[2],
-                    algorithm=clustering_params[3], leaf_size=clustering_params[4],
-                    p=clustering_params[5]).fit(features)
-        labels = db.labels_
-        numclasses = str(len(set(classes_dbscan)))
-        folder_label = "DBSCAN-colored"
-
-    elif clustering == 'kmeans': 
-        if clustering_params is None:
-            clustering_params = [2, 700, 20]
-        Kmean = KMeans(n_clusters=clustering_params[0], max_iter=clustering_params[1], n_init = clustering_params[2])
-        x = Kmean.fit(features)
-        labels = x.labels_
-        folder_label = "KMEANS-colored"
-        
-    elif clustering == 'hdbscan': 
-        if clustering_params is None:
-            clustering_params = ['minkowski', 3,3]
-        import hdbscan
-        clusterer = hdbscan.HDBSCAN(metric=clustering_params[0], min_samples=clustering_params[1],
-                                    min_cluster_size=clustering_params[2])
-        clusterer.fit(features)
-        labels = clusterer.labels_
-        folder_label = "HDBSCAN-colored"        
-        
-    elif clustering == "GMM": 
-        if clustering_params is None:
-            clustering_params = [100]
-        from sklearn.mixture import GaussianMixture
-        gmm = GaussianMixture(n_components=clustering_params[0])
-        labels = gmm.fit_predict(features)
-        folder_label = "GMM-colored"
-        
-    else: 
-        print("No clustering chosen")
-        folder_label = "2DFeatures"
         
     #makes folder and saves to it    
-    folder_path = savepath + folder_label + '/'
+    folder_path = savepath + clustering + '/'
     try:
         os.makedirs(folder_path)
     except OSError:
         print ("Save directory already exists")
         
     #optional clustering plotting
-    if clustering is not None and plot_LC_classes is not None:
+    if plot_LC_classes is not None:
         time = plot_LC_classes[0]
         intensity = plot_LC_classes[1]
         targets = plot_LC_classes[2]
@@ -122,7 +70,6 @@ def features_plotting_2D(features, savepath, engineered_features = True, version
                             target_info=target_info)
         plot_pca(features, labels, output_dir=folder_path+'/')
     
- 
     colors = get_colors()
     #Create labels
     if engineered_features: #ENF features
@@ -133,7 +80,9 @@ def features_plotting_2D(features, savepath, engineered_features = True, version
         print("Using CAE features")
         num_features = np.shape(features)[1]
         graph_labels, fname_labels = CAE_labels(num_features)
-        
+     
+    if labels is None:
+        labels = np.ones((1, num_features)) * -1
     
     for n in range(num_features):
         feat1 = features[:,n]
@@ -142,27 +91,15 @@ def features_plotting_2D(features, savepath, engineered_features = True, version
                 continue                
             feat2 = features[:,m]
  
-            if clustering is not None:
-                plt.figure()
-                plt.clf()
-                for n in range(len(features)):
-                    plt.scatter(feat1[n], feat2[n], c=colors[labels[n]], s=2)
-                plt.xlabel(graph_labels[n])
-                plt.ylabel(graph_labels[m])
-                plt.savefig((folder_path+ fname_labels[n] + "-" + fname_labels[m]  + "-" + clustering + ".png"))
-                plt.close()
-                 
-                
-            else:
-                plt.scatter(feat1, feat2, s = 2, color = 'black')
-                plt.xlabel(graph_labels[n])
-                plt.ylabel(graph_labels[m])
-                plt.savefig(folder_path + fname_labels[n] + "-" + fname_labels[m]  + ".png")
-                plt.close()
-                
-    if clustering is not None:
-        np.savetxt(folder_path+ "/" + clustering + "-classes.txt", labels)
-        return labels
+            plt.figure()
+            plt.clf()
+            for n in range(len(features)):
+                plt.scatter(feat1[n], feat2[n], c=colors[labels[n]], s=2)
+            plt.xlabel(graph_labels[n])
+            plt.ylabel(graph_labels[m])
+            plt.savefig((folder_path+ fname_labels[n] + "-" + fname_labels[m]  + "-" + clustering + ".png"))
+            plt.close()
+
 
 def features2D_with_insets(savepath, time, intensity, targets, features, engineered_features = True,
                                  labels = None, classifier = "", version = 0):

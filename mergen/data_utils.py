@@ -7,6 +7,10 @@ data_utils.py
 * data load
 * data cleaning
 * feature loading
+
+To Do List:
+    - HYPERLEDA LC load in
+    - Loading fxns for CAE features
 """
 import numpy as np
 from init import *

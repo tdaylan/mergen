@@ -4,6 +4,11 @@ Created on Thu Feb 25 18:50:41 2021
 
 @author: Lindsey Gordon, Emma Chickles
 learn_utils.py
+
+To Do List: 
+    - Better function documentation
+    - Clean up usability of param searches
+    - Kmeans param scan?
 """
 import sklearn
 from init import *

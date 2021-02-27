@@ -4,6 +4,10 @@ Created on Thu Feb 25 18:23:27 2021
 
 @author: Emma Chickles, Lindsey Gordon
 feature_utils.py
+
+To Do List:
+    Emma:
+        - Put all CAE stuff in here as fxns
 """
 from init import *
 
