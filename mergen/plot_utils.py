@@ -7,282 +7,580 @@ Plotting functions only.
 @author: Lindsey Gordon @lcgordon and Emma Chickles @emmachickles
 
 Last updated: Feb 26 2021
+
+User Functions:
+    * features_plotting_2D() n-choose-2 plots of pairs of features against each other. 
+        can be color coded based on classification results. 
+    * features2D_with_insets() same as features_plotting_2D but with insets of the extrema light curves
+    * histo_features() produces histograms of all features
+    * plot_lof() plots the n top, bottom, and random light curves ranked on their LOF scores
+    * plot_lof_with_PSD() same as above with PSD plotted + indication of triggered feature in the LOF
+    * quick_plot_classification() to plot the first n in each class
+
+To Do List: 
+    - Reorganize by importance
+    - Easy forward-facing function calls
+    - Better documentation on all functions
+    Lindsey:
+        - fix features plotting to require user to provide labels from their own run
+        - fix insets on histograms
+    Emma:
+        - place priority functions (user-used) at top for CAE diagnostic plots
+    
+
 """
 from init import *
 
-##### HELPERS #######
-def get_colors():
-    '''Returns list of 125 colors for plotting against white background1.
-    now removes black from the list and tacks it onto the end (so that when
-    indexing -1 will make the noise points black
-    modified [lcg 08052020 changing pos. of black to end]'''
-    from matplotlib import colors as mcolors
-    import random
-    colors = dict(mcolors.BASE_COLORS, **mcolors.CSS4_COLORS)
-    
-    # Sort colors by hue, saturation, value and name.
-    by_hsv = sorted((tuple(mcolors.rgb_to_hsv(mcolors.to_rgba(color)[:3])), name)
-                    for name, color in colors.items())
-    sorted_names = [name for hsv, name in by_hsv]
-    
-    # >> get rid of light colors
-    bad_colors = ['lightgray', 'lightgrey', 'gainsboro', 'whitesmoke', 'white',
-                  'snow', 'mistyrose', 'seashell', 'peachpuff', 'linen',
-                  'bisque', 'antiquewhite', 'blanchedalmond', 'papayawhip',
-                  'moccasin', 'oldlace', 'floralwhite', 'cornsilk',
-                  'lemonchiffon', 'ivory', 'beige', 'lightyellow',
-                  'lightgoldenrodyellow', 'honeydew', 'mintcream',
-                  'azure', 'lightcyan', 'aliceblue', 'ghostwhite', 'lavender',
-                  'lavenderblush', 'black']
-    for i in range(len(bad_colors)):
-        ind = sorted_names.index(bad_colors[i])
-        sorted_names.pop(ind)
-        
-    # >> now shuffle
-    random.Random(4).shuffle(sorted_names)
-    sorted_names = sorted_names*20
-    
-    sorted_names.append('black')
-    return sorted_names
-def astroquery_pull_data(target, breaks=True):
-    """Give a TIC ID - ID /only/, any format is fine, it'll get converted to str
-    Searches the TIC catalog and pulls: 
-        T_eff
-        object type
-        gaia magnitude
-        radius
-        mass
-        distance
-    returns a plot title string
-    modified: [lcg 06302020]"""
-    try: 
-        catalog_data = Catalogs.query_object("TIC " + str(int(target)), radius=0.02, catalog="TIC")
-        #https://arxiv.org/pdf/1905.10694.pdf
-        Tmag = np.round(catalog_data[0]["Tmag"], 2)
-        T_eff = np.round(catalog_data[0]["Teff"], 0)
-        obj_type = catalog_data[0]["objType"]
-        gaia_mag = np.round(catalog_data[0]["GAIAmag"], 2)
-        radius = np.round(catalog_data[0]["rad"], 2)
-        mass = np.round(catalog_data[0]["mass"], 2)
-        distance = np.round(catalog_data[0]["d"], 1)
-        if breaks:
-            title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + ", Tmag: " + str(Tmag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
-        else: 
-             title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + ", Tmag: " + str(Tmag) + "Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
-    except (ConnectionError, OSError, TimeoutError):
-        print("there was a connection error!")
-        title = "Connection error, no data"
-    return title
+####### Forward-Facing Functions ##########
 
-def get_extrema(feature_vectors, feat1, feat2):
-    """ Identifies the extrema in each direction for the pair of features given. 
-    Eliminates any duplicate extrema (ie, the xmax that is also the ymax)
-    Returns array of unique indexes of the extrema
-    modified [lcg 07082020]"""
-    indexes = []
-    index_feat1 = np.argsort(feature_vectors[:,feat1])
-    index_feat2 = np.argsort(feature_vectors[:,feat2])
-    
-    indexes.append(index_feat1[0]) #xmin
-    indexes.append(index_feat2[-1]) #ymax
-    indexes.append(index_feat2[-2]) #second ymax
-    indexes.append(index_feat1[-2]) #second xmax
-    
-    indexes.append(index_feat1[1]) #second xmin
-    indexes.append(index_feat2[1]) #second ymin
-    indexes.append(index_feat2[0]) #ymin
-    indexes.append(index_feat1[-1]) #xmax
-    
-    indexes.append(index_feat1[-3]) #third xmax
-    indexes.append(index_feat2[-3]) #third ymax
-    indexes.append(index_feat1[2]) #third xmin
-    indexes.append(index_feat2[2]) #third ymin
-
-    indexes_unique, ind_order = np.unique(np.asarray(indexes), return_index=True)
-    #fixes the ordering of stuff
-    indexes_unique = [np.asarray(indexes)[index] for index in sorted(ind_order)]
-    
-    return indexes_unique      
-
-def plot_histogram(data, bins, x_label, insetx, insety, targets, filename,
-                   insets=True, log=True, multix = False):
-    """ 
-    Plot a histogram with one light curve from each bin plotted on top
-    * Data is the histogram data
-    * Bins is bins for the histogram
-    * x_label for the x-axis of the histogram
-    * insetx is the xaxis to plot. 
-        * if multix is False, assume that the xaxis is the same for all, 
-        * if multix is True, each intensity has a specific time axis
-    * insety is the full list of light curves
-    * filename is the exact place you want it saved
-    * insets is a true/false of if you want them
-    * log is true/false if you want the histogram on a logarithmic scale
-    modified [lcg 12302020]
-    """
-    fig, ax1 = plt.subplots()
-    n_in, bins, patches = ax1.hist(data, bins, log=log)
-    
-    y_range = np.abs(n_in.max() - n_in.min())
-    x_range = np.abs(data.max() - data.min())
-    ax1.set_ylabel('Number of light curves')
-    ax1.set_xlabel(x_label)
-    
-    if insets == True:
-        for n in range(len(n_in)):
-            if n_in[n] == 0: 
-                continue
-            else: 
-                axis_name = "axins" + str(n)
-                inset_width = 0.33 * x_range * 0.5
-                inset_x = bins[n] - (0.5*inset_width)
-                inset_y = n_in[n]
-                inset_height = 0.125 * y_range * 0.5
-                    
-                axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
-                
-                lc_to_plot = insetx
-                
-                #identify a light curve from that one
-                for m in range(len(data)):
-                    #print(bins[n], bins[n+1])
-                    if bins[n] <= data[m] <= bins[n+1]:
-                        #print(data[m], m)
-                        if multix:
-                            lc_time_to_plot = insetx[m]
-                        else:
-                            lc_time_to_plot = insetx
-                        lc_to_plot = insety[m]
-                        lc_ticid = targets[m]
-                        break
-                    else: 
-                        continue
-                
-                axis_name.scatter(lc_time_to_plot, lc_to_plot, c='black', s = 0.1, rasterized=True)
-                try:
-                    axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=6)
-                except ValueError:
-                    axis_name.set_title(lc_ticid, fontsize=6)
-    plt.savefig(filename)
-    plt.close()
-
-def plot_lygos(t, intensity, error, title):
-    mean = np.mean(intensity)
-    mean_error = np.mean(error)
-    print(mean, mean_error)
-    
-    sigclip = SigmaClip(sigma=5, maxiters=None, cenfunc='median')
-    clipped_inds = np.nonzero(np.ma.getmask(sigclip(intensity)))
-    intensity[clipped_inds] = mean
-    
-    plt.scatter(t, intensity)
-    plt.title(title)
-    plt.show()
-    plt.errorbar(t, intensity, yerr = error, fmt = 'o', markersize = 0.1)
-    plt.show()
-    
-def ticid_label(ax, ticid, target_info, title=False, color='black',
-                fontsize='xx-small'):
-    '''Query catalog data and add text to axis.
+def features_plotting_2D(features, savepath, engineered_features = True, version = 0,
+                         clustering = None, clustering_params = None,
+                         plot_LC_classes = None):
+    """ Plot (n 2) features against each other to visualize distribution in feature space.
     Parameters:
-        * target_info : [sector, camera, ccd, data_type, cadence]
-    TODO: use Simbad classifications and other cross-checking database
-    classifications'''
-    try:
-        # >> query catalog data
-        target, Teff, rad, mass, GAIAmag, d, objType, Tmag = \
-            df.get_tess_features(ticid)
-        # features = np.array(df.get_tess_features(ticid))[1:]
-
-        # >> change sigfigs for effective temperature
-        if np.isnan(Teff):
-            Teff = 'nan'
-        else: Teff = '%.4d'%Teff
-        
-        # >> query sector, camera, ccd
-        sector, cam, ccd = target_info[:3]
-        data_type = target_info[3]
-        cadence = target_info[4]
-        # obj_name = 'TIC ' + str(int(ticid))
-        # obj_table = Tesscut.get_sectors(obj_name)
-        # ind = np.nonzero(obj_table['sector']==sector)
-        # cam = obj_table['camera'][ind][0]
-        # ccd = obj_table['ccd'][ind][0]
-    
-        info = target+'\nTeff {}\nrad {}\nmass {}\nG {}\nd {}\nO {}\nTmag {}'
-        info1 = target+', Sector {}, Cam {}, CCD {}, {}, Cadence {},\n' +\
-            'Teff {}, rad {}, mass {}, G {}, d {}, O {}, Tmag {}'
-        
-        
-        # >> make text
-        if title:
-            ax.set_title(info1.format(sector, cam, ccd, data_type, cadence,
-                                      Teff, '%.2g'%rad, '%.2g'%mass,
-                                      '%.3g'%GAIAmag, '%.3g'%d, objType,
-                                      '%.3g'%Tmag),
-                         fontsize=fontsize, color=color)
-        else:
-            ax.text(0.98, 0.98, info.format(Teff, '%.2g'%rad, '%.2g'%mass, 
-                                            '%.3g'%GAIAmag, '%.3g'%d, objType,
-                                            Tmag),
-                      transform=ax.transAxes, horizontalalignment='right',
-                      verticalalignment='top', fontsize=fontsize)
-    except (ConnectionError, OSError, TimeoutError):
-        print("there was a connection error!")
-        ax.text(0.98, 0.98, "there was a connection error",
-                      transform=ax.transAxes, horizontalalignment='right',
-                      verticalalignment='top', fontsize=fontsize)
+        * features: array of all feature vectors for all targets
+        * savepath: save path for subfolder containing all plots to be saved into
+        * engineered_features: True if using ENF features, False if CAE features. Affects labels.
+        * version: if using ENF features, which version (0/1/2). Value irrelevant for CAE features.
+        * clustering: clustering algorithm you want performed. options are: "dbscan", "kmeans", "hdbsca", or "GMM"
+            if no clustering is desired, leave as None
+        * clustering_params: list of params for the chosen clustering algorithms. if None, will use default values
+            kmeans = [num_clusters, max_iter, n_init]. 
+                default [4, 700, 20]
+            dbscan = [eps, min_samples, metric, algorithm, leaf_size, p] 
+                default [2,5,'minkowski', 'auto', 30, 2]
+            hdbscan = [metric, min_samples, min_cluster_size]
+                default ['minkowski', 3,3]
+            GMM = [num_components]
+                default [100]
+        * plot_LC_classes: provides information to plot light curve classes, only runs if clustering != None
+            structure like: [time_axis, rel_fluxes, target_labels, target_info, momentum_dump_csv]
             
-def simbad_label(ax, ticid, simbad_info):
-    '''simbad_info = [ticid, main_id, otype, bibcode]'''
-    # ind = np.nonzero(np.array(simbad_info)[:,0].astype('int') == ticid)
-    # if np.shape(ind)[1] != 0:
-    #     ticid, main_id, otype, bibcode = simbad_info[ind[0][0]]
-    ticid, main_id, otype, bibcode = simbad_info
-    ax.text(0.98, 0.98, 'otype: '+otype+'\nmain_id: '+main_id+'\n'+bibcode,
-            transform=ax.transAxes, fontsize='xx-small',
-            horizontalalignment='right', verticalalignment='top')
+    Returns: labels if clustering, nothing otherwise
     
-def classification_label(ax, ticid, classification_info, fontsize='xx-small'):
-    '''classification_info = [ticid, otype, main id]'''
-    ticid, otype, bibcode = classification_info
-    ax.text(0.98, 0.98, 'otype: '+otype+'\nmaind_id: '+bibcode,
-            transform=ax.transAxes, fontsize=fontsize,
-            horizontalalignment='right', verticalalignment='top')
+    *** force user to bring their own labels from external call ***
+    """ 
+    rcParams['figure.figsize'] = 10,10
     
-def format_axes(ax, xlabel=False, ylabel=False):
-    def make_parent_dict():
-    d = {'EB': ['Al', 'bL', 'WU', 'EP', 'SB'],
-         'ACV': ['ACVO'],
-         'D': ['DM', 'DS', 'DW'],
-         'K': ['KE', 'KW'],
-         'Ir': ['Or', 'RI', 'IA', 'IB', 'INA', 'INB'],
-         'Pu': ['RR', 'Ce', 'dS', 'RV', 'WV', 'bC', 'cC', 'gD', 'SX'],
-         'sg': ['s*r', 's*y', 's*b'],
-         'Er': ['Fl', 'FU', 'RC'],
-         'Ro': ['a2', 'Psr', 'BY', 'RS'],
-         'Em': ['Be']
-         }
-    return d
-    '''Helper function to plot TESS light curves. Aspect ratio is 3/8.
+    if clustering == 'dbscan':
+        if clustering_params is None: #use preset values
+            clustering_params = [2,5,'minkowski', 'auto', 30, 2] 
+        db = DBSCAN(eps=clustering_params[0], min_samples=clustering_params[1], metric=clustering_params[2],
+                    algorithm=clustering_params[3], leaf_size=clustering_params[4],
+                    p=clustering_params[5]).fit(features)
+        labels = db.labels_
+        numclasses = str(len(set(classes_dbscan)))
+        folder_label = "DBSCAN-colored"
+
+    elif clustering == 'kmeans': 
+        if clustering_params is None:
+            clustering_params = [2, 700, 20]
+        Kmean = KMeans(n_clusters=clustering_params[0], max_iter=clustering_params[1], n_init = clustering_params[2])
+        x = Kmean.fit(features)
+        labels = x.labels_
+        folder_label = "KMEANS-colored"
+        
+    elif clustering == 'hdbscan': 
+        if clustering_params is None:
+            clustering_params = ['minkowski', 3,3]
+        import hdbscan
+        clusterer = hdbscan.HDBSCAN(metric=clustering_params[0], min_samples=clustering_params[1],
+                                    min_cluster_size=clustering_params[2])
+        clusterer.fit(features)
+        labels = clusterer.labels_
+        folder_label = "HDBSCAN-colored"        
+        
+    elif clustering == "GMM": 
+        if clustering_params is None:
+            clustering_params = [100]
+        from sklearn.mixture import GaussianMixture
+        gmm = GaussianMixture(n_components=clustering_params[0])
+        labels = gmm.fit_predict(features)
+        folder_label = "GMM-colored"
+        
+    else: 
+        print("No clustering chosen")
+        folder_label = "2DFeatures"
+        
+    #makes folder and saves to it    
+    folder_path = savepath + folder_label + '/'
+    try:
+        os.makedirs(folder_path)
+    except OSError:
+        print ("Save directory already exists")
+        
+    #optional clustering plotting
+    if clustering is not None and plot_LC_classes is not None:
+        time = plot_LC_classes[0]
+        intensity = plot_LC_classes[1]
+        targets = plot_LC_classes[2]
+        target_info = plot_LC_classes[3]
+        momentum_dump = plot_LC_classes[4]
+        plot_classification(time, intensity, targets, labels,
+                            folder_path+'/', prefix=clustering,
+                            momentum_dump_csv=momentum_dump,
+                            target_info=target_info)
+        plot_pca(features, labels, output_dir=folder_path+'/')
+    
+ 
+    colors = get_colors()
+    #Create labels
+    if engineered_features: #ENF features
+        print("Using ENF features")
+        graph_labels, fname_labels = ENF_labels(version=version)
+        num_features = len(features[0])
+    else: #CAE features
+        print("Using CAE features")
+        num_features = np.shape(features)[1]
+        graph_labels, fname_labels = CAE_labels(num_features)
+        
+    
+    for n in range(num_features):
+        feat1 = features[:,n]
+        for m in range(num_features):
+            if m == n:
+                continue                
+            feat2 = features[:,m]
+ 
+            if clustering is not None:
+                plt.figure()
+                plt.clf()
+                for n in range(len(features)):
+                    plt.scatter(feat1[n], feat2[n], c=colors[labels[n]], s=2)
+                plt.xlabel(graph_labels[n])
+                plt.ylabel(graph_labels[m])
+                plt.savefig((folder_path+ fname_labels[n] + "-" + fname_labels[m]  + "-" + clustering + ".png"))
+                plt.close()
+                 
+                
+            else:
+                plt.scatter(feat1, feat2, s = 2, color = 'black')
+                plt.xlabel(graph_labels[n])
+                plt.ylabel(graph_labels[m])
+                plt.savefig(folder_path + fname_labels[n] + "-" + fname_labels[m]  + ".png")
+                plt.close()
+                
+    if clustering is not None:
+        np.savetxt(folder_path+ "/" + clustering + "-classes.txt", labels)
+        return labels
+
+def features2D_with_insets(savepath, time, intensity, targets, features, engineered_features = True,
+                                 labels = None, classifier = "", version = 0):
+    """ Similar to features_plotting_2D but plots the 2D distributions color-coded by class
+    with the light curves of the extrema plotted along the top and bottom. Useful for visualizing outliers.
+    
+    Parameters: 
+        * savepath: where you want the subfolder of all plots saved
+        * time: time axis for all llight curve subplots
+        * intensity: intensity arrays for all light curves
+        * targets: labels for all light curves (in same order as intensities)
+        * features: all features
+        * engienered_features: CAE = False, ENF = True
+        * labels: classification label array from the classifier used. 
+            If None, will plot all as black/unclassified
+        * classifier: string indicating classifier used, will be used in filenames
+        * version
+    
+    Returns: nothing
+    [Updated LCG 02272021]
+    """   
+    folderpath = savepath + "2DFeatures-insets-colored" + classifier + "/"
+    try:
+        os.makedirs(folderpath)
+    except OSError:
+        print ("Directory already exists.")
+        
+    if engineered_features: #ENF features
+        print("Using ENF features")
+        graph_labels, fname_labels = ENF_labels(version=version)
+        num_features = len(features[0])
+    else: #CAE features
+        print("Using CAE features")
+        num_features = np.shape(features)[1]
+        graph_labels, fname_labels = CAE_labels(num_features)
+    
+    if labels is None:
+        labels = np.ones((1,len(features))) * -1 #array of all -1 classes (same as no classifications)
+    
+    for n in range(num_features):
+        for m in range(num_features):
+            if m == n:
+                continue 
+                      
+            filename = folderpath + classifier + "-" + fname_labels[n] + "-vs-" + fname_labels[m] + ".png"     
+            inset_indexes = get_extrema(features, n, m)
+            inset_plotting_colored(features[:,n], features[:,m], graph_labels[n], 
+                                   graph_labels[m], time, intensity, inset_indexes, targets, filename, 
+                                   labels, labels)
+  
+def histo_features(savepath, features, bins, engineered_features = True, version=0):
+    """ Plots and saves a histogram of each feature. 
     Parameters:
-        * ax : matplotlib axis'''
-    # >> force aspect = 3/8
-    xlim, ylim = ax.get_xlim(), ax.get_ylim()
-    ax.set_aspect(abs((xlim[1]-xlim[0])/(ylim[1]-ylim[0])*(3./8.)))
-    # ax.set_aspect(3./8., adjustable='box')
+        * savepath
+        * features
+        * bins for histogram
+        * engineered_features: True= ENF, False = CAE
+        * version: for what version of ENF (defaults to 0 and is ignored for CAE)
+        
+    Returns: nothing
+    **** put the insets back in/fix insets for scaling **** """
+    folderpath = savepath + "feature_histograms_binning_" + str(bins) + "/"
+    try:
+        os.makedirs(folderpath)
+    except OSError:
+        print ("Directory %s already exists" % folderpath)
     
-    if list(ax.get_xticklabels()) == []:
-        ax.tick_params('x', bottom=False) # >> remove ticks if no label
-    else:
-        ax.tick_params('x', labelsize='small')
-    ax.tick_params('y', labelsize='small')
-    ax.ticklabel_format(useOffset=False)
-    if xlabel:
-        ax.set_xlabel('Time [BJD - 2457000]')
-    if ylabel:
-        ax.set_ylabel('Relative flux')           
+    if engineered_features: #ENF features
+        print("Using ENF features")
+        graph_labels, fname_labels = ENF_labels(version=version)
+        num_features = len(features[0])
+    else: #CAE features
+        print("Using CAE features")
+        num_features = np.shape(features)[1]
+        graph_labels, fname_labels = CAE_labels(num_features)
+
+    for n in range(num_features):
+        filename = folderpath + fname_labels[n] + "histogram.png"
+        plot_histogram(features[:,n], bins, fname_labels[n])
+    return
+ 
+
+def plot_lof(savepath, lof, time, intensity, targets, features, n, n_tot=100,
+             momentum_dump_csv = '../../Table_of_momentum_dumps.csv', spoc = False,
+             target_info = False):
+    """ Plots the most and least interesting light curves based on LOF.
+    Most basic form of plotting - for more complex, see plot_lof_with_PSD()
+    Parameters:
+        * savepath: where you want the subfolder of these to go. assumed to end in /
+        * lof: LOF values for your sample. calculate through run_LOF() in learn_utils.py
+        * time : time axis for the sample
+        * intensity: fluxes for all targets in sample
+        * targets : list of identifiers (TICIDs/otherwise)
+        * features
+        * n : number of curves to plot in each figure
+        * n_tot : total number of light curves to plots (number of figures =
+                  n_tot / n)
+        * momentum_dump_csv: filepath to the momt dump csv file for overplotting
+        * spoc: if these are spoc light curves and the target id's are TICIDs, this is True
+        * target_info: only required for spoc lc's you want labelled'
+         
+    Returns: Nothing
+        
+    modified [lcg 02272021 - revert to basics, added separate more complex version]
+    """
+    # make folder
+    path = savepath + "lof/"
+    try:
+        os.makedirs(path)
+    except OSError:
+        print ("Directory %s already exists" % path)
+    # -- Sort LOF vlaues
+    ranked = np.argsort(lof)
+    largest_indices = ranked[::-1][:n_tot] # >> outliers
+    smallest_indices = ranked[:n_tot] # >> inliers
+    random_inds = list(range(len(lof)))
+    random.Random(4).shuffle(random_inds)
+    random_inds = random_inds[:n_tot] # >> random
+    ncols=1
+      
+    # >> make histogram of LOF values
+    print('Make LOF histogram')
+    lof_file = path+'lof-histogram.png'
+    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", lof_file)
+        
+    # -- momentum dumps ----------------------------------------------
+    print('Loading momentum dump times')
+    with open(momentum_dump_csv, 'r') as f:
+        lines = f.readlines()
+        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+        inds = np.nonzero((mom_dumps >= np.min(time)) * \
+                          (mom_dumps <= np.max(time)))
+        mom_dumps = np.array(mom_dumps)[inds]
+        
     
+    # -- plot smallest and largest LOF light curves --------------------------
+    print('Plot highest LOF and lowest LOF light curves')
+    num_figs = int(n_tot/n) # >> number of figures to generate
+    
+    for j in range(num_figs):
+        for i in range(3): # >> loop through smallest, largest, random LOF plots
+            fig, ax = plt.subplots(n, ncols, sharex=False,
+                                   figsize = (8*ncols, 3*n))
+            for k in range(n): # >> loop through each row
+                
+                if i == 0: ind = largest_indices[j*n + k]
+                elif i == 1: ind = smallest_indices[j*n + k]
+                else: ind = random_inds[j*n + k]
+                
+                # >> plot momentum dumps
+                for t in mom_dumps:
+                    axis.axvline(t, color='g', linestyle='--')
+                    
+                # >> plot light curve
+                axis.plot(time, intensity[ind], '.k')
+                axis.text(0.98, 0.02, '%.3g'%lof[ind],
+                           transform=axis.transAxes,
+                           horizontalalignment='right',
+                           verticalalignment='bottom',
+                           fontsize='xx-small')
+                format_axes(axis, ylabel=True)
+                if spoc:
+                    ticid_label(axis, targets[ind], target_info[ind],
+                                title=True)                        
+                if k != n - 1:
+                    axis.set_xticklabels([])
+                    
+                ax[n-1].set_xlabel('time [BJD - 2457000]')
+                
+            # >> save figures
+            if i == 0:
+                fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
+                                 y=0.9)
+                fig.tight_layout()
+                fig.savefig(path + 'lof-largest_' + str(j*n) + 'to' +\
+                            str(j*n + n) + '.png',
+                            bbox_inches='tight')
+                plt.close(fig)
+            elif i == 1:
+                fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
+                                 y=0.9)
+                fig.tight_layout()
+                fig.savefig(path + 'lof-smallest' + str(j*n) + 'to' +\
+                            str(j*n + n) + '.png',
+                            bbox_inches='tight')
+                plt.close(fig)
+            else:
+                fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
+                
+                # >> save figure
+                fig.tight_layout()
+                fig.savefig(path + 'lof-random'+ str(j*n) + 'to' +\
+                            str(j*n + n) +".png", bbox_inches='tight')
+                plt.close(fig) 
+    return
+                
+def plot_lof_with_PSD(savepath, lof, time, intensity, targets, features, n, n_tot=100,
+             momentum_dump_csv = '../../Table_of_momentum_dumps.csv', spoc = True,
+             n_neighbors=20, target_info=False,cross_check_txt=None, single_file=False,
+             n_pgram=1500):
+    """ Plots the most and least interesting light curves based on LOF and their PSD
+    Parameters:
+        * savepath: where you want the subfolder of these to go. assumed to end in /
+        * lof: LOF values for your sample. calculate through run_LOF() in learn_utils.py
+        * time : time axis for the sample
+        * intensity: fluxes for all targets in sample
+        * targets : list of identifiers (TICIDs/otherwise)
+        * features
+        * n : number of curves to plot in each figure
+        * n_tot : total number of light curves to plots (number of figures =
+                  n_tot / n)
+        * momentum_dump_csv: filepath to the momt dump csv file for overplotting
+        
+        
+    Returns: Nothing
+        
+    modified [lcg 02272021 - condensing functionality]
+    """
+    # make folder
+    path = savepath + "lof-with-psd/"
+    try:
+        os.makedirs(path)
+    except OSError:
+        print ("Directory %s already exists" % path)
+    # -- Sort LOF vlaues
+    ranked = np.argsort(lof)
+    largest_indices = ranked[::-1][:n_tot] # >> outliers
+    smallest_indices = ranked[:n_tot] # >> inliers
+    random_inds = list(range(len(lof)))
+    random.Random(4).shuffle(random_inds)
+    random_inds = random_inds[:n_tot] # >> random
+    ncols=3
+    
+    feature_lof = []
+    for i in range(features.shape[1]):
+        clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p)
+        clf.fit_predict(features[:,i].reshape(-1,1))
+        negative_factor = clf.negative_outlier_factor_
+        lof_tmp = -1 * negative_factor    
+        feature_lof.append(lof_tmp) 
+    feature_lof=np.array(feature_lof)
+    # >> has shape (num_features, num_light_curves)
+    freq, tmp = LombScargle(time, intensity[0]).autopower()
+    freq = np.linspace(np.min(freq), np.max(freq), n_pgram) 
+   
+    # >> make histogram of LOF values
+    print('Make LOF histogram')
+    lof_file = path+'lof-histogram.png'
+    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", lof_file)
+
+    # -- momentum dumps ------------------------------------------------------
+    # >> get momentum dump times
+    print('Loading momentum dump times')
+    with open(momentum_dump_csv, 'r') as f:
+        lines = f.readlines()
+        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+        inds = np.nonzero((mom_dumps >= np.min(time)) * \
+                          (mom_dumps <= np.max(time)))
+        mom_dumps = np.array(mom_dumps)[inds]
+        
+    # -- plot cross-identifications -------------------------------------------
+    if cross_check_txt is not None:
+        class_info = df.get_true_classifications(targets, single_file=single_file,
+                                                 database_dir=cross_check_txt,
+                                                 useless_classes=[])        
+        ticid_classified = class_info[:,0].astype('int')
+
+    # -- plot smallest and largest LOF light curves --------------------------
+    print('Plot highest LOF and lowest LOF light curves')
+    num_figs = int(n_tot/n) # >> number of figures to generate
+    for j in range(num_figs):
+        for i in range(3): # >> loop through smallest, largest, random LOF plots
+            fig, ax = plt.subplots(n, ncols, sharex=False,
+                                   figsize = (8*ncols, 3*n))
+            
+            for k in range(n): # >> loop through each row
+                axis = ax[k, 0]
+                
+                if i == 0: ind = largest_indices[j*n + k]
+                elif i == 1: ind = smallest_indices[j*n + k]
+                else: ind = random_inds[j*n + k]
+                
+                # >> plot momentum dumps
+                for t in mom_dumps:
+                    axis.axvline(t, color='g', linestyle='--')
+                    
+                # >> plot light curve
+                axis.plot(time, intensity[ind], '.k')
+                axis.text(0.98, 0.02, '%.3g'%lof[ind],
+                           transform=axis.transAxes,
+                           horizontalalignment='right',
+                           verticalalignment='bottom',
+                           fontsize='xx-small')
+                format_axes(axis, ylabel=True)
+                if spoc:
+                    ticid_label(axis, targets[ind], target_info[ind],
+                                title=True)
+                    if cross_check_txt is not None:
+                        if targets[ind] in ticid_classified:
+                            classified_ind = np.nonzero(ticid_classified == targets[ind])[0][0]
+                            classification_label(axis, targets[ind],
+                                                 class_info[classified_ind])                        
+                        
+                if k != n - 1:
+                    axis.set_xticklabels([])
+                    
+                
+                # >> find the feature this light curve is triggering on
+                feature_ranked = np.argsort(feature_lof[:,ind])
+                ax[k,1].plot(features[:,feature_ranked[-1]],
+                             features[:,feature_ranked[-2]], '.', ms=1)
+                ax[k,1].plot([features[ind,feature_ranked[-1]]],
+                              [features[ind,feature_ranked[-2]]], 'Xg',
+                               ms=30)    
+                ax[k,1].set_xlabel('\u03C6' + str(feature_ranked[-1]))
+                ax[k,1].set_ylabel('\u03C6' + str(feature_ranked[-2])) 
+                    # ax[k,1].set_adjustable("box")
+                    # ax[k,1].set_aspect(1)    
+                #psd
+                power = LombScargle(time, intensity[ind]).power(freq)
+                ax[k,2].plot(freq, power, '-k')
+                ax[k,2].set_ylabel('Power')
+                # ax[k,2].set_xscale('log')
+                ax[k,2].set_yscale('log')
+                    
+            # >> label axes
+            ax[n-1,0].set_xlabel('time [BJD - 2457000]')
+            ax[n-1,2].set_xlabel('Frequency [days^-1]')
+            
+            # >> save figures
+            if i == 0:
+                fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
+                                 y=0.9)
+                fig.tight_layout()
+                fig.savefig(path + 'lof-psd-largest_' + str(j*n) + 'to' +\
+                            str(j*n + n) + '.png',
+                            bbox_inches='tight')
+                plt.close(fig)
+            elif i == 1:
+                fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
+                                 y=0.9)
+                fig.tight_layout()
+                fig.savefig(path + 'lof-psd-smallest' + str(j*n) + 'to' +\
+                            str(j*n + n) + '.png',
+                            bbox_inches='tight')
+                plt.close(fig)
+            else:
+                fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
+                
+                # >> save figure
+                fig.tight_layout()
+                fig.savefig(path + 'lof-psd-random' + str(j*n) + 'to' +\
+                            str(j*n + n) +".png", bbox_inches='tight')
+                plt.close(fig)
+
+def quick_plot_classification(savepath, time, intensity, targets, target_info, labels,
+                              prefix='', title='', ncols=10, nrows=5):
+    '''Plots first 5 light curves in each class to get a general sense of what they look like
+    Parameters:
+        * savepath
+        * time
+        * intensity
+        * target (TICID's)
+        * target_info
+        * labels: from classifier
+        * prefix: whatever you want everythign labelled as - probably name of classifier
+        * title: main plot titles
+        * ncols: default is 10 (classes per page)
+        * nrows: default is 5, LC per class to plot
+        
+        
+    Returns: Nothing'''
+    classes, counts = np.unique(labels, return_counts=True)
+    colors = get_colors()   
+    
+    num_figs = int(np.ceil(len(classes) / ncols))
+    
+    for i in range(num_figs): #
+        fig, ax = plt.subplots(nrows, ncols, sharex=True,
+                               figsize=(8*ncols*0.75, 3*nrows))
+        fig.suptitle(title)
+        
+        if i == num_figs - 1 and len(classes) % ncols != 0:
+            num_classes = len(classes) % ncols
+        else:
+            num_classes = ncols
+        for j in range(num_classes): # >> loop through columns
+            class_num = classes[ncols*i + j]
+            
+            # >> find all light curves with this  class
+            class_inds = np.nonzero(labels == class_num)[0]
+            
+            if class_num == -1:
+                color = 'black'
+            elif class_num < len(colors) - 1:
+                color = colors[class_num]
+            else:
+                color='black'
+              
+            for l in range(0, nrows):
+                ind = class_inds[l]
+                ax[l,j].plot(time, intensity[ind], '.k')
+                ticid_label(ax[l,j], targets[ind], target_info[ind],
+                            title=True, color=color)
+                format_axes(ax[l,j], ylabel=False)
+                
+            ax[0, j].set_title('Class '+str(class_num)+ "# Curves:" + str(counts[j]),
+                               color=color, fontsize='xx-small')
+            ax[-1, j].set_xlabel('Time [BJD - 2457000]')   
+                        
+            if j == 0:
+                for m in range(nrows):
+                    ax[m, 0].set_ylabel('Relative flux')
+                    
+        fig.tight_layout()
+        fig.savefig(path + prefix + '-' + str(i) + '.png')
+        plt.close(fig)
+        
 ##### FEATURE PLOTS #####
 def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, target_info, sigma, version=0, plot=True):
     """ isolate features that are significantly out there and crazy
@@ -362,163 +660,6 @@ def isolate_plot_feature_outliers(path, sector, features, time, flux, ticids, ta
         
     return features_cropped, ticids_cropped, flux_cropped, targetinfo_cropped, outlier_indexes
 
-def features_plotting_2D(feature_vectors, path, clustering,
-                         time, intensity, targets, folder_suffix='',
-                         feature_engineering=True, version=0, eps=0.5, min_samples=10,
-                         metric='euclidean', algorithm='auto', leaf_size=30,
-                         p=2, target_info=False, kmeans_clusters=4,
-                         momentum_dump_csv='./Table_of_momentum_dumps.csv'):
-    """plotting (n 2) features against each other
-    parameters:  
-        * feature_vectors - array of feature vectors
-        * path to where you want everythigns aved - ends in a backslash
-        * clustering - what you want to cluster as. options are 'dbscan', 'kmeans', or 
-        any other keyword which will do no clustering
-        * time axis
-        * intensities
-        *target ticids
-        * folder suffix
-        *feature_engineering - default is true
-        * version - what version of engineered features, irrelevant integer if feature_engienering is false
-        * eps, min_samples, metric, algorithm, leaf_size, p - dbscan parameters, comes with defaults
-        * target_info - default is false
-        *momentum dumps - not sure entirely why it's needed here tbh
-        
-    returns: only returns labels for dbscan/kmeans clustering. otherwise the only
-    output is the files saved into the folder as given thru path
-    """
-    #detrmine which of the clustering algoirthms you're using: 
-    rcParams['figure.figsize'] = 10,10
-    folder_label = "blank"
-    if clustering == 'dbscan':
-        # !! TODO parameter optimization (eps, min_samples)
-        db = DBSCAN(eps=eps, min_samples=min_samples, metric=metric,
-                    algorithm=algorithm, leaf_size=leaf_size,
-                    p=p).fit(feature_vectors) #eps is NOT epochs
-        labels = db.labels_
-        numclasses = str(len(set(classes_dbscan)))
-        folder_label = "dbscan-colored"
-        
-        with open(path + 'dbscan_param_search.txt', 'a') as f:
-            f.write('eps {} min samples {} metric {} algorithm {} \
-                    leaf_size {} p {} # classes {} \n'.format(eps,min_samples,
-                    metric,algorithm, leaf_size, p,numclasses))
-
-    elif clustering == 'kmeans': 
-        Kmean = KMeans(n_clusters=kmeans_clusters, max_iter=700, n_init = 20)
-        x = Kmean.fit(feature_vectors)
-        labels = x.labels_
-        folder_label = "kmeans-colored"
-        
-    elif clustering == 'hdbscan': 
-        import hdbscan
-        clusterer = hdbscan.HDBSCAN(metric=metric, min_samples=3,
-                                    min_cluster_size=3)
-        clusterer.fit(feature_vectors)
-        labels = clusterer.labels_
-        print(np.unique(classes_hdbscan, return_counts=True))
-        folder_label = "hdbscan-colored"        
-        
-    elif clustering == "GMM": 
-        from sklearn.mixture import GaussianMixture
-        gmm = GaussianMixture(n_components=100)
-        labels = gmm.fit_predict(feature_vectors)
-        folder_label = "GMM-colored"
-    else: 
-        print("no clustering chosen")
-        folder_label = "2DFeatures"
-        
-    #makes folder and saves to it    
-    folder_path = path + folder_label
-    try:
-        os.makedirs(folder_path)
-    except OSError:
-        print ("Creation of the directory %s failed, directory already exists" % folder_path)
-
- 
-    if clustering == 'dbscan' or clustering == 'kmeans' or clustering == 'hdbscan' or clustering == 'GMM':
-        plot_classification(time, intensity, targets, labels,
-                            folder_path+'/', prefix=clustering,
-                            momentum_dump_csv=momentum_dump_csv,
-                            target_info=target_info)
-        plot_pca(feature_vectors, labels,
-                    output_dir=folder_path+'/')
-    
- 
-    colors = get_colors()
-    #creates labels based on if engineered features or not
-    if feature_engineering:
-        print("using feature engineering")
-        if version==0:
-            graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-                            "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-                            "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
-            fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                            "P0", "P1", "P2", "Period0to0_1"]
-        elif version == 1: 
-            
-            graph_labels = ["TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
-                            "TLS Best fit Power"]
-            fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
-        elif version == 2:
-            graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-                            "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-                            "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)", "TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
-                            "TLS Best fit Power"]
-            fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                            "P0", "P1", "P2", "Period0to0_1", "TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
-            
-        num_features = len(feature_vectors[0])
-    else:
-        # >> shape(feature_vectors) = [num_samples, num_features]
-        num_features = np.shape(feature_vectors)[1]
-        graph_labels = []
-        fname_labels = []
-        for n in range(num_features):
-            graph_labels.append('\u03C6' + str(n))
-            fname_labels.append('phi'+str(n))
-    
-    for n in range(num_features):
-        #print(n)
-        feat1 = feature_vectors[:,n]
-        graph_label1 = graph_labels[n]
-        fname_label1 = fname_labels[n]
-        for m in range(num_features):
-            #print(m)
-            if m == n:
-                continue
-                #print("skipping repeats")
-            graph_label2 = graph_labels[m]
-            fname_label2 = fname_labels[m]                
-            feat2 = feature_vectors[:,m]
- 
-            if clustering == 'dbscan' or clustering == 'kmeans' or clustering == 'hdbscan' or clustering == 'GMM':
-                plt.figure() # >> [etc 060520]
-                plt.clf()
-                for n in range(len(feature_vectors)):
-                    plt.scatter(feat1[n], feat2[n], c=colors[labels[n]], s=2)
-                plt.xlabel(graph_label1)
-                plt.ylabel(graph_label2)
-                plt.savefig((folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + "-" + clustering + ".png"))
-                # plt.show()
-                plt.close()
-                 
-                
-            else:
-                plt.scatter(feat1, feat2, s = 2, color = 'black')
-                plt.xlabel(graph_label1)
-                plt.ylabel(graph_label2)
-                plt.savefig(folder_path+'/' + fname_label1 + "-vs-" + fname_label2 + ".png")
-                #plt.show()
-                plt.close()
-                
-    if clustering == 'dbscan' or clustering == 'kmeans' or clustering == 'hdbscan' or clustering == 'GMM':
-        np.savetxt(folder_path+"/" + clustering + "-classes.txt", labels)
-        return labels
 
 def features_insets(time, intensity, feature_vectors, targets, path, version = 0):
     """ Plots 2 features against each other with the extrema points' associated
@@ -635,59 +776,7 @@ def inset_plotting(datax, datay, label1, label2, insetx, insety, inset_indexes, 
     plt.savefig(filename)   
     plt.close()
 
-def features_insets_colored(time, intensity, feature_vectors, 
-                            targets, path, realclasses,
-                            eps = 2.4, min_samples=3):
-    """Plots features in pairs against each other with inset plots. 
-    Inset plots are colored based on the hand-identified classes, with the 
-    lines connecting them to the feature point and the feature point colored by
-    the predicted class. 
-    currently only uses dbscan to sort them.
-    Time, intensity, feature_vectors, targets are arrays
-    path is the path into which you want the folder of plots ot be saved, it
-    should not have a trailing /
-    realclasses should be an array. 
-    modified [lcg 06302020]"""   
-    folderpath = path + "/2DFeatures-insets-colored"
-    try:
-        os.makedirs(folderpath)
-    except OSError:
-        print ("Creation of the directory %s failed" % folderpath)
-        print("New folder created will have -new at the end. Please rename.")
-        path = path + "-new"
-        os.makedirs(folderpath)
-    else:
-        print ("Successfully created the directory %s" % folderpath) 
- 
-    graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
-                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
-                            "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
-                            "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)", "TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
-                            "TLS Best fit Power"]
-    fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                            "P0", "P1", "P2", "Period0to0_1", "TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
-            
-    db = DBSCAN(eps=eps, min_samples=min_samples,
-                metric="minkowski", p=2).fit(feature_vectors) #eps is NOT epochs
-    guessclasses = db.labels_
-    
-    for n in range(len(feature_vectors[0])):
-        graph_label1 = graph_labels[n]
-        fname_label1 = fname_labels[n]
-        for m in range(len(feature_vectors[0])):
-            if m == n:
-                continue
-            graph_label2 = graph_labels[m]
-            fname_label2 = fname_labels[m]   
-                      
-            
-            
-            filename = folderpath + "/" + fname_label1 + "-vs-" + fname_label2 + ".png"     
-            
-            inset_indexes = get_extrema(feature_vectors, n,m)
-            inset_plotting_colored(feature_vectors[:,n], feature_vectors[:,m], graph_label1, graph_label2, time, intensity, inset_indexes, targets, filename, realclasses, guessclasses)
-            
+
             
 def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_indexes, targets, filename, realclasses, guessclasses):
     """ Plots the extrema of a 2D feature plot as insets on the top and bottom border
@@ -762,292 +851,11 @@ def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_i
     plt.savefig(filename)
     plt.close()
 
-def histo_features(features, bins, t, intensities, targets, path, insets=False, version=0):
-    """ Plot histograms of each feature, both with and without inset light curves
-    features (array of ALL), bins, time axis, intensities, path to put folder in
-    modified [lcg 07202020]"""
-    folderpath = path + "/feature_histograms_binning_" + str(bins) + "/"
-    try:
-        os.makedirs(folderpath)
-    except OSError:
-        print ("Directory %s already exists" % folderpath)
-    
-    if version==0:
-        fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
-                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
-                            "P0", "P1", "P2", "Period0to0_1"]
-    elif version == 1: 
-        fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
 
-    for n in range(len(features[0])):
-        filename = folderpath + fname_labels[n] + "histogram.png"
-        plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=False)
-        if insets == True:
-            filename = folderpath + fname_labels[n] + "histogram-insets.png"
-            plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=True)
- 
 ##### CLASSIFICATION PLOTS ####
-def KNN_plotting(path, features, k_values):
-    """ This is based on a metric for finding the best possible eps/minsamp
-    value from the original DBSCAN paper (Ester et al 1996). Essentially,
-    by calculating the average distances to the k-nearest neighbors and plotting
-    those values sorted, you can determine by eye (heuristically) the best eps 
-    value. It should be eps value = yaxis value of first valley, and minsamp = k.
-    
-    ** currently uses default values (minkowski p=2) for the n-neighbor search **
-    
-    inputs: 
-        * path to where you want to save the plots
-        * features (should have any significant outliers clipped out)
-        * k_values: array of integers, ie [2,3,5,10] for the k values
-        
-    output: 
-        * plots the KNN curves into the path
-    modified [lcg 08122020 - created]"""
-    from sklearn.neighbors import NearestNeighbors
-    for n in range(len(k_values)):
-        neigh = NearestNeighbors(n_neighbors=k_values[n])
-        neigh.fit(features)
-    
-        k_dist, k_ind = neigh.kneighbors(features, return_distance=True)
-        
-        avg_kdist = np.mean(k_dist, axis=1)
-        avg_kdist_sorted = np.sort(avg_kdist)[::-1]
-        
-        plt.scatter(np.arange(len(features)), avg_kdist_sorted)
-        plt.xlabel("Points")
-        plt.ylabel("Average K-Neighbor Distance")
-        plt.ylim((0, 50))
-        plt.title("K-Neighbor plot for k=" + str(k_values[n]))
-        plt.savefig(path + "kneighbors-" +str(k_values[n]) +"-plot-sorted.png")
-        plt.close()    
+
  
-def plot_lof(time, intensity, targets, features, n, path,
-             momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
-             n_neighbors=20, target_info=False, p=2, metric='minkowski',
-             contamination=0.1, algorithm='auto',
-             prefix='', mock_data=False, addend=1.,
-             n_tot=100, log=False, debug=False, feature_lof=None,
-             bins=50, cross_check_txt=None, single_file=False,
-             fontsize='xx-small', title=True, plot_psd=True, n_pgram=1500):
-    """ Plots the 20 most and least interesting light curves based on LOF.
-    Parameters:
-        * time : array with shape 
-        * intensity
-        * targets : list of TICIDs
-        * n : number of curves to plot in each figure
-        * path : output directory
-        * n_tot : total number of light curves to plots (number of figures =
-                  n_tot / n)
-        * feature vector : assumes x axis is latent dimensions, not time  
-        * mock_data : if True, will not plot TICID label
-        * target_input : [sector, camera, ccd]
-    Outputs:
-        * Text file with TICID in column 1, and LOF in column 2 (lof-*.txt)
-        * Log histogram of LOF (lof-histogram.png)
-        * Top 20 light curves with highest and lowest LOF
-        * Random 20 light curves
-    modified [lcg 07012020 - includes inset histogram plotting]
-    """
-    path = path + "lof/"
-    try:
-        os.makedirs(path)
-    except OSError:
-        print ("Directory %s already exists" % path)
-    # -- calculate LOF -------------------------------------------------------
-    print('Calculating LOF')
-    clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p, metric=metric,
-                             contamination=contamination, algorithm=algorithm)
-    fit_predictor = clf.fit_predict(features)
-    negative_factor = clf.negative_outlier_factor_
-    
-    lof = -1 * negative_factor
-    ranked = np.argsort(lof)
-    largest_indices = ranked[::-1][:n_tot] # >> outliers
-    smallest_indices = ranked[:n_tot] # >> inliers
-    random_inds = list(range(len(lof)))
-    random.Random(4).shuffle(random_inds)
-    random_inds = random_inds[:n_tot] # >> random
-    ncols=1
-    
-    if debug:
-        # >> figure out what the LOF is triggering on
-        ncols=2
-        if type(feature_lof) == type(None):
-            feature_lof = []
-            for i in range(features.shape[1]):
-                clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p)
-                fit_predictor = clf.fit_predict(features[:,i].reshape(-1,1))
-                negative_factor = clf.negative_outlier_factor_
-                lof_tmp = -1 * negative_factor    
-                feature_lof.append(lof_tmp) 
-            feature_lof=np.array(feature_lof)
-            # >> has shape (num_features, num_light_curves)
-            
-        if plot_psd:
-            ncols=3
-            freq, tmp = LombScargle(time, intensity[0]).autopower()
-            freq = np.linspace(np.min(freq), np.max(freq), n_pgram)            
-    
-    # >> save LOF values in txt file
-    print('Saving LOF values')
-    with open(path+'lof-'+prefix+'kneigh' + str(n_neighbors)+'.txt', 'w') as f:
-        for i in range(len(targets)):
-            f.write('{} {}\n'.format(int(targets[i]), lof[i]))
-        f.write("Ten highest LOF\n")
-        for k in range(n):
-            ind = largest_indices[k]
-            f.write(str(targets[ind]) + " " + str(features[ind]) + "\n")
-      
-    # >> make histogram of LOF values
-    print('Make LOF histogram')
-    #plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-     #              targets, path+'lof-'+prefix+'histogram-insets.png',
-      #             insets=True, log=log)
-    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                   targets, path+'lof-'+prefix+'histogram.png', insets=False,
-                   log=log)
 
-    if not mock_data:
-        print('Saving LOF values')
-        with open(path+'lof-'+prefix+'kneigh' + str(n_neighbors)+'.txt', 'w') as f:
-            for i in range(len(targets)):
-                f.write('{} {}\n'.format(int(targets[i]), lof[i]))
-          
-        # >> make histogram of LOF values
-        print('Make LOF histogram')
-        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                       targets, path+'lof-'+prefix+'kneigh' + str(n_neighbors)+\
-                           'histogram-insets.png',
-                       insets=True, log=log)
-        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                       targets, path+'lof-'+prefix+'kneigh' + str(n_neighbors)+\
-                           'histogram.png', insets=False,
-                       log=log)
-
-        
-    # -- momentum dumps ------------------------------------------------------
-    # >> get momentum dump times
-    print('Loading momentum dump times')
-    with open(momentum_dump_csv, 'r') as f:
-        lines = f.readlines()
-        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
-        inds = np.nonzero((mom_dumps >= np.min(time)) * \
-                          (mom_dumps <= np.max(time)))
-        mom_dumps = np.array(mom_dumps)[inds]
-        
-    # -- plot cross-identifications -------------------------------------------
-    if type(cross_check_txt) != type(None):
-        class_info = df.get_true_classifications(targets, single_file=single_file,
-                                                 database_dir=cross_check_txt,
-                                                 useless_classes=[])        
-        ticid_classified = class_info[:,0].astype('int')
-
-    # -- plot smallest and largest LOF light curves --------------------------
-    print('Plot highest LOF and lowest LOF light curves')
-    num_figs = int(n_tot/n) # >> number of figures to generate
-    
-    for j in range(num_figs):
-        
-        for i in range(3): # >> loop through smallest, largest, random LOF plots
-            fig, ax = plt.subplots(n, ncols, sharex=False,
-                                   figsize = (8*ncols, 3*n))
-            
-            for k in range(n): # >> loop through each row
-                if debug:
-                    axis = ax[k, 0]
-                else:
-                    axis = ax[k]
-                
-                if i == 0: ind = largest_indices[j*n + k]
-                elif i == 1: ind = smallest_indices[j*n + k]
-                else: ind = random_inds[j*n + k]
-                
-                # >> plot momentum dumps
-                for t in mom_dumps:
-                    axis.axvline(t, color='g', linestyle='--')
-                    
-                # >> plot light curve
-                axis.plot(time, intensity[ind] + addend, '.k')
-                axis.text(0.98, 0.02, '%.3g'%lof[ind],
-                           transform=axis.transAxes,
-                           horizontalalignment='right',
-                           verticalalignment='bottom',
-                           fontsize=fontsize)
-                format_axes(axis, ylabel=True)
-                if not mock_data:
-                    ticid_label(axis, targets[ind], target_info[ind],
-                                title=True)
-                    if type(cross_check_txt) != type(None):
-                        if targets[ind] in ticid_classified:
-                            classified_ind = np.nonzero(ticid_classified == targets[ind])[0][0]
-                            classification_label(axis, targets[ind],
-                                                 class_info[classified_ind])                        
-                        
-                if k != n - 1:
-                    axis.set_xticklabels([])
-                    
-                if debug:
-                    # >> find the feature this light curve is triggering on
-                    feature_ranked = np.argsort(feature_lof[:,ind])
-                    ax[k,1].plot(features[:,feature_ranked[-1]],
-                                 features[:,feature_ranked[-2]], '.', ms=1)
-                    ax[k,1].plot([features[ind,feature_ranked[-1]]],
-                                  [features[ind,feature_ranked[-2]]], 'Xg',
-                                   ms=30)    
-                    ax[k,1].set_xlabel('\u03C6' + str(feature_ranked[-1]))
-                    ax[k,1].set_ylabel('\u03C6' + str(feature_ranked[-2])) 
-                    # ax[k,1].set_adjustable("box")
-                    # ax[k,1].set_aspect(1)    
-
-                if plot_psd:
-                    power = LombScargle(time, intensity[ind]).power(freq)
-                    ax[k,2].plot(freq, power, '-k')
-                    ax[k,2].set_ylabel('Power')
-                    # ax[k,2].set_xscale('log')
-                    ax[k,2].set_yscale('log')
-                    
-                    
-    
-            # >> label axes
-            if debug:
-                ax[n-1,0].set_xlabel('time [BJD - 2457000]')
-                if plot_psd:
-                    ax[n-1,2].set_xlabel('Frequency [days^-1]')
-            else:
-                ax[n-1].set_xlabel('time [BJD - 2457000]')
-                
-            # >> save figures
-            if i == 0:
-                if title:
-                    fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
-                                 y=0.9)
-                fig.tight_layout()
-                fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
-                            str(n_neighbors) + '-largest_' + str(j*n) + 'to' +\
-                            str(j*n + n) + '.png',
-                            bbox_inches='tight')
-                plt.close(fig)
-            elif i == 1:
-                if title:
-                    fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
-                                 y=0.9)
-                fig.tight_layout()
-                fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
-                            str(n_neighbors) + '-smallest' + str(j*n) + 'to' +\
-                            str(j*n + n) + '.png',
-                            bbox_inches='tight')
-                plt.close(fig)
-            else:
-                if title:
-                    fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
-                
-                # >> save figure
-                fig.tight_layout()
-                fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
-                            + "-random"+ str(j*n) + 'to' +\
-                            str(j*n + n) +".png", bbox_inches='tight')
-                plt.close(fig)                
             
 def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     import pandas as pd
@@ -1260,109 +1068,7 @@ def classification_diagnosis(features, labels_feat, output_dir, prefix='',
                 for l in range(len(label_inds[0])):
                     ax[i,j].lines.remove(ax[i,j].get_lines()[-1]) 
     
-def quick_plot_classification(time, intensity, targets, target_info, features, labels,
-                              path='./', prefix='', addend=1.,
-                              simbad_database_txt='./simbad_database.txt',
-                              title='', ncols=10, nrows=5,
-                              database_dir='./databases/', single_file=False):
-    '''Unfinished. Aim is to give an overview of the classifications, by
-    plotting the first 5 light curves of each class. Any light curves
-    classified by Simbad will be plotted first in their respective classes.'''
-    classes, counts = np.unique(labels, return_counts=True)
-    # colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
-    #         'skyblue', 'sienna', 'palegreen', 'darksalmon', 'sandybrown',
-    #         'lightsalmon', 'lightslategray', 'fuchsia', 'deeppink', 'crimson']*10
-    colors = get_colors()
-    
-    # class_info = df.get_simbad_classifications(targets, simbad_database_txt)
-    # ticid_classified = np.array(simbad_info)[:,0].astype('int')    
-    class_info = df.get_true_classifications(targets,
-                                             database_dir=database_dir,
-                                             single_file=single_file)
-    ticid_classified = class_info[:,0].astype('int')
-    
-    num_figs = int(np.ceil(len(classes) / ncols))
-    features_greek = [r'$\alpha$', 'B', r'$\Gamma$', r'$\Delta$', r'$\beta$', r'$\gamma$',r'$\delta$',
-                  "E", r'$\epsilon$', "Z", "H", r'$\eta$', r'$\Theta$', "I", "K", r'$\Lambda$', "M", r'$\mu$'
-                  ,"N", r'$\nu$']
-    
-    for i in range(num_figs): #
-        fig, ax = plt.subplots(nrows, ncols, sharex=True,
-                               figsize=(8*ncols*0.75, 3*nrows))
-        fig.suptitle(title)
-        
-        if i == num_figs - 1 and len(classes) % ncols != 0:
-            num_classes = len(classes) % ncols
-        else:
-            num_classes = ncols
-        for j in range(num_classes): # >> loop through columns
-            class_num = classes[ncols*i + j]
-            
-            # >> find all light curves with this  class
-            class_inds = np.nonzero(labels == class_num)[0]
-            
-            # >> find light curves with this class and with true classifications
-            # inds = np.isin(ticid_simbad, targets[class_inds])
-            inds = np.isin(targets[class_inds], ticid_classified)
-            classified_inds = class_inds[np.nonzero(inds)]
-            not_classified_inds = class_inds[np.nonzero(~inds)]
-            
-            if class_num == -1:
-                color = 'black'
-            elif class_num < len(colors) - 1:
-                color = colors[class_num]
-            else:
-                color='black'
-                
-            k=-1
-            # >> first plot any Simbad classified light curves
-            for k in range(min(nrows, len(classified_inds))): 
-                ind = classified_inds[k] # >> to index targets
-                classified_ind = np.nonzero(ticid_classified == targets[ind])[0][0]
-                ax[k, j].plot(time, intensity[ind]+addend, '.k')
-                # simbad_label(ax[k,j], targets[ind], simbad_info[simbad_ind])
-                classification_label(ax[k,j], targets[ind],
-                                     class_info[classified_ind])
-                ticid_label(ax[k, j], targets[ind], target_info[ind],
-                            title=True, color=color)
-                format_axes(ax[k, j], ylabel=True)
-            
-            # >> now plot non-classified light curves
-            for l in range(k+1, min(nrows, len(not_classified_inds))):
-                ind = not_classified_inds[l]
-                ax[l,j].plot(time, intensity[ind]+addend, '.k')
-                ticid_label(ax[l,j], targets[ind], target_info[ind],
-                            title=True, color=color)
-                format_axes(ax[l,j], ylabel=False)
-                
-            # ax[0, j].set_title('Class ' + str(class_num), color=color)   
-                
-            #get median features for the class
-                #which feature vectors do i need
-                #get only those feature vectors
-                #take median and convert to string
-            relevant_feats  =[]
-            for k in range(len(labels)):
-                if labels[k] == class_num:
-                    relevant_feats.append(int(k))
-            #index just this list 
-            features_byclass = features[relevant_feats]
-            med_features = np.median(features_byclass, axis=0)
-            med_string = str(med_features)
-            ax[0, j].set_title('Class '+str(class_num)+ "# Curves:" + str(counts[j]) +
-                               '\n Median Features:' + med_string + 
-                               "\n"+ax[0,j].get_title(),
-                               color=color, fontsize='xx-small')
-            ax[-1, j].set_xlabel('Time [BJD - 2457000]')   
-                        
-            if j == 0:
-                for m in range(nrows):
-                    ax[m, 0].set_ylabel('Relative flux')
-                    
-        fig.tight_layout()
-        fig.savefig(path + prefix + '-' + str(i) + '.png')
-        # fig.savefig(path + prefix + '-' + str(i) + '.pdf')
-        plt.close(fig)
+
 
 def plot_classification(time, intensity, targets, labels, path,
                         momentum_dump_csv = './Table_of_momentum_dumps.csv',
@@ -1373,9 +1079,7 @@ def plot_classification(time, intensity, targets, labels, path,
     """
 
     classes, counts = np.unique(labels, return_counts=True)
-    # !!
-    colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
-            'skyblue', 'sienna', 'palegreen']*10
+    colors = get_colors()
     
     # >> get momentum dump times
     with open(momentum_dump_csv, 'r') as f:
@@ -1432,30 +1136,15 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./', prefix=''):
     import pandas as pd
     pca = PCA(n_components=n_components)
     principalComponents = pca.fit_transform(bottleneck)
-    # principalDf = pd.DataFrame(data = principalComponents,
-    #                            columns=['principal component 1',
-    #                                     'principal component 2'])
     fig, ax = plt.subplots()
     ax.set_ylabel('Principal Component 1')
     ax.set_xlabel('Principal Component 2')
     ax.set_title('2 component PCA')
-    # colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
-    #     'skyblue', 'sienna', 'palegreen']*10
     colors = get_colors() 
     # >> loop through classes
     class_labels = np.unique(classes)
     for i in range(len(class_labels)):
         inds = np.nonzero(classes == class_labels[i])
-        # if class_labels[i] == 0:
-        #     color='r'
-        # elif class_labels[i] == 1:
-        #     color = 'b'
-        # elif class_labels[i] == 2:
-        #     color='g'
-        # elif class_labels[i] == 3:
-        #     color='m'
-        # else:
-        #     color='k'
         if class_labels[i] == -1:
             color = 'black'
         elif class_labels[i] < len(colors)-1:
@@ -2566,4 +2255,308 @@ def sector_dists(data_dir, sector, output_dir='./', figsize=(3,3)):
     fig1.tight_layout()
     fig.savefig(output_dir+'Sector_dists.png')
         
+##### HELPERS #######
+def ENF_labels(version = 0):
+        if version==0:
+            graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                            "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                            "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)"]
+            fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                            "P0", "P1", "P2", "Period0to0_1"]
+        elif version == 1: 
+            graph_labels = ["TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
+                            "TLS Best fit Power"]
+            fname_labels = ["TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+        elif version == 2:
+            graph_labels = ["Average", "Variance", "Skewness", "Kurtosis", "Log Variance",
+                            "Log Skewness", "Log Kurtosis", "Maximum Power", "Log Maximum Power", 
+                            "Period of Maximum Power (0.1 to 10 days)","Slope" , "Log Slope",
+                            "P0", "P1", "P2", "Period of Maximum Power (0.001 to 0.1 days)", "TLS Best fit Period (days)", "TLS Best fit duration (days)", "TLS best fit depth (ppt from transit bottom",
+                            "TLS Best fit Power"]
+            fname_labels = ["Avg", "Var", "Skew", "Kurt", "LogVar", "LogSkew", "LogKurt",
+                            "MaxPower", "LogMaxPower", "Period0_1to10", "Slope", "LogSlope",
+                            "P0", "P1", "P2", "Period0to0_1", "TLSPeriod", "TLSDuration", "TLSDepth", "TLSPower"]
+        return graph_labels, fname_labels
+    
+def CAE_labels(num_features):
+        graph_labels = []
+        fname_labels = []
+        for n in range(num_features):
+            graph_labels.append('\u03C6' + str(n))
+            fname_labels.append('phi'+str(n))
+        return graph_labels, fname_labels
+    
+def get_colors():
+    '''Returns list of 125 colors for plotting against white background1.
+    now removes black from the list and tacks it onto the end (so that when
+    indexing -1 will make the noise points black
+    modified [lcg 08052020 changing pos. of black to end]'''
+    from matplotlib import colors as mcolors
+    import random
+    colors = dict(mcolors.BASE_COLORS, **mcolors.CSS4_COLORS)
+    
+    # Sort colors by hue, saturation, value and name.
+    by_hsv = sorted((tuple(mcolors.rgb_to_hsv(mcolors.to_rgba(color)[:3])), name)
+                    for name, color in colors.items())
+    sorted_names = [name for hsv, name in by_hsv]
+    
+    # >> get rid of light colors
+    bad_colors = ['lightgray', 'lightgrey', 'gainsboro', 'whitesmoke', 'white',
+                  'snow', 'mistyrose', 'seashell', 'peachpuff', 'linen',
+                  'bisque', 'antiquewhite', 'blanchedalmond', 'papayawhip',
+                  'moccasin', 'oldlace', 'floralwhite', 'cornsilk',
+                  'lemonchiffon', 'ivory', 'beige', 'lightyellow',
+                  'lightgoldenrodyellow', 'honeydew', 'mintcream',
+                  'azure', 'lightcyan', 'aliceblue', 'ghostwhite', 'lavender',
+                  'lavenderblush', 'black']
+    for i in range(len(bad_colors)):
+        ind = sorted_names.index(bad_colors[i])
+        sorted_names.pop(ind)
         
+    # >> now shuffle
+    random.Random(4).shuffle(sorted_names)
+    sorted_names = sorted_names*20
+    
+    sorted_names.append('black')
+    return sorted_names
+def astroquery_pull_data(target, breaks=True):
+    """Give a TIC ID - ID /only/, any format is fine, it'll get converted to str
+    Searches the TIC catalog and pulls: 
+        T_eff
+        object type
+        gaia magnitude
+        radius
+        mass
+        distance
+    returns a plot title string
+    modified: [lcg 06302020]"""
+    try: 
+        catalog_data = Catalogs.query_object("TIC " + str(int(target)), radius=0.02, catalog="TIC")
+        #https://arxiv.org/pdf/1905.10694.pdf
+        Tmag = np.round(catalog_data[0]["Tmag"], 2)
+        T_eff = np.round(catalog_data[0]["Teff"], 0)
+        obj_type = catalog_data[0]["objType"]
+        gaia_mag = np.round(catalog_data[0]["GAIAmag"], 2)
+        radius = np.round(catalog_data[0]["rad"], 2)
+        mass = np.round(catalog_data[0]["mass"], 2)
+        distance = np.round(catalog_data[0]["d"], 1)
+        if breaks:
+            title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + ", Tmag: " + str(Tmag) + "\n Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+        else: 
+             title = "T_eff:" + str(T_eff) + "," + str(obj_type) + ", G: " + str(gaia_mag) + ", Tmag: " + str(Tmag) + "Dist: " + str(distance) + ", R:" + str(radius) + " M:" + str(mass)
+    except (ConnectionError, OSError, TimeoutError):
+        print("there was a connection error!")
+        title = "Connection error, no data"
+    return title
+
+def get_extrema(feature_vectors, feat1, feat2):
+    """ Identifies the extrema in each direction for the pair of features given. 
+    Eliminates any duplicate extrema (ie, the xmax that is also the ymax)
+    Returns array of unique indexes of the extrema
+    modified [lcg 07082020]"""
+    indexes = []
+    index_feat1 = np.argsort(feature_vectors[:,feat1])
+    index_feat2 = np.argsort(feature_vectors[:,feat2])
+    
+    indexes.append(index_feat1[0]) #xmin
+    indexes.append(index_feat2[-1]) #ymax
+    indexes.append(index_feat2[-2]) #second ymax
+    indexes.append(index_feat1[-2]) #second xmax
+    
+    indexes.append(index_feat1[1]) #second xmin
+    indexes.append(index_feat2[1]) #second ymin
+    indexes.append(index_feat2[0]) #ymin
+    indexes.append(index_feat1[-1]) #xmax
+    
+    indexes.append(index_feat1[-3]) #third xmax
+    indexes.append(index_feat2[-3]) #third ymax
+    indexes.append(index_feat1[2]) #third xmin
+    indexes.append(index_feat2[2]) #third ymin
+
+    indexes_unique, ind_order = np.unique(np.asarray(indexes), return_index=True)
+    #fixes the ordering of stuff
+    indexes_unique = [np.asarray(indexes)[index] for index in sorted(ind_order)]
+    
+    return indexes_unique      
+
+def plot_histogram(data, bins, x_label, filename, insetx = None, insety = None, targets = None, 
+                   insets=True, log=True, multix = False):
+    """ 
+    Plot a histogram with one light curve from each bin plotted on top
+    * Data is the histogram data
+    * Bins is bins for the histogram
+    * x_label for the x-axis of the histogram
+    * insetx is the xaxis to plot. 
+        * if multix is False, assume that the xaxis is the same for all, 
+        * if multix is True, each intensity has a specific time axis
+    * insety is the full list of light curves
+    * filename is the exact place you want it saved
+    * insets is a true/false of if you want them
+    * log is true/false if you want the histogram on a logarithmic scale
+    modified [lcg 12302020]
+    """
+    fig, ax1 = plt.subplots()
+    n_in, bins, patches = ax1.hist(data, bins, log=log)
+    
+    y_range = np.abs(n_in.max() - n_in.min())
+    x_range = np.abs(data.max() - data.min())
+    ax1.set_ylabel('Number of light curves')
+    ax1.set_xlabel(x_label)
+    
+    if insets == True:
+        for n in range(len(n_in)):
+            if n_in[n] == 0: 
+                continue
+            else: 
+                axis_name = "axins" + str(n)
+                inset_width = 0.33 * x_range * 0.5
+                inset_x = bins[n] - (0.5*inset_width)
+                inset_y = n_in[n]
+                inset_height = 0.125 * y_range * 0.5
+                    
+                axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
+                
+                lc_to_plot = insetx
+                
+                #identify a light curve from that one
+                for m in range(len(data)):
+                    #print(bins[n], bins[n+1])
+                    if bins[n] <= data[m] <= bins[n+1]:
+                        #print(data[m], m)
+                        if multix:
+                            lc_time_to_plot = insetx[m]
+                        else:
+                            lc_time_to_plot = insetx
+                        lc_to_plot = insety[m]
+                        lc_ticid = targets[m]
+                        break
+                    else: 
+                        continue
+                
+                axis_name.scatter(lc_time_to_plot, lc_to_plot, c='black', s = 0.1, rasterized=True)
+                try:
+                    axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=6)
+                except ValueError:
+                    axis_name.set_title(lc_ticid, fontsize=6)
+    plt.savefig(filename)
+    plt.close()
+
+def plot_lygos(t, intensity, error, title):
+    mean = np.mean(intensity)
+    mean_error = np.mean(error)
+    print(mean, mean_error)
+    
+    sigclip = SigmaClip(sigma=5, maxiters=None, cenfunc='median')
+    clipped_inds = np.nonzero(np.ma.getmask(sigclip(intensity)))
+    intensity[clipped_inds] = mean
+    
+    plt.scatter(t, intensity)
+    plt.title(title)
+    plt.show()
+    plt.errorbar(t, intensity, yerr = error, fmt = 'o', markersize = 0.1)
+    plt.show()
+    
+def ticid_label(ax, ticid, target_info, title=False, color='black',
+                fontsize='xx-small'):
+    '''Query catalog data and add text to axis.
+    Parameters:
+        * target_info : [sector, camera, ccd, data_type, cadence]
+    TODO: use Simbad classifications and other cross-checking database
+    classifications'''
+    try:
+        # >> query catalog data
+        target, Teff, rad, mass, GAIAmag, d, objType, Tmag = \
+            df.get_tess_features(ticid)
+        # features = np.array(df.get_tess_features(ticid))[1:]
+
+        # >> change sigfigs for effective temperature
+        if np.isnan(Teff):
+            Teff = 'nan'
+        else: Teff = '%.4d'%Teff
+        
+        # >> query sector, camera, ccd
+        sector, cam, ccd = target_info[:3]
+        data_type = target_info[3]
+        cadence = target_info[4]
+        # obj_name = 'TIC ' + str(int(ticid))
+        # obj_table = Tesscut.get_sectors(obj_name)
+        # ind = np.nonzero(obj_table['sector']==sector)
+        # cam = obj_table['camera'][ind][0]
+        # ccd = obj_table['ccd'][ind][0]
+    
+        info = target+'\nTeff {}\nrad {}\nmass {}\nG {}\nd {}\nO {}\nTmag {}'
+        info1 = target+', Sector {}, Cam {}, CCD {}, {}, Cadence {},\n' +\
+            'Teff {}, rad {}, mass {}, G {}, d {}, O {}, Tmag {}'
+        
+        
+        # >> make text
+        if title:
+            ax.set_title(info1.format(sector, cam, ccd, data_type, cadence,
+                                      Teff, '%.2g'%rad, '%.2g'%mass,
+                                      '%.3g'%GAIAmag, '%.3g'%d, objType,
+                                      '%.3g'%Tmag),
+                         fontsize=fontsize, color=color)
+        else:
+            ax.text(0.98, 0.98, info.format(Teff, '%.2g'%rad, '%.2g'%mass, 
+                                            '%.3g'%GAIAmag, '%.3g'%d, objType,
+                                            Tmag),
+                      transform=ax.transAxes, horizontalalignment='right',
+                      verticalalignment='top', fontsize=fontsize)
+    except (ConnectionError, OSError, TimeoutError):
+        print("there was a connection error!")
+        ax.text(0.98, 0.98, "there was a connection error",
+                      transform=ax.transAxes, horizontalalignment='right',
+                      verticalalignment='top', fontsize=fontsize)
+            
+def simbad_label(ax, ticid, simbad_info):
+    '''simbad_info = [ticid, main_id, otype, bibcode]'''
+    # ind = np.nonzero(np.array(simbad_info)[:,0].astype('int') == ticid)
+    # if np.shape(ind)[1] != 0:
+    #     ticid, main_id, otype, bibcode = simbad_info[ind[0][0]]
+    ticid, main_id, otype, bibcode = simbad_info
+    ax.text(0.98, 0.98, 'otype: '+otype+'\nmain_id: '+main_id+'\n'+bibcode,
+            transform=ax.transAxes, fontsize='xx-small',
+            horizontalalignment='right', verticalalignment='top')
+    
+def classification_label(ax, ticid, classification_info, fontsize='xx-small'):
+    '''classification_info = [ticid, otype, main id]'''
+    ticid, otype, bibcode = classification_info
+    ax.text(0.98, 0.98, 'otype: '+otype+'\nmaind_id: '+bibcode,
+            transform=ax.transAxes, fontsize=fontsize,
+            horizontalalignment='right', verticalalignment='top')
+    
+def format_axes(ax, xlabel=False, ylabel=False):
+    def make_parent_dict():
+    d = {'EB': ['Al', 'bL', 'WU', 'EP', 'SB'],
+         'ACV': ['ACVO'],
+         'D': ['DM', 'DS', 'DW'],
+         'K': ['KE', 'KW'],
+         'Ir': ['Or', 'RI', 'IA', 'IB', 'INA', 'INB'],
+         'Pu': ['RR', 'Ce', 'dS', 'RV', 'WV', 'bC', 'cC', 'gD', 'SX'],
+         'sg': ['s*r', 's*y', 's*b'],
+         'Er': ['Fl', 'FU', 'RC'],
+         'Ro': ['a2', 'Psr', 'BY', 'RS'],
+         'Em': ['Be']
+         }
+    return d
+    '''Helper function to plot TESS light curves. Aspect ratio is 3/8.
+    Parameters:
+        * ax : matplotlib axis'''
+    # >> force aspect = 3/8
+    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    ax.set_aspect(abs((xlim[1]-xlim[0])/(ylim[1]-ylim[0])*(3./8.)))
+    # ax.set_aspect(3./8., adjustable='box')
+    
+    if list(ax.get_xticklabels()) == []:
+        ax.tick_params('x', bottom=False) # >> remove ticks if no label
+    else:
+        ax.tick_params('x', labelsize='small')
+    ax.tick_params('y', labelsize='small')
+    ax.ticklabel_format(useOffset=False)
+    if xlabel:
+        ax.set_xlabel('Time [BJD - 2457000]')
+    if ylabel:
+        ax.set_ylabel('Relative flux')           
+          

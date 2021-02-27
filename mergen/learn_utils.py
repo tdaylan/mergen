@@ -37,13 +37,13 @@ def run_GMM(features, n_components = 2):
     GMM = GaussianMixture(n_components=n_components, random_state=0).fit(features)
     return GMM
     
-def run_LOF(features, n_neighbors = 20, p = 2, metric = 'minkowski', contamination =0.1,
+def run_LOF(features, n_neighbors = 20, p = 2, metric = 'minkowski', contamination = 0.1,
             algorithm = 'auto'):
     from sklearn.neighbors import LocalOutlierFactor
     
     clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p, metric=metric,
                              contamination=contamination, algorithm=algorithm)
-    #fit_predictor = clf.fit_predict(features)
+    clf.fit_predict(features)
     negative_factor = clf.negative_outlier_factor_
     
     lof = -1 * negative_factor
@@ -51,6 +51,41 @@ def run_LOF(features, n_neighbors = 20, p = 2, metric = 'minkowski', contaminati
     
     
 ##### PARAM SCANS #####
+def KNN_plotting(savepath, features, k_values):
+    """ This is based on a metric for finding the best possible eps/minsamp
+    value from the original DBSCAN paper (Ester et al 1996). By calculating the
+    average distances to the k-nearest neighbors and plotting
+    those values sorted, you can determine heuristically the best eps 
+    value. It should be eps value = yaxis value of first valley, and min_samp = k.
+    
+    Parameters:
+        * savepath: location for folder of plots to be saved into
+        * features
+        * k_values: list of k-values (min_samples) to test
+            ie, [2,3,4,10]
+    Returns: nothing"""
+    folderpath = savepath + "/KNN_plotting/"
+    try:
+        os.makedirs(folderpath)
+    except OSError:
+        print ("Directory %s already exists" % folderpath)
+    
+    from sklearn.neighbors import NearestNeighbors
+    for n in range(len(k_values)):
+        neigh = NearestNeighbors(n_neighbors=k_values[n])
+        neigh.fit(features)
+        k_dist, k_ind = neigh.kneighbors(features, return_distance=True)
+
+        avg_kdist_sorted = np.sort(np.mean(k_dist, axis=1))[::-1]
+        
+        plt.scatter(np.arange(len(features)), avg_kdist_sorted)
+        plt.xlabel("Points")
+        plt.ylabel("Average K-Neighbor Distance")
+        plt.ylim((0, 30))
+        plt.title("K-Neighbor plot for k=" + str(k_values[n]))
+        plt.savefig(folderpath + "kneighbors-" +str(k_values[n]) +"-plot-sorted.png")
+        plt.close()    
+    return
 def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                         eps=list(np.arange(0.1,1.5,0.1)),
                         min_samples=[5],
