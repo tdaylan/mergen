@@ -30,6 +30,12 @@ from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
 #from astropy.utils.exceptions import AstropyWarning, RemoteServiceError
 
+#astropquery
+import astroquery
+from astroquery.simbad import Simbad
+from astroquery.mast import Catalogs
+from astroquery.mast import Observations
+
 #sklearn - possibly only import where needed
 import sklearn
 from sklearn.cluster import KMeans
@@ -40,11 +46,9 @@ from sklearn import metrics
 from sklearn.metrics import confusion_matrix
 from sklearn.neighbors import LocalOutlierFactor
 
-#astropquery
-import astroquery
-from astroquery.simbad import Simbad
-from astroquery.mast import Catalogs
-from astroquery.mast import Observations
+#tensorflow
+import tensorflow as tf
+from tf_keras_vis.saliency import Saliency
 
 #not sure these need to import here?
 #import data_functions as df

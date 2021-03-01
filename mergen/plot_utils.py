@@ -9,12 +9,16 @@ Plotting functions only.
 Last updated: Feb 26 2021
 
 User Functions:
-    * features_plotting_2D() n-choose-2 plots of pairs of features against each other. 
-        can be color coded based on classification results. 
-    * features2D_with_insets() same as features_plotting_2D but with insets of the extrema light curves
+    * features_plotting_2D() n-choose-2 plots of pairs of features against each
+      other. 
+        * can be color coded based on classification results. 
+    * features2D_with_insets() same as features_plotting_2D but with insets of
+      the extrema light curves
     * histo_features() produces histograms of all features
-    * plot_lof() plots the n top, bottom, and random light curves ranked on their LOF scores
-    * plot_lof_with_PSD() same as above with PSD plotted + indication of triggered feature in the LOF
+    * plot_lof() plots the n top, bottom, and random light curves ranked on
+      their LOF scores
+    * plot_lof_with_PSD() same as above with PSD plotted + indication of
+      triggered feature in the LOF
     * quick_plot_classification() to plot the first n in each class
 
 To Do List: 
@@ -28,9 +32,13 @@ To Do List:
     
 
 """
-from init import *
+from __init__ import *
 
-####### Forward-Facing Functions ##########
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :: Forward-Facing Visualizations :::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def features_plotting_2D(savepath, features, labels = None, engineered_features = True, version = 0,
                          clustering = 'unclustered', plot_LC_classes = None):
@@ -789,10 +797,11 @@ def inset_plotting_colored(datax, datay, label1, label2, insetx, insety, inset_i
     plt.close()
 
 
-##### CLASSIFICATION PLOTS ####
-
- 
-
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :: Classification plots ::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
             
 def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     import pandas as pd
@@ -1094,8 +1103,59 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./', prefix=''):
     fig.savefig(output_dir + prefix + 'PCA_plot.png')
     plt.close(fig)
 
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# :: Machine Learning Visualizations :::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-########## CAE PLOTS ############
+def plot_saliency_map(model, time, x_train, ticid_train, ticid_target,
+                      bottleneck_name='bottleneck', feat=0, smooth_samples=20,
+                      smooth_noise=0.20, output_dir='./', prefix=''):
+    '''Uses Saliency from https://pypi.org/project/tf-keras-vis/
+    Args:
+    * model : Keras Model()
+    * feat : dimension of latent space
+    '''
+    
+    def model_modifier(current_model):
+        target_layer = current_model.get_layer(name=bottleneck_name)
+        new_model = tf.keras.Model(inputs=current_model.inputs,
+                                   outputs=target_layer.output)
+        new_model.layers[-1].activation = tf.keras.activations.linear
+        return new_model
+
+    def loss(output):
+        res = []
+        for i in range(len(ticid_target)):
+            res.append(output[i][feat])
+        return res
+
+    # >> get light curves to plot
+    ticid_target, inds, _ = np.intersect1d(ticid_train, ticid_target,
+                                           return_indices=True)
+    X = x_train[inds]
+
+    # >> make saliency map
+    saliency = Saliency(model, model_modifier=model_modifier, clone=False)
+    saliency_map = saliency(loss, X, smooth_samples=smooth_samples,
+                            smooth_noise=smooth_noise, keepdims=True)
+    saliency_map = dt.standardize(saliency_map)
+
+    # >> plot saliency map
+    fig, ax = plt.subplots(1, len(ticid_target),
+                           figsize=(6*len(ticid_target), 3))
+    for i in range(len(ticid_target)):
+        for j in range(len(time)-1):
+            ax.axvspan(time[j], time[j+1], alpha=0.2,
+                       facecolor=plt.cm.jet(saliency_map[i][j]))
+
+        ax[i].plot(time, X[i], '.k', ms=1)
+        format_axes(ax[i], xlabel=True, ylabel=True)
+
+    fig.savefig(output_dir+prefix+'saliency.png')
+    
+    
   
 def diagnostic_plots(history, model, p, output_dir, 
                      x, x_train, x_test, x_predict, 
@@ -2458,26 +2518,14 @@ def simbad_label(ax, ticid, simbad_info):
             horizontalalignment='right', verticalalignment='top')
     
 def classification_label(ax, ticid, classification_info, fontsize='xx-small'):
-    '''classification_info = [ticid, otype, main id]'''
+    '''classification_info = [ticid, otype, main id]
+    TODO'''
     ticid, otype, bibcode = classification_info
     ax.text(0.98, 0.98, 'otype: '+otype+'\nmaind_id: '+bibcode,
             transform=ax.transAxes, fontsize=fontsize,
             horizontalalignment='right', verticalalignment='top')
     
 def format_axes(ax, xlabel=False, ylabel=False):
-    def make_parent_dict():
-    d = {'EB': ['Al', 'bL', 'WU', 'EP', 'SB'],
-         'ACV': ['ACVO'],
-         'D': ['DM', 'DS', 'DW'],
-         'K': ['KE', 'KW'],
-         'Ir': ['Or', 'RI', 'IA', 'IB', 'INA', 'INB'],
-         'Pu': ['RR', 'Ce', 'dS', 'RV', 'WV', 'bC', 'cC', 'gD', 'SX'],
-         'sg': ['s*r', 's*y', 's*b'],
-         'Er': ['Fl', 'FU', 'RC'],
-         'Ro': ['a2', 'Psr', 'BY', 'RS'],
-         'Em': ['Be']
-         }
-    return d
     '''Helper function to plot TESS light curves. Aspect ratio is 3/8.
     Parameters:
         * ax : matplotlib axis'''
