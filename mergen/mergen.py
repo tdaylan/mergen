@@ -17,10 +17,23 @@ import learning_utils as lt
 import plot_utils as pt
 import feature_utils as ft
 
+#mg = mergen()
+#mg.folder_initiate()
+#mg.intensities
 
 class mergen(object):
     """ Main mergen class. Initialize this to work with everything else conveniently. """
     def __init__(self, datapath, savepath, datatype, momentum_dump_csv, filelabel = None):
+        """Creates mergen object from which most common routines can easily be run
+        Parameters:
+            * datapath: string, where any data is being stored
+            * savepath: string, where the subfolders should be saved into
+            * datatype: string, indicates type of data being worked with. options are: 
+                "SPOC", "FFI-Lygos", "FFI-QLP", "FFI-eleanor"
+            * momentum_dump_csv: string, path to csv containing TESS momentum dumps (local)
+            * filelabel: string, if you want to have all plots/files/folders labelled specially
+        
+        """
         self.datapath = datapath
         self.savepath = savepath
         self.datatype = datatype #SPOC or FFI
@@ -55,6 +68,9 @@ class mergen(object):
         #figure out consistent stuff for FFI original locations
         if self.datatype == "FFI-Lygos":
             self.times, self.intensities, self.errors, self.identifiers = dt.load_all_lygos(self.datapath)
+        elif self.datatype == "SPOC":
+            #whatever this is
+            k = 0
         
         
             
@@ -88,5 +104,8 @@ class mergen(object):
     def generate_CAE(self):
         """Run CAE feature creation """
         #EMMA FILL THIS IN
+        return
+    
+    def run_all(self):
         return
 
