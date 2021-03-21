@@ -87,8 +87,6 @@ import talos
 # from keras import metrics
 # from keras.utils.generic_utils import get_custom_objects
 
-
-
 def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                               sector=1, mock_data=False,
                               validation_targets=[219107776],
@@ -315,6 +313,8 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                                     
         return flux_train, flux_test, x_train, x_test, ticid_train, ticid_test,\
             target_info_train, target_info_test, rms_train, rms_test, time, time_plot
+
+
 
 def bottleneck_preprocessing(sector, flux, ticid, target_info,
                              rms=None,
@@ -1286,6 +1286,206 @@ def variational_autoencoder(x_train, y_train, x_test, y_test, params):
                       validation_data=validation_data)
 
     return history, vae, encoder
+
+def run_cvae(x_train, y_train, x_test, y_test, params, save_model=True,
+             predict=False, output_dir='', prefix='', ticid_train=None,
+             ticid_test=None, target_info_train=None,
+             target_info_test=None):
+    history, model = conv_variational_autoencoder(x_train, y_train, x_test,
+                                                  y_test, params)
+
+    if save_model: model.save(output_dir + prefix + 'model.hdf5')      
+
+    res = [model, history]
+
+    if save_bottleneck:
+        print('Getting bottlneck...')
+        bottleneck_train = \
+            get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
+                           out=output_dir+prefix+'bottleneck_train.fits')
+        if len(x_test) > 0:
+            bottleneck = get_bottleneck(model, x_test, params, save=True,
+                                        ticid=ticid_test,
+                                        out=output_dir+prefix+'bottleneck_test.fits')    
+        else:
+            bottleneck=np.empty((0,params['latent_dim']))
+            hdr=  fits.Header()
+            hdu = fits.PrimaryHDU(bottleneck, header=hdr)
+            hdu.writeto(output_dir+prefix+'bottleneck_test.fits')
+            fits.append(output_dir+prefix+'bottleneck_test.fits', ticid_test)
+            
+        res.append(bottleneck_train)
+        res.append(bottleneck)
+
+    if predict:
+        print('Getting x_predict...')
+        if len(x_test) > 0:
+            x_predict = model.predict(x_test)      
+            hdr = fits.Header()
+            if concat_ext_feats:
+                hdu = fits.PrimaryHDU(x_predict[0], header=hdr)
+            else:
+                hdu = fits.PrimaryHDU(x_predict, header=hdr)
+            hdu.writeto(output_dir+prefix+'x_predict.fits')
+            fits.append(output_dir+prefix+'x_predict.fits', ticid_test)
+            model_summary_txt(output_dir+prefix, model)
+        else:
+            x_predict = None
+        res.append(x_predict)
+
+        x_predict_train = model.predict(x_train)      
+        hdr = fits.Header()
+        if concat_ext_feats:
+            hdu = fits.PrimaryHDU(x_predict_train[0], header=hdr)
+        else:
+            hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
+        hdu.writeto(output_dir+prefix+'x_predict_train.fits')
+        fits.append(output_dir+prefix+'x_predict_train.fits', ticid_train)
+        model_summary_txt(output_dir+prefix, model)         
+        res.append(x_predict_train)
+        param_summary(history, x_train, x_test, x_predict_train, x_predict,
+                      params, output_dir+prefix, 0,'')            
+
+
+
+def conv_variational_autoencoder(x_train, y_train, x_test, y_test, params):
+    
+    input_dim = np.shape(x_train)[1]    
+    num_iter = int(params['num_conv_layers']/2)
+    
+    if type(params['num_filters']) == np.int:
+        params['num_filters'] = list(np.repeat(params['num_filters'], num_iter))
+    if type(params['num_consecutive']) == np.int:
+        params['num_consecutive'] = list(np.repeat(params['num_consecutive'],
+                                                   num_iter))
+    # -- encoder ---------------------------------------------------------------
+    inputs = Input(shape = (input_dim,))
+    x = Reshape((input_dim, 1))(inputs)
+    
+    for i in range(num_iter):
+        for j in range(params['num_consecutive'][i]):
+            x = Conv1D(params['num_filters'][i], int(params['kernel_size']),
+                    padding='same',
+                    kernel_initializer=params['initializer'],
+                    strides=params['strides'],
+                    kernel_regularizer=params['kernel_regularizer'],
+                    bias_regularizer=params['bias_regularizer'],
+                    activity_regularizer=params['activity_regularizer'])(x)        
+
+        if params['batch_norm']: x = BatchNormalization()(x)
+
+        x = Activation(params['activation'])(x)            
+        x = MaxPooling1D(params['pool_size'], padding='same')(x)
+        x = Dropout(params['dropout'])(x)
+
+    x = Flatten()(x)
+
+    x = Dense(params['latent_dim'], activation=params['activation'],
+              kernel_initializer=params['initializer'])(x)
+    z_mean = Dense(params['latent_dim'])(x)
+    z_log_sigma = Dense(params['latent_dim'])(x)
+    z = Lambda(sampling, name='bottleneck')([z_mean, z_log_sigma, params])
+    encoder = Model(inputs, [z_mean, z_log_sigma, z])
+    encoder.summary()
+
+    # -- decoder ---------------------------------------------------------------
+    latent_inputs = Input(shape=(params['latent_dim'],))
+    x = latent_inputs
+
+
+    reduction_factor = params['pool_size'] * params['strides']**params['num_consecutive'][0] 
+    tot_reduction_factor = reduction_factor**num_iter
+    x = Dense(int(input_dim*params['num_filters'][-1]/tot_reduction_factor),
+              kernel_initializer=params['initializer'],
+              kernel_regularizer=params['kernel_regularizer'],
+              bias_regularizer=params['bias_regularizer'],
+              activity_regularizer=params['activity_regularizer'])(x) 
+    x = Reshape((int(input_dim/tot_reduction_factor),
+                  params['num_filters'][-1]))(x)
+
+    for i in np.arange(num_iter):
+        if params['batch_norm']: x = BatchNormalization()(x)        
+        x = UpSampling1D(params['pool_size'])(x)
+        for j in range(params['num_consecutive'][-1*i - 1]):
+            
+            # >> last layer
+            if i == num_iter-1 and j == params['num_consecutive'][-1*i - 1]-1 \
+                and not params['fully_conv']:
+                
+                if params['strides'] == 1: # >> faster than Conv1Dtranspose
+                    x = Conv1D(1, int(params['kernel_size']),
+                                      padding='same', strides=params['strides'],
+                                      kernel_initializer=params['initializer'],
+                                      kernel_regularizer=params['kernel_regularizer'],
+                                      bias_regularizer=params['bias_regularizer'],
+                                      activity_regularizer=params['activity_regularizer'])(x)  
+                    
+                
+                else:
+                    x = Conv1DTranspose(x, 1, int(params['kernel_size']),
+                                padding='same',
+                                strides=params['strides'],
+                                kernel_initializer=params['initializer'],
+                                kernel_regularizer=params['kernel_regularizer'],
+                                bias_regularizer=params['bias_regularizer'],
+                          activity_regularizer=params['activity_regularizer'])
+                    
+                x = BatchNormalization()(x)
+                decoded = Activation(params['last_activation'])(x)
+                decoded = Reshape((input_dim,))(decoded)
+
+            else:
+                
+                if params['strides'] == 1:
+                    x = Conv1D(params['num_filters'][-1*i - 1],
+                                int(params['kernel_size']),padding='same',
+                                strides=params['strides'],
+                                kernel_initializer=params['initializer'],
+                                kernel_regularizer=params['kernel_regularizer'],
+                                bias_regularizer=params['bias_regularizer'],
+                                activity_regularizer=params['activity_regularizer'])(x)   
+                else:
+                    x = Conv1DTranspose(x, params['num_filters'][-1*i - 1],
+                                int(params['kernel_size']), padding='same',
+                                strides=params['strides'],
+                                kernel_initializer=params['initializer'],
+                                kernel_regularizer=params['kernel_regularizer'],
+                                bias_regularizer=params['bias_regularizer'],
+                                activity_regularizer=params['activity_regularizer'])
+                x = BatchNormalization()(x)
+                x = Activation(params['activation'])(x)
+
+
+    x = Reshape((input_dim,))(x)
+
+    if params['batch_norm']: x = BatchNormalization()(x)    
+    decoder_outputs = Dense(input_dim, activation=params['last_activation'],
+                            kernel_initializer=params['initializer'])(x)
+    decoder = Model(latent_inputs, decoder_outputs)
+    decoder.summary()    
+
+    # -- instantiate VAE model -------------------------------------------------
+    outputs = decoder(encoder(inputs)[2])
+    vae = Model(inputs, outputs)
+    reconstruction_loss = tf.keras.losses.binary_crossentropy(inputs, outputs)
+    reconstruction_loss *= input_dim
+    kl_loss = 1 + z_log_sigma - K.square(z_mean) - K.exp(z_log_sigma)
+    kl_loss = K.sum(kl_loss, axis=-1)
+    kl_loss *= -0.5
+    vae_loss = K.mean(reconstruction_loss + kl_loss)
+    vae.add_loss(vae_loss)
+    vae.compile(optimizer='adam')
+
+    if type(x_test)==type(None):
+        validation_data=None
+    else:
+        validation_data=(x_test,x_test)
+    history = vae.fit(x_train, x_train, epochs=params['epochs'],
+                      batch_size=params['batch_size'], shuffle=True,
+                      validation_data=validation_data)
+
+    return history, vae
+
 
 def sampling(args):
     z_mean, z_log_sigma, params = args
@@ -2310,6 +2510,28 @@ def get_high_freq_mock_data(p=None, dataset_size=10000, train_test_ratio=0.9,
 # :: Miscellaneous ML helper functions :::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+def model_modifier(m, bottleneck_ind):
+    new_input = Input(shape = (m.layers[0].output.shape[1],))
+    x = new_input
+    for i in range(1, bottleneck_ind+1):
+        x = m.layers[i](x)
+    new_model = Model(new_input, x)
+
+    new_model.layers[-1].activation = tf.keras.activations.linear
+
+    return new_model
+
+def loss(output):
+    return (output[0][0], output[1][0], output[2][0])
+
+def make_X(flux_train, ticid_train, ticid=[89305963, 147200394, 350716053]):
+    X = []
+    for i in ticid:
+        ind = np.nonzero(ticid_train == float(i))[0][0]
+        X.append(flux_train[ind])
+    return np.array(X)
+
 
 def get_activations(model, x_test, input_rms = False, rms_test = False,
                     ind=None):

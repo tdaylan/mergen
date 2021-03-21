@@ -13,7 +13,7 @@ sector_list = [[6], [7], [8], [9], [10], [11], [12], [13],
 # sector_list = [[15], [16], [21], [22]]
 
 
-sector_list = [[23]]
+sector_list = [[1]]
 
 # sector_list=[[16]]
 
@@ -29,7 +29,7 @@ for sectors in sector_list:
 
         # !!
         # output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_'+str(sectors[0])+'/'
-        output_dir = '/nfs/blender/data/tdaylan/Mergen_Run_1/'+\
+        output_dir = '/nfs/blender/data/tdaylan/Mergen_Run_2/'+\
                      'Ensemble-Sector_'+str(sectors[0])+'/'
 
         # mom_dump = '/nfs/ger/home/echickle/data/Table_of_momentum_dumps.csv'
@@ -70,7 +70,7 @@ for sectors in sector_list:
     # >> what this script will run:
     preprocessing = True
     hyperparameter_optimization = False # >> run hyperparameter search
-    run_model = False # >> train autoencoder with parameter set p
+    run_model = True # >> train autoencoder with parameter set p
     save_model_epoch = False
     diag_plots = False # >> creates diagnostic plots
 
@@ -345,14 +345,18 @@ for sectors in sector_list:
     if run_model:
         gc.collect()
         print('Training autoencoder...') 
-        history, model, bottleneck_train, bottleneck, x_predict = \
-            ml.conv_autoencoder(x_train, x_train, x_test, x_test, p, val=False,
-                                split=split_at_orbit_gap,
-                                ticid_train=ticid_train, ticid_test=ticid_test,
-                                save_model=True, predict=True,
-                                save_bottleneck=True,
-                                output_dir=output_dir,
-                                model_init=model_init, train=True) 
+        z = ml.run_cvae(x_train, x_train, x_test, x_test, p, save_model=True,
+                        predict=True, output_dir=output_dir, ticid_train=ticid_train,
+                        ticid_test=ticid_test, target_info_train=target_info_train,
+                        target_info_test=target_info_test)
+        # history, model, bottleneck_train, bottleneck, x_predict = \
+        #     ml.conv_autoencoder(x_train, x_train, x_test, x_test, p, val=False,
+        #                         split=split_at_orbit_gap,
+        #                         ticid_train=ticid_train, ticid_test=ticid_test,
+        #                         save_model=True, predict=True,
+        #                         save_bottleneck=True,
+        #                         output_dir=output_dir,
+        #                         model_init=model_init, train=True) 
 
         if split_at_orbit_gap:
             x_train = np.concatenate(x_train, axis=1)
@@ -376,6 +380,8 @@ for sectors in sector_list:
         else:
             model = load_model(output_dir+'model')
         plot_epoch = False
+
+    pdb.set_trace()
 
 
     # == Plots ====================================================================
