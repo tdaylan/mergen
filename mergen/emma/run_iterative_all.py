@@ -29,7 +29,9 @@ for sectors in sector_list:
 
         # !!
         # output_dir = '/nfs/ger/home/echickle/Ensemble-Sector_'+str(sectors[0])+'/'
-        output_dir = '/nfs/blender/data/tdaylan/Mergen_Run_2/'+\
+        # output_dir = '/nfs/blender/data/tdaylan/Mergen_Run_2/'+\
+        #              'Ensemble-Sector_'+str(sectors[0])+'/'
+        output_dir = '/nfs/blender/data/tdaylan/Mergen_Run_1/'+\
                      'Ensemble-Sector_'+str(sectors[0])+'/'
 
         # mom_dump = '/nfs/ger/home/echickle/data/Table_of_momentum_dumps.csv'
@@ -341,6 +343,16 @@ for sectors in sector_list:
     #                                                        output_dir,
     #                                                        supervised=False)
 
+
+    model = load_model(output_dir+'iteration0-model.hdf5')
+    import sys
+    sys.path.insert(0, '../')
+    import plot_utils as pu
+    pu.plot_saliency_map(model, time, x_train, ticid_train, ticid_train[:3],
+                         bottleneck_name='dense', feat=0, output_dir='../../../',
+                         prefix='sal_test-')
+
+    pdb.set_trace()
     # == run model ================================================================
     if run_model:
         gc.collect()
