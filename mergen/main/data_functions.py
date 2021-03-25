@@ -2342,7 +2342,107 @@ def make_parent_dict():
                'XPRM', 'XM', 'XRM', 'XN','XNA','XNGP','XPM','XPNG',
                'XNP'],
          }    
-    return d
+
+    parents = list(d.keys())
+
+    # >> turn into array
+    subclasses = []
+    for parent in parents:
+        subclasses.extend(d[parent])
+
+    return d, parents, subclasses
+
+def make_variability_tree():
+    var_d = {'eruptive':
+         ['Fl', 'BE', 'FU', 'GCAS', 'I', 'IA', 'IB', 'IN', 'INA', 'INB', 'INT,IT',
+          'IN(YY)', 'IS', 'ISA', 'ISB', 'RCB', 'RS', 'SDOR', 'UV', 'UV', 'UVN',
+          'WR', 'INTIT', 'GCAS'],
+         'pulsating':
+             ['Pu', 'ACYG', 'BCEP', 'BCEPS', 'BLBOO', 'CEP', 'CEP(B)', 'CW', 'CWA',
+              'CWB', 'DCEP', 'DCEPS', 'DSCT', 'DSCTC', 'GDOR', 'L', 'LB', 'LC',
+              'LPB', 'M', 'PVTEL', 'RPHS', 'RR', 'RR(B)', 'RRAB', 'RRC', 'RV',
+              'RVA', 'RVB', 'SR', 'SRA', 'SRB' 'SRC', 'SRD', 'SRS', 'SXPHE',
+              'ZZ', 'ZZA', 'ZZB', 'ZZO'],
+         'rotating': ['ACV', 'ACVO', 'BY', 'ELL', 'FKCOM', 'PSR',
+                      'R', 'SXARI'],
+         'cataclysmic':
+             ['N', 'NA', 'NB', 'NC', 'NL', 'NR', 'SN', 'SNI', 'SNII', 'UG',
+              'UGSS', 'UGSU', 'UGZ', 'ZAND'],
+         'eclipsing':
+             ['E', 'EA', 'EB', 'EP', 'EW', 'GS', 'PN', 'RS', 'WD', 'WR', 'AR',
+              'D', 'DM', 'DS', 'DW', 'K', 'KE', 'KW', 'SD'],
+             'xray':
+             ['AM', 'X', 'XB', 'XF', 'XI', 'XJ', 'XND', 'XNG', 'XP', 'XPR', 'XPRM',
+              'XM'],
+             'other': ['VAR']} 
+    return var_d
+
+def make_redundant_otype_dict():
+    # >> keys are redundant object types, and will be removed if star is also
+    # >> classified as any of the associated dictionary values
+    var_d = make_variability_tree()
+
+    d = {'**': var_d['eclipsing']+['R'],
+         'E':  ['EA', 'EB', 'EP', 'EW', 'GS', 'PN', 'RS', 'WD', 'WR', 'AR', 'D',
+                'DM', 'DS', 'DW', 'K', 'KE', 'KW', 'SD'],
+         'Er': var_d['eruptive'],
+         'ROT': var_d['rotating'],
+         'Ro': var_d['rotating'],
+         'Pu': var_d['pulsating'],
+         'L': var_d['eruptive']+var_d['rotating']+\
+         var_d['cataclysmic']+var_d['eclipsing']+var_d['xray']+var_d['other']+\
+        ['Pu', 'ACYG', 'BCEP', 'BCEPS', 'BLBOO', 'CEP', 'CEP(B)', 'CW', 'CWA',
+              'CWB', 'DCEP', 'DCEPS', 'DSCT', 'DSCTC', 'GDOR', 'LB', 'LC',
+              'LPB', 'M', 'PVTEL', 'RPHS', 'RR', 'RR(B)', 'RRAB', 'RRC', 'RV',
+              'RVA', 'RVB', 'SR', 'SRA', 'SRB' 'SRC', 'SRD', 'SRS', 'SXPHE',
+              'ZZ', 'ZZA', 'ZZB', 'ZZO'],
+         'LP': var_d['eruptive']+var_d['pulsating']+var_d['rotating']+\
+         var_d['cataclysmic']+var_d['eclipsing']+var_d['xray']+var_d['other'],
+         'RR': ['CEP']
+         }
+    parents = list(d.keys())
+
+    # >> turn into array
+    subclasses = []
+    for parent in parents:
+        subclasses.extend(d[parent])
+
+    return d, parents, subclasses
+
+
+def merge_otype(otype_list):
+
+    # >> merge classes
+    parent_dict, parents, subclasses = make_parent_dict()
+
+    new_otype_list = []
+    for otype in otype_list:
+        if otype in subclasses:
+            # >> find parent
+            for parent in parents:
+                if otype in parent_dict[parent]:
+                    new_otype = parent
+            new_otype_list.append(new_otype)
+        else:
+            new_otype_list.append(otype)
+    otype_list = new_otype_list
+
+    # >> remove redundant classes 
+    redundant_dict, parents, subclasses = make_redundant_otype_dict()
+    new_otype_list = []
+    for otype in otype_list:
+        if otype in parents:
+            if len(np.intersect1d(redundant_dict[otype], otype_list))>0:
+                new_otype_list.append('')
+            else:
+                new_otype_list.append(otype)
+        else:
+            new_otype_list.append(otype)    
+
+            
+    otype_list = np.unique(new_otype_list).astype('str')
+    otype = np.delete(otype, np.where(otype == ''))
+    return otype_list
 
 
 def get_parent_otypes(ticid, otypes, remove_classes=['PM','IR','UV','X']):
@@ -2465,11 +2565,33 @@ def get_parents_only(class_info, parent_dict=None,
     
     return new_class_info
 
-def make_remove_class_list():
+def make_remove_class_list(simbad=False, rmv_flagged=True):
     '''Currently, our pipeline can only do clustering based on photometric data.
     So classes that require spectroscopic data, etc. are removed.'''
-    l = ['PM', 'IR', 'UV', 'X', 'nan', 'VAR']
-    return l
+    rmv = ['PM', 'IR', 'nan', 'V', 'VAR', 'As', 'SB', 'LM', 'blu', 'EmO', 'S',
+           ]
+    sequence_descriptors = ['AB', 'HS', 'BS', 'YSO', 'Y', 'sg', 'BD', 's*b']
+
+    if simbad:
+        rmv.append('UV')
+
+    if rmv_flagged:
+        flagged = make_flagged_class_list()
+    else:
+        flagged = []
+
+    return rmv+sequence_descriptors+flagged
+
+def make_flagged_class_list():
+
+    # >> section 5bc of GCVS classifications: eclipsing systems classified
+    # >> based on physical characteristics rather than shape of light curve
+    eclip = ['GS', 'PN', 'RS', 'WD', 'WR', 'AR', 'D', 'DM', 'DS', 'DW', 'K',
+             'KE', 'KW', 'SD'] 
+
+    flagged = ['Em', 'Pe']
+
+    return eclip+flagged
 
 def make_true_label_txt(data_dir, sector):
     '''Combine Sector*_simbad.txt, Sector*_GCVS.txt, and Sector*_asassn.txt
@@ -2479,65 +2601,75 @@ def make_true_label_txt(data_dir, sector):
                        +'_v1.txt')[:,0]
     otypes = {key: [] for key in ticid} # >> initialize
 
-    # >> GCVS
-    with open(prefix+'gcvs.txt', 'r') as f:
-        lines = f.readlines()
-        for i in range(len(lines)):
-            tic, otype, main_id = lines[i].split(',')
-            otype_list = otype.split('|')
-            otypes[float(tic)] += otype_list
+    otypes = read_otype_txt(otypes, prefix+'gcvs.txt', data_dir)
+    otypes = read_otype_txt(otypes, prefix+'asassn.txt', data_dir)
+    otypes = read_otype_txt(otypes, prefix+'simbad.txt', data_dir, simbad=True)
 
-    # >> ASAS-SN
-    with open(prefix+'asassn.txt', 'r') as f:
-        lines = f.readlines()
-        for i in range(len(lines)):
-            tic, otype, main_id = lines[i].split(',')
-            otype = otype.replace('+', '|')
-            otype_list = otype.split('|')
-            otypes[float(tic)] += otype_list
 
-    # >> SIMBAD
-    with open(data_dir+'simbad_gcvs_label.txt', 'r') as f:
-        lines = f.readlines()
-    otype_dict = {}
-    for line in lines:
-        otype, otype_gcvs = line.split(' = ')
-        otype_gcvs = otype_gcvs.replace('\n', '')
-        otype_dict[otype] = otype_gcvs
-
-    rmv_classes = make_remove_class_list()
-    with open(prefix+'simbad.txt', 'r') as f:
-        lines = f.readlines()
-        for i in range(len(lines)):
-            tic, otype, main_id = lines[i].split(',')
-            otype = otype.replace('+', '|')
-            otype_list = otype.split('|')
-            otype_list_new = []
-            for o in otype_list:
-                if len(o) > 0 and o != '**':
-                    if o[-1] in [':', '?', '*']:
-                        # >> remove uncertainty flags
-                        o = o[:-1]
-                    if '(' in o:                 # >> remove (B) flags
-                        o = o[:o.index('(')]
-                    if o in list(otype_dict.keys()): # >> use GCVS nomenclature
-                        o = otype_dict[o]
-                    if o in rmv_classes:
-                        o = ''
-                # if o == 'LB:':
-                #     pdb.set_trace()
-                otype_list_new.append(o)
-            otypes[float(tic)] += otype_list_new
-
+    pdb.set_trace()
     # >> save to text file
     out = prefix+'true_labels.txt'
     with open(out, 'w') as f:
-        for i in range(len(lines)):
-            otype = np.unique(otypes[ticid[i]]).astype('str')
-            otype = np.delete(otype, np.where(otype == ''))
+        for i in range(len(ticid)):
+            # >> merge classes
+            otype = merge_otype(otypes[ticid[i]])
             otype = '|'.join(otype)
             f.write(str(int(ticid[i]))+','+otype+'\n')    
             
+def read_otype_txt(otypes, otype_txt, data_dir, simbad=False, add_chars=['+', '/'],
+                   uncertainty_flags=[':', '?', '*']):
+
+    rmv_classes = make_remove_class_list(simbad=simbad)
+
+    if simbad:
+        with open(data_dir+'simbad_gcvs_label.txt', 'r') as f:
+            lines = f.readlines()
+        otype_dict = {}
+        for line in lines:
+            otype, otype_gcvs = line.split(' = ')
+            otype_gcvs = otype_gcvs.replace('\n', '')
+            otype_dict[otype] = otype_gcvs
+
+    with open(otype_txt, 'r') as f:
+        lines = f.readlines()
+        for i in range(len(lines)):
+            tic, otype, main_id = lines[i].split(',')
+
+            # >> make list of labels
+            for char in add_chars:
+                otype = otype.replace(char, '|')
+            otype_list = otype.split('|')
+
+            # >> remove unceratinty flags
+            otype_list_new = []
+            stop=False
+            for o in otype_list:
+                if o == 'UGSU':
+                    stop=True
+                if len(o) > 0 and o != '**':
+                    # >> remove uncertainty flags
+                    if o[-1] in uncertainty_flags:
+                        o = o[:-1]
+                    if '(' in o: # >> remove (B) flag
+                        o = o[:o.index('(')]
+
+                    # >> convert to GCVS nomenclature
+                    if simbad and o in list(otype_dict.keys()): 
+                        o = otype_dict[o]
+
+                    # >> remove classes that require external information
+                    if o in rmv_classes:
+                        o = ''
+                    otype_list_new.append(o)
+
+            otypes[float(tic)] = np.unique(otype_list_new)
+
+    return otypes
+
+
+
+
+
 def correct_simbad_to_vizier(in_f='./SectorX_simbad.txt',
                              out_f='./SectorX_simbad_revised.txt',
                              simbad_gcvs_conversion='./simbad_gcvs_label.txt',

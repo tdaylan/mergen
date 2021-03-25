@@ -1459,8 +1459,9 @@ def conv_variational_autoencoder(x_train, y_train, x_test, y_test, params):
     x = Reshape((input_dim,))(x)
 
     if params['batch_norm']: x = BatchNormalization()(x)    
-    decoder_outputs = Dense(input_dim, activation=params['last_activation'],
-                            kernel_initializer=params['initializer'])(x)
+    decoder_outputs = x
+    # decoder_outputs = Dense(input_dim, activation=params['last_activation'],
+    #                         kernel_initializer=params['initializer'])(x)
     decoder = Model(latent_inputs, decoder_outputs)
     decoder.summary()    
 
