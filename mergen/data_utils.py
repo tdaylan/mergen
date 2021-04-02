@@ -196,14 +196,16 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
                                       apply_nan_mask=apply_nan_mask)
             
 def bulk_download_helper(yourpath, shell_script):
-    '''If bulk download failed / need to start where you left off. Can also be
-    used to go back and check you have all the light curves from a sector.
+    '''Downloads all the light curves for a sector. Can also be used to go back
+    and check you have all the light curves from a sector.
     Parameters:
         * yourpath : directory to save .fits files in, contains shell_script
         * shell_script : file name for shell script (tesscurl_sector_*_lc.sh)
           from http://archive.stsci.edu/tess/bulk_downloads.html
     e.g. bulk_download_helper('./tessdata_sector_18/',
                               'tesscurl_sector_18_lc.sh')
+    TODO:
+    * modify to handle 30-min cadence data
     '''
     import fnmatch as fm
     with open(yourpath+shell_script, 'r') as f:

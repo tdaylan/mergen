@@ -1115,7 +1115,12 @@ def plot_saliency_map(model, time, x_train, ticid_train, ticid_target,
     '''Uses Saliency from https://pypi.org/project/tf-keras-vis/
     Args:
     * model : Keras Model()
-    * feat : dimension of latent space
+    * time, x_train, ticid_train
+    * ticid_target : list of TICIDs to plot attention maps for
+    * bottleneck_name : name of Keras layer (usually 'dense' or 'bottleneck')
+    * feat : dimension of latent space (integer)
+    * smooth_samples : number of calculating grdaients iterations
+    * smooth_noise : noise spread level
     '''
     
     def model_modifier(current_model):
@@ -1140,21 +1145,36 @@ def plot_saliency_map(model, time, x_train, ticid_train, ticid_target,
     saliency = Saliency(model, model_modifier=model_modifier, clone=False)
     saliency_map = saliency(loss, X, smooth_samples=smooth_samples,
                             smooth_noise=smooth_noise, keepdims=True)
-    saliency_map = dt.standardize(saliency_map)
+    saliency_map = saliency_map - np.min(saliency_map, axis=1, keepdims=True)
+    saliency_map = saliency_map / np.max(saliency_map, axis=1, keepdims=True)
 
     # >> plot saliency map
     fig, ax = plt.subplots(1, len(ticid_target),
                            figsize=(6*len(ticid_target), 3))
     for i in range(len(ticid_target)):
         for j in range(len(time)-1):
-            ax.axvspan(time[j], time[j+1], alpha=0.2,
+            ax[i].axvspan(time[j], time[j+1], alpha=0.2,
                        facecolor=plt.cm.jet(saliency_map[i][j]))
 
         ax[i].plot(time, X[i], '.k', ms=1)
         format_axes(ax[i], xlabel=True, ylabel=True)
-
-    fig.savefig(output_dir+prefix+'saliency.png')
+  
+    fig.tight_layout()
+    fig.savefig(output_dir+prefix+'saliency_overlay_feat'+str(feat)+'.png')
+    plt.close(fig)
     
+    fig, ax = plt.subplots(2, len(ticid_target),
+                           figsize=(6*len(ticid_target), 6))
+    for i in range(len(ticid_target)):
+        ax[0][i].plot(time, X[i], '.k', ms=1)
+        ax[1][i].plot(time, saliency_map[i], '.k', ms=1)
+        format_axes(ax[0][i], xlabel=True, ylabel=True)
+        format_axes(ax[1][i], xlabel=True, ylabel=False)
+        ax[1][i].set_ylabel('Attention', fontsize='small')
+  
+    fig.tight_layout()
+    fig.savefig(output_dir+prefix+'saliency_feat'+str(feat)+'.png')
+    plt.close(fig)
     
   
 def diagnostic_plots(history, model, p, output_dir, 

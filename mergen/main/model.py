@@ -1468,12 +1468,13 @@ def conv_variational_autoencoder(x_train, y_train, x_test, y_test, params):
     # -- instantiate VAE model -------------------------------------------------
     outputs = decoder(encoder(inputs)[2])
     vae = Model(inputs, outputs)
-    reconstruction_loss = tf.keras.losses.binary_crossentropy(inputs, outputs)
+    reconstruction_loss = tf.keras.losses.mean_squared_error(inputs, outputs)
     reconstruction_loss *= input_dim
     kl_loss = 1 + z_log_sigma - K.square(z_mean) - K.exp(z_log_sigma)
     kl_loss = K.sum(kl_loss, axis=-1)
     kl_loss *= -0.5
-    vae_loss = K.mean(reconstruction_loss + kl_loss)
+    # vae_loss = K.mean(reconstruction_loss + kl_loss)
+    vae_loss = K.mean(reconstruction_loss)
     vae.add_loss(vae_loss)
     vae.compile(optimizer='adam')
 

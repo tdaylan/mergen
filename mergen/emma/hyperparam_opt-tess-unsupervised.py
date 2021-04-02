@@ -39,7 +39,7 @@ single_file = False
 # database_dir = output_dir + 'all_simbad_classifications.txt'
 simbad_database_dir = ''
 # >> input data
-sectors = [4]
+sectors = [1]
 cams = [1,2,3,4]
 ccds = [[1,2,3,4]]*4
 fast=False
@@ -48,7 +48,7 @@ n_components=200
 
 # model_init = output_dir + 'model'
 model_init = None
-load_saved_model = False
+load_saved_model = True
 load_weights = False
 weights_path = output_dir+'model.hdf5'
 

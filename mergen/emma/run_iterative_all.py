@@ -344,15 +344,15 @@ for sectors in sector_list:
     #                                                        supervised=False)
 
 
-    model = load_model(output_dir+'iteration0-model.hdf5')
-    import sys
-    sys.path.insert(0, '../')
-    import plot_utils as pu
-    pu.plot_saliency_map(model, time, x_train, ticid_train, ticid_train[:3],
-                         bottleneck_name='dense', feat=0, output_dir='../../../',
-                         prefix='sal_test-')
+    # model = load_model(output_dir+'iteration0-model.hdf5')
+    # import sys
+    # sys.path.insert(0, '../')
+    # import plot_utils as pu
+    # pu.plot_saliency_map(model, time, x_train, ticid_train, ticid_train[:3],
+    #                      bottleneck_name='dense', feat=0, output_dir='../../../',
+    #                      prefix='sal_test-')
 
-    pdb.set_trace()
+    # pdb.set_trace()
     # == run model ================================================================
     if run_model:
         gc.collect()
