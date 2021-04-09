@@ -9,36 +9,34 @@ To Do List:
     - Set up pipeline function (kind of a run-all thing)
 """
 
-import data_utils as dt
-import catalog_utils as ct
-import learning_utils as lt
-import plot_utils as pt
-import feature_utils as ft
+from .__init__ import *
+from . import data_utils as dt
+from . import catalog_utils as ct
+from . import learn_utils as lt
+from . import plot_utils as pt
+from . import feature_utils as ft
 
 #mg = mergen()
 #mg.folder_initiate()
 #mg.intensities
 
 class mergen(object):
-    """
-    Main mergen class. Initialize this to work with everything else conveniently.
-    """
-
-    def __init__(self, datapath, savepath, datatype, momentum_dump_csv, filelabel = None):
-        """
-        Create mergen object from which most common routines are run
+    """ Main mergen class. Initialize this to work with everything else conveniently. """
+    def __init__(self, datapath, savepath, datatype, mdumpcsv, filelabel = None):
+        """Creates mergen object from which most common routines can easily be run
         Parameters:
             * datapath: string, where any data are being stored
             * savepath: string, where the subfolders should be saved into
             * datatype: string, indicates type of data being worked with. options are: 'SPOC' and 'FFI-lygos'
-            * momentum_dump_csv: string, path to csv containing TESS momentum dumps (local)
+            * mdumpcsv: string, path to csv containing TESS momentum dumps (local)
             * filelabel: string, if you want to have all plots/files/folders labelled specially
         """
         
         self.datapath = datapath
         self.savepath = savepath
         self.datatype = datatype #SPOC or FFI
-        self.mdumpcsv = momentum_dump_csv
+        # self.mdumpcsv = datapath + 'Table_of_momentum_dumps.csv'
+        self.mdumpcsv = mdumpcsv
         if filelabel is not None:
             self.filelabel = filelabel
         else:
@@ -92,13 +90,15 @@ class mergen(object):
             ### EMMA FILL THIS IN
             k = 6
         return
-
-    def generate_engineered(self, version=0, save=True):
-        """ Run engineered feature creation"""
-        
-        self.features = ft.create_save_featvec_homogenous_time(self.ENFpath, self.times, self.intensities, \
-                                                               self.filelabel, version=version, save=save)
     
+    def generate_engineered(self, version = 0, save = True):
+        """ Run engineered feature creation"""
+        self.features = ft.create_save_featvec_homogenous_time(self.ENFpath,
+                                                               self.times, 
+                                                               self.intensities,
+                                                               self.filelabel,
+                                                               version=version,
+                                                               save=save)
         return
 
     def generate_CAE(self):

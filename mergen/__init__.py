@@ -1,4 +1,6 @@
 #
+# from mergen import *
+
 #utilities
 import numpy as np
 import numpy.ma as ma 
@@ -7,6 +9,7 @@ from datetime import datetime
 import os
 import shutil
 import fnmatch
+import pdb
 
 #plotting
 import matplotlib.pyplot as plt
