@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Thu Oct  8 20:27:13 2020
 
@@ -10,7 +9,6 @@ To Do List:
     - Set up pipeline function (kind of a run-all thing)
 """
 
-from init import *
 import data_utils as dt
 import catalog_utils as ct
 import learning_utils as lt
@@ -22,18 +20,21 @@ import feature_utils as ft
 #mg.intensities
 
 class mergen(object):
-    """ Main mergen class. Initialize this to work with everything else conveniently. """
+    """
+    Main mergen class. Initialize this to work with everything else conveniently.
+    """
+
     def __init__(self, datapath, savepath, datatype, momentum_dump_csv, filelabel = None):
-        """Creates mergen object from which most common routines can easily be run
+        """
+        Create mergen object from which most common routines are run
         Parameters:
-            * datapath: string, where any data is being stored
+            * datapath: string, where any data are being stored
             * savepath: string, where the subfolders should be saved into
-            * datatype: string, indicates type of data being worked with. options are: 
-                "SPOC", "FFI-Lygos", "FFI-QLP", "FFI-eleanor"
+            * datatype: string, indicates type of data being worked with. options are: 'SPOC' and 'FFI-lygos'
             * momentum_dump_csv: string, path to csv containing TESS momentum dumps (local)
             * filelabel: string, if you want to have all plots/files/folders labelled specially
-        
         """
+        
         self.datapath = datapath
         self.savepath = savepath
         self.datatype = datatype #SPOC or FFI
@@ -45,8 +46,8 @@ class mergen(object):
         
         self.folder_initiate()
     
-    def folder_initiate(self):
-        """Makes all the big folders"""
+    def initiate_folder(self):
+        """Make all the big folders"""
         print("Setting up CAE folder")
         self.CAEpath = self.savepath + "CAE/"
         try:
@@ -61,9 +62,9 @@ class mergen(object):
         except OSError:
             print ("Directory %s already exists" % self.ENFpath)
         return
-    
+
     def load_lightcurves_local(self):
-        """Loads in data saved in metafiles on datapath"""
+        """Load in data saved in metafiles on datapath"""
         #check for self.datatype to determine loading scheme. 
         #figure out consistent stuff for FFI original locations
         if self.datatype == "FFI-Lygos":
@@ -72,19 +73,17 @@ class mergen(object):
             #whatever this is
             k = 0
         
-        
-            
-    def download_and_load_lightcurves(self):
-        """ ??? this is just the other option for if you want to run batch downloads and then make metafiles"""
+    def download_lightcurves(self):
+        """ Download lightcurves"""
         #YYY EMMA FILL THIS IN
         return
 
-    def data_clean(self):
-        """ Cleans data up - just BASE cleanup of normalizing + sigma clipping. CAE additional cleans done later"""
+    def clean_data(self):
+        """ Clean up data, i.e., just BASE cleanup of normalizing and sigma clipping. CAE additional cleans done later."""
         self.intensities = dt.normalize(self.intensities)
         #is there anything else to be done??
         return
-    
+
     def load_existing_features(self, typeFeatures):
         """ Load in feature metafiles stored in the datapath"""
         if typeFeatures == "ENF":
@@ -93,19 +92,22 @@ class mergen(object):
             ### EMMA FILL THIS IN
             k = 6
         return
-    
-    def generate_engineered(self, version = 0, save = True):
-        """Run engineered feature creation"""
-        self.features = ft.create_save_featvec_homogenous_time(self.ENFpath, self.times, self.intensities, 
-                                                               self.filelabel, version=version, save=save):
+
+    def generate_engineered(self, version=0, save=True):
+        """ Run engineered feature creation"""
+        
+        self.features = ft.create_save_featvec_homogenous_time(self.ENFpath, self.times, self.intensities, \
+                                                               self.filelabel, version=version, save=save)
     
         return
-    
+
     def generate_CAE(self):
-        """Run CAE feature creation """
+        """Run CAE feature creation"""
+        
         #EMMA FILL THIS IN
+        
         return
-    
+
     def run_all(self):
         return
 
