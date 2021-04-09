@@ -11,7 +11,7 @@ To Do List:
     - Kmeans param scan?
 """
 import sklearn
-from init import *
+from __init__ import *
 ####### SIMPLEST WRAPPERS #####
 
 def run_kmeans(features, n_clusters = 2):

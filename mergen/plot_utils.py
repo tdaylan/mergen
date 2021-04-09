@@ -1109,6 +1109,57 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./', prefix=''):
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+def plot_filter_vis(model, feat=0, layer_num=1,
+                    output_dir='', prefix=''):
+    from tf_keras_vis.activation_maximization import ActivationMaximization
+
+    def model_modifier(m):
+        target_layer = m.layers[layer_num]
+        new_model = tf.keras.Model(inputs=m.inputs,
+                                   outputs=target_layer.output)
+        new_model.layers[-1].activation = tf.keras.activations.linear
+        return new_model
+    def loss(output):
+        return output[:, feat]
+
+    activation_maximization = ActivationMaximization(model, model_modifier,
+                                                     clone=False)
+    pdb.set_trace()
+    activation = activation_maximization(loss)
+    image = activation[0].astype(np.int8)
+    fig, ax = plt.subplots()
+    ax.imshow(image)
+    fig.tight_layout()
+    fig.savefig(output_dir+prefix+'dense_vis_feat'+str(feat)+'.png')
+    plt.close(fig)
+
+
+def plot_bottleneck_vis(model, feat=0, bottleneck_name='bottleneck',
+                        output_dir='', prefix=''):
+    from tf_keras_vis.activation_maximization import ActivationMaximization
+
+    def model_modifier(m):
+        bottleneck_layer = m.get_layer(name=bottleneck_name)
+        new_model = tf.keras.Model(inputs=m.inputs,
+                                   outputs=bottleneck_layer.output)
+        new_model.layers[-1].activation = tf.keras.activations.linear
+        return new_model
+    def loss(output):
+        pdb.set_trace()
+        return output[:, feat]
+
+    activation_maximization = ActivationMaximization(model, model_modifier,
+                                                     clone=False)
+    # pdb.set_trace()
+    activation = activation_maximization(loss)
+    image = activation[0].astype(np.int8)
+    fig, ax = plt.subplots()
+    ax.imshow(image)
+    fig.tight_layout()
+    fig.savefig(output_dir+prefix+'dense_vis_feat'+str(feat)+'.png')
+    plt.close(fig)
+        
+
 def plot_saliency_map(model, time, x_train, ticid_train, ticid_target,
                       bottleneck_name='bottleneck', feat=0, smooth_samples=20,
                       smooth_noise=0.20, output_dir='./', prefix=''):
@@ -1122,7 +1173,8 @@ def plot_saliency_map(model, time, x_train, ticid_train, ticid_target,
     * smooth_samples : number of calculating grdaients iterations
     * smooth_noise : noise spread level
     '''
-    
+    from tf_keras_vis.saliency import Saliency
+
     def model_modifier(current_model):
         target_layer = current_model.get_layer(name=bottleneck_name)
         new_model = tf.keras.Model(inputs=current_model.inputs,
@@ -1130,51 +1182,100 @@ def plot_saliency_map(model, time, x_train, ticid_train, ticid_target,
         new_model.layers[-1].activation = tf.keras.activations.linear
         return new_model
 
+    # def loss(output):
+    #     res = []
+    #     for i in range(len(ticid_target)):
+    #         res.append(output[i][feat])
+    #     return res
+
     def loss(output):
         res = []
-        for i in range(len(ticid_target)):
-            res.append(output[i][feat])
+        res.append(output[0][feat])
         return res
 
-    # >> get light curves to plot
     ticid_target, inds, _ = np.intersect1d(ticid_train, ticid_target,
                                            return_indices=True)
-    X = x_train[inds]
-
-    # >> make saliency map
-    saliency = Saliency(model, model_modifier=model_modifier, clone=False)
-    saliency_map = saliency(loss, X, smooth_samples=smooth_samples,
-                            smooth_noise=smooth_noise, keepdims=True)
-    saliency_map = saliency_map - np.min(saliency_map, axis=1, keepdims=True)
-    saliency_map = saliency_map / np.max(saliency_map, axis=1, keepdims=True)
-
-    # >> plot saliency map
-    fig, ax = plt.subplots(1, len(ticid_target),
-                           figsize=(6*len(ticid_target), 3))
     for i in range(len(ticid_target)):
+        X = np.expand_dims(x_train[inds[i]], 0)
+
+        saliency = Saliency(model, model_modifier=model_modifier, clone=False)
+        saliency_map = saliency(loss, X, smooth_samples=smooth_samples,
+                                smooth_noise=smooth_noise, keepdims=True)
+
+        saliency_map = saliency_map - np.min(saliency_map, axis=1, keepdims=True)
+        saliency_map = saliency_map / np.max(saliency_map, axis=1, keepdims=True)
+
+        # >> plot saliency map
+        fig, ax = plt.subplots()
         for j in range(len(time)-1):
-            ax[i].axvspan(time[j], time[j+1], alpha=0.2,
-                       facecolor=plt.cm.jet(saliency_map[i][j]))
+            # ax.axvspan(time[j], time[j+1], alpha=0.2,
+            #               facecolor=plt.cm.jet(saliency_map[0][j]))
+            ax.axvspan(time[j], time[j+1], alpha=0.2,
+                          facecolor=plt.cm.jet(saliency_map[0][j]))
+        ax.plot(time, X[0], '.k', ms=1)
+        format_axes(ax, xlabel=True, ylabel=True)
+        fig.tight_layout()
+        fig.savefig(output_dir+prefix+'saliency_overlay_feat'+str(feat)+\
+                    '_TIC'+str(int(ticid_target[i]))+'.png')
+        plt.close(fig)
 
-        ax[i].plot(time, X[i], '.k', ms=1)
-        format_axes(ax[i], xlabel=True, ylabel=True)
+        fig, ax = plt.subplots(2, figsize=(8, 6))
+        for j in range(len(time)-1):
+            ax[0].axvspan(time[j], time[j+1], alpha=0.2,
+                          facecolor=plt.cm.jet(saliency_map[0][j]))
+
+        ax[0].plot(time, X[0], '.k', ms=1)
+        ax[1].plot(time, saliency_map[0], '.k', ms=1)
+        format_axes(ax[0], xlabel=True, ylabel=True)
+
+        fig.tight_layout()
+        fig.savefig(output_dir+prefix+'saliency_feat'+str(feat)+'_TIC'+\
+                    str(int(ticid_target[i]))+'.png')
+        plt.close(fig)
+
+
+
+    # # >> get light curves to plot
+    # ticid_target, inds, _ = np.intersect1d(ticid_train, ticid_target,
+    #                                        return_indices=True)
+    # X = x_train[inds]
+
+    # # >> make saliency map
+    # saliency = Saliency(model, model_modifier=model_modifier, clone=False)
+    # saliency_map = saliency(loss, X, smooth_samples=smooth_samples,
+    #                         smooth_noise=smooth_noise, keepdims=True)
+
+    # pdb.set_trace()
+    # saliency_map = saliency_map - np.min(saliency_map, axis=1, keepdims=True)
+    # saliency_map = saliency_map / np.max(saliency_map, axis=1, keepdims=True)
+
+    # # >> plot saliency map
+    # fig, ax = plt.subplots(1, len(ticid_target),
+    #                        figsize=(6*len(ticid_target), 3))
+    # for i in range(len(ticid_target)):
+    #     for j in range(len(time)-1):
+    #         ax[i].axvspan(time[j], time[j+1], alpha=0.2,
+    #                    facecolor=plt.cm.jet(saliency_map[i][j]))
+
+    #     ax[i].plot(time, X[i], '.k', ms=1)
+    #     format_axes(ax[i], xlabel=True, ylabel=True)
   
-    fig.tight_layout()
-    fig.savefig(output_dir+prefix+'saliency_overlay_feat'+str(feat)+'.png')
-    plt.close(fig)
+    # fig.tight_layout()
+    # fig.savefig(output_dir+prefix+'saliency_overlay_feat'+str(feat)+'.png')
+    # plt.close(fig)
     
-    fig, ax = plt.subplots(2, len(ticid_target),
-                           figsize=(6*len(ticid_target), 6))
-    for i in range(len(ticid_target)):
-        ax[0][i].plot(time, X[i], '.k', ms=1)
-        ax[1][i].plot(time, saliency_map[i], '.k', ms=1)
-        format_axes(ax[0][i], xlabel=True, ylabel=True)
-        format_axes(ax[1][i], xlabel=True, ylabel=False)
-        ax[1][i].set_ylabel('Attention', fontsize='small')
+    # fig, ax = plt.subplots(2, len(ticid_target),
+    #                        figsize=(6*len(ticid_target), 6))
+    # for i in range(len(ticid_target)):
+    #     ax[0][i].plot(time, X[i], '.k', ms=1)
+    #     ax[1][i].plot(time, saliency_map[i], '.k', ms=1)
+    #     format_axes(ax[0][i], xlabel=True, ylabel=True)
+    #     format_axes(ax[1][i], xlabel=True, ylabel=False)
+    #     ax[1][i].set_ylabel('Attention', fontsize='small')
   
-    fig.tight_layout()
-    fig.savefig(output_dir+prefix+'saliency_feat'+str(feat)+'.png')
-    plt.close(fig)
+    # fig.tight_layout()
+    # fig.savefig(output_dir+prefix+'saliency_feat'+str(feat)+'.png')
+    # plt.close(fig)
     
   
 def diagnostic_plots(history, model, p, output_dir, 

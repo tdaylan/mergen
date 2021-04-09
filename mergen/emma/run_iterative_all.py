@@ -89,12 +89,14 @@ for sectors in sector_list:
     plot_only=False
     train_split=False
 
+    plot_sal=True
+
     # >> normalization options:
     #    * standardization : sets mean to 0. and standard deviation to 1.
     #    * median_normalization : divides by median
     #    * minmax_normalization : sets range of values from 0. to 1.
     #    * none : no normalization
-    if train_split or iterative:
+    if (train_split or iterative) and not plot_sal:
         norm_type = 'none'
     else:
         norm_type = 'standardization'
@@ -343,16 +345,25 @@ for sectors in sector_list:
     #                                                        output_dir,
     #                                                        supervised=False)
 
+    if plot_sal:
 
-    # model = load_model(output_dir+'iteration0-model.hdf5')
-    # import sys
-    # sys.path.insert(0, '../')
-    # import plot_utils as pu
-    # pu.plot_saliency_map(model, time, x_train, ticid_train, ticid_train[:3],
-    #                      bottleneck_name='dense', feat=0, output_dir='../../../',
-    #                      prefix='sal_test-')
+        model = load_model(output_dir+'iteration0-model.hdf5')
+        import sys
+        sys.path.insert(0, '../')
+        import plot_utils as pu
 
-    # pdb.set_trace()
+        pu.plot_saliency_map(model, time, x_train, ticid_train, ticid_train[:3],
+                             bottleneck_name='dense', feat=0, output_dir='../../../',
+                             prefix='sal_test-')
+        pu.plot_saliency_map(model, time, x_train, ticid_train, ticid_train[:3],
+                             bottleneck_name='dense', feat=1, output_dir='../../../',
+                             prefix='sal_test-')
+
+        # pdb.set_trace()
+        pu.plot_bottleneck_vis(model, feat=0, bottleneck_name='dense',
+                              output_dir='../../../')
+
+    pdb.set_trace()
     # == run model ================================================================
     if run_model:
         gc.collect()

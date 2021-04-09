@@ -10,12 +10,19 @@ To Do List:
     - Set up pipeline function (kind of a run-all thing)
 """
 
-from init import *
-import data_utils as dt
-import catalog_utils as ct
-import learning_utils as lt
-import plot_utils as pt
-import feature_utils as ft
+# from __init__ import *
+# import data_utils as dt
+# import catalog_utils as ct
+# import learn_utils as lt
+# import plot_utils as pt
+# import feature_utils as ft
+
+from .__init__ import *
+from . import data_utils as dt
+from . import catalog_utils as ct
+from . import learn_utils as lt
+from . import plot_utils as pt
+from . import feature_utils as ft
 
 #mg = mergen()
 #mg.folder_initiate()
@@ -23,21 +30,22 @@ import feature_utils as ft
 
 class mergen(object):
     """ Main mergen class. Initialize this to work with everything else conveniently. """
-    def __init__(self, datapath, savepath, datatype, momentum_dump_csv, filelabel = None):
+    def __init__(self, datapath, savepath, datatype, mdumpcsv, filelabel = None):
         """Creates mergen object from which most common routines can easily be run
         Parameters:
             * datapath: string, where any data is being stored
             * savepath: string, where the subfolders should be saved into
             * datatype: string, indicates type of data being worked with. options are: 
                 "SPOC", "FFI-Lygos", "FFI-QLP", "FFI-eleanor"
-            * momentum_dump_csv: string, path to csv containing TESS momentum dumps (local)
+            * mdumpcsv: string, path to csv containing TESS momentum dumps (local)
             * filelabel: string, if you want to have all plots/files/folders labelled specially
         
         """
         self.datapath = datapath
         self.savepath = savepath
         self.datatype = datatype #SPOC or FFI
-        self.mdumpcsv = momentum_dump_csv
+        # self.mdumpcsv = datapath + 'Table_of_momentum_dumps.csv'
+        self.mdumpcsv = mdumpcsv
         if filelabel is not None:
             self.filelabel = filelabel
         else:
@@ -96,8 +104,12 @@ class mergen(object):
     
     def generate_engineered(self, version = 0, save = True):
         """Run engineered feature creation"""
-        self.features = ft.create_save_featvec_homogenous_time(self.ENFpath, self.times, self.intensities, 
-                                                               self.filelabel, version=version, save=save):
+        self.features = ft.create_save_featvec_homogenous_time(self.ENFpath,
+                                                               self.times, 
+                                                               self.intensities,
+                                                               self.filelabel,
+                                                               version=version,
+                                                               save=save)
     
         return
     

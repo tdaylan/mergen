@@ -10,7 +10,7 @@ To Do List:
         -what is this is mergen and what of this is specific to your science stuff
 
 """
-from init import *
+from __init__ import *
 def get_tess_features(ticid):
     '''Query catalog data https://arxiv.org/pdf/1905.10694.pdf'''
     
