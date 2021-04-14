@@ -1162,7 +1162,8 @@ def plot_bottleneck_vis(model, feat=0, bottleneck_name='bottleneck',
 
 def plot_saliency_map(model, time, x_train, ticid_train, ticid_target,
                       bottleneck_name='bottleneck', feat=0, smooth_samples=20,
-                      smooth_noise=0.20, output_dir='./', prefix=''):
+                      smooth_noise=0.20, output_dir='./', prefix='',
+                      log=False):
     '''Uses Saliency from https://pypi.org/project/tf-keras-vis/
     Args:
     * model : Keras Model()
@@ -1174,6 +1175,7 @@ def plot_saliency_map(model, time, x_train, ticid_train, ticid_target,
     * smooth_noise : noise spread level
     '''
     from tf_keras_vis.saliency import Saliency
+    import matplotlib.colors as colors
 
     def model_modifier(current_model):
         target_layer = current_model.get_layer(name=bottleneck_name)
@@ -1206,12 +1208,16 @@ def plot_saliency_map(model, time, x_train, ticid_train, ticid_target,
         saliency_map = saliency_map / np.max(saliency_map, axis=1, keepdims=True)
 
         # >> plot saliency map
+        if log:
+            cmap = colors.LogNorm(vmin=1e-4,
+                                  vmax=np.max(saliency_map[0]))
+        else:
+            cmap = plt.cm.jet
         fig, ax = plt.subplots()
         for j in range(len(time)-1):
-            # ax.axvspan(time[j], time[j+1], alpha=0.2,
-            #               facecolor=plt.cm.jet(saliency_map[0][j]))
             ax.axvspan(time[j], time[j+1], alpha=0.2,
-                          facecolor=plt.cm.jet(saliency_map[0][j]))
+                          facecolor=cmap(saliency_map[0][j]))
+
         ax.plot(time, X[0], '.k', ms=1)
         format_axes(ax, xlabel=True, ylabel=True)
         fig.tight_layout()
@@ -1222,10 +1228,16 @@ def plot_saliency_map(model, time, x_train, ticid_train, ticid_target,
         fig, ax = plt.subplots(2, figsize=(8, 6))
         for j in range(len(time)-1):
             ax[0].axvspan(time[j], time[j+1], alpha=0.2,
-                          facecolor=plt.cm.jet(saliency_map[0][j]))
+                          facecolor=cmap(saliency_map[0][j]))
 
         ax[0].plot(time, X[0], '.k', ms=1)
-        ax[1].plot(time, saliency_map[0], '.k', ms=1)
+        if log:
+            ax[1].plot(time, np.log(saliency_map[0]), '.k', ms=1)
+            ax[1].set_ylabel('Log Attention')
+        else:
+            ax[1].plot(time, saliency_map[0], '.k', ms=1)
+            ax[1].set_ylabel('Attention')
+
         format_axes(ax[0], xlabel=True, ylabel=True)
 
         fig.tight_layout()

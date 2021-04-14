@@ -10,13 +10,6 @@ To Do List:
     - Set up pipeline function (kind of a run-all thing)
 """
 
-# from __init__ import *
-# import data_utils as dt
-# import catalog_utils as ct
-# import learn_utils as lt
-# import plot_utils as pt
-# import feature_utils as ft
-
 from .__init__ import *
 from . import data_utils as dt
 from . import catalog_utils as ct
@@ -29,16 +22,22 @@ from . import feature_utils as ft
 #mg.intensities
 
 class mergen(object):
-    """ Main mergen class. Initialize this to work with everything else conveniently. """
-    def __init__(self, datapath, savepath, datatype, mdumpcsv, filelabel = None):
-        """Creates mergen object from which most common routines can easily be run
+    """ Main mergen class. Initialize this to work with everything else
+    conveniently. """
+    def __init__(self, datapath, savepath, datatype, mdumpcsv, filelabel=None,
+                 sector=1):
+        """Creates mergen object from which most common routines can easily be
+        run
         Parameters:
             * datapath: string, where any data is being stored
             * savepath: string, where the subfolders should be saved into
-            * datatype: string, indicates type of data being worked with. options are: 
-                "SPOC", "FFI-Lygos", "FFI-QLP", "FFI-eleanor"
-            * mdumpcsv: string, path to csv containing TESS momentum dumps (local)
-            * filelabel: string, if you want to have all plots/files/folders labelled specially
+            * datatype: string, indicates type of data being worked with.
+                        options are: 
+                        "SPOC", "FFI-Lygos", "FFI-QLP", "FFI-eleanor"
+            * mdumpcsv: string, path to csv containing TESS momentum dumps
+                        (local)
+            * filelabel: string, if you want to have all plots/files/folders
+                         labelled specially
         
         """
         self.datapath = datapath
@@ -46,6 +45,7 @@ class mergen(object):
         self.datatype = datatype #SPOC or FFI
         # self.mdumpcsv = datapath + 'Table_of_momentum_dumps.csv'
         self.mdumpcsv = mdumpcsv
+        self.sector   = sector
         if filelabel is not None:
             self.filelabel = filelabel
         else:
@@ -75,22 +75,21 @@ class mergen(object):
         #check for self.datatype to determine loading scheme. 
         #figure out consistent stuff for FFI original locations
         if self.datatype == "FFI-Lygos":
-            self.times, self.intensities, self.errors, self.identifiers = dt.load_all_lygos(self.datapath)
+            self.times, self.intensities, self.errors, self.identifiers = \
+            dt.load_all_lygos(self.datapath)
         elif self.datatype == "SPOC":
-            #whatever this is
-            k = 0
+            self.times, self.intensities, self.ticid, self.target_info = \
+            dt.load_data_from_metafiles(self.datapath, self.sector)
         
-        
-            
-    def download_and_load_lightcurves(self):
-        """ ??? this is just the other option for if you want to run batch downloads and then make metafiles"""
-        #YYY EMMA FILL THIS IN
-        return
+    def download_lightcurves(self):
+        '''Downloads and process light SPOC light curves, if not already
+        downloaded.'''
+        dt.bulk_download_helper(datapath, sector=self.sector)
+        dt.data_access_sector_by_bulk(datapath, sector=self.sector)
 
     def data_clean(self):
-        """ Cleans data up - just BASE cleanup of normalizing + sigma clipping. CAE additional cleans done later"""
+        """ Cleans data up - just BASE cleanup of normalizing."""
         self.intensities = dt.normalize(self.intensities)
-        #is there anything else to be done??
         return
     
     def load_existing_features(self, typeFeatures):
