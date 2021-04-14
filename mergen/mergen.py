@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Thu Oct  8 20:27:13 2020
 
@@ -29,7 +28,7 @@ class mergen(object):
         """Creates mergen object from which most common routines can easily be
         run
         Parameters:
-            * datapath: string, where any data is being stored
+            * datapath: string, where any data are being stored
             * savepath: string, where the subfolders should be saved into
             * datatype: string, indicates type of data being worked with.
                         options are: 
@@ -37,9 +36,9 @@ class mergen(object):
             * mdumpcsv: string, path to csv containing TESS momentum dumps
                         (local)
             * filelabel: string, if you want to have all plots/files/folders
-                         labelled specially
-        
+                         labelled specially        
         """
+        
         self.datapath = datapath
         self.savepath = savepath
         self.datatype = datatype #SPOC or FFI
@@ -53,8 +52,8 @@ class mergen(object):
         
         self.folder_initiate()
     
-    def folder_initiate(self):
-        """Makes all the big folders"""
+    def initiate_folder(self):
+        """Make all the big folders"""
         print("Setting up CAE folder")
         self.CAEpath = self.savepath + "CAE/"
         try:
@@ -69,9 +68,9 @@ class mergen(object):
         except OSError:
             print ("Directory %s already exists" % self.ENFpath)
         return
-    
+
     def load_lightcurves_local(self):
-        """Loads in data saved in metafiles on datapath"""
+        """Load in data saved in metafiles on datapath"""
         #check for self.datatype to determine loading scheme. 
         #figure out consistent stuff for FFI original locations
         if self.datatype == "FFI-Lygos":
@@ -91,7 +90,7 @@ class mergen(object):
         """ Cleans data up - just BASE cleanup of normalizing."""
         self.intensities = dt.normalize(self.intensities)
         return
-    
+
     def load_existing_features(self, typeFeatures):
         """ Load in feature metafiles stored in the datapath"""
         if typeFeatures == "ENF":
@@ -102,21 +101,22 @@ class mergen(object):
         return
     
     def generate_engineered(self, version = 0, save = True):
-        """Run engineered feature creation"""
+        """ Run engineered feature creation"""
         self.features = ft.create_save_featvec_homogenous_time(self.ENFpath,
                                                                self.times, 
                                                                self.intensities,
                                                                self.filelabel,
                                                                version=version,
                                                                save=save)
-    
         return
-    
+
     def generate_CAE(self):
-        """Run CAE feature creation """
+        """Run CAE feature creation"""
+        
         #EMMA FILL THIS IN
+        
         return
-    
+
     def run_all(self):
         return
 
