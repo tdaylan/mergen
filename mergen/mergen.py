@@ -16,10 +16,6 @@ from . import learn_utils as lt
 from . import plot_utils as pt
 from . import feature_utils as ft
 
-#mg = mergen()
-#mg.folder_initiate()
-#mg.intensities
-
 class mergen(object):
     """ Main mergen class. Initialize this to work with everything else
     conveniently. """

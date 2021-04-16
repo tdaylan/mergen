@@ -44,8 +44,8 @@ To Do List:
     - HYPERLEDA LC load in
     - Loading fxns for CAE features
 """
+import numpy as np
 
-from .__init__ import *
 
 # -- DATA LOADING (SPOC) -------------------------------------------------------
 
