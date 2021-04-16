@@ -8,89 +8,46 @@ data_utils.py
 * data cleaning
 * feature loading
 
+Current functions:
+DATA LOADING (SPOC)
+* load_data_from_metafiles
+* combine_sectors
+* combine_sectors_by_lc
+
+DATA DOWNLOADING (SPOC)
+* data_access_sector_by_bulk
+* bulk_download_helper
+* get_lc_file_and_data
+
+DATA LOADING (FFI)
+* load_lygos_csv
+* load_all_lygos
+
+DATA CLEANING
+* normalize
+* mean_norm
+* rms
+* standardize
+* interpolate_all
+* interpolate_lc
+* nan_mask
+
+FEATURE LOADING
+* load_ENF_feature_metafile
+
+QUATERNION HANDLING
+* convert_to_quat_metafile
+* metafile_load_smooth quaternions
+* extract_smooth_quaterions
+
 To Do List:
     - HYPERLEDA LC load in
     - Loading fxns for CAE features
 """
 import numpy as np
 
-######## DATA LOADING (SPOC) ############
 
-def combine_sectors(sectors, data_dir, custom_masks=None):
-    all_flux = []
-    all_ticid = []
-    all_target_info = []
-    all_x = []
-    if type(custom_masks) == type(None):
-        custom_masks = [[]*len(sectors)]
-    for i in range(len(sectors)):
-        flux, x, ticid, target_info = \
-            load_data_from_metafiles(data_dir, sectors[i], nan_mask_check=True,
-                                     custom_mask=custom_masks[i])
-            
-        mins = np.min(flux, axis = 1, keepdims=True)
-        flux = flux - mins
-        maxs = np.max(flux, axis=1, keepdims=True)
-        flux = flux / maxs            
-        all_flux.append(flux)
-        all_ticid.append(ticid)
-        all_target_info.append(target_info)
-        all_x.append(x)
-    # >> stitch together !! can only handle 2 sectors
-    all_ticid1, comm1, comm2 = np.intersect1d(all_ticid[0], all_ticid[1],
-                                             return_indices=True)
-        
-    flux = np.concatenate([all_flux[0][comm1], all_flux[1][comm2]], axis = -1)
-
-    target_info = []
-    for i in range(len(comm1)):
-        target_info.append([','.join([all_target_info[0][comm1[i]][0],
-                                     all_target_info[1][comm2[i]][0]]),
-                           ','.join([all_target_info[0][comm1[i]][1],
-                                     all_target_info[1][comm2[i]][1]]),
-                           ','.join([all_target_info[0][comm1[i]][2],
-                                     all_target_info[1][comm2[i]][2]]),
-                           all_target_info[0][comm1[i]][3],
-                           all_target_info[0][comm1[i]][4]])
-    
-    x = np.concatenate(all_x)
-    
-    ticid = all_ticid[0][comm1]
-    
-    return flux, x, ticid, np.array(target_info)
-
-def combine_sectors_by_lc(sectors, data_dir, custom_mask=[],
-                          output_dir='./', DEBUG=True):
-    all_flux = []
-    all_ticid = []
-    all_target_info = []
-    all_x = []
-    flux_lengths = []
-    for i in range(len(sectors)):
-        flux, x, ticid, target_info = \
-            load_data_from_metafiles(data_dir, sectors[i], nan_mask_check=False)
-        all_flux.append(flux)
-        all_ticid.append(ticid)
-        all_target_info.append(target_info)
-        all_x.append(x)
-        flux_lengths.append(np.shape(flux)[1])
-        
-    # >> truncate
-    new_length = np.min(flux_lengths)
-    for i in range(len(sectors)):
-        all_flux[i] = all_flux[i][:,:new_length]
-        
-    flux = np.concatenate([all_flux[0], all_flux[1]], axis = 0)
-    x = all_x[0][:new_length]
-    target_info = np.concatenate([all_target_info[0], all_target_info[1]],
-                                 axis=0)
-    ticid = np.concatenate([all_ticid[0], all_ticid[1]])    
-    flux, x = nan_mask(flux, x, custom_mask=custom_mask, ticid=ticid,
-                       target_info=target_info,
-                       output_dir=output_dir, DEBUG=True)
-
-    
-    return flux, x, ticid, np.array(target_info)
+# -- DATA LOADING (SPOC) -------------------------------------------------------
 
 def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                              ccds=[[1,2,3,4]]*4, data_type='SPOC',
@@ -164,10 +121,95 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                            debug_ind=debug_ind, target_info=target_info,
                            output_dir=output_dir, custom_mask=custom_mask)
 
+    return x, flux, ticid, np.array(target_info)
+
+def combine_sectors(sectors, data_dir, custom_masks=None):
+    '''Combine sectors by the time axis (i.e. the light curves of stars 
+    observed in multiple sectors are stitched together).
+    Currently can only handle two sectors at a time.'''
+    all_flux = []
+    all_ticid = []
+    all_target_info = []
+    all_x = []
+    if type(custom_masks) == type(None):
+        custom_masks = [[]*len(sectors)]
+    for i in range(len(sectors)):
+        flux, x, ticid, target_info = \
+            load_data_from_metafiles(data_dir, sectors[i], nan_mask_check=True,
+                                     custom_mask=custom_masks[i])
+            
+        mins = np.min(flux, axis = 1, keepdims=True)
+        flux = flux - mins
+        maxs = np.max(flux, axis=1, keepdims=True)
+        flux = flux / maxs            
+        all_flux.append(flux)
+        all_ticid.append(ticid)
+        all_target_info.append(target_info)
+        all_x.append(x)
+    # >> stitch together !! can only handle 2 sectors
+    all_ticid1, comm1, comm2 = np.intersect1d(all_ticid[0], all_ticid[1],
+                                             return_indices=True)
+        
+    flux = np.concatenate([all_flux[0][comm1], all_flux[1][comm2]], axis = -1)
+
+    target_info = []
+    for i in range(len(comm1)):
+        target_info.append([','.join([all_target_info[0][comm1[i]][0],
+                                     all_target_info[1][comm2[i]][0]]),
+                           ','.join([all_target_info[0][comm1[i]][1],
+                                     all_target_info[1][comm2[i]][1]]),
+                           ','.join([all_target_info[0][comm1[i]][2],
+                                     all_target_info[1][comm2[i]][2]]),
+                           all_target_info[0][comm1[i]][3],
+                           all_target_info[0][comm1[i]][4]])
+    
+    x = np.concatenate(all_x)
+    
+    ticid = all_ticid[0][comm1]
+    
     return flux, x, ticid, np.array(target_info)
 
-def data_access_sector_by_bulk(yourpath, sectorfile, sector,
-                               bulk_download_dir, custom_mask=[],
+def combine_sectors_by_lc(sectors, data_dir, custom_mask=[],
+                          output_dir='./', DEBUG=True):
+    '''Combine sector by the light curve axis (i.e. the light curves of stars
+    observed in multiple sectors are treated as two unrelated light curves).
+    If the light curves are observed for a longer amount of time in a sector,
+    then all of the light curves are truncated.
+    TODO: try padding, instead of throwing out data.'''
+    all_flux = []
+    all_ticid = []
+    all_target_info = []
+    all_x = []
+    flux_lengths = []
+    for i in range(len(sectors)):
+        flux, x, ticid, target_info = \
+            load_data_from_metafiles(data_dir, sectors[i], nan_mask_check=False)
+        all_flux.append(flux)
+        all_ticid.append(ticid)
+        all_target_info.append(target_info)
+        all_x.append(x)
+        flux_lengths.append(np.shape(flux)[1])
+        
+    # >> truncate
+    new_length = np.min(flux_lengths)
+    for i in range(len(sectors)):
+        all_flux[i] = all_flux[i][:,:new_length]
+        
+    flux = np.concatenate([all_flux[0], all_flux[1]], axis = 0)
+    x = all_x[0][:new_length]
+    target_info = np.concatenate([all_target_info[0], all_target_info[1]],
+                                 axis=0)
+    ticid = np.concatenate([all_ticid[0], all_ticid[1]])    
+    flux, x = nan_mask(flux, x, custom_mask=custom_mask, ticid=ticid,
+                       target_info=target_info,
+                       output_dir=output_dir, DEBUG=True)
+
+    
+    return flux, x, ticid, np.array(target_info)
+
+# -- DATA DOWNLOADING (SPOC) ---------------------------------------------------
+
+def data_access_sector_by_bulk(yourpath, sector, custom_mask=[],
                                apply_nan_mask=False):
     '''Get interpolated flux array for each group, if you already have all the
     _lc.fits files downloaded in bulk_download_dir.
@@ -186,6 +228,9 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
                                        '../../tessdata_sector_20/')
     '''
     
+    sectorfile = yourpath+'all_targets_S%03d'%sector+'_v1.txt'
+    bulk_download_dir = yourpath
+
     for cam in [1,2,3,4]:
         for ccd in [1,2,3,4]:
             data_access_by_group_fits(yourpath, sectorfile, sector, cam,
@@ -194,7 +239,7 @@ def data_access_sector_by_bulk(yourpath, sectorfile, sector,
                                       custom_mask=custom_mask,
                                       apply_nan_mask=apply_nan_mask)
             
-def bulk_download_helper(yourpath, shell_script):
+def bulk_download_helper(yourpath, shell_script='', sector=1):
     '''Downloads all the light curves for a sector. Can also be used to go back
     and check you have all the light curves from a sector.
     Parameters:
@@ -207,6 +252,9 @@ def bulk_download_helper(yourpath, shell_script):
     * modify to handle 30-min cadence data
     '''
     import fnmatch as fm
+    if len(shell_script)==0:
+        shell_script='tesscurl_sector_'+str(sector)+'_lc.sh'
+
     with open(yourpath+shell_script, 'r') as f:
         sector_targets = f.readlines()[1:]
         
@@ -300,7 +348,7 @@ def get_lc_file_and_data(yourpath, target):
     
     return time1, i1, ticid
 
-####### DATA LOADING (FFI) ##########
+# -- DATA LOADING (FFI) --------------------------------------------------------
 
 def load_lygos_csv(file):
     import pandas as pd
@@ -339,20 +387,16 @@ def load_all_lygos(datapath):
                 
     return all_t, all_i, all_e, all_labels
 
-
-
-######## DATA CLEANING ###########
+# -- DATA CLEANING -------------------------------------------------------------
 
 def normalize(flux, axis=1):
-    '''Dividing by median.
-    !!Current method blows points out of proportion if the median is too close to 0?'''
+    '''Dividing by median.'''
     medians = np.median(flux, axis = axis, keepdims=True)
     flux = flux / medians
     return flux
 
 def mean_norm(flux, axis=1): 
-    """ normalizes by dividing by mean - necessary for TLS running 
-    modified lcg 07192020"""
+    """normalizes by dividing by mean - necessary for TLS running"""
     means = np.mean(flux, axis = axis, keepdims=True)
     flux = flux / means
     return flux
@@ -656,7 +700,7 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
     else:
         return flux, time
 
-######## FEATURE LOADING ###########
+# -- FEATURE LOADING -----------------------------------------------------------
 
 def load_ENF_feature_metafile(folderpath):
     filepaths = []
@@ -680,7 +724,8 @@ def load_ENF_feature_metafile(folderpath):
     return features
 
 
-######### QUATERNION HANDLING ##########
+# -- QUATERNION HANDLING -------------------------------------------------------
+
 def convert_to_quat_metafile(file, fileoutput):
     f = fits.open(file, memmap=False)
     
