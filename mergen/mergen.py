@@ -50,7 +50,7 @@ class mergen(object):
         else:
             self.filelabel = "mergen"
         
-        self.folder_initiate()
+        self.initiate_folder()
     
     def initiate_folder(self):
         """Make all the big folders"""
