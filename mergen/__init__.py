@@ -1,5 +1,5 @@
 #
-# from mergen import *
+from .mergen import *
 
 #utilities
 import numpy as np

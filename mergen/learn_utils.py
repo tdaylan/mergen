@@ -10,9 +10,10 @@ To Do List:
     - Clean up usability of param searches
     - Kmeans param scan?
 """
+
 import sklearn
-from __init__ import *
-####### SIMPLEST WRAPPERS #####
+import numpy as np
+
 
 def run_kmeans(features, n_clusters = 2):
     from sklearn.cluster import KMeans
