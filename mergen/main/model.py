@@ -1358,6 +1358,7 @@ def conv_variational_autoencoder(x_train, y_train, x_test, y_test, params):
     if type(params['num_consecutive']) == np.int:
         params['num_consecutive'] = list(np.repeat(params['num_consecutive'],
                                                    num_iter))
+
     # -- encoder ---------------------------------------------------------------
     inputs = Input(shape = (input_dim,))
     x = Reshape((input_dim, 1))(inputs)

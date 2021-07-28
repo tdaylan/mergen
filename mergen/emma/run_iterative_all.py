@@ -354,10 +354,18 @@ for sectors in sector_list:
 
         pu.plot_saliency_map(model, time, x_train, ticid_train, ticid_train[:3],
                              bottleneck_name='dense', feat=0, output_dir='../../../',
-                             prefix='sal_test-')
+                             prefix='sal_test-log-', log=True)
         pu.plot_saliency_map(model, time, x_train, ticid_train, ticid_train[:3],
                              bottleneck_name='dense', feat=1, output_dir='../../../',
-                             prefix='sal_test-')
+                             prefix='sal_test-log-', log=True)
+
+        # pu.plot_saliency_map(model, time, x_train, ticid_train, ticid_train[:3],
+        #                      bottleneck_name='dense', feat=0, output_dir='../../../',
+        #                      prefix='sal_test-')
+        # pu.plot_saliency_map(model, time, x_train, ticid_train, ticid_train[:3],
+        #                      bottleneck_name='dense', feat=1, output_dir='../../../',
+        #                      prefix='sal_test-')
+
 
         # pdb.set_trace()
         pu.plot_bottleneck_vis(model, feat=0, bottleneck_name='dense',
