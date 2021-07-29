@@ -78,8 +78,10 @@ import os
 import pdb
 import matplotlib.pyplot as plt
 import numpy as np
-import plotting_functions as pf
-import data_functions as df
+# import plotting_functions as pf
+from . import plot_utils as pt
+# import data_functions as df
+from . import data_utils as dt
 from astropy.io import fits
 from astropy.timeseries import LombScargle
 import random
@@ -143,7 +145,48 @@ def run_LOF(features, n_neighbors = 20, p = 2, metric = 'minkowski', contaminati
     lof = -1 * negative_factor
     return lof
     
+def run_tsne(features, n_components=2, perplexity=30, early_exaggeration=12,
+             save=True, savepath='./', sector=1):
+    '''Returns low-dimensional t-sidtributed Stochastic Neighbor Embedding to
+    visualize high-deimsnional feature spaces. Using PCA to initially reduce
+    the dimensionality will suppress some noise.'''
+    from sklearn.manifold import TSNE
+    print('Training tSNE...')
+    X = TSNE(n_components=n_components).fit_transform(features)
+
+    if save:
+        output_dir = savepath+'Ensemble-Sector_'+str(sector)+'/'
+        hdr=fits.Header()
+        hdu=fits.PrimaryHDU(X, header=hdr)
+        hdu.writeto(output_dir+'tsne.fits')
+
+    return X
     
+def load_classifications_from_txt(ensbpath, sector, ticid):
+    '''Reads *-ticid_to_label.txt and returns:
+    * vtype : Variability types (following nomenclature by GCVS)'''
+
+    fname = ensbpath+'Sector'+str(sector)+'-ticid_to_label.txt'
+    fileo = np.loadtxt(fname, delimiter=',', dtype='str')
+    ticid_unsorted = fileo[:,0].astype('float')
+    vtype = fileo[:,1]
+
+    # >> re-order vtype so that ticid_unsorted = ticid
+    orgsrti = np.argsort(ticid)      # >> indices that would sort ticid
+    orgunsrti = np.argsort(sortinds) # >> indices that would return original
+                                     # >> ordering of ticid
+    
+    intsc, _, srtinds = np.intersect1d(ticid, ticid_unsorted,
+                                       return_indices=True)
+    if len(intsc) != len(ticid):
+        sdiff = np.setdiff1d(intsc, ticid)
+        print('!! Variability classifications were not found for '+str(sdiff)+\
+              ' TICIDs.')
+
+    vtype = vtype[srtinds][orgunsrti] # >> order vtype correctly
+
+    return vtype
+
 ##### PARAM SCANS #####
 def KNN_plotting(savepath, features, k_values):
     """ This is based on a metric for finding the best possible eps/minsamp
@@ -259,7 +302,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                 
                             if confusion_matrix:
                                 print('Plotting confusion matrix')
-                                acc = pf.plot_confusion_matrix(ticid, db.labels_,
+                                acc = pt.plot_confusion_matrix(ticid, db.labels_,
                                                                database_dir=database_dir,
                                                                single_file=single_file,
                                                                output_dir=output_dir,
@@ -318,7 +361,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             if DEBUG and len(classes_1) > 1:
 
                                 print('Plotting classification results')
-                                pf.quick_plot_classification(time, flux,
+                                pt.quick_plot_classification(time, flux,
                                                              ticid,
                                                              target_info, bottleneck,
                                                              db.labels_,
@@ -332,13 +375,13 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                 
                                 if pca:
                                     print('Plot PCA...')
-                                    pf.plot_pca(bottleneck, db.labels_,
+                                    pt.plot_pca(bottleneck, db.labels_,
                                                 output_dir=output_dir,
                                                 prefix=prefix)
                                 
                                 if tsne:
                                     print('Plot t-SNE...')
-                                    pf.plot_tsne(bottleneck, db.labels_,
+                                    pt.plot_tsne(bottleneck, db.labels_,
                                                  output_dir=output_dir,
                                                  prefix=prefix)
                                 # if tsne_clustering:
@@ -347,11 +390,11 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             plt.close('all')
                             param_num +=1
     print("Plot paramscan metrics...")
-    pf.plot_paramscan_metrics(output_dir+'dbscan-', parameter_sets, 
+    pt.plot_paramscan_metrics(output_dir+'dbscan-', parameter_sets, 
                               silhouette_scores, db_scores, ch_scores)
     #print(len(parameter_sets), len(num_classes), len(num_noisy), num_noisy)
 
-    pf.plot_paramscan_classes(output_dir+'dbscan-', parameter_sets, 
+    pt.plot_paramscan_classes(output_dir+'dbscan-', parameter_sets, 
                                   np.asarray(num_classes), np.asarray(num_noisy))
 
         
@@ -519,7 +562,7 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                                     
                         if confusion_matrix:
                             print('Computing accuracy')
-                            acc = pf.plot_confusion_matrix(ticid, labels,
+                            acc = pt.plot_confusion_matrix(ticid, labels,
                                                            database_dir=database_dir,
                                                            single_file=single_file,
                                                            output_dir=output_dir,
@@ -544,19 +587,19 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                         #                  dav_boul_score, acc))
                                     
                     if DEBUG and len(classes_1) > 1:
-                        pf.quick_plot_classification(time, flux,ticid,target_info, 
+                        pt.quick_plot_classification(time, flux,ticid,target_info, 
                                                      features, labels,path=output_dir,
                                                      prefix=prefix,
                                                      title=title,
                                                      database_dir=database_dir,
                                                      single_file=single_file)
                     
-                        pf.plot_cross_identifications(time, flux, ticid,
+                        pt.plot_cross_identifications(time, flux, ticid,
                                                       target_info, features,
                                                       labels, path=output_dir,
                                                       database_dir=database_dir,
                                                       data_dir=data_dir)
-                        pf.plot_confusion_matrix(ticid, labels,
+                        pt.plot_confusion_matrix(ticid, labels,
                                                   database_dir=database_dir,
                                                   single_file=single_file,
                                                   output_dir=output_dir,
@@ -565,13 +608,13 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                     
                         if pca:
                             print('Plot PCA...')
-                            pf.plot_pca(features, labels,
+                            pt.plot_pca(features, labels,
                                         output_dir=output_dir,
                                         prefix=prefix)
                                     
                         if tsne:
                             print('Plot t-SNE...')
-                            pf.plot_tsne(features,labels,
+                            pt.plot_tsne(features,labels,
                                          output_dir=output_dir,
                                          prefix=prefix)                
                     plt.close('all')
@@ -729,7 +772,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                               use_tls_features=True,
                               use_rms=True, flux_plot=None,
                               concat_ext_feats=False):
-    '''Preprocesses output from df.load_data_from_metafiles
+    '''Preprocesses output from dt.load_data_from_metafiles
     Shuffles array.
     Parameters:
         * flux : array of light curves, shape=(num light curves, num points)
@@ -788,8 +831,8 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
             split_data_features(flux, features, time, ticid, target_info,
                                 False, p, train_test_ratio=train_test_ratio)
         print('Standardizing feature vector...')
-        x_train = df.standardize(x_train, ax=0)
-        x_test = df.standardize(x_test, ax=0)
+        x_train = dt.standardize(x_train, ax=0)
+        x_test = dt.standardize(x_test, ax=0)
         
         return x_train, x_test, y_train, y_test, flux_train, flux_test, \
             ticid_train, ticid_test, target_info_train, target_info_test, time
@@ -797,7 +840,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
         # -- calculate RMS -----------------------------------------------------
         if input_rms:
             print('Calculating RMS..')
-            rms = df.rms(flux)
+            rms = dt.rms(flux)
         else: rms_train, rms_test = False, False
         
         # -- calculate PSDs ----------------------------------------------------
@@ -839,11 +882,11 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
         # -- normalize ---------------------------------------------------------
         if norm_type == 'standardization':
             print('Standardizing fluxes...')
-            x = df.standardize(flux)
+            x = dt.standardize(flux)
     
         elif norm_type == 'median_normalization':
             print('Normalizing fluxes (dividing by median)...')
-            x = df.normalize(flux)
+            x = dt.normalize(flux)
             
         elif norm_type == 'minmax_normalization':
             print('Normalizing fluxes (changing minimum and range)...')
@@ -1014,6 +1057,7 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
         features.append(learned_feature_vector)
         
     if use_tls_features:
+        # !! TODO: simplify function, by calling helper function
         # >> load all data
         engineered_features_v1 = []
         for cam in cams:
@@ -1105,10 +1149,57 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
         
     # >> standardize each feature
     if norm:
-        features = df.standardize(features, ax=0)
+        features = dt.standardize(features, ax=0)
             
     return features, flux, ticid, target_info
-    
+
+def load_bottleneck_from_fits(bottleneck_dir, ticid, runIter=False, numIter=1):
+
+    if runIter: # !! TODO: deal with cases numIter > 1
+        prefix = 'iteration'+str(numIter-1)+'-'
+    else:
+        prefix = ''
+    with fits.open(bottleneck_dir+prefix+'bottleneck_train.fits') as hdul:
+        bottleneck_train = hdul[0].data
+        ticid_bottleneck_train = hdul[1].data
+    with fits.open(bottleneck_dir+prefix+'bottleneck_test.fits') as hdul:
+        bottleneck_test = hdul[0].data
+        ticid_bottleneck_test = hdul[1].data
+    learned_feature_vector = np.concatenate([bottleneck_train,
+                                             bottleneck_test], axis=0)
+    ticid_learned = np.concatenate([ticid_bottleneck_train,
+                                    ticid_bottleneck_test])
+
+    sorted_inds = np.argsort(ticid)
+    # >> intersect1d returns sorted arrays, so
+    # >> ticid == ticid[sorted_inds][np.argsort(sorted_inds)]
+    new_inds = np.argsort(sorted_inds)
+    _, comm1, comm2 = np.intersect1d(ticid, ticid_learned, return_indices=True)
+    learned_feature_vector = learned_feature_vector[comm2][new_inds]
+
+    return learned_feature_vector
+        
+def load_gmm_from_txt(output_dir, ticid, runIter=False, numIter=1,
+                      numClusters=100):
+
+    if runIter: # !! TODO: deal with cases numIter > 1
+        prefix = 'iteration'+str(numIter-1)+'-all-'
+        suffix = '-n'+str(numClusters)+'.txt'
+    else:
+        prefix = ''
+        suffix = '.txt'
+    txt = np.loadtxt(output_dir+prefix+'gmm_labels'+suffix)
+    ticid_cluster = txt[0]
+    clusters = txt[1]
+
+    sorted_inds = np.argsort(ticid)
+    # >> intersect1d returns sorted arrays, so
+    # >> ticid == ticid[sorted_inds][np.argsort(sorted_inds)]
+    new_inds = np.argsort(sorted_inds)
+    _, comm1, comm2 = np.intersect1d(ticid, ticid_cluster, return_indices=True)
+    clusters = clusters[comm2][new_inds]
+
+    return clusters.astype('int')
 
 def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                  target_info_test,
@@ -1147,7 +1238,7 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
 
     if plot_feat_space:
         print('Plotting feature space')
-        pf.latent_space_plot(features, output_dir+prefix+'feature_space.png')
+        pt.latent_space_plot(features, output_dir+prefix+'feature_space.png')
 
     # -- deep autoencoder ------------------------------------------------------
 
@@ -1164,7 +1255,7 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                             fraction_limit = 0.1)            
             analyze_object = talos.Analyze(t)
             data_frame, best_param_ind,p_best = \
-                pf.hyperparam_opt_diagnosis(analyze_object, output_dir,
+                pt.hyperparam_opt_diagnosis(analyze_object, output_dir,
                                             supervised=False) 
             p_DAE=p_best
             p_DAE['epochs'] = 100
@@ -1190,7 +1281,7 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                 features=new_features
                 hdu = fits.PrimaryHDU(features)
                 hdu.writeto(output_dir+prefix+'feature_space_DAE.fits')
-                pf.epoch_plots(history_DAE, p_DAE, output_dir)
+                pt.epoch_plots(history_DAE, p_DAE, output_dir)
         elif VAE:
             suffix = '_VAE'
             if os.path.exists(output_dir+prefix+'feature_space_VAE.fits'):
@@ -1203,18 +1294,18 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                 features = new_features[2]
                 hdu = fits.PrimaryHDU(features)
                 hdu.writeto(output_dir+prefix+'feature_space'+suffix+'.fits')
-                pf.epoch_plots(history_DAE, p_DAE, output_dir)
+                pt.epoch_plots(history_DAE, p_DAE, output_dir)
 
         if plot_feat_space:
             print('Plotting feature space')
-            pf.latent_space_plot(features, output_dir+prefix+'feature_space'+\
+            pt.latent_space_plot(features, output_dir+prefix+'feature_space'+\
                                  suffix+'.png')
 
     # -- novelty detection -----------------------------------------------------
 
     if novelty_detection:
         momentum_dump_csv=data_dir+'Table_of_momentum_dumps.csv' # !!
-        pf.plot_lof(x, flux_feat, ticid_feat, features, 20,
+        pt.plot_lof(x, flux_feat, ticid_feat, features, 20,
                     output_dir,
                     n_tot=n_tot, target_info=info_feat, prefix=prefix,
                     database_dir=database_dir, debug=True,
@@ -1222,7 +1313,7 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                     plot_psd=True, momentum_dump_csv=momentum_dump_csv)       
 
         # !! 
-        # pf.plot_lof_summary(x, flux_feat, ticid_feat, features, 20,
+        # pt.plot_lof_summary(x, flux_feat, ticid_feat, features, 20,
         #                     output_dir+prefix, target_info=info_feat,
         #                     database_dir=database_dir, 
         #                     momentum_dump_csv=momentum_dump_csv)
@@ -1234,12 +1325,12 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
         # -- dbscan ------------------------------------------------------------
         if run_dbscan:
             if classification_param_search:
-                df.KNN_plotting(output_dir+prefix, features, [10, 20, 100])
+                dt.KNN_plotting(output_dir+prefix, features, [10, 20, 100])
 
                 print('DBSCAN parameter search')
                 parameter_sets, num_classes, silhouette_scores, db_scores, \
                 ch_scores, acc = \
-                df.dbscan_param_search(features, x, flux_feat, ticid_feat,
+                dt.dbscan_param_search(features, x, flux_feat, ticid_feat,
                                        info_feat, DEBUG=True, 
                                        output_dir=output_dir+prefix, 
                                        leaf_size=[30], algorithm=['auto'],
@@ -1265,7 +1356,7 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
         if run_hdbscan:
             if classification_param_search:
                 print('HDBSCAN parameter search')
-                acc = df.hdbscan_param_search(features, x, flux_feat, ticid_feat,
+                acc = dt.hdbscan_param_search(features, x, flux_feat, ticid_feat,
                                               info_feat, output_dir=output_dir,
                                               p0=[3,4], single_file=single_file,
                                               database_dir=database_dir, metric=['all'],
@@ -1291,7 +1382,7 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
             np.savetxt(output_dir+prefix+'gmm_labels.txt',
                        np.array([ticid_feat, labels]))
         
-        pf.classification_plots(features, x, flux_feat, ticid_feat, info_feat,
+        pt.classification_plots(features, x, flux_feat, ticid_feat, info_feat,
                                 labels, output_dir=output_dir, prefix=prefix,
                                 data_dir=data_dir,
                                 x_predict=x_predict, do_summary=do_summary,
@@ -2352,15 +2443,15 @@ def split_segments(x, x_train, x_test, p, target_info_train, target_info_test,
 
         # >> normalize
         segment = x_train[:,segment_start:segment_end]
-        segment_rms = df.rms(segment)
+        segment_rms = dt.rms(segment)
         rms_train.append(segment_rms)
-        segment = df.standardize(segment)
+        segment = dt.standardize(segment)
         new_x_train.append(segment)
 
         segment = x_test[:,segment_start:segment_end]
-        segment_rms = df.rms(segment)
+        segment_rms = dt.rms(segment)
         rms_test.append(segment_rms)
-        segment = df.standardize(segment)
+        segment = dt.standardize(segment)
         new_x_test.append(segment)
 
         new_x.append(x[segment_start:segment_end])
@@ -2378,7 +2469,7 @@ def split_segments(x, x_train, x_test, p, target_info_train, target_info_test,
         for row in range(nrows):
             for col in range(n_split):
                 ax[row, col].plot(x[col], x_train[col][row], '.k')
-                pf.format_axes(ax[row,col], xlabel=True, ylabel=True)
+                pt.format_axes(ax[row,col], xlabel=True, ylabel=True)
         fig.tight_layout()
         fig.savefig(output_dir+prefix+'light_curve_segments.png')
         plt.close('all')
@@ -2415,7 +2506,7 @@ def split_cae(x, flux_train, flux_test, p, target_info_train, target_info_test,
                            fraction_limit=0.001)      
             analyze_object = talos.Analyze(t)
             data_frame, best_param_ind,p = \
-                pf.hyperparam_opt_diagnosis(analyze_object, output_dir+prefix,
+                pt.hyperparam_opt_diagnosis(analyze_object, output_dir+prefix,
                                            supervised=False)        
             p['epochs'] = p['epochs']*3
 
@@ -2431,7 +2522,7 @@ def split_cae(x, flux_train, flux_test, p, target_info_train, target_info_test,
         features = np.append(features, bottleneck_train, axis=1)
 
         if plot:
-            pf.diagnostic_plots(history, model, p, output_dir, x[i], x_train[i], x_test[i],
+            pt.diagnostic_plots(history, model, p, output_dir, x[i], x_train[i], x_test[i],
                                 x_predict, x_predict_train=x_predict_train,
                                 target_info_test=target_info_test,
                                 target_info_train=target_info_train, prefix=prefix,
@@ -2514,10 +2605,10 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
     print('-'*17)
 
     prefix='iteration0-'
-    rms_train = df.rms(flux_train)
-    x_train = df.standardize(flux_train)
-    rms_test = df.rms(flux_test)
-    x_test = df.standardize(flux_test)
+    rms_train = dt.rms(flux_train)
+    x_train = dt.standardize(flux_train)
+    rms_test = dt.rms(flux_test)
+    x_test = dt.standardize(flux_test)
     
     if hyperparam_opt:
         print('Starting hyperparameter optimization...')
@@ -2527,7 +2618,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
                        fraction_limit=0.001)      
         analyze_object = talos.Analyze(t)
         data_frame, best_param_ind,p = \
-            pf.hyperparam_opt_diagnosis(analyze_object, output_dir+prefix,
+            pt.hyperparam_opt_diagnosis(analyze_object, output_dir+prefix,
                                        supervised=False)        
         p['epochs'] = p['epochs']*3
 
@@ -2557,7 +2648,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
             x_predict_test = x_test
 
     if do_diagnostic_plots:
-        pf.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
+        pt.diagnostic_plots(history, model, p, output_dir, x, x_train, x_test,
                             x_predict_test, x_predict_train=x_predict_train,
                             target_info_test=target_info_test,
                             target_info_train=target_info_train, prefix=prefix,
@@ -2650,11 +2741,11 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
 
             start = x_predict_train.shape[1]
             end = start+segment_len
-            segment_train = df.standardize(flux_train[:,start:end])
-            segment_test = df.standardize(flux_test[:,start:end])
+            segment_train = dt.standardize(flux_train[:,start:end])
+            segment_test = dt.standardize(flux_test[:,start:end])
 
             if do_diagnostic_plots:
-                pf.diagnostic_plots(history, model, p, output_dir,
+                pt.diagnostic_plots(history, model, p, output_dir,
                                     x[start:start+segment_len],
                                     segment_train, segment_test,
                                     segment_predict_test,
@@ -2709,7 +2800,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
         ticid = ticid_label[:,0].astype('float')
         labels = ticid_label[:,1]
 
-        pf.ensemble_summary_plots(ticid, labels, output_dir, data_dir,
+        pt.ensemble_summary_plots(ticid, labels, output_dir, data_dir,
                                   sectors, prefix)
 
         # # >> before making a confusion matrix, we need to assign each science 
@@ -2732,17 +2823,17 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
         # cm, assignments, ticid_true, y_true, class_info_new, recalls,\
         # false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
         # label_true, label_pred=\
-        #     pf.assign_real_labels(ticid, y_pred, database_dir, data_dir,
+        #     pt.assign_real_labels(ticid, y_pred, database_dir, data_dir,
         #                           output_dir=output_dir)
 
         # # >> create summary pie charts
-        # pf.ensemble_summary(ticid, labels, cm, assignments, label_true, label_pred,
+        # pt.ensemble_summary(ticid, labels, cm, assignments, label_true, label_pred,
         #                     database_dir=database_dir, output_dir=output_dir, 
         #                     prefix=prefix, data_dir=data_dir)
-        # pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+        # pt.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
         #                         precisions, accuracy, counts_true, counts_pred,
         #                         output_dir+prefix)
-        # pf.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
+        # pt.ensemble_summary_tables(assignments, recalls, false_discovery_rates,
         #                         precisions, accuracy, counts_true, counts_pred,
         #                         output_dir+prefix, target_labels=[])
 
@@ -2755,7 +2846,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
         # classes, counts = np.unique(y_true, return_counts=True)
         # classes = classes[np.argsort(counts)]
         # for class_label in classes[-20:]:
-        #     pf.plot_class_dists(assignments, ticid_true, y_pred, y_true,
+        #     pt.plot_class_dists(assignments, ticid_true, y_pred, y_true,
         #                         data_dir, sectors, true_label=class_label,
         #                         output_dir=output_dir+'Sector'+str(sectors[0]))
 
@@ -2767,9 +2858,9 @@ def iterative_cae_clustering(ensemble_dir, data_dir, sectors=[], num_iter=2,
         output_dir=ensemble_dir+'Ensemble-Sector_'+str(sector)+'/'
 
         flux, time, ticid, target_info = \
-            df.load_data_from_metafiles(data_dir, sector,
+            dt.load_data_from_metafiles(data_dir, sector,
                                         output_dir=output_dir)
-        flux = df.normalize(flux)
+        flux = dt.normalize(flux)
 
         iterations = [0,2] # list(range(num_iter))
         if first_iter_only:
@@ -2828,7 +2919,7 @@ def iterative_cae_clustering(ensemble_dir, data_dir, sectors=[], num_iter=2,
                            np.array([ticid, y_pred]))
 
             assignments, ticid_label = \
-                pf.assign_real_labels(ticid, y_pred, data_dir=data_dir,
+                pt.assign_real_labels(ticid, y_pred, data_dir=data_dir,
                                         output_dir=output_dir, prefix=prefix)
             # with open(output_dir+prefix+'ticid_to_label.txt', 'w') as f:
             #     for i in range(len(y_pred)):
@@ -3123,7 +3214,7 @@ def get_high_freq_mock_data(p=None, dataset_size=10000, train_test_ratio=0.9,
         x = x[:new_length]           
 
     # >> standardize
-    flux = df.standardize(flux)
+    flux = dt.standardize(flux)
     
     # >> partition data
     split_ind = int(train_test_ratio*np.shape(flux)[0])
@@ -3195,7 +3286,7 @@ def get_bottleneck(model, x_test, p, save=False, ticid=None, out=None,
     
     if p['fully_conv']:
         bottleneck = np.squeeze(bottleneck, axis=-1)
-    bottleneck = df.standardize(bottleneck, ax=0)
+    bottleneck = dt.standardize(bottleneck, ax=0)
     
     if save:
         hdr = fits.Header()

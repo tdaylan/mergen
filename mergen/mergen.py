@@ -19,8 +19,9 @@ from . import feature_utils as ft
 class mergen(object):
     """ Main mergen class. Initialize this to work with everything else
     conveniently. """
-    def __init__(self, datapath, savepath, datatype, mdumpcsv, filelabel=None,
-                 sector=1):
+    def __init__(self, datapath, savepath, datatype, mdumpcsv=None,
+                 filelabel=None, sector=1, runIter=False, numIter=1,
+                 numClusters=100):
         """Creates mergen object from which most common routines can easily be
         run
         Parameters:
@@ -34,17 +35,27 @@ class mergen(object):
             * filelabel: string, if you want to have all plots/files/folders
                          labelled specially        
         """
+        self.sector   = sector
+        self.numClusters = numClusters
         
         self.datapath = datapath
         self.savepath = savepath
         self.datatype = datatype #SPOC or FFI
-        # self.mdumpcsv = datapath + 'Table_of_momentum_dumps.csv'
-        self.mdumpcsv = mdumpcsv
-        self.sector   = sector
+        self.ensbpath = self.savepath+'Ensemble-Sector_'+str(self.sector)+'/'
+
+        if mdumpcsv is not None:
+            self.mdumpcsv = mdumpcsv
+        else:
+            self.mdumpcsv = datapath + 'Table_of_momentum_dumps.csv'
+
         if filelabel is not None:
             self.filelabel = filelabel
         else:
             self.filelabel = "mergen"
+
+        # >> iterative scheme
+        self.runIter = runIter
+        self.numIter = numIter
         
         self.initiate_folder()
     
@@ -111,6 +122,28 @@ class mergen(object):
         
         #EMMA FILL THIS IN
         
+        return
+
+    def load_learned_features(self):
+        print('Loading CAE-learned features...')
+        self.features = lt.load_bottleneck_from_fits(self.ensbpath,
+                                                     self.ticid,
+                                                     self.runIter,
+                                                     self.numIter)
+        return
+
+    def load_gmm_clusters(self):
+        print('Loading GMM clustering results...')
+        self.clusters = lt.load_gmm_from_txt(self.ensbpath, self.ticid,
+                                             self.runIter, self.numIter, 
+                                             self.numClusters)
+        return
+
+    def load_classifications(self):
+        print('Loading classifications...')
+        self.vtype = lt.load_classifications_from_txt(self.ensbpath,
+                                                      self.sector,
+                                                      self.ticid)
         return
 
     def run_all(self):

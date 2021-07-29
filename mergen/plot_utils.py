@@ -72,7 +72,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)                
 import pdb # >> debugging tool
-import model as ml
+# import model as ml
+from . import learn_utils as lt
 from astropy.timeseries import LombScargle
 
 
@@ -117,7 +118,8 @@ from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
 from astroquery.mast import Tesscut
 
-import data_functions as df
+# import data_functions as df
+from . import data_utils as dt
 import random
 
 
@@ -457,7 +459,7 @@ def plot_lof_with_PSD(savepath, lof, time, intensity, targets, features, n, n_to
         
     # -- plot cross-identifications -------------------------------------------
     if cross_check_txt is not None:
-        class_info = df.get_true_classifications(targets, single_file=single_file,
+        class_info = dt.get_true_classifications(targets, single_file=single_file,
                                                  database_dir=cross_check_txt,
                                                  useless_classes=[])        
         ticid_classified = class_info[:,0].astype('int')
@@ -903,11 +905,11 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     pd.set_option('display.width', None)
     pd.set_option('display.max_colwidth', -1)
     df = analyze_object.data
-    print(df.iloc[[np.argmin(df['val_loss'])]])
+    print(dt.iloc[[np.argmin(df['val_loss'])]])
     
     with open(output_dir + 'best_params.txt', 'a') as f: 
         best_param_ind = np.argmin(df['val_loss'])
-        f.write(str(df.iloc[best_param_ind]) + '\n')
+        f.write(str(dt.iloc[best_param_ind]) + '\n')
     
     if supervised:
         label_list = ['val_loss']
@@ -950,7 +952,7 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
         
     p = {}
     for key in hyperparameters:
-        p[key] = df.iloc[best_param_ind][key]
+        p[key] = dt.iloc[best_param_ind][key]
     
     return df, best_param_ind, p                
     
@@ -1505,7 +1507,7 @@ def diagnostic_plots(history, model, p, output_dir,
     if input_features:
         features = []
         for ticid in ticid_test:
-            res = df.get_tess_features(ticid)
+            res = dt.get_tess_features(ticid)
             features.append([res[1:6]])
         features = np.array(features)
     else: features=False
@@ -1516,7 +1518,7 @@ def diagnostic_plots(history, model, p, output_dir,
                 bottleneck = hdul[0].data
         else:
             print('Getting bottleneck (testing set)')
-            bottleneck = ml.get_bottleneck(model, x_test, p,
+            bottleneck = lt.get_bottleneck(model, x_test, p,
                                            input_features=input_features,
                                            features=features,
                                            input_rms=input_rms,
@@ -1556,7 +1558,7 @@ def diagnostic_plots(history, model, p, output_dir,
                 bottleneck_train = hdul[0].data
         else:
             print('Getting bottleneck (training set)')
-            bottleneck_train = ml.get_bottleneck(model, x_train, p,
+            bottleneck_train = lt.get_bottleneck(model, x_train, p,
                                                  input_features=input_features,
                                                  features=features,
                                                  input_rms=input_rms,
@@ -1631,7 +1633,7 @@ def diagnostic_plots(history, model, p, output_dir,
             err = err.reshape(np.shape(err)[0])
             ranked = np.argsort(err)
             intermed_inds = [ranked[0], ranked[-1]]
-        activations = ml.get_activations(model, x_test[intermed_inds]) 
+        activations = lt.get_activations(model, x_test[intermed_inds]) 
     if plot_intermed_act:
         print('Plotting intermediate activations')
         intermed_act_plot(x, model, activations, x_test[intermed_inds],
@@ -2223,36 +2225,61 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
     
     
 def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
-              prefix=''):
+              prefix='', animate=False, elev=10):
     if type(X) == type(None):
         from sklearn.manifold import TSNE
         X = TSNE(n_components=n_components).fit_transform(bottleneck)
     unique_classes = np.unique(labels)
     colors = get_colors()
-    
-    plt.figure()
+
+    fig = plt.figure()
+    if X.shape[1] == 2:
+        ax = fig.add_subplot()
+    elif X.shape[1] == 3:
+        ax = fig.add_subplot(projection='3d')
+
     for i in range(len(unique_classes)):
         # >> find all light curves with this  class
         class_inds = np.nonzero(labels == unique_classes[i])
-        
         if unique_classes[i] == -1:
             color = 'black'
         elif unique_classes[i] < len(colors) - 1:
             color = colors[unique_classes[i]]
         else:
             color='black'
-        
-        plt.plot(X[class_inds][:,0], X[class_inds][:,1], '.', color=color)
-        
+        if X.shape[1] == 2:
+            ax.plot(X[class_inds][:,0], X[class_inds][:,1], '.', color=color)
+            ax.set_xlabel('t-SNE Component 1')
+            ax.set_ylabel('t-SNE Component 2')
+        else:
+            ax.scatter(X[class_inds][:,0], X[class_inds][:,1], X[class_inds][:,2],
+                    marker='.', c=color)
+            ax.set_xlabel('t-SNE Component 1')
+            ax.set_ylabel('t-SNE Component 2')
+            ax.set_zlabel('t-SNE Component 3')
+
     plt.savefig(output_dir + prefix + 't-sne.png')
+    print('Saved '+output_dir+prefix+'t-sne.png')
+
+    if animate:
+        from matplotlib import animation
+        def animate(i):
+            ax.view_init(elev=elev, azim=i)
+            return fig,
+        anim = animation.FuncAnimation(fig, animate, frames=360, interval=20,
+                                       blit=True)
+        # anim.save(output_dir+prefix+'t-sne_animation.mp4', fps=30,
+        #           extra_args=['-vcodec', 'libx264'])
+        anim.save(output_dir+prefix+'t-sne_animation.mp4', fps=30)
+        print('Saved '+output_dir+prefix+'t-sne_animation.mp4')
+        anim.save(output_dir+prefix+'t-sne_animation.gif')
+        print('Saved '+output_dir+prefix+'t-sne_animation.gif')
     plt.close()
-    
+
 def get_tsne(bottleneck, n_components=2):
     from sklearn.manifold import TSNE
     X = TSNE(n_components=n_components).fit_transform(bottleneck)
     return X
-    
-
     
 def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
                           output_dir='./', prefix='', single_file=False,
@@ -2274,13 +2301,13 @@ def plot_confusion_matrix(ticid_pred, y_pred, database_dir='./databases/',
     
     # >> get 'ground truth' classifications
     if type(class_info) == type(None):
-        class_info = df.get_true_classifications(ticid_pred,
+        class_info = dt.get_true_classifications(ticid_pred,
                                                  database_dir=database_dir,
                                                  single_file=single_file)
     ticid_true = class_info[:,0].astype('int')
 
     if merge_classes:
-        class_info = df.get_parents_only(class_info, parents=parents,
+        class_info = dt.get_parents_only(class_info, parents=parents,
                                          parent_dict=parent_dict)
         
     
@@ -2375,10 +2402,10 @@ def plot_cross_identifications(time, intensity, targets, target_info, features,
                                nrows=10, data_dir='./'):
     colors = get_colors()
        
-    class_info = df.get_true_classifications(targets,
+    class_info = dt.get_true_classifications(targets,
                                              database_dir=database_dir,
                                              single_file=False)
-    d = df.get_otype_dict(data_dir=data_dir)
+    d = dt.get_otype_dict(data_dir=data_dir)
     
     classes = []
     for otype in class_info[:,1]:
@@ -2685,8 +2712,8 @@ def ticid_label(ax, ticid, target_info, title=False, color='black',
     try:
         # >> query catalog data
         target, Teff, rad, mass, GAIAmag, d, objType, Tmag = \
-            df.get_tess_features(ticid)
-        # features = np.array(df.get_tess_features(ticid))[1:]
+            dt.get_tess_features(ticid)
+        # features = np.array(dt.get_tess_features(ticid))[1:]
 
         # >> change sigfigs for effective temperature
         if np.isnan(Teff):
@@ -2795,7 +2822,7 @@ def sector_nan_mask_diag(custom_masks=[[]]*26,
         sector = sectors[i]
         custom_mask = custom_masks[i]
         flux, time, ticid, target_info = \
-            df.load_data_from_metafiles('/nfs/blender/data/tdaylan/data/',
+            dt.load_data_from_metafiles('/nfs/blender/data/tdaylan/data/',
                                         sector, nan_mask_check=False)
         cams = target_info[:,1].astype('int')
         ccds = target_info [:,2].astype('int')
@@ -2827,7 +2854,7 @@ def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppa
     """loads in a sector and plots lof +insets """
     
 
-    flux, x, ticid, target_info = df.load_data_from_metafiles(pathtofolder, sector, cams=[1,2,3,4],
+    flux, x, ticid, target_info = dt.load_data_from_metafiles(pathtofolder, sector, cams=[1,2,3,4],
                                  ccds=[1,2,3,4], DEBUG=False,
                                  output_dir=pathtofolder, debug_ind=10, nan_mask_check=True)
     featuresallpath = pathtofolder + "Sector" + str(sector) + "_features_v0_all.fits"
@@ -2837,7 +2864,7 @@ def lof_and_insets_on_sector(pathtofolder, sector, numberofplots, momentumdumppa
     #targetsfits = f[1].data
     f.close()
 
-    flux = df.normalize(flux, axis=1)
+    flux = dt.normalize(flux, axis=1)
     
     features, ticid, flux, outlier_indexes = isolate_plot_feature_outliers(pathtofolder, sector, features, x, flux, ticid, sigma)
     
@@ -3660,7 +3687,7 @@ def diagnostic_plots(history, model, p, output_dir,
     if input_features:
         features = []
         for ticid in ticid_test:
-            res = df.get_tess_features(ticid)
+            res = dt.get_tess_features(ticid)
             features.append([res[1:6]])
         features = np.array(features)
     else: features=False
@@ -3672,7 +3699,7 @@ def diagnostic_plots(history, model, p, output_dir,
                     bottleneck = hdul[0].data
             else:
                 print('Getting bottleneck (testing set)')
-                bottleneck = ml.get_bottleneck(model, x_test, p,
+                bottleneck = lt.get_bottleneck(model, x_test, p,
                                                input_features=input_features,
                                                features=features,
                                                input_rms=input_rms,
@@ -3695,7 +3722,7 @@ def diagnostic_plots(history, model, p, output_dir,
         print('Plotting latent space for testing set')
         latent_space_plot(bottleneck, output_dir+prefix+'latent_space.png')
     
-    # [120920 - Now do novelty detection in ml.postprocessing]
+    # [120920 - Now do novelty detection in lt.postprocessing]
     # # >> plot the 20 light curves with the highest LOF
     # if plot_lof_test:
     #     print('Plotting LOF for testing set')
@@ -3714,7 +3741,7 @@ def diagnostic_plots(history, model, p, output_dir,
     #                 bottleneck_train = hdul[0].data
     #         else:
     #             print('Getting bottleneck (training set)')
-    #             bottleneck_train = ml.get_bottleneck(model, x_train, p,
+    #             bottleneck_train = lt.get_bottleneck(model, x_train, p,
     #                                                  input_features=input_features,
     #                                                  features=features,
     #                                                  input_rms=input_rms,
@@ -3796,7 +3823,7 @@ def diagnostic_plots(history, model, p, output_dir,
             err = err.reshape(np.shape(err)[0])
             ranked = np.argsort(err)
             intermed_inds = [ranked[0], ranked[-1]]
-        activations = ml.get_activations(model, x_test[intermed_inds]) 
+        activations = lt.get_activations(model, x_test[intermed_inds]) 
     if plot_intermed_act:
         print('Plotting intermediate activations')
         intermed_act_plot(x, model, activations, x_test[intermed_inds],
@@ -4321,7 +4348,7 @@ def plot_lof_summary(time, intensity, targets, features, n, path,
         
     # -- plot cross-identifications -------------------------------------------
     if type(database_dir) != type(None):
-        class_info = df.get_true_classifications(targets, single_file=single_file,
+        class_info = dt.get_true_classifications(targets, single_file=single_file,
                                                  database_dir=database_dir,
                                                  useless_classes=[])        
         ticid_classified = class_info[:,0].astype('int')
@@ -4490,7 +4517,7 @@ def plot_lof(time, intensity, targets, features, n, path,
         
     # -- plot cross-identifications -------------------------------------------
     if type(database_dir) != type(None):
-        class_info = df.get_true_classifications(targets, single_file=single_file,
+        class_info = dt.get_true_classifications(targets, single_file=single_file,
                                                  database_dir=database_dir,
                                                  useless_classes=[])        
         ticid_classified = class_info[:,0].astype('int')
@@ -4614,11 +4641,11 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     pd.set_option('display.width', None)
     pd.set_option('display.max_colwidth', -1)
     df = analyze_object.data
-    print(df.iloc[[np.argmin(df['val_loss'])]])
+    print(dt.iloc[[np.argmin(df['val_loss'])]])
     
     with open(output_dir + 'best_params.txt', 'a') as f: 
         best_param_ind = np.argmin(df['val_loss'])
-        f.write(str(df.iloc[best_param_ind]) + '\n')
+        f.write(str(dt.iloc[best_param_ind]) + '\n')
     
     if supervised:
         label_list = ['val_loss']
@@ -4661,7 +4688,7 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
         
     p = {}
     for key in hyperparameters:
-        p[key] = df.iloc[best_param_ind][key]
+        p[key] = dt.iloc[best_param_ind][key]
     
     return df, best_param_ind, p
 
@@ -4948,9 +4975,9 @@ def quick_plot_classification(time, intensity, targets, target_info, features, l
     #         'lightsalmon', 'lightslategray', 'fuchsia', 'deeppink', 'crimson']*10
     colors = get_colors()
     
-    # class_info = df.get_simbad_classifications(targets, simbad_database_txt)
+    # class_info = dt.get_simbad_classifications(targets, simbad_database_txt)
     # ticid_classified = np.array(simbad_info)[:,0].astype('int')    
-    class_info = df.get_true_classifications(targets,
+    class_info = dt.get_true_classifications(targets,
                                              database_dir=database_dir,
                                              single_file=single_file)
     ticid_classified = class_info[:,0].astype('int')
@@ -5188,8 +5215,8 @@ def ticid_label(ax, ticid, target_info, title=False, color='black',
     try:
         # >> query catalog data
         target, Teff, rad, mass, GAIAmag, d, objType, Tmag = \
-            df.get_tess_features(ticid)
-        # features = np.array(df.get_tess_features(ticid))[1:]
+            dt.get_tess_features(ticid)
+        # features = np.array(dt.get_tess_features(ticid))[1:]
 
         # >> change sigfigs for effective temperature
         if np.isnan(Teff):
@@ -5269,9 +5296,9 @@ def format_axes(ax, xlabel=False, ylabel=False):
     
 def plot_light_curves(targets, sector, output_dir='', prefix='', figsize=(8,8)):
     flux, time, ticid, target_info = \
-        df.load_data_from_metafiles('/nfs/blender/data/tdaylan/data/', sector,
+        dt.load_data_from_metafiles('/nfs/blender/data/tdaylan/data/', sector,
                                     nan_mask_check=False)
-    flux = df.normalize(flux)
+    flux = dt.normalize(flux)
     inter, inds, comm2 = np.intersect1d(ticid, targets, return_indices=True)
 
     fig, ax = plt.subplots(len(targets), figsize=figsize)
@@ -5359,30 +5386,30 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 20,
     # return fig, axes
     
     
-def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
-              prefix=''):
-    if type(X) == type(None):
-        from sklearn.manifold import TSNE
-        X = TSNE(n_components=n_components).fit_transform(bottleneck)
-    unique_classes = np.unique(labels)
-    colors = get_colors()
+# def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
+#               prefix=''):
+#     if type(X) == type(None):
+#         from sklearn.manifold import TSNE
+#         X = TSNE(n_components=n_components).fit_transform(bottleneck)
+#     unique_classes = np.unique(labels)
+#     colors = get_colors()
     
-    plt.figure()
-    for i in range(len(unique_classes)):
-        # >> find all light curves with this  class
-        class_inds = np.nonzero(labels == unique_classes[i])
+#     plt.figure()
+#     for i in range(len(unique_classes)):
+#         # >> find all light curves with this  class
+#         class_inds = np.nonzero(labels == unique_classes[i])
         
-        if unique_classes[i] == -1:
-            color = 'black'
-        elif unique_classes[i] < len(colors) - 1:
-            color = colors[unique_classes[i]]
-        else:
-            color='black'
+#         if unique_classes[i] == -1:
+#             color = 'black'
+#         elif unique_classes[i] < len(colors) - 1:
+#             color = colors[unique_classes[i]]
+#         else:
+#             color='black'
         
-        plt.plot(X[class_inds][:,0], X[class_inds][:,1], '.', color=color)
+#         plt.plot(X[class_inds][:,0], X[class_inds][:,1], '.', color=color)
         
-    plt.savefig(output_dir + prefix + 't-sne.png')
-    plt.close()
+#     plt.savefig(output_dir + prefix + 't-sne.png')
+#     plt.close()
     
 def get_tsne(bottleneck, n_components=2):
     from sklearn.manifold import TSNE
@@ -5446,18 +5473,18 @@ def get_gcvs_variability_types(labels):
 def get_classifications(ticid_pred, database_dir, class_info=None, parents=None,
                              parent_dict=None, merge_classes=True):
     if type(class_info) == type(None):
-        class_info = df.get_true_classifications(ticid_pred,
+        class_info = dt.get_true_classifications(ticid_pred,
                                                  database_dir=database_dir)
 
     if merge_classes:
         if type(parent_dict) == type(None):
-            parent_dict=df.make_parent_dict()
+            parent_dict=dt.make_parent_dict()
         if type(parents) == type(None):
             parents = list(parent_dict.keys())
 
         remove_classes=['V', 'VAR', '**', '*i', '*iC', '*iA','*iN', 'Em']
 
-        class_info = df.get_parents_only(class_info, parents=parents,
+        class_info = dt.get_parents_only(class_info, parents=parents,
                                          parent_dict=parent_dict,
                                          remove_classes=remove_classes,
                                          remove_flags=['+', '/', ':'])
@@ -5488,9 +5515,9 @@ def ensemble_summary_plots(ticid_pred, y_pred, sector='all',
     class_list_pred = class_list_pred.astype('str')
         
     # >> get 'ground truth' classifications
-    ticid_true, label_true = df.get_true_classifications(ticid_pred, data_dir,
+    ticid_true, label_true = dt.get_true_classifications(ticid_pred, data_dir,
                                                          sector=sector)
-    ticid_true, label_true = df.get_parent_otypes(ticid_true, label_true)
+    ticid_true, label_true = dt.get_parent_otypes(ticid_true, label_true)
         
     # >> get classified objects
     _, comm1, comm2 = np.intersect1d(ticid_pred,ticid_true,return_indices=True)
@@ -5585,6 +5612,8 @@ def ensemble_summary_plots(ticid_pred, y_pred, sector='all',
     return assignments, ticid_label
 
 
+    
+
 def evaluate_classifications(cm, row_labels):
     recall = []
     false_discovery_rate = []
@@ -5651,7 +5680,7 @@ def ensemble_summary_tables(labels, recalls, false_discovery_rates, precisions,
     df[0] = np.round(table_data[:,0], 2)
     df[2] = df[2].astype('int')
     fig, ax = plt.subplots(1,1, figsize=(15,0.25*len(labels)))
-    ax.table(cellText=df.values, rowLabels=labels, fontsize=12.,
+    ax.table(cellText=dt.values, rowLabels=labels, fontsize=12.,
              colLabels=table_columns, loc='center', colWidths=[0.2]*len(table_columns))
     ax.axis('off')
     fig.tight_layout()
@@ -5671,7 +5700,7 @@ def ensemble_summary_tables(labels, recalls, false_discovery_rates, precisions,
     df[1] = df[1].astype('int')
     fig, ax = plt.subplots(1,1, figsize=(15,0.25*len(labels)))
     # pd.plotting.table(ax, df, rowLabels=labels, colLabels=table_columns)
-    ax.table(cellText=df.values, rowLabels=labels, fontsize=12.,
+    ax.table(cellText=dt.values, rowLabels=labels, fontsize=12.,
              colLabels=table_columns, loc='center', colWidths=[0.2]*len(table_columns))
     ax.axis('off')
     fig.tight_layout()
@@ -5789,11 +5818,11 @@ def two_years_ensemble_summary(output_dir, data_dir='/nfs/blender/data/tdaylan/d
 
 #     # >> get the true labels (looks for data_dir/databases/SectorX_true_labels.txt')
 #     if gcvs_only:
-#         ticid_true, label_true = df.get_gcvs_classifications(data_dir+'databases/')
+#         ticid_true, label_true = dt.get_gcvs_classifications(data_dir+'databases/')
 #         class_info = np.concatenate([np.expand_dims(ticid_true,1),
 #                                      np.repeat(np.expand_dims(label_true, 1),
 #                                                2, 1)], 1)
-#         class_info =  df.get_parents_only(class_info)
+#         class_info =  dt.get_parents_only(class_info)
 
 #     else:
 #         class_info = get_classifications(ticid_pred, data_dir+'databases/')
@@ -5855,7 +5884,7 @@ def ensemble_budget(ticid_pred, y_pred, cm, assignments, y_true_labels,
                     parent_dict = None, figsize=(15,15)):
     
 
-    d = df.get_otype_dict(data_dir=data_dir)
+    d = dt.get_otype_dict(data_dir=data_dir)
     
     orig_classes, counts = np.unique(y_pred, return_counts=True)
     orig_classes = orig_classes.astype('str')
@@ -6019,10 +6048,10 @@ def paper_plot_lof(features=None, time=None, flux=None, target_info=None,
     # -- load from metafiles --------------------------------------------------
     if load_from_metafiles:
         flux, time, ticid, target_info = \
-            df.load_data_from_metafiles(dat_dir, sector, cams=cams, ccds=ccds,
+            dt.load_data_from_metafiles(dat_dir, sector, cams=cams, ccds=ccds,
                                         DEBUG=False, nan_mask_check=True,
                                         custom_mask=custom_mask)
-        flux = df.standardize(flux)
+        flux = dt.standardize(flux)
         inds = []
         for i in range(len(targets)):
             inds.append(np.nonzero(ticid==targets[i])[0][0])
@@ -6102,7 +6131,7 @@ def paper_plot_lof(features=None, time=None, flux=None, target_info=None,
         
 def get_lof(ticid_feat, features, database_dir='./databases/',
             n_neighbors=20, output_dir='./'):
-    class_info = df.get_true_classifications(ticid_feat,
+    class_info = dt.get_true_classifications(ticid_feat,
                                              database_dir=database_dir)
     ticid_classified = class_info[:,0].astype('int')     
     
@@ -6497,10 +6526,10 @@ def plot_cross_identifications(time, intensity, targets, target_info, features,
                                nrows=10, data_dir='./'):
     colors = get_colors()
        
-    class_info = df.get_true_classifications(targets,
+    class_info = dt.get_true_classifications(targets,
                                              database_dir=database_dir,
                                              single_file=False)
-    d = df.get_otype_dict(data_dir=data_dir)
+    d = dt.get_otype_dict(data_dir=data_dir)
     
     classes = []
     for otype in class_info[:,1]:

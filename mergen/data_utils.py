@@ -101,7 +101,8 @@ rcParams["lines.markersize"] = 2
 from scipy.signal import argrelextrema
 from scipy import signal
 
-import plotting_functions as pf
+# import plotting_functions as pf
+from . import plot_utils as pt
 
 import sklearn
 from sklearn.cluster import KMeans
@@ -146,7 +147,8 @@ from sklearn.metrics import davies_bouldin_score
 # import batman
 from transitleastsquares import transitleastsquares
 
-import model as ml
+# import model as ml
+from . import learn_utils as lt
 
 
 
@@ -763,7 +765,7 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
                 else:
                     ind = sorted_inds[-i-1]
                 ax[i].plot(time, flux[ind], '.k')
-                pf.ticid_label(ax[i], ticid[ind], target_info[ind], title=True)
+                pt.ticid_label(ax[i], ticid[ind], target_info[ind], title=True)
                 num_nans = np.count_nonzero(np.isnan(flux[ind]))
                 ax[i].text(0.98, 0.98, 'Num NaNs: '+str(num_nans)+\
                            '\nNum masked: '+str(num_masked[ind]),
@@ -2035,7 +2037,7 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
                 else:
                     ind = sorted_inds[-i-1]
                 ax[i].plot(time, flux[ind], '.k')
-                pf.ticid_label(ax[i], ticid[ind], target_info[ind], title=True)
+                pt.ticid_label(ax[i], ticid[ind], target_info[ind], title=True)
                 num_nans = np.count_nonzero(np.isnan(flux[ind]))
                 ax[i].text(0.98, 0.98, 'Num NaNs: '+str(num_nans)+\
                            '\nNum masked: '+str(num_masked[ind]),
@@ -2103,7 +2105,7 @@ def sector_mask_diag(sectors=[1,2,3,17,18,19,20], data_dir='./',
     fig, ax  = plt.subplots(num_sectors)
     for i in range(num_sectors):
         ax[i].plot(all_x[i], all_flux[i][0], '.k', ms=2)
-        pf.ticid_label(ax[i], all_ticid[i][0], all_target_info[i][0],
+        pt.ticid_label(ax[i], all_ticid[i][0], all_target_info[i][0],
                        title=True)
         ax[i].set_title('Sector '+str(sectors[i])+'\n'+ax[i].get_title(),
                         fontsize='small')
@@ -3844,7 +3846,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                 
                             if confusion_matrix:
                                 print('Plotting confusion matrix')
-                                acc = pf.plot_confusion_matrix(ticid, db.labels_,
+                                acc = pt.plot_confusion_matrix(ticid, db.labels_,
                                                                database_dir=database_dir,
                                                                single_file=single_file,
                                                                output_dir=output_dir,
@@ -3903,7 +3905,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             if DEBUG and len(classes_1) > 1:
 
                                 print('Plotting classification results')
-                                pf.quick_plot_classification(time, flux,
+                                pt.quick_plot_classification(time, flux,
                                                              ticid,
                                                              target_info, bottleneck,
                                                              db.labels_,
@@ -3917,13 +3919,13 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                                 
                                 if pca:
                                     print('Plot PCA...')
-                                    pf.plot_pca(bottleneck, db.labels_,
+                                    pt.plot_pca(bottleneck, db.labels_,
                                                 output_dir=output_dir,
                                                 prefix=prefix)
                                 
                                 if tsne:
                                     print('Plot t-SNE...')
-                                    pf.plot_tsne(bottleneck, db.labels_,
+                                    pt.plot_tsne(bottleneck, db.labels_,
                                                  output_dir=output_dir,
                                                  prefix=prefix)
                                 # if tsne_clustering:
@@ -3932,11 +3934,11 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                             plt.close('all')
                             param_num +=1
     print("Plot paramscan metrics...")
-    pf.plot_paramscan_metrics(output_dir+'dbscan-', parameter_sets, 
+    pt.plot_paramscan_metrics(output_dir+'dbscan-', parameter_sets, 
                               silhouette_scores, db_scores, ch_scores)
     #print(len(parameter_sets), len(num_classes), len(num_noisy), num_noisy)
 
-    pf.plot_paramscan_classes(output_dir+'dbscan-', parameter_sets, 
+    pt.plot_paramscan_classes(output_dir+'dbscan-', parameter_sets, 
                                   np.asarray(num_classes), np.asarray(num_noisy))
 
         
@@ -4139,7 +4141,7 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                                     
                         if confusion_matrix:
                             print('Computing accuracy')
-                            acc = pf.plot_confusion_matrix(ticid, labels,
+                            acc = pt.plot_confusion_matrix(ticid, labels,
                                                            database_dir=database_dir,
                                                            output_dir=output_dir,
                                                            prefix=prefix)       
@@ -4163,19 +4165,19 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                         #                  dav_boul_score, acc))
                                     
                     if DEBUG and len(classes_1) > 1:
-                        pf.quick_plot_classification(time, flux,ticid,target_info, 
+                        pt.quick_plot_classification(time, flux,ticid,target_info, 
                                                      features, labels,path=output_dir,
                                                      prefix=prefix,
                                                      title=title,
                                                      database_dir=database_dir)
                     
-                        pf.plot_cross_identifications(time, flux, ticid,
+                        pt.plot_cross_identifications(time, flux, ticid,
                                                       target_info, features,
                                                       labels, path=output_dir,
                                                       prefix=prefix,
                                                       database_dir=database_dir,
                                                       data_dir=data_dir)
-                        pf.plot_confusion_matrix(ticid, labels,
+                        pt.plot_confusion_matrix(ticid, labels,
                                                   database_dir=database_dir,
                                                   output_dir=output_dir,
                                                   prefix=prefix+'merge', merge_classes=True,
@@ -4183,13 +4185,13 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                     
                         if pca:
                             print('Plot PCA...')
-                            pf.plot_pca(features, labels,
+                            pt.plot_pca(features, labels,
                                         output_dir=output_dir,
                                         prefix=prefix)
                                     
                         if tsne:
                             print('Plot t-SNE...')
-                            pf.plot_tsne(features,labels,
+                            pt.plot_tsne(features,labels,
                                          output_dir=output_dir,
                                          prefix=prefix)                
                     plt.close('all')
@@ -4223,7 +4225,7 @@ def gmm_param_search(features, ticid, data_dir,
         cm, assignments, ticid_true, y_true, class_info_new, recalls,\
         false_discovery_rates, counts_true, counts_pred, precisions, accuracy,\
         label_true, label_pred=\
-            pf.assign_real_labels(ticid, labels, data_dir+'/databases/',
+            pt.assign_real_labels(ticid, labels, data_dir+'/databases/',
                                   data_dir, output_dir=output_dir+prefix)
         recall.append(np.mean(recalls))
         accuracies.append(np.mean(accuracy))
@@ -4469,7 +4471,7 @@ def representation_learning(flux, x, ticid, target_info,
     print('Preprocessing')
     x_train, x_test, y_train, y_test, ticid_train, ticid_test, target_info_train, \
         target_info_test, rms_train, rms_test, x = \
-        ml.autoencoder_preprocessing(flux, ticid, x, target_info, p,
+        lt.autoencoder_preprocessing(flux, ticid, x, target_info, p,
                                      validation_targets=validation_targets,
                                      norm_type=norm_type,
                                      input_rms=input_rms, input_psd=input_psd,
@@ -4480,13 +4482,13 @@ def representation_learning(flux, x, ticid, target_info,
         
     print('Training CAE')
     history, model, x_predict = \
-        ml.conv_autoencoder(x_train, y_train, x_test, y_test, p,
+        lt.conv_autoencoder(x_train, y_train, x_test, y_test, p,
                             input_rms=True, rms_train=rms_train, rms_test=rms_test,
                             ticid_train=ticid_train, ticid_test=ticid_test,
                             output_dir=output_dir)
         
     print('Diagnostic plots')
-    pf.diagnostic_plots(history, model, p, output_dir, x, x_train,
+    pt.diagnostic_plots(history, model, p, output_dir, x, x_train,
                         x_test, x_predict, mock_data=False, addend=0.,
                         target_info_test=target_info_test,
                         target_info_train=target_info_train,
@@ -4512,7 +4514,7 @@ def representation_learning(flux, x, ticid, target_info,
                         load_bottleneck=True)            
 
     features, flux_feat, ticid_feat, info_feat = \
-        ml.bottleneck_preprocessing(None,
+        lt.bottleneck_preprocessing(None,
                                     np.concatenate([x_train, x_test], axis=0),
                                     np.concatenate([ticid_train, ticid_test]),
                                     np.concatenate([target_info_train,
@@ -4525,7 +4527,7 @@ def representation_learning(flux, x, ticid, target_info,
                                     use_tls_features=False)         
         
     print('Novelty detection')
-    pf.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
+    pt.plot_lof(x, flux_feat, ticid_feat, features, 20, output_dir,
                 n_tot=40, target_info=info_feat, prefix='',
                 cross_check_txt=database_dir, debug=False, addend=0.)        
     
