@@ -2225,12 +2225,15 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
     
     
 def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
-              prefix='', animate=False, elev=10):
+              prefix='', animate=False, elev=10, uniqvtype=None):
     if type(X) == type(None):
         from sklearn.manifold import TSNE
         X = TSNE(n_components=n_components).fit_transform(bottleneck)
     unique_classes = np.unique(labels)
     colors = get_colors()
+
+    # >> find 'center' of t-SNE
+    centr = np.mean(X, axis=0)
 
     fig = plt.figure()
     if X.shape[1] == 2:
@@ -2241,12 +2244,16 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
     for i in range(len(unique_classes)):
         # >> find all light curves with this  class
         class_inds = np.nonzero(labels == unique_classes[i])
+
+        # >> assign color
         if unique_classes[i] == -1:
             color = 'black'
         elif unique_classes[i] < len(colors) - 1:
             color = colors[unique_classes[i]]
         else:
             color='black'
+
+        # >> plot all datapoints
         if X.shape[1] == 2:
             ax.plot(X[class_inds][:,0], X[class_inds][:,1], '.', color=color)
             ax.set_xlabel('t-SNE Component 1')
@@ -2257,6 +2264,17 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
             ax.set_xlabel('t-SNE Component 1')
             ax.set_ylabel('t-SNE Component 2')
             ax.set_zlabel('t-SNE Component 3')
+
+        # >> plot labels
+        if type(uniqvtype) != type(None):
+            # >> find point furthest from t-SNE center
+            maxind = np.argmax(np.sum((X[class_inds] - centr)**2), axis=0)
+            if X.shape[1] == 2:
+                xl, yl = X[class_inds][maxind]
+                ax.text(xl, yl, uniqvtype[i], color=color, size='large')
+            else:
+                xl, yl, zl = X[class_inds][maxind]
+                ax.text(xl, yl, zl, uniqvtype[i], color=color, size='large')
 
     plt.savefig(output_dir + prefix + 't-sne.png')
     print('Saved '+output_dir+prefix+'t-sne.png')
@@ -2272,8 +2290,6 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
         #           extra_args=['-vcodec', 'libx264'])
         anim.save(output_dir+prefix+'t-sne_animation.mp4', fps=30)
         print('Saved '+output_dir+prefix+'t-sne_animation.mp4')
-        anim.save(output_dir+prefix+'t-sne_animation.gif')
-        print('Saved '+output_dir+prefix+'t-sne_animation.gif')
     plt.close()
 
 def get_tsne(bottleneck, n_components=2):

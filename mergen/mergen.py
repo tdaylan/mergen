@@ -10,18 +10,18 @@ To Do List:
 """
 
 from .__init__ import *
-from . import data_utils as dt
+from . import data_utils    as dt
 from . import catalog_utils as ct
-from . import learn_utils as lt
-from . import plot_utils as pt
+from . import learn_utils   as lt
+from . import plot_utils    as pt
 from . import feature_utils as ft
 
 class mergen(object):
     """ Main mergen class. Initialize this to work with everything else
     conveniently. """
     def __init__(self, datapath, savepath, datatype, mdumpcsv=None,
-                 filelabel=None, sector=1, runIter=False, numIter=1,
-                 numClusters=100):
+                 filelabel=None, sector=1, runiter=False, numiter=1,
+                 numclstr=100, aeparam=None):
         """Creates mergen object from which most common routines can easily be
         run
         Parameters:
@@ -36,14 +36,14 @@ class mergen(object):
                          labelled specially        
         """
         self.sector   = sector
-        self.numClusters = numClusters
+        self.numclstr = numclstr
         
         self.datapath = datapath
         self.savepath = savepath
         self.datatype = datatype #SPOC or FFI
         self.ensbpath = self.savepath+'Ensemble-Sector_'+str(self.sector)+'/'
 
-        if mdumpcsv is not None:
+        if mdumpcsv is not None: # >> CSV file containing TESS momentum dumps
             self.mdumpcsv = mdumpcsv
         else:
             self.mdumpcsv = datapath + 'Table_of_momentum_dumps.csv'
@@ -53,9 +53,14 @@ class mergen(object):
         else:
             self.filelabel = "mergen"
 
+        if aeparam is not None: # >> TXT file containing autoencoder parameters
+            self.aeparam = aeparam
+        else:
+            self.aeparam = savepath + 'caehyperparams.txt'
+
         # >> iterative scheme
-        self.runIter = runIter
-        self.numIter = numIter
+        self.runiter = runiter
+        self.numiter = numiter
         
         self.initiate_folder()
     
@@ -101,7 +106,7 @@ class mergen(object):
     def load_existing_features(self, typeFeatures):
         """ Load in feature metafiles stored in the datapath"""
         if typeFeatures == "ENF":
-            self.features = dt.load_ENF_feature_metafile(self.ENFpath)
+            self.feats = dt.load_ENF_feature_metafile(self.ENFpath)
         elif typeFeatures == "CAE":
             ### EMMA FILL THIS IN
             k = 6
@@ -109,41 +114,58 @@ class mergen(object):
     
     def generate_engineered(self, version = 0, save = True):
         """ Run engineered feature creation"""
-        self.features = ft.create_save_featvec_homogenous_time(self.ENFpath,
-                                                               self.times, 
-                                                               self.intensities,
-                                                               self.filelabel,
-                                                               version=version,
-                                                               save=save)
+        self.feats = ft.create_save_featvec_homogenous_time(self.ENFpath,
+                                                            self.times, 
+                                                            self.intensities,
+                                                            self.filelabel,
+                                                            version=version,
+                                                            save=save)
         return
 
-    def generate_CAE(self):
-        """Run CAE feature creation"""
-        
-        #EMMA FILL THIS IN
-        
+    def generate_cae(self):
+        '''Train convolutional autoencoder to extract representative
+        features from lightcurves.'''
+        # TODO
+        return
+
+    def generate_vcae(self):
+        '''Train variational convolutional autoencoder to extract representative
+        features from lightcurves.'''
+
+        return
+
+    def generate_clusters(self):
+        print('Performing clustering analysis in feature space...')
+        self.clstr = lt.run_gmm(self.ticid, self.feats, numclstr=self.numclstr,
+                                savepath=self.ensbpath, runiter=self.runiter,
+                                numiter=self.numiter)
         return
 
     def load_learned_features(self):
         print('Loading CAE-learned features...')
-        self.features = lt.load_bottleneck_from_fits(self.ensbpath,
+        self.feats = lt.load_bottleneck_from_fits(self.ensbpath,
                                                      self.ticid,
-                                                     self.runIter,
-                                                     self.numIter)
+                                                     self.runiter,
+                                                     self.numiter)
         return
 
     def load_gmm_clusters(self):
         print('Loading GMM clustering results...')
-        self.clusters = lt.load_gmm_from_txt(self.ensbpath, self.ticid,
-                                             self.runIter, self.numIter, 
-                                             self.numClusters)
+        self.clstr = lt.load_gmm_from_txt(self.ensbpath, self.ticid,
+                                           self.runiter, self.numiter, 
+                                           self.numclstr)
         return
 
-    def load_classifications(self):
+    def load_vtypes(self):
         print('Loading classifications...')
-        self.vtype = lt.load_classifications_from_txt(self.ensbpath,
-                                                      self.sector,
-                                                      self.ticid)
+        self.vtype = lt.load_vtype_from_txt(self.ensbpath, self.sector,
+                                            self.ticid)
+        return
+
+    def numerize_vtypes(self):
+        self.uniqvtype = np.unique(self.vtype)
+        self.numvtype = [np.nonzero(self.uniqvtype == vt)[0][0] for \
+                         vt in self.vtype]
         return
 
     def run_all(self):

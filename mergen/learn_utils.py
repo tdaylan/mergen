@@ -104,7 +104,6 @@ from sklearn.metrics import confusion_matrix
 
 import talos
 
-
 def run_kmeans(features, n_clusters = 2):
     from sklearn.cluster import KMeans
     kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(features)
@@ -128,10 +127,22 @@ def run_hdbscan(features, min_cluster_size = 10, metric = 'minkowski', min_sampl
     labels = clusterer.labels_
     return clusterer, labels
     
-def run_GMM(features, n_components = 2):
+def run_gmm(ticid, feats, numclstr=100, runiter=False, numiter=1, save=True,
+            savepath='./'):
     from sklearn.mixture import GaussianMixture
-    GMM = GaussianMixture(n_components=n_components, random_state=0).fit(features)
-    return GMM
+    gmm = GaussianMixture(n_components=numclstr, random_state=0).fit(feats)
+    clstr = gmm.predict(feats)
+
+    if save:
+        if runiter:
+            prefix = 'iteration'+str(numiter-1)+'-all-'
+            suffix = '-n'+str(numclstr)+'.txt'
+        else:
+            prefix = ''
+            suffix = '.txt'
+        np.savetxt(savepath+prefix+'gmm_labels'+suffix, np.array([ticid, clstr]),
+                   header='TICID,ClusterNumber')
+    return clstr
     
 def run_LOF(features, n_neighbors = 20, p = 2, metric = 'minkowski', contamination = 0.1,
             algorithm = 'auto'):
@@ -146,7 +157,7 @@ def run_LOF(features, n_neighbors = 20, p = 2, metric = 'minkowski', contaminati
     return lof
     
 def run_tsne(features, n_components=2, perplexity=30, early_exaggeration=12,
-             save=True, savepath='./', sector=1):
+             save=True, savepath='./'):
     '''Returns low-dimensional t-sidtributed Stochastic Neighbor Embedding to
     visualize high-deimsnional feature spaces. Using PCA to initially reduce
     the dimensionality will suppress some noise.'''
@@ -155,14 +166,18 @@ def run_tsne(features, n_components=2, perplexity=30, early_exaggeration=12,
     X = TSNE(n_components=n_components).fit_transform(features)
 
     if save:
-        output_dir = savepath+'Ensemble-Sector_'+str(sector)+'/'
         hdr=fits.Header()
         hdu=fits.PrimaryHDU(X, header=hdr)
-        hdu.writeto(output_dir+'tsne.fits')
+        hdu.writeto(savepath+'tsne.fits')
 
     return X
     
-def load_classifications_from_txt(ensbpath, sector, ticid):
+def load_tsne(ensbpath):
+    with fits.open(ensbpath+'tsne.fits') as hdul:
+        X = hdul[0].data
+    return X
+
+def load_vtype_from_txt(ensbpath, sector, ticid):
     '''Reads *-ticid_to_label.txt and returns:
     * vtype : Variability types (following nomenclature by GCVS)'''
 
@@ -173,7 +188,7 @@ def load_classifications_from_txt(ensbpath, sector, ticid):
 
     # >> re-order vtype so that ticid_unsorted = ticid
     orgsrti = np.argsort(ticid)      # >> indices that would sort ticid
-    orgunsrti = np.argsort(sortinds) # >> indices that would return original
+    orgunsrti = np.argsort(orgsrti)  # >> indices that would return original
                                      # >> ordering of ticid
     
     intsc, _, srtinds = np.intersect1d(ticid, ticid_unsorted,
@@ -1437,16 +1452,21 @@ def model_summary_txt(output_dir, model):
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def pretrain(p, output_dir, input_dim=18688, input_psd=True, input_rms=False,
-             dataset_size=10000, f_mean=2., truncate=True, reshape=False,
-             hyperparam_opt=False):
-    
-    # >> make some mock data
-    x, x_train, x_test = \
-        get_high_freq_mock_data(p=p, dataset_size=dataset_size,
-                                input_dim=input_dim, f_mean=f_mean,
-                                truncate=truncate, reshape=reshape,
-                                hyperparam_opt=hyperparam_opt)    
+def read_hyperparameters_from_txt(savepath):
+    params = pd.read_csv(savepath+'caehyperparams.txt', delimiter='\t')['Value']
+    return params
+
+
+# def pretrain(p, output_dir, input_dim=18688, input_psd=True, input_rms=False,
+#              dataset_size=10000, f_mean=2., truncate=True, reshape=False,
+#              hyperparam_opt=False):
+#     # !! unfinished
+#     # >> make some mock data
+#     x, x_train, x_test = \
+#         get_high_freq_mock_data(p=p, dataset_size=dataset_size,
+#                                 input_dim=input_dim, f_mean=f_mean,
+#                                 truncate=truncate, reshape=reshape,
+#                                 hyperparam_opt=hyperparam_opt)    
 
 class TimeHistory(keras.callbacks.Callback):
     '''https://stackoverflow.com/questions/43178668/record-the-computation-time-
@@ -1949,64 +1969,64 @@ def deep_autoencoder(x_train, y_train, x_test, y_test, params, batch_norm=True):
 
 # :: Variational Autoencoder :::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def variational_autoencoder(x_train, y_train, x_test, y_test, params):
-    '''https://blog.keras.io/building-autoencoders-in-keras.html'''    
-    input_dim = np.shape(x_train)[1]    
-    hidden_units = list(range(params['max_dim'], params['latent_dim'],
-                              -params['step']))    
-    if hidden_units[-1] != params['latent_dim']:
-        hidden_units.append(params['latent_dim'])
+# def variational_autoencoder(x_train, y_train, x_test, y_test, params):
+#     '''https://blog.keras.io/building-autoencoders-in-keras.html'''    
+#     input_dim = np.shape(x_train)[1]    
+#     hidden_units = list(range(params['max_dim'], params['latent_dim'],
+#                               -params['step']))    
+#     if hidden_units[-1] != params['latent_dim']:
+#         hidden_units.append(params['latent_dim'])
 
-    # -- encoder ---------------------------------------------------------------
-    inputs = Input(shape = (input_dim,))
-    x = inputs
-    for i in range(len(hidden_units)):
-        x = Dense(hidden_units[i], activation=params['activation'],
-                  kernel_initializer=params['initializer'])(x)
-        if params['batch_norm']: x = BatchNormalization()(x)
+#     # -- encoder ---------------------------------------------------------------
+#     inputs = Input(shape = (input_dim,))
+#     x = inputs
+#     for i in range(len(hidden_units)):
+#         x = Dense(hidden_units[i], activation=params['activation'],
+#                   kernel_initializer=params['initializer'])(x)
+#         if params['batch_norm']: x = BatchNormalization()(x)
         
-    x = Dense(params['latent_dim'], activation=params['activation'],
-              kernel_initializer=params['initializer'])(x)
-    z_mean = Dense(params['latent_dim'])(x)
-    z_log_sigma = Dense(params['latent_dim'])(x)
-    z = Lambda(sampling, name='bottleneck')([z_mean, z_log_sigma, params])
-    encoder = Model(inputs, [z_mean, z_log_sigma, z])
-    encoder.summary()
+#     x = Dense(params['latent_dim'], activation=params['activation'],
+#               kernel_initializer=params['initializer'])(x)
+#     z_mean = Dense(params['latent_dim'])(x)
+#     z_log_sigma = Dense(params['latent_dim'])(x)
+#     z = Lambda(sampling, name='bottleneck')([z_mean, z_log_sigma, params])
+#     encoder = Model(inputs, [z_mean, z_log_sigma, z])
+#     encoder.summary()
 
-    # -- decoder ---------------------------------------------------------------
-    latent_inputs = Input(shape=(params['latent_dim'],))
-    x = latent_inputs
-    for i in np.arange(len(hidden_units)-1, -1, -1):
-        if params['batch_norm']: x = BatchNormalization()(x)        
-        x = Dense(hidden_units[i], activation=params['activation'],
-                  kernel_initializer=params['initializer'])(x)
-    if params['batch_norm']: x = BatchNormalization()(x)    
-    decoder_outputs = Dense(input_dim, activation=params['last_activation'],
-                            kernel_initializer=params['initializer'])(x)
-    decoder = Model(latent_inputs, decoder_outputs)
-    decoder.summary()    
+#     # -- decoder ---------------------------------------------------------------
+#     latent_inputs = Input(shape=(params['latent_dim'],))
+#     x = latent_inputs
+#     for i in np.arange(len(hidden_units)-1, -1, -1):
+#         if params['batch_norm']: x = BatchNormalization()(x)        
+#         x = Dense(hidden_units[i], activation=params['activation'],
+#                   kernel_initializer=params['initializer'])(x)
+#     if params['batch_norm']: x = BatchNormalization()(x)    
+#     decoder_outputs = Dense(input_dim, activation=params['last_activation'],
+#                             kernel_initializer=params['initializer'])(x)
+#     decoder = Model(latent_inputs, decoder_outputs)
+#     decoder.summary()    
 
-    # -- instantiate VAE model -------------------------------------------------
-    outputs = decoder(encoder(inputs)[2])
-    vae = Model(inputs, outputs)
-    reconstruction_loss = tf.keras.losses.binary_crossentropy(inputs, outputs)
-    reconstruction_loss *= input_dim
-    kl_loss = 1 + z_log_sigma - K.square(z_mean) - K.exp(z_log_sigma)
-    kl_loss = K.sum(kl_loss, axis=-1)
-    kl_loss *= -0.5
-    vae_loss = K.mean(reconstruction_loss + kl_loss)
-    vae.add_loss(vae_loss)
-    vae.compile(optimizer='adam')
+#     # -- instantiate VAE model -------------------------------------------------
+#     outputs = decoder(encoder(inputs)[2])
+#     vae = Model(inputs, outputs)
+#     reconstruction_loss = tf.keras.losses.binary_crossentropy(inputs, outputs)
+#     reconstruction_loss *= input_dim
+#     kl_loss = 1 + z_log_sigma - K.square(z_mean) - K.exp(z_log_sigma)
+#     kl_loss = K.sum(kl_loss, axis=-1)
+#     kl_loss *= -0.5
+#     vae_loss = K.mean(reconstruction_loss + kl_loss)
+#     vae.add_loss(vae_loss)
+#     vae.compile(optimizer='adam')
 
-    if type(x_test)==type(None):
-        validation_data=None
-    else:
-        validation_data=(x_test,x_test)
-    history = vae.fit(x_train, x_train, epochs=params['epochs'],
-                      batch_size=params['batch_size'], shuffle=True,
-                      validation_data=validation_data)
+#     if type(x_test)==type(None):
+#         validation_data=None
+#     else:
+#         validation_data=(x_test,x_test)
+#     history = vae.fit(x_train, x_train, epochs=params['epochs'],
+#                       batch_size=params['batch_size'], shuffle=True,
+#                       validation_data=validation_data)
 
-    return history, vae, encoder
+#     return history, vae, encoder
 
 def run_cvae(x_train, y_train, x_test, y_test, params, save_model=True,
              predict=False, output_dir='', prefix='', ticid_train=None,
