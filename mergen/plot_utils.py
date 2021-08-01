@@ -2225,56 +2225,81 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
     
     
 def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
-              prefix='', animate=False, elev=10, uniqvtype=None):
+              prefix='', animate=False, elev=10, otypedict=None, alpha=0.5):
     if type(X) == type(None):
         from sklearn.manifold import TSNE
         X = TSNE(n_components=n_components).fit_transform(bottleneck)
-    unique_classes = np.unique(labels)
+    # unique_classes = np.unique(labels)
+    unique_classes = np.array(list(otypedict.keys()))
     colors = get_colors()
 
     # >> find 'center' of t-SNE
-    centr = np.mean(X, axis=0)
+    centr = np.median(X, axis=0)
+    maxlim = np.max(X, axis=0)
+    minlim = np.min(X, axis=0)
+    rad = 0.5 * np.sqrt(np.sum((maxlim - minlim)**2)) # >> radius of tSNE 
 
     fig = plt.figure()
     if X.shape[1] == 2:
         ax = fig.add_subplot()
     elif X.shape[1] == 3:
         ax = fig.add_subplot(projection='3d')
-
-    for i in range(len(unique_classes)):
+        
+    for i in unique_classes:
         # >> find all light curves with this  class
-        class_inds = np.nonzero(labels == unique_classes[i])
+        class_inds = np.nonzero(labels == i)
 
         # >> assign color
-        if unique_classes[i] == -1:
+        if otypedict[i] == 'NONE':
             color = 'black'
-        elif unique_classes[i] < len(colors) - 1:
-            color = colors[unique_classes[i]]
+            al = 0.01
+        elif i < len(colors) - 1:
+            color = colors[i]
+            al = alpha
         else:
             color='black'
 
         # >> plot all datapoints
         if X.shape[1] == 2:
-            ax.plot(X[class_inds][:,0], X[class_inds][:,1], '.', color=color)
+            ax.plot(X[class_inds][:,0], X[class_inds][:,1], '.', color=color,
+                    alpha=al)
             ax.set_xlabel('t-SNE Component 1')
             ax.set_ylabel('t-SNE Component 2')
         else:
             ax.scatter(X[class_inds][:,0], X[class_inds][:,1], X[class_inds][:,2],
-                    marker='.', c=color)
+                       marker='.', c=color, alpha=al)
             ax.set_xlabel('t-SNE Component 1')
             ax.set_ylabel('t-SNE Component 2')
             ax.set_zlabel('t-SNE Component 3')
 
         # >> plot labels
-        if type(uniqvtype) != type(None):
+        if type(otypedict) != type(None):
+            cntpt = np.median(X[class_inds], axis=0) # >> center of cluster
+
             # >> find point furthest from t-SNE center
-            maxind = np.argmax(np.sum((X[class_inds] - centr)**2), axis=0)
-            if X.shape[1] == 2:
-                xl, yl = X[class_inds][maxind]
-                ax.text(xl, yl, uniqvtype[i], color=color, size='large')
+            maxind = np.argmax(np.sum((X[class_inds] - centr)**2, axis=1))
+            maxpt = X[class_inds][maxind]            # >> furthest pt in clstr
+            dst = np.sqrt(np.sum((cntpt - centr)**2))
+            prjc = rad - dst                         # >> length of vector
+
+            # >> vector pointing out
+            if len(class_inds[0]) == 1:
+                vect = maxpt - centr
             else:
-                xl, yl, zl = X[class_inds][maxind]
-                ax.text(xl, yl, zl, uniqvtype[i], color=color, size='large')
+                vect = maxpt - cntpt
+            v_norm = vect / np.sqrt(np.sum(vect**2)) # >> norm of the vector
+            endpt = cntpt + v_norm*prjc              # >> where label will be
+            
+            if X.shape[1] == 2:
+                xp, yp = endpt
+                ax.text(xp, yp,  otypedict[i], color=color, size='large')
+                xv, yv = [cntpt[0], xp], [cntpt[1], yp]
+                ax.plot(xv, yv, '-', color=color)
+            else:
+                xp, yp, zp = endpt
+                ax.text(xp, yp, zp, otypedict[i], color=color, size='large')
+                xv, yv, zv = [cntpt[0], xp], [cntpt[1], yp], [cntpt[2], zp]
+                ax.plot(xv, yv, zv, '-', color=color)
 
     plt.savefig(output_dir + prefix + 't-sne.png')
     print('Saved '+output_dir+prefix+'t-sne.png')
@@ -2576,7 +2601,8 @@ def get_colors():
         sorted_names.pop(ind)
         
     # >> now shuffle
-    random.Random(4).shuffle(sorted_names)
+    # random.Random(4).shuffle(sorted_names)
+    random.Random(2).shuffle(sorted_names)
     sorted_names = sorted_names*20
     
     sorted_names.append('black')
@@ -5486,27 +5512,22 @@ def get_gcvs_variability_types(labels):
     return type_inds
             
 
-def get_classifications(ticid_pred, database_dir, class_info=None, parents=None,
-                             parent_dict=None, merge_classes=True):
-    if type(class_info) == type(None):
-        class_info = dt.get_true_classifications(ticid_pred,
-                                                 database_dir=database_dir)
+def get_classifications(ticid, data_dir, merge_classes=True, 
+                        sector='all'):
+    ticid_true, otype = dt.get_true_classifications(ticid, data_dir,
+                                                     sector=sector)
 
     if merge_classes:
-        if type(parent_dict) == type(None):
-            parent_dict=dt.make_parent_dict()
-        if type(parents) == type(None):
-            parents = list(parent_dict.keys())
+        rmotype=['V', 'VAR', '**', '*i', '*iC', '*iA','*iN', 'Em']
 
-        remove_classes=['V', 'VAR', '**', '*i', '*iC', '*iA','*iN', 'Em']
+        ticid_new, otype_new = dt.get_parent_otypes(ticid_true, otype,
+                                                    remove_classes=rmotype)
+        
+    orderind = lt.order_array(ticid, ticid_new)
+    ticid_new = ticid_new[orderind]
+    otype_new = otype_new[orderind]
 
-        class_info = dt.get_parents_only(class_info, parents=parents,
-                                         parent_dict=parent_dict,
-                                         remove_classes=remove_classes,
-                                         remove_flags=['+', '/', ':'])
-
-
-    return class_info
+    return ticid_new, otype_new
 
 def ensemble_summary_plots(ticid_pred, y_pred, sector='all',
                        data_dir='./data/', output_dir='./',

@@ -177,16 +177,16 @@ def load_tsne(ensbpath):
         X = hdul[0].data
     return X
 
-def load_vtype_from_txt(ensbpath, sector, ticid):
+def load_otype_pred_from_txt(ensbpath, sector, ticid):
     '''Reads *-ticid_to_label.txt and returns:
-    * vtype : Variability types (following nomenclature by GCVS)'''
+    * otype : Object types'''
 
     fname = ensbpath+'Sector'+str(sector)+'-ticid_to_label.txt'
     fileo = np.loadtxt(fname, delimiter=',', dtype='str')
     ticid_unsorted = fileo[:,0].astype('float')
-    vtype = fileo[:,1]
+    otype = fileo[:,1]
 
-    # >> re-order vtype so that ticid_unsorted = ticid
+    # >> re-order otype so that ticid_unsorted = ticid
     orgsrti = np.argsort(ticid)      # >> indices that would sort ticid
     orgunsrti = np.argsort(orgsrti)  # >> indices that would return original
                                      # >> ordering of ticid
@@ -198,9 +198,48 @@ def load_vtype_from_txt(ensbpath, sector, ticid):
         print('!! Variability classifications were not found for '+str(sdiff)+\
               ' TICIDs.')
 
-    vtype = vtype[srtinds][orgunsrti] # >> order vtype correctly
+    otype = otype[srtinds][orgunsrti] # >> order otype correctly
 
-    return vtype
+    return otype
+
+def order_array(arr1, arr2):
+    '''Returns array of indices, which will sort arr2 so that arr1=arr2.
+    An example would be two arrays of the same TICIDs, but in different
+    order: 
+    orderind = order_array(ticid1, ticid2)
+    ticid1 == ticid2[orderind]
+    '''
+    orgsrti = np.argsort(arr1)      # >> indices that would sort arr1
+    orgunsrti = np.argsort(orgsrti)  # >> indices that would return original
+                                     # >> ordering of arr1
+    
+    intsc, _, srtinds = np.intersect1d(arr1, arr2, return_indices=True)
+
+    # if len(intsc) != len(ticid):
+    #     sdiff = np.setdiff1d(intsc, ticid)
+    #     print('!! Variability classifications were not found for '+str(sdiff)+\
+    #           ' TICIDs.')
+
+    orderind = srtinds[orgunsrti] # >> will order arr2 to that arr1 = arr2
+
+    return orderind
+
+def load_otype_true_from_datadir(datapath, sector, ticid):
+    '''Reads *-ticid_to_label.txt and returns:
+    * otype : Variability types (following nomenclature by GCVS)'''
+    
+    ticid_true, otype = dt.get_true_classifications(ticid, datapath,
+                                                     sector=sector)
+
+    rmvtype=['V', 'VAR', '**', '*i', '*iC', '*iA','*iN', 'Em']
+    ticid_new, otype_new = dt.get_parent_otypes(ticid_true, otype,
+                                                remove_classes=rmvtype)
+        
+    orderind = order_array(ticid, ticid_new)
+    otype = otype_new[orderind]
+
+    return otype
+
 
 ##### PARAM SCANS #####
 def KNN_plotting(savepath, features, k_values):

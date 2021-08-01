@@ -3354,7 +3354,7 @@ def get_parent_otypes(ticid, otypes, remove_classes=['PM','IR','UV','X']):
     class
     '''
 
-    parent_dict = make_parent_dict()
+    parent_dict, parents, subclasses =make_parent_dict()
     parents = list(parent_dict.keys())
 
     # >> turn into array
@@ -3389,11 +3389,15 @@ def get_parent_otypes(ticid, otypes, remove_classes=['PM','IR','UV','X']):
 
         new_otypes.append('|'.join(new_otype.astype('str')))
     
-    # >> get rid of empty classes
     new_otypes = np.array(new_otypes)
+OD
+    # # >> get rid of empty classes
+    # inds = np.nonzero(new_otypes == '')
+    # new_otypes = np.delete(new_otypes, inds)
+    # ticid = np.delete(ticid, inds)
+
     inds = np.nonzero(new_otypes == '')
-    new_otypes = np.delete(new_otypes, inds)
-    ticid = np.delete(ticid, inds)
+    new_otypes[inds] = 'NONE'
                 
     return ticid, new_otypes
 

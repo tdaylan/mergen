@@ -2,11 +2,24 @@
 Created on Thu Oct  8 20:27:13 2020
 
 mergen.py
-@author: LG and EC
+@authors: Lindsey Gordon (@lgordon), Emma Chickles (@emmachickles), Tansu Daylan
+          (@tdaylan)
+
+The "Mergen" pipeline performs unsupervised classification and outlier detection
+using TESS light curves. To do this, we use convolutional autoencoders and 
+feature engineering to produce low-dimensional representations of light curves.
+
+The Mergen methods are organized into five main sections:
+1) Initialization
+2) Data and Preprocessing
+3) Feature Generation
+4) Clustering and Outlier Analysis
+5) Loading Mergen Products
 
 To Do List:
-    - fill in remaining functions
-    - Set up pipeline function (kind of a run-all thing)
+- Fill in remaining functions
+- Set up pipeline function (kind of a run-all thing)
+- Include example script?
 """
 
 from .__init__ import *
@@ -19,6 +32,11 @@ from . import feature_utils as ft
 class mergen(object):
     """ Main mergen class. Initialize this to work with everything else
     conveniently. """
+
+    # ==========================================================================
+    # == Initialization ========================================================
+    # ==========================================================================
+
     def __init__(self, datapath, savepath, datatype, mdumpcsv=None,
                  filelabel=None, sector=1, runiter=False, numiter=1,
                  numclstr=100, aeparam=None):
@@ -30,20 +48,26 @@ class mergen(object):
             * datatype: string, indicates type of data being worked with.
                         options are: 
                         "SPOC", "FFI-Lygos", "FFI-QLP", "FFI-eleanor"
-            * mdumpcsv: string, path to csv containing TESS momentum dumps
-                        (local)
+            * mdumpcsv: string, path to csv file containing TESS momentum dumps
             * filelabel: string, if you want to have all plots/files/folders
                          labelled specially        
+            * sector  : int, TESS Observational Sector number (1,2,...,26,...)
+            * runiter : bool, if True, runs iterative CAE scheme
+            * numiter : int, number of iterations in the iterative CAE scheme
+            * numclstr : int, number of clusters assumed by the GMM clustering
+                         algorithm
+            * aeparam:  string, path to txt file containing autoencoder
+                        parameters
         """
         self.sector   = sector
         self.numclstr = numclstr
         
         self.datapath = datapath
         self.savepath = savepath
-        self.datatype = datatype #SPOC or FFI
+        self.datatype = datatype # >> SPOC or FFI
         self.ensbpath = self.savepath+'Ensemble-Sector_'+str(self.sector)+'/'
 
-        if mdumpcsv is not None: # >> CSV file containing TESS momentum dumps
+        if mdumpcsv is not None:
             self.mdumpcsv = mdumpcsv
         else:
             self.mdumpcsv = datapath + 'Table_of_momentum_dumps.csv'
@@ -53,7 +77,7 @@ class mergen(object):
         else:
             self.filelabel = "mergen"
 
-        if aeparam is not None: # >> TXT file containing autoencoder parameters
+        if aeparam is not None:
             self.aeparam = aeparam
         else:
             self.aeparam = savepath + 'caehyperparams.txt'
@@ -63,23 +87,32 @@ class mergen(object):
         self.numiter = numiter
         
         self.initiate_folder()
-    
+
     def initiate_folder(self):
         """Make all the big folders"""
         print("Setting up CAE folder")
-        self.CAEpath = self.savepath + "CAE/"
+        # self.CAEpath = self.savepath + "CAE/"
+        self.CAEpath = self.ensbpath + "CAE/"
         try:
             os.makedirs(self.CAEpath)
         except OSError:
             print ("Directory %s already exists" % self.CAEpath)
             
         print("Setting up ENF folder")
-        self.ENFpath = self.savepath + "ENF/"
+        # self.ENFpath = self.savepath + "ENF/"
+        self.ENFpath = self.ensbpath + "ENF/"
         try:
             os.makedirs(self.ENFpath)
         except OSError:
             print ("Directory %s already exists" % self.ENFpath)
         return
+
+    def run_all(self):
+        return
+
+    # ==========================================================================
+    # == Data and Preprocessing ================================================
+    # ==========================================================================
 
     def load_lightcurves_local(self):
         """Load in data saved in metafiles on datapath"""
@@ -102,16 +135,11 @@ class mergen(object):
         """ Cleans data up - just BASE cleanup of normalizing."""
         self.intensities = dt.normalize(self.intensities)
         return
-
-    def load_existing_features(self, typeFeatures):
-        """ Load in feature metafiles stored in the datapath"""
-        if typeFeatures == "ENF":
-            self.feats = dt.load_ENF_feature_metafile(self.ENFpath)
-        elif typeFeatures == "CAE":
-            ### EMMA FILL THIS IN
-            k = 6
-        return
     
+    # ==========================================================================
+    # == Feature Generation ====================================================
+    # ==========================================================================
+
     def generate_engineered(self, version = 0, save = True):
         """ Run engineered feature creation"""
         self.feats = ft.create_save_featvec_homogenous_time(self.ENFpath,
@@ -128,17 +156,34 @@ class mergen(object):
         # TODO
         return
 
-    def generate_vcae(self):
-        '''Train variational convolutional autoencoder to extract representative
+    def generate_cvae(self):
+        '''Train convolutional variational autoencoder to extract representative
         features from lightcurves.'''
 
         return
+
+    # ==========================================================================
+    # == Clustering and Outlier Analysis =======================================
+    # ==========================================================================
 
     def generate_clusters(self):
         print('Performing clustering analysis in feature space...')
         self.clstr = lt.run_gmm(self.ticid, self.feats, numclstr=self.numclstr,
                                 savepath=self.ensbpath, runiter=self.runiter,
                                 numiter=self.numiter)
+        return
+
+    # ==========================================================================
+    # == Loading Mergen Products ===============================================
+    # ==========================================================================
+
+    def load_existing_features(self, typeFeatures):
+        """ Load in feature metafiles stored in the datapath"""
+        if typeFeatures == "ENF":
+            self.feats = dt.load_ENF_feature_metafile(self.ENFpath)
+        elif typeFeatures == "CAE":
+            ### EMMA FILL THIS IN
+            k = 6
         return
 
     def load_learned_features(self):
@@ -156,18 +201,31 @@ class mergen(object):
                                            self.numclstr)
         return
 
-    def load_vtypes(self):
-        print('Loading classifications...')
-        self.vtype = lt.load_vtype_from_txt(self.ensbpath, self.sector,
-                                            self.ticid)
+    def load_true_otypes(self):
+        print('Loading ground truth object types...')
+        self.totype = lt.load_otype_true_from_datadir(self.datapath,
+                                                      self.sector,
+                                                      self.ticid)
         return
 
-    def numerize_vtypes(self):
-        self.uniqvtype = np.unique(self.vtype)
-        self.numvtype = [np.nonzero(self.uniqvtype == vt)[0][0] for \
-                         vt in self.vtype]
+    def numerize_true_otypes(self):
+        unqtot = np.unique(self.totype)
+        self.totd = {i: unqtot[i] for i in range(len(unqtot))}
+        self.numtot = [np.nonzero(unqtot == ot)[0][0] for \
+                       ot in self.totype]
         return
 
-    def run_all(self):
+    def numerize_pred_otypes(self):
+        unqpot = np.unique(self.potype)
+        self.potd = {i: unqpot[i] for i in range(len(unqpot))}
+        self.numpot = [np.nonzero(unqpot == ot)[0][0] for \
+                       ot in self.potype]
         return
+
+    def load_pred_otypes(self):
+        print('Loading redicted object types...')
+        self.potype = lt.load_otype_pred_from_txt(self.ensbpath, self.sector,
+                                                 self.ticid)
+        return
+
 
