@@ -101,6 +101,7 @@ from tensorflow.keras.models import load_model
 
 from sklearn.mixture import GaussianMixture
 from sklearn.metrics import confusion_matrix
+from scipy.optimize import linear_sum_assignment
 
 import talos
 
@@ -177,68 +178,42 @@ def load_tsne(ensbpath):
         X = hdul[0].data
     return X
 
-def load_otype_pred_from_txt(ensbpath, sector, ticid):
-    '''Reads *-ticid_to_label.txt and returns:
-    * otype : Object types'''
+def label_clusters(ensbpath, sector, ticid, clstr, totype, numtot, totd):
+    # >> create confusion matrix
+    cm  = confusion_matrix(clstr, numtot)
 
+    # >> make the matrix square so that we can apply linear_sum_assignment
+    unqpot = np.unique(clstr)               # >> unique predicted otypes
+    unqtot = np.array(list(totd.values()))  # >> unique true otypes
+    while len(unqpot) < len(cm):
+        unqpot = np.append(unqpot, 'NONE')     
+    while len(unqtot) < len(cm):
+        unqtot = np.append(unqtot, 'NONE')
+
+    # >> make confusion matrix diagonal by re-ordering columns
+    row_ind, col_ind = linear_sum_assignment(-1*cm)
+    cm = cm[:,col_ind]
+    unqpot = unqpot[col_ind]
+
+    # >> create a dictionary [cluster number, variability type]
+    potd = {} # >> predicted otype dictionary
+    for i in range(len(unqpot)):
+        # >> check if there is a real label assigned
+        if unqpot[i] != 'NONE':
+            potd[unqpot[i]] = unqtot[i]
+
+    # >> create list of predicted otypes (potype)
+    potype = []
     fname = ensbpath+'Sector'+str(sector)+'-ticid_to_label.txt'
-    fileo = np.loadtxt(fname, delimiter=',', dtype='str')
-    ticid_unsorted = fileo[:,0].astype('float')
-    otype = fileo[:,1]
+    with open(fname, 'w') as f:
+        f.write('TICID,OTYPE\n')
+        for i in range(len(ticid)):
+            otype = potd[clstr[i]]
+            potype.append(otype)
+            f.write(str(ticid[i])+','+otype+'\n')
+    print('Saved '+fname)
 
-    # >> re-order otype so that ticid_unsorted = ticid
-    orgsrti = np.argsort(ticid)      # >> indices that would sort ticid
-    orgunsrti = np.argsort(orgsrti)  # >> indices that would return original
-                                     # >> ordering of ticid
-    
-    intsc, _, srtinds = np.intersect1d(ticid, ticid_unsorted,
-                                       return_indices=True)
-    if len(intsc) != len(ticid):
-        sdiff = np.setdiff1d(intsc, ticid)
-        print('!! Variability classifications were not found for '+str(sdiff)+\
-              ' TICIDs.')
-
-    otype = otype[srtinds][orgunsrti] # >> order otype correctly
-
-    return otype
-
-def order_array(arr1, arr2):
-    '''Returns array of indices, which will sort arr2 so that arr1=arr2.
-    An example would be two arrays of the same TICIDs, but in different
-    order: 
-    orderind = order_array(ticid1, ticid2)
-    ticid1 == ticid2[orderind]
-    '''
-    orgsrti = np.argsort(arr1)      # >> indices that would sort arr1
-    orgunsrti = np.argsort(orgsrti)  # >> indices that would return original
-                                     # >> ordering of arr1
-    
-    intsc, _, srtinds = np.intersect1d(arr1, arr2, return_indices=True)
-
-    # if len(intsc) != len(ticid):
-    #     sdiff = np.setdiff1d(intsc, ticid)
-    #     print('!! Variability classifications were not found for '+str(sdiff)+\
-    #           ' TICIDs.')
-
-    orderind = srtinds[orgunsrti] # >> will order arr2 to that arr1 = arr2
-
-    return orderind
-
-def load_otype_true_from_datadir(datapath, sector, ticid):
-    '''Reads *-ticid_to_label.txt and returns:
-    * otype : Variability types (following nomenclature by GCVS)'''
-    
-    ticid_true, otype = dt.get_true_classifications(ticid, datapath,
-                                                     sector=sector)
-
-    rmvtype=['V', 'VAR', '**', '*i', '*iC', '*iA','*iN', 'Em']
-    ticid_new, otype_new = dt.get_parent_otypes(ticid_true, otype,
-                                                remove_classes=rmvtype)
-        
-    orderind = order_array(ticid, ticid_new)
-    otype = otype_new[orderind]
-
-    return otype
+    return potd, potype
 
 
 ##### PARAM SCANS #####

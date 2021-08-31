@@ -8,6 +8,8 @@ mergen.py
 The "Mergen" pipeline performs unsupervised classification and outlier detection
 using TESS light curves. To do this, we use convolutional autoencoders and 
 feature engineering to produce low-dimensional representations of light curves.
+Note that we're undergoing some major restructuring, so documentation is
+currently spotty!
 
 The Mergen methods are organized into five main sections:
 1) Initialization
@@ -17,9 +19,10 @@ The Mergen methods are organized into five main sections:
 5) Loading Mergen Products
 
 To Do List:
-- Fill in remaining functions
-- Set up pipeline function (kind of a run-all thing)
-- Include example script?
+* Fill in remaining functions
+* Set up pipeline function (kind of a run-all thing)
+* Include example script?
+* Include option to process multiple sectors
 """
 
 from .__init__ import *
@@ -37,9 +40,9 @@ class mergen(object):
     # == Initialization ========================================================
     # ==========================================================================
 
-    def __init__(self, datapath, savepath, datatype, mdumpcsv=None,
-                 filelabel=None, sector=1, runiter=False, numiter=1,
-                 numclstr=100, aeparam=None):
+    def __init__(self, datapath, savepath, datatype, sector, mdumpcsv=None,
+                 filelabel=None, runiter=False, numiter=1, numclstr=100,
+                 aeparam=None):
         """Creates mergen object from which most common routines can easily be
         run
         Parameters:
@@ -61,7 +64,7 @@ class mergen(object):
         """
         self.sector   = sector
         self.numclstr = numclstr
-        
+
         self.datapath = datapath
         self.savepath = savepath
         self.datatype = datatype # >> SPOC or FFI
@@ -122,7 +125,7 @@ class mergen(object):
             self.times, self.intensities, self.errors, self.identifiers = \
             dt.load_all_lygos(self.datapath)
         elif self.datatype == "SPOC":
-            self.times, self.intensities, self.ticid, self.target_info = \
+            self.intensities, self.times, self.ticid, self.target_info = \
             dt.load_data_from_metafiles(self.datapath, self.sector)
         
     def download_lightcurves(self):
@@ -148,7 +151,6 @@ class mergen(object):
                                                             self.filelabel,
                                                             version=version,
                                                             save=save)
-        return
 
     def generate_cae(self):
         '''Train convolutional autoencoder to extract representative
@@ -171,6 +173,22 @@ class mergen(object):
         self.clstr = lt.run_gmm(self.ticid, self.feats, numclstr=self.numclstr,
                                 savepath=self.ensbpath, runiter=self.runiter,
                                 numiter=self.numiter)
+
+    def generate_predicted_otypes(self):
+        self.potd, self.potype = lt.label_clusters(self.ensbpath, self.sector,
+                                                   self.ticid, self.clstr,
+                                                   self.totype, self.numtot,
+                                                   self.totd)
+
+    def produce_clustering_visualizations(self):
+        '''Produces t-SNEs, confusion matrices, distribution plots, ensemble
+        summary pie charts.'''
+        return
+
+    def generate_outlier_scores(self):
+        return
+
+    def produce_outlier_visualizations(self):
         return
 
     # ==========================================================================
@@ -192,40 +210,33 @@ class mergen(object):
                                                      self.ticid,
                                                      self.runiter,
                                                      self.numiter)
-        return
 
     def load_gmm_clusters(self):
         print('Loading GMM clustering results...')
         self.clstr = lt.load_gmm_from_txt(self.ensbpath, self.ticid,
                                            self.runiter, self.numiter, 
                                            self.numclstr)
-        return
 
     def load_true_otypes(self):
         print('Loading ground truth object types...')
-        self.totype = lt.load_otype_true_from_datadir(self.datapath,
+        self.totype = dt.load_otype_true_from_datadir(self.datapath,
                                                       self.sector,
                                                       self.ticid)
-        return
 
     def numerize_true_otypes(self):
         unqtot = np.unique(self.totype)
         self.totd = {i: unqtot[i] for i in range(len(unqtot))}
-        self.numtot = [np.nonzero(unqtot == ot)[0][0] for \
-                       ot in self.totype]
-        return
+        self.numtot = np.array([np.nonzero(unqtot == ot)[0][0] for \
+                                ot in self.totype])
+
+    def load_pred_otypes(self):
+        print('Loading redicted object types...')
+        self.potype = dt.load_otype_pred_from_txt(self.ensbpath, self.sector,
+                                                  self.ticid)
 
     def numerize_pred_otypes(self):
         unqpot = np.unique(self.potype)
         self.potd = {i: unqpot[i] for i in range(len(unqpot))}
-        self.numpot = [np.nonzero(unqpot == ot)[0][0] for \
-                       ot in self.potype]
-        return
-
-    def load_pred_otypes(self):
-        print('Loading redicted object types...')
-        self.potype = lt.load_otype_pred_from_txt(self.ensbpath, self.sector,
-                                                 self.ticid)
-        return
-
+        self.numpot = np.array([np.nonzero(unqpot == ot)[0][0] for \
+                                ot in self.potype])
 

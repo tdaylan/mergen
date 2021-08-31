@@ -226,7 +226,7 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                            debug_ind=debug_ind, target_info=target_info,
                            output_dir=output_dir, custom_mask=custom_mask)
 
-    return x, flux, ticid, np.array(target_info)
+    return x, flux, ticid.astype('int'), np.array(target_info)
 
 def combine_sectors(sectors, data_dir, custom_masks=None):
     '''Combine sectors by the time axis (i.e. the light curves of stars 
@@ -3390,7 +3390,7 @@ def get_parent_otypes(ticid, otypes, remove_classes=['PM','IR','UV','X']):
         new_otypes.append('|'.join(new_otype.astype('str')))
     
     new_otypes = np.array(new_otypes)
-OD
+
     # # >> get rid of empty classes
     # inds = np.nonzero(new_otypes == '')
     # new_otypes = np.delete(new_otypes, inds)
@@ -3513,8 +3513,6 @@ def make_true_label_txt(data_dir, sector):
     otypes = read_otype_txt(otypes, prefix+'asassn.txt', data_dir)
     otypes = read_otype_txt(otypes, prefix+'simbad.txt', data_dir, simbad=True)
 
-
-    pdb.set_trace()
     # >> save to text file
     out = prefix+'true_labels.txt'
     with open(out, 'w') as f:
@@ -3669,6 +3667,70 @@ def get_true_classifications(ticid=[], data_dir='./', sector='all'):
         otypes = np.array(otypes)[inds]
     
     return ticid_true, otypes
+
+def load_otype_true_from_datadir(datapath, sector, ticid):
+    '''Reads *-ticid_to_label.txt and returns:
+    * otype : Variability types (following nomenclature by GCVS)'''
+    
+    ticid_true, otype = get_true_classifications(ticid, datapath,
+                                                 sector=sector)
+
+    rmvtype=['V', 'VAR', '**', '*i', '*iC', '*iA','*iN', 'Em']
+    ticid_new, otype_new = get_parent_otypes(ticid_true, otype,
+                                             remove_classes=rmvtype)
+        
+    orderind = order_array(ticid, ticid_new)
+    otype = otype_new[orderind]
+
+    return otype
+
+def load_otype_pred_from_txt(ensbpath, sector, ticid):
+    '''Reads *-ticid_to_label.txt and returns:
+    * otype : Object types'''
+
+    fname = ensbpath+'Sector'+str(sector)+'-ticid_to_label.txt'
+    fileo = np.loadtxt(fname, delimiter=',', dtype='str', skiprows=1)
+    ticid_unsorted = fileo[:,0].astype('float')
+    otype = fileo[:,1]
+
+    # >> re-order otype so that ticid_unsorted = ticid
+    orgsrti = np.argsort(ticid)      # >> indices that would sort ticid
+    orgunsrti = np.argsort(orgsrti)  # >> indices that would return original
+                                     # >> ordering of ticid
+    
+    intsc, _, srtinds = np.intersect1d(ticid, ticid_unsorted,
+                                       return_indices=True)
+    if len(intsc) != len(ticid):
+        sdiff = np.setdiff1d(intsc, ticid)
+        print('!! Variability classifications were not found for '+str(sdiff)+\
+              ' TICIDs.')
+
+    otype = otype[srtinds][orgunsrti] # >> order otype correctly
+
+    return otype
+
+def order_array(arr1, arr2):
+    '''Returns array of indices, which will sort arr2 so that arr1=arr2.
+    An example would be two arrays of the same TICIDs, but in different
+    order: 
+    orderind = order_array(ticid1, ticid2)
+    ticid1 == ticid2[orderind]
+    '''
+    orgsrti = np.argsort(arr1)      # >> indices that would sort arr1
+    orgunsrti = np.argsort(orgsrti)  # >> indices that would return original
+                                     # >> ordering of arr1
+    
+    intsc, _, srtinds = np.intersect1d(arr1, arr2, return_indices=True)
+
+    # if len(intsc) != len(ticid):
+    #     sdiff = np.setdiff1d(intsc, ticid)
+    #     print('!! Variability classifications were not found for '+str(sdiff)+\
+    #           ' TICIDs.')
+
+    orderind = srtinds[orgunsrti] # >> will order arr2 to that arr1 = arr2
+
+    return orderind
+
 
 # def get_true_classifications(ticid_list,
 #                              database_dir='./databases/',

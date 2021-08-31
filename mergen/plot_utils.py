@@ -5523,134 +5523,134 @@ def get_classifications(ticid, data_dir, merge_classes=True,
         ticid_new, otype_new = dt.get_parent_otypes(ticid_true, otype,
                                                     remove_classes=rmotype)
         
-    orderind = lt.order_array(ticid, ticid_new)
+    orderind = dt.order_array(ticid, ticid_new)
     ticid_new = ticid_new[orderind]
     otype_new = otype_new[orderind]
 
     return ticid_new, otype_new
 
-def ensemble_summary_plots(ticid_pred, y_pred, sector='all',
-                       data_dir='./data/', output_dir='./',
-                       prefix=''):
+# def ensemble_summary_plots(ticid_pred, y_pred, sector='all',
+#                        data_dir='./data/', output_dir='./',
+#                        prefix=''):
     
-    '''
-    Outputs:
-        * An array of tuples [label_pred, label_true].
-        * A dictionary with keys of real_labels and values of English
-          descriptions.'''
+#     '''
+#     Outputs:
+#         * An array of tuples [label_pred, label_true].
+#         * A dictionary with keys of real_labels and values of English
+#           descriptions.'''
 
-    orig_ticid = ticid_pred
-    orig_y = y_pred
+#     orig_ticid = ticid_pred
+#     orig_y = y_pred
 
-    database_dir = data_dir+'databases/'
-    num_samples = len(ticid_pred)
+#     database_dir = data_dir+'databases/'
+#     num_samples = len(ticid_pred)
     
-    # -- create confusion matrix -----------------------------------------------
+#     # -- create confusion matrix -----------------------------------------------
 
-    # >> get learned classifications
-    class_list_pred, counts = np.unique(y_pred, return_counts=True)
-    class_list_pred = class_list_pred.astype('str')
+#     # >> get learned classifications
+#     class_list_pred, counts = np.unique(y_pred, return_counts=True)
+#     class_list_pred = class_list_pred.astype('str')
         
-    # >> get 'ground truth' classifications
-    ticid_true, label_true = dt.get_true_classifications(ticid_pred, data_dir,
-                                                         sector=sector)
-    ticid_true, label_true = dt.get_parent_otypes(ticid_true, label_true)
+#     # >> get 'ground truth' classifications
+#     ticid_true, label_true = dt.get_true_classifications(ticid_pred, data_dir,
+#                                                          sector=sector)
+#     ticid_true, label_true = dt.get_parent_otypes(ticid_true, label_true)
         
-    # >> get classified objects
-    _, comm1, comm2 = np.intersect1d(ticid_pred,ticid_true,return_indices=True)
-    ticid_pred = ticid_pred[comm1]
-    y_pred = y_pred[comm1]
-    ticid_true = ticid_true[comm2]
-    label_true = label_true[comm2]
-    class_list_true = np.unique(label_true)
+#     # >> get classified objects
+#     _, comm1, comm2 = np.intersect1d(ticid_pred,ticid_true,return_indices=True)
+#     ticid_pred = ticid_pred[comm1]
+#     y_pred = y_pred[comm1]
+#     ticid_true = ticid_true[comm2]
+#     label_true = label_true[comm2]
+#     class_list_true = np.unique(label_true)
     
-    # >> create number labels for true labels so we can make confusion matrix
-    y_true = []
-    for i in range(len(ticid_true)):
-        class_num = np.nonzero(class_list_true == label_true[i])[0][0]
-        y_true.append(class_num)
-    y_true = np.array(y_true).astype('int')
+#     # >> create number labels for true labels so we can make confusion matrix
+#     y_true = []
+#     for i in range(len(ticid_true)):
+#         class_num = np.nonzero(class_list_true == label_true[i])[0][0]
+#         y_true.append(class_num)
+#     y_true = np.array(y_true).astype('int')
     
-    # >> create a confusion matrix
-    cm = confusion_matrix(y_true, y_pred)
+#     # >> create a confusion matrix
+#     cm = confusion_matrix(y_true, y_pred)
     
-    # >> make the matrix square so that we can apply linear_sum_assignment
-    while len(class_list_pred) < len(cm):
-        class_list_pred = np.append(class_list_pred, 'X')     
-    while len(class_list_true) < len(cm):
-        class_list_true = np.append(class_list_true, 'X')
+#     # >> make the matrix square so that we can apply linear_sum_assignment
+#     while len(class_list_pred) < len(cm):
+#         class_list_pred = np.append(class_list_pred, 'X')     
+#     while len(class_list_true) < len(cm):
+#         class_list_true = np.append(class_list_true, 'X')
         
-    # >> make confusion matrix diagonal by re-ordering columns
-    row_ind, col_ind = linear_sum_assignment(-1*cm)
-    cm = cm[:,col_ind]
-    class_list_pred = class_list_pred[col_ind]
+#     # >> make confusion matrix diagonal by re-ordering columns
+#     row_ind, col_ind = linear_sum_assignment(-1*cm)
+#     cm = cm[:,col_ind]
+#     class_list_pred = class_list_pred[col_ind]
     
-    # -- make assignment dictionary --------------------------------------------
+#     # -- make assignment dictionary --------------------------------------------
 
-    # >> create a list of tuples [label_pred, label_true]
-    print('Saving assignment dictionary...')
-    assignments = []
-    f = open(output_dir+prefix+'assignments.txt', 'a')
-    for i in range(len(class_list_pred)):
-        # >> check if there is a real label assigned
-        if class_list_pred[i] != 'X' and class_list_true[i] != 'X':
-            assignments.append([class_list_pred[i], class_list_true[i]])
-            f.write(class_list_pred[i]+','+class_list_true[i]+'\n')
-    assignments = np.array(assignments)
+#     # >> create a list of tuples [label_pred, label_true]
+#     print('Saving assignment dictionary...')
+#     assignments = []
+#     f = open(output_dir+prefix+'assignments.txt', 'a')
+#     for i in range(len(class_list_pred)):
+#         # >> check if there is a real label assigned
+#         if class_list_pred[i] != 'X' and class_list_true[i] != 'X':
+#             assignments.append([class_list_pred[i], class_list_true[i]])
+#             f.write(class_list_pred[i]+','+class_list_true[i]+'\n')
+#     assignments = np.array(assignments)
 
-    # -- save results ----------------------------------------------------------
-    y_pred = orig_y
-    ticid = orig_ticid
-    ticid_label = []
-    with open(output_dir+prefix+'ticid_to_label.txt', 'w') as f:
-        for i in range(len(orig_ticid)):
-            ind = np.nonzero(assignments[:,0].astype('float') == y_pred[i])
-            if len(ind[0]) == 0:
-                ticid_label.append('NONE')
-                f.write(str(ticid[i])+',NONE\n')
-            else:
-                ticid_label.append(str(assignments[:,1][ind][0]))
-                f.write(str(ticid[i])+','+str(assignments[:,1][ind][0])+'\n')
-    print('Saved '+output_dir+prefix+'ticid_to_label.txt')
+#     # -- save results ----------------------------------------------------------
+#     y_pred = orig_y
+#     ticid = orig_ticid
+#     ticid_label = []
+#     with open(output_dir+prefix+'ticid_to_label.txt', 'w') as f:
+#         for i in range(len(orig_ticid)):
+#             ind = np.nonzero(assignments[:,0].astype('float') == y_pred[i])
+#             if len(ind[0]) == 0:
+#                 ticid_label.append('NONE')
+#                 f.write(str(ticid[i])+',NONE\n')
+#             else:
+#                 ticid_label.append(str(assignments[:,1][ind][0]))
+#                 f.write(str(ticid[i])+','+str(assignments[:,1][ind][0])+'\n')
+#     print('Saved '+output_dir+prefix+'ticid_to_label.txt')
 
-    # -- plotting --------------------------------------------------------------
-    plot_confusion_matrix(cm, class_list_pred, class_list_true, output_dir, prefix)
-    recall, false_discovery_rate, precision, accuracy, counts_true, counts_pred=\
-        evaluate_classifications(cm, class_list_true)
+#     # -- plotting --------------------------------------------------------------
+#     plot_confusion_matrix(cm, class_list_pred, class_list_true, output_dir, prefix)
+#     recall, false_discovery_rate, precision, accuracy, counts_true, counts_pred=\
+#         evaluate_classifications(cm, class_list_true)
 
-    # >> create summary pie charts
-    ensemble_budget(ticid, y_pred, cm, assignments, class_list_true, class_list_true,
-                    database_dir=data_dir+'databases/', output_dir=output_dir, 
-                    prefix=prefix, data_dir=data_dir)
-    recall=np.array(recall)
-    # target_labels = row_labels[np.nonzero((recall > 0.5) * (recall <1.))]
-    target_labels = ['CW', 'ELL|X', 'EW', 'RV']
-    ensemble_summary_tables(row_labels, recall, false_discovery_rate,
-                               precision, accuracy, counts_true, counts_pred,
-                               output_dir+prefix, target_labels=target_labels)
-    ensemble_summary_tables(row_labels, recall, false_discovery_rate,
-                            precision, accuracy, counts_true, counts_pred,
-                            output_dir+prefix, target_labels=[])
+#     # >> create summary pie charts
+#     ensemble_budget(ticid, y_pred, cm, assignments, class_list_true, class_list_true,
+#                     database_dir=data_dir+'databases/', output_dir=output_dir, 
+#                     prefix=prefix, data_dir=data_dir)
+#     recall=np.array(recall)
+#     # target_labels = row_labels[np.nonzero((recall > 0.5) * (recall <1.))]
+#     target_labels = ['CW', 'ELL|X', 'EW', 'RV']
+#     ensemble_summary_tables(row_labels, recall, false_discovery_rate,
+#                                precision, accuracy, counts_true, counts_pred,
+#                                output_dir+prefix, target_labels=target_labels)
+#     ensemble_summary_tables(row_labels, recall, false_discovery_rate,
+#                             precision, accuracy, counts_true, counts_pred,
+#                             output_dir+prefix, target_labels=[])
 
-    # >> distribution plots
-    inter, comm1, comm2 = np.intersect1d(ticid.astype('float'), ticid_true.astype('float'),
-                                         return_indices=True)
-    y_pred = labels[comm1]
+#     # >> distribution plots
+#     inter, comm1, comm2 = np.intersect1d(ticid.astype('float'), ticid_true.astype('float'),
+#                                          return_indices=True)
+#     y_pred = labels[comm1]
 
-    classes, counts = np.unique(y_true, return_counts=True)
-    classes = classes[np.argsort(counts)]
+#     classes, counts = np.unique(y_true, return_counts=True)
+#     classes = classes[np.argsort(counts)]
 
-    print('Plot feature ditsributions...')
-    plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
-                     label_list=classes[-20:], output_dir=output_dir+prefix)
-    plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
-                     label_list=target_labels, output_dir=output_dir+prefix)
+#     print('Plot feature ditsributions...')
+#     plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
+#                      label_list=classes[-20:], output_dir=output_dir+prefix)
+#     plot_class_dists(assignments, ticid_true, y_pred, y_true, data_dir, sectors,
+#                      label_list=target_labels, output_dir=output_dir+prefix)
 
-    return assignments, ticid_label
+#     return assignments, ticid_label
 
 
     
-
+ 
 def evaluate_classifications(cm, row_labels):
     recall = []
     false_discovery_rate = []
