@@ -122,10 +122,10 @@ class mergen(object):
         #check for self.datatype to determine loading scheme. 
         #figure out consistent stuff for FFI original locations
         if self.datatype == "FFI-Lygos":
-            self.times, self.intensities, self.errors, self.identifiers = \
+            self.times, self.intensities, self.errors, self.objid = \
             dt.load_all_lygos(self.datapath)
         elif self.datatype == "SPOC":
-            self.intensities, self.times, self.ticid, self.target_info = \
+            self.intensities, self.times, self.objid, self.target_info = \
             dt.load_data_from_metafiles(self.datapath, self.sector)
         
     def download_lightcurves(self):
@@ -170,26 +170,36 @@ class mergen(object):
 
     def generate_clusters(self):
         print('Performing clustering analysis in feature space...')
-        self.clstr = lt.run_gmm(self.ticid, self.feats, numclstr=self.numclstr,
+        self.clstr = lt.run_gmm(self.objid, self.feats, numclstr=self.numclstr,
                                 savepath=self.ensbpath, runiter=self.runiter,
                                 numiter=self.numiter)
 
+    def generate_tsne(self):
+        self.tsne = lt.load_tsne(self.ensbpath)
+
     def generate_predicted_otypes(self):
         self.potd, self.potype = lt.label_clusters(self.ensbpath, self.sector,
-                                                   self.ticid, self.clstr,
+                                                   self.objid, self.clstr,
                                                    self.totype, self.numtot,
                                                    self.totd)
 
     def produce_clustering_visualizations(self):
         '''Produces t-SNEs, confusion matrices, distribution plots, ensemble
         summary pie charts.'''
-        return
+        pt.produce_clustering_visualizations(self.feats, self.numpot, self.tsne,
+                                             self.ensbpath, self.potd,
+                                             self.totd)
 
-    def generate_outlier_scores(self):
-        return
 
-    def produce_outlier_visualizations(self):
-        return
+    def generate_novelty_scores(self):
+        print("Generating novelty scores...")
+        self.nvlty = pt.generate_novelty_scores(self.feats, self.objid,
+                                                self.ensbpath)
+
+    def produce_novelty_visualizations(self):
+        print("Producing novelty visualizations...")
+        pt.produce_novelty_visualizations(self.nvlty, self.ensbpath, self.times,
+                                          self.intensities, self.objid)
 
     # ==========================================================================
     # == Loading Mergen Products ===============================================
@@ -207,13 +217,13 @@ class mergen(object):
     def load_learned_features(self):
         print('Loading CAE-learned features...')
         self.feats = lt.load_bottleneck_from_fits(self.ensbpath,
-                                                     self.ticid,
+                                                     self.objid,
                                                      self.runiter,
                                                      self.numiter)
 
     def load_gmm_clusters(self):
         print('Loading GMM clustering results...')
-        self.clstr = lt.load_gmm_from_txt(self.ensbpath, self.ticid,
+        self.clstr = lt.load_gmm_from_txt(self.ensbpath, self.objid,
                                            self.runiter, self.numiter, 
                                            self.numclstr)
 
@@ -221,7 +231,7 @@ class mergen(object):
         print('Loading ground truth object types...')
         self.totype = dt.load_otype_true_from_datadir(self.datapath,
                                                       self.sector,
-                                                      self.ticid)
+                                                      self.objid)
 
     def numerize_true_otypes(self):
         unqtot = np.unique(self.totype)
@@ -230,9 +240,9 @@ class mergen(object):
                                 ot in self.totype])
 
     def load_pred_otypes(self):
-        print('Loading redicted object types...')
+        print('Loading predicted object types...')
         self.potype = dt.load_otype_pred_from_txt(self.ensbpath, self.sector,
-                                                  self.ticid)
+                                                  self.objid)
 
     def numerize_pred_otypes(self):
         unqpot = np.unique(self.potype)

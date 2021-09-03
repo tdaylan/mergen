@@ -123,11 +123,33 @@ from . import data_utils as dt
 import random
 
 
+def produce_clustering_visualizations(feats, numpot, tsne, output_dir, potd,
+                                      totd, prefix='', anim=False, elev=45):
+    # prefix = 'perplexity'+str(perplexity)+'_elev'+str(elev)+'_'
+
+    # >> color with clustering results
+    prefix = 'pred_'
+    pt.plot_tsne(feats, numpot, X=tsne, output_dir=output_dir,
+                 prefix=prefix, animate=anim, elev=elev, otypedict=potd)
+
+    # >> color with classifications from GCVS, SIMBAD, ASAS-SN
+    prefix = 'true_'
+    pt.plot_tsne(feats, numtot, X=tsne, output_dir=output_dir,
+                 prefix=prefix, animate=anim, elev=elev, otypedict=totd)
+    return
+
+def produce_novelty_visualizations(lof, output_dir, time, flux, objid, bins=20):
+    plot_histogram(lof, bins=bins, x_label="Local Outlier Factor (LOF)",
+                   filename=output_dir+'lof-histogram.png', insetx=time,
+                   insety=flux, targets=objid)
+    return
+
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # :: Forward-Facing Visualizations :::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
 
 def features_plotting_2D(savepath, features, labels = None, engineered_features = True, version = 0,
                          clustering = 'unclustered', plot_LC_classes = None):
@@ -278,6 +300,29 @@ def histo_features(savepath, features, bins, engineered_features = True, version
         plot_histogram(features[:,n], bins, fname_labels[n])
     return
  
+
+def generate_novelty_scores(features, object_ids, output_dir, prefix='',
+                            n_neighbors=20, p=2, metric='minkowski',
+                            contamination=0.1, algorithm='auto'):
+    """Calculates LOF based on feature vectors.
+    * features : array of shape (n_objects, n_dimensions)
+    * object_ids : array of shape (n_objects)
+    * output_dir : string, output directory
+    * prefix : string
+    * n_neighbors, p, metric, contamination, algorithm : arguments of 
+      sklearn.neighbors.LocalOutlierFactor()
+    """
+    clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p, metric=metric,
+                             contamination=contamination, algorithm=algorithm)
+    fit_predictor = clf.fit_predict(features)
+    negative_factor = clf.negative_outlier_factor_
+    
+    lof = -1 * negative_factor
+    with open(output_dir+'lof-'+prefix+'kneigh' + str(n_neighbors)+'.txt', 'w') as f:
+        f.write('OBJECT_ID LOF\n')
+        for i in range(len(object_ids)):
+            f.write('{} {}\n'.format(int(object_ids[i]), lof[i]))
+    return lof
 
 def plot_lof(savepath, lof, time, intensity, targets, features, n, n_tot=100,
              momentum_dump_csv = '../../Table_of_momentum_dumps.csv', spoc = False,
@@ -2667,8 +2712,9 @@ def get_extrema(feature_vectors, feat1, feat2):
     
     return indexes_unique      
 
-def plot_histogram(data, bins, x_label, filename, insetx = None, insety = None, targets = None, 
-                   insets=True, log=True, multix = False):
+def plot_histogram(data, bins=20, x_label='', filename='./', insetx = None, insety = None, targets = None, 
+                   insets=True, log=True, multix = False, skip_bins=6, figsize=(5,5),
+                   inset_fontsize=4):
     """ 
     Plot a histogram with one light curve from each bin plotted on top
     * Data is the histogram data
@@ -2683,7 +2729,8 @@ def plot_histogram(data, bins, x_label, filename, insetx = None, insety = None, 
     * log is true/false if you want the histogram on a logarithmic scale
     modified [lcg 12302020]
     """
-    fig, ax1 = plt.subplots()
+    fig, ax1 = plt.subplots(figsize=figsize)
+    # >> n_in : values of the histogram bins, bins : edges of the bins
     n_in, bins, patches = ax1.hist(data, bins, log=log)
     
     y_range = np.abs(n_in.max() - n_in.min())
@@ -2692,20 +2739,26 @@ def plot_histogram(data, bins, x_label, filename, insetx = None, insety = None, 
     ax1.set_xlabel(x_label)
     
     if insets == True:
-        for n in range(len(n_in)):
+        for n in np.arange(len(n_in))[::skip_bins]:
             if n_in[n] == 0: 
                 continue
             else: 
                 axis_name = "axins" + str(n)
-                inset_width = 0.33 * x_range * 0.5
-                inset_x = bins[n] - (0.5*inset_width)
-                inset_y = n_in[n]
-                inset_height = 0.125 * y_range * 0.5
-                    
-                axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
-                
-                lc_to_plot = insetx
-                
+                inset_width = 0.33 * x_range # >> in data coords
+                inset_x = bins[n] - (0.5*inset_width) # >> in data coords
+                if log:
+                    inset_y = np.log(n_in[n]) / np.log(y_range) + 0.1 # >> in axes coords
+                else:
+                    inset_y = n_in[n] / y_range + 0.1 # >> in axes coords
+                inset_height = 0.3 * inset_width/x_range # >> in axes coords
+                # inset_height = 0.125 * y_range * 0.5
+
+                if n > 0: pdb.set_trace()
+                # >> want inset_x in data coords and inset_y in axes coordinates
+                axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height],
+                                           transform = ax1.get_xaxis_transform())
+                # axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
+                                
                 #identify a light curve from that one
                 for m in range(len(data)):
                     #print(bins[n], bins[n+1])
@@ -2721,12 +2774,18 @@ def plot_histogram(data, bins, x_label, filename, insetx = None, insety = None, 
                     else: 
                         continue
                 
+                axis_name.set_xlabel('t', fontsize=inset_fontsize)
+                axis_name.set_ylabel('F', fontsize=inset_fontsize)
+                axis_name.set_xticklabels(axis_name.get_xticklabels(), fontsize=inset_fontsize)
+                axis_name.set_yticklabels(axis_name.get_yticklabels(), fontsize=inset_fontsize)
+
                 axis_name.scatter(lc_time_to_plot, lc_to_plot, c='black', s = 0.1, rasterized=True)
                 try:
-                    axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=6)
+                    axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=inset_fontsize)
                 except ValueError:
-                    axis_name.set_title(lc_ticid, fontsize=6)
-    plt.savefig(filename)
+                    axis_name.set_title(lc_ticid, fontsize=inset_fontsize)
+
+    plt.savefig(filename, dpi=300)
     plt.close()
 
 def plot_lygos(t, intensity, error, title):
@@ -3512,63 +3571,63 @@ def histo_features(features, bins, t, intensities, targets, path, insets=False, 
             filename = folderpath + fname_labels[n] + "histogram-insets.png"
             plot_histogram(features[:,n], bins, fname_labels[n], t, intensities, targets, filename, insets=True)
 
-def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
-                   insets=True, log=True):
-    """ plot a histogram with one light curve from each bin plotted on top
-    data is the histogram data
-    bins is bins
-    x-label is what you want the xaxis to be labelled as
-    insetx is the SAME x-axis to plot
-    insety is the full list of light curves
-    filename is the exact place you want it saved
-    insets is a true/false of if you want them
-    modified [lcg 07012020]
-    """
-    fig, ax1 = plt.subplots()
-    n_in, bins, patches = ax1.hist(data, bins, log=log)
+# def plot_histogram(data, bins, x_label, insetx, insety,targets, filename,
+#                    insets=True, log=True):
+#     """ plot a histogram with one light curve from each bin plotted on top
+#     data is the histogram data
+#     bins is bins
+#     x-label is what you want the xaxis to be labelled as
+#     insetx is the SAME x-axis to plot
+#     insety is the full list of light curves
+#     filename is the exact place you want it saved
+#     insets is a true/false of if you want them
+#     modified [lcg 07012020]
+#     """
+#     fig, ax1 = plt.subplots()
+#     n_in, bins, patches = ax1.hist(data, bins, log=log)
     
-    y_range = np.abs(n_in.max() - n_in.min())
-    x_range = np.abs(data.max() - data.min())
-    ax1.set_ylabel('Number of light curves')
-    ax1.set_xlabel(x_label)
+#     y_range = np.abs(n_in.max() - n_in.min())
+#     x_range = np.abs(data.max() - data.min())
+#     ax1.set_ylabel('Number of light curves')
+#     ax1.set_xlabel(x_label)
     
-    if insets == True:
-        for n in range(len(n_in)):
-            if n_in[n] == 0: 
-                continue
-            else: 
-                axis_name = "axins" + str(n)
-                inset_width = 0.33 * x_range * 0.5
-                inset_x = bins[n] - (0.5*inset_width)
-                inset_y = n_in[n]
-                inset_height = 0.125 * y_range * 0.5
-                # if log: # >> use axes-relative coords
-                #     inset_width = 0.33*0.5
-                #     inset_height = 0.125*0.5
-                #     inset_x = 
+#     if insets == True:
+#         for n in range(len(n_in)):
+#             if n_in[n] == 0: 
+#                 continue
+#             else: 
+#                 axis_name = "axins" + str(n)
+#                 inset_width = 0.33 * x_range * 0.5
+#                 inset_x = bins[n] - (0.5*inset_width)
+#                 inset_y = n_in[n]
+#                 inset_height = 0.125 * y_range * 0.5
+#                 # if log: # >> use axes-relative coords
+#                 #     inset_width = 0.33*0.5
+#                 #     inset_height = 0.125*0.5
+#                 #     inset_x = 
                     
-                axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
+#                 axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
                 
-                lc_to_plot = insetx
+#                 lc_to_plot = insetx
                 
-                #identify a light curve from that one
-                for m in range(len(data)):
-                    #print(bins[n], bins[n+1])
-                    if bins[n] <= data[m] <= bins[n+1]:
-                        #print(data[m], m)
-                        lc_to_plot = insety[m]
-                        lc_ticid = targets[m]
-                        break
-                    else: 
-                        continue
+#                 #identify a light curve from that one
+#                 for m in range(len(data)):
+#                     #print(bins[n], bins[n+1])
+#                     if bins[n] <= data[m] <= bins[n+1]:
+#                         #print(data[m], m)
+#                         lc_to_plot = insety[m]
+#                         lc_ticid = targets[m]
+#                         break
+#                     else: 
+#                         continue
                 
-                axis_name.scatter(insetx, lc_to_plot, c='black', s = 0.1, rasterized=True)
-                axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=6)
-                # >> change aspect ratio
-                # axis_name.set_adjustable("box")
-                # axis_name.set_aspect(3./8)
-    plt.savefig(filename)
-    plt.close()
+#                 axis_name.scatter(insetx, lc_to_plot, c='black', s = 0.1, rasterized=True)
+#                 axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=6)
+#                 # >> change aspect ratio
+#                 # axis_name.set_adjustable("box")
+#                 # axis_name.set_aspect(3./8)
+#     plt.savefig(filename)
+#     plt.close()
 
 
 # plotting features by color and shape
@@ -4448,226 +4507,226 @@ def plot_lof_summary(time, intensity, targets, features, n, path,
                 bbox_inches='tight')
     plt.close(fig)   
 
-def plot_lof(time, intensity, targets, features, n, path,
-             momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
-             n_neighbors=20, target_info=False, p=2, metric='minkowski',
-             contamination=0.1, algorithm='auto',
-             prefix='', mock_data=False, feature_vector=False,
-             n_tot=100, log=False, debug=False, feature_lof=None,
-             bins=50, database_dir=None, single_file=False,
-             fontsize='xx-small', title=True, plot_psd=True, n_pgram=1500):
-    """ Plots the 20 most and least interesting light curves based on LOF.
-    Parameters:
-        * time : array with shape 
-        * intensity
-        * targets : list of TICIDs
-        * n : number of curves to plot in each figure
-        * path : output directory
-        * n_tot : total number of light curves to plots (number of figures =
-                  n_tot / n)
-        * feature vector : assumes x axis is latent dimensions, not time  
-        * mock_data : if True, will not plot TICID label
-        * target_input : [sector, camera, ccd]
-    Outputs:
-        * Text file with TICID in column 1, and LOF in column 2 (lof-*.txt)
-        * Log histogram of LOF (lof-histogram.png)
-        * Top 20 light curves with highest and lowest LOF
-        * Random 20 light curves
-    modified [lcg 07012020 - includes inset histogram plotting]
-    """
-    # -- calculate LOF -------------------------------------------------------
-    print('Calculating LOF')
-    clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p, metric=metric,
-                             contamination=contamination, algorithm=algorithm)
-    fit_predictor = clf.fit_predict(features)
-    negative_factor = clf.negative_outlier_factor_
+# def plot_lof(time, intensity, targets, features, n, path,
+#              momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
+#              n_neighbors=20, target_info=False, p=2, metric='minkowski',
+#              contamination=0.1, algorithm='auto',
+#              prefix='', mock_data=False, feature_vector=False,
+#              n_tot=100, log=False, debug=False, feature_lof=None,
+#              bins=50, database_dir=None, single_file=False,
+#              fontsize='xx-small', title=True, plot_psd=True, n_pgram=1500):
+#     """ Plots the 20 most and least interesting light curves based on LOF.
+#     Parameters:
+#         * time : array with shape 
+#         * intensity
+#         * targets : list of TICIDs
+#         * n : number of curves to plot in each figure
+#         * path : output directory
+#         * n_tot : total number of light curves to plots (number of figures =
+#                   n_tot / n)
+#         * feature vector : assumes x axis is latent dimensions, not time  
+#         * mock_data : if True, will not plot TICID label
+#         * target_input : [sector, camera, ccd]
+#     Outputs:
+#         * Text file with TICID in column 1, and LOF in column 2 (lof-*.txt)
+#         * Log histogram of LOF (lof-histogram.png)
+#         * Top 20 light curves with highest and lowest LOF
+#         * Random 20 light curves
+#     modified [lcg 07012020 - includes inset histogram plotting]
+#     """
+#     # -- calculate LOF -------------------------------------------------------
+#     print('Calculating LOF')
+#     clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p, metric=metric,
+#                              contamination=contamination, algorithm=algorithm)
+#     fit_predictor = clf.fit_predict(features)
+#     negative_factor = clf.negative_outlier_factor_
     
-    lof = -1 * negative_factor
-    ranked = np.argsort(lof)
-    largest_indices = ranked[::-1][:n_tot] # >> outliers
-    smallest_indices = ranked[:n_tot] # >> inliers
-    random_inds = list(range(len(lof)))
-    random.Random(4).shuffle(random_inds)
-    random_inds = random_inds[:n_tot] # >> random
-    ncols=1
+#     lof = -1 * negative_factor
+#     ranked = np.argsort(lof)
+#     largest_indices = ranked[::-1][:n_tot] # >> outliers
+#     smallest_indices = ranked[:n_tot] # >> inliers
+#     random_inds = list(range(len(lof)))
+#     random.Random(4).shuffle(random_inds)
+#     random_inds = random_inds[:n_tot] # >> random
+#     ncols=1
     
-    if debug:
-        # >> figure out what the LOF is triggering on
-        ncols=2
-        if type(feature_lof) == type(None):
-            feature_lof = []
-            for i in range(features.shape[1]):
-                clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p)
-                fit_predictor = clf.fit_predict(features[:,i].reshape(-1,1))
-                negative_factor = clf.negative_outlier_factor_
-                lof_tmp = -1 * negative_factor    
-                feature_lof.append(lof_tmp) 
-            feature_lof=np.array(feature_lof)
-            # >> has shape (num_features, num_light_curves)
+#     if debug:
+#         # >> figure out what the LOF is triggering on
+#         ncols=2
+#         if type(feature_lof) == type(None):
+#             feature_lof = []
+#             for i in range(features.shape[1]):
+#                 clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p)
+#                 fit_predictor = clf.fit_predict(features[:,i].reshape(-1,1))
+#                 negative_factor = clf.negative_outlier_factor_
+#                 lof_tmp = -1 * negative_factor    
+#                 feature_lof.append(lof_tmp) 
+#             feature_lof=np.array(feature_lof)
+#             # >> has shape (num_features, num_light_curves)
             
-        if plot_psd:
-            ncols=3
-            freq, tmp = LombScargle(time, intensity[0]).autopower()
-            freq = np.linspace(np.min(freq), np.max(freq), n_pgram)            
+#         if plot_psd:
+#             ncols=3
+#             freq, tmp = LombScargle(time, intensity[0]).autopower()
+#             freq = np.linspace(np.min(freq), np.max(freq), n_pgram)            
     
-    # >> save LOF values in txt file
-    print('Saving LOF values')
-    with open(path+'lof-'+prefix+'kneigh' + str(n_neighbors)+'.txt', 'w') as f:
-        for i in range(len(targets)):
-            f.write('{} {}\n'.format(int(targets[i]), lof[i]))
-        f.write("Ten highest LOF\n")
-        for k in range(n):
-            ind = largest_indices[k]
-            f.write(str(targets[ind]) + " " + str(features[ind]) + "\n")
+#     # >> save LOF values in txt file
+#     print('Saving LOF values')
+#     with open(path+'lof-'+prefix+'kneigh' + str(n_neighbors)+'.txt', 'w') as f:
+#         for i in range(len(targets)):
+#             f.write('{} {}\n'.format(int(targets[i]), lof[i]))
+#         f.write("Ten highest LOF\n")
+#         for k in range(n):
+#             ind = largest_indices[k]
+#             f.write(str(targets[ind]) + " " + str(features[ind]) + "\n")
       
-    # >> make histogram of LOF values
-    print('Make LOF histogram')
-    #plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-     #              targets, path+'lof-'+prefix+'histogram-insets.png',
-      #             insets=True, log=log)
-    plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                   targets, path+'lof-'+prefix+'histogram.png', insets=False,
-                   log=log)
+#     # >> make histogram of LOF values
+#     print('Make LOF histogram')
+#     #plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+#      #              targets, path+'lof-'+prefix+'histogram-insets.png',
+#       #             insets=True, log=log)
+#     plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+#                    targets, path+'lof-'+prefix+'histogram.png', insets=False,
+#                    log=log)
 
-    if not mock_data:
-        print('Saving LOF values')
-        with open(path+'lof-'+prefix+'kneigh' + str(n_neighbors)+'.txt', 'w') as f:
-            for i in range(len(targets)):
-                f.write('{} {}\n'.format(int(targets[i]), lof[i]))
+#     if not mock_data:
+#         print('Saving LOF values')
+#         with open(path+'lof-'+prefix+'kneigh' + str(n_neighbors)+'.txt', 'w') as f:
+#             for i in range(len(targets)):
+#                 f.write('{} {}\n'.format(int(targets[i]), lof[i]))
           
-        # >> make histogram of LOF values
-        print('Make LOF histogram')
-        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                       targets, path+'lof-'+prefix+'kneigh' + str(n_neighbors)+\
-                           'histogram-insets.png',
-                       insets=True, log=log)
-        plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
-                       targets, path+'lof-'+prefix+'kneigh' + str(n_neighbors)+\
-                           'histogram.png', insets=False,
-                       log=log)
+#         # >> make histogram of LOF values
+#         print('Make LOF histogram')
+#         plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+#                        targets, path+'lof-'+prefix+'kneigh' + str(n_neighbors)+\
+#                            'histogram-insets.png',
+#                        insets=True, log=log)
+#         plot_histogram(lof, 20, "Local Outlier Factor (LOF)", time, intensity,
+#                        targets, path+'lof-'+prefix+'kneigh' + str(n_neighbors)+\
+#                            'histogram.png', insets=False,
+#                        log=log)
 
         
-    # -- momentum dumps ------------------------------------------------------
-    # >> get momentum dump times
-    print('Loading momentum dump times')
-    with open(momentum_dump_csv, 'r') as f:
-        lines = f.readlines()
-        mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
-        inds = np.nonzero((mom_dumps >= np.min(time)) * \
-                          (mom_dumps <= np.max(time)))
-        mom_dumps = np.array(mom_dumps)[inds]
+#     # -- momentum dumps ------------------------------------------------------
+#     # >> get momentum dump times
+#     print('Loading momentum dump times')
+#     with open(momentum_dump_csv, 'r') as f:
+#         lines = f.readlines()
+#         mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
+#         inds = np.nonzero((mom_dumps >= np.min(time)) * \
+#                           (mom_dumps <= np.max(time)))
+#         mom_dumps = np.array(mom_dumps)[inds]
         
-    # -- plot cross-identifications -------------------------------------------
-    if type(database_dir) != type(None):
-        class_info = dt.get_true_classifications(targets, single_file=single_file,
-                                                 database_dir=database_dir,
-                                                 useless_classes=[])        
-        ticid_classified = class_info[:,0].astype('int')
+#     # -- plot cross-identifications -------------------------------------------
+#     if type(database_dir) != type(None):
+#         class_info = dt.get_true_classifications(targets, single_file=single_file,
+#                                                  database_dir=database_dir,
+#                                                  useless_classes=[])        
+#         ticid_classified = class_info[:,0].astype('int')
 
-    # -- plot smallest and largest LOF light curves --------------------------
-    print('Plot highest LOF and lowest LOF light curves')
-    num_figs = int(n_tot/n) # >> number of figures to generate
+#     # -- plot smallest and largest LOF light curves --------------------------
+#     print('Plot highest LOF and lowest LOF light curves')
+#     num_figs = int(n_tot/n) # >> number of figures to generate
     
-    for j in range(num_figs):
+#     for j in range(num_figs):
         
-        for i in range(3): # >> loop through smallest, largest, random LOF plots
-            fig, ax = plt.subplots(n, ncols, sharex=False,
-                                   figsize = (8*ncols, 3*n))
+#         for i in range(3): # >> loop through smallest, largest, random LOF plots
+#             fig, ax = plt.subplots(n, ncols, sharex=False,
+#                                    figsize = (8*ncols, 3*n))
             
-            for k in range(n): # >> loop through each row
-                if debug:
-                    axis = ax[k, 0]
-                else:
-                    axis = ax[k]
+#             for k in range(n): # >> loop through each row
+#                 if debug:
+#                     axis = ax[k, 0]
+#                 else:
+#                     axis = ax[k]
                 
-                if i == 0: ind = largest_indices[j*n + k]
-                elif i == 1: ind = smallest_indices[j*n + k]
-                else: ind = random_inds[j*n + k]
+#                 if i == 0: ind = largest_indices[j*n + k]
+#                 elif i == 1: ind = smallest_indices[j*n + k]
+#                 else: ind = random_inds[j*n + k]
                 
-                # >> plot momentum dumps
-                for t in mom_dumps:
-                    axis.axvline(t, color='g', linestyle='--')
+#                 # >> plot momentum dumps
+#                 for t in mom_dumps:
+#                     axis.axvline(t, color='g', linestyle='--')
                     
-                # >> plot light curve
-                axis.plot(time, intensity[ind], '.k')
-                axis.text(0.98, 0.02, '%.3g'%lof[ind],
-                           transform=axis.transAxes,
-                           horizontalalignment='right',
-                           verticalalignment='bottom',
-                           fontsize=fontsize)
-                format_axes(axis, ylabel=True)
-                if not mock_data:
-                    ticid_label(axis, targets[ind], target_info[ind],
-                                title=True)
-                    if targets[ind] in ticid_classified:
-                        classified_ind = np.nonzero(ticid_classified == targets[ind])[0][0]
-                        classification_label(axis, targets[ind],
-                                             class_info[classified_ind])                        
+#                 # >> plot light curve
+#                 axis.plot(time, intensity[ind], '.k')
+#                 axis.text(0.98, 0.02, '%.3g'%lof[ind],
+#                            transform=axis.transAxes,
+#                            horizontalalignment='right',
+#                            verticalalignment='bottom',
+#                            fontsize=fontsize)
+#                 format_axes(axis, ylabel=True)
+#                 if not mock_data:
+#                     ticid_label(axis, targets[ind], target_info[ind],
+#                                 title=True)
+#                     if targets[ind] in ticid_classified:
+#                         classified_ind = np.nonzero(ticid_classified == targets[ind])[0][0]
+#                         classification_label(axis, targets[ind],
+#                                              class_info[classified_ind])                        
                     
-                if k != n - 1:
-                    axis.set_xticklabels([])
+#                 if k != n - 1:
+#                     axis.set_xticklabels([])
                     
-                if debug:
-                    # >> find the feature this light curve is triggering on
-                    feature_ranked = np.argsort(feature_lof[:,ind])
-                    ax[k,1].plot(features[:,feature_ranked[-1]],
-                                 features[:,feature_ranked[-2]], '.', ms=1)
-                    ax[k,1].plot([features[ind,feature_ranked[-1]]],
-                                  [features[ind,feature_ranked[-2]]], 'Xg',
-                                   ms=30)    
-                    ax[k,1].set_xlabel('\u03C6' + str(feature_ranked[-1]))
-                    ax[k,1].set_ylabel('\u03C6' + str(feature_ranked[-2])) 
-                    # ax[k,1].set_adjustable("box")
-                    # ax[k,1].set_aspect(1)    
+#                 if debug:
+#                     # >> find the feature this light curve is triggering on
+#                     feature_ranked = np.argsort(feature_lof[:,ind])
+#                     ax[k,1].plot(features[:,feature_ranked[-1]],
+#                                  features[:,feature_ranked[-2]], '.', ms=1)
+#                     ax[k,1].plot([features[ind,feature_ranked[-1]]],
+#                                   [features[ind,feature_ranked[-2]]], 'Xg',
+#                                    ms=30)    
+#                     ax[k,1].set_xlabel('\u03C6' + str(feature_ranked[-1]))
+#                     ax[k,1].set_ylabel('\u03C6' + str(feature_ranked[-2])) 
+#                     # ax[k,1].set_adjustable("box")
+#                     # ax[k,1].set_aspect(1)    
 
-                if plot_psd:
-                    power = LombScargle(time, intensity[ind]).power(freq)
-                    ax[k,2].plot(freq, power, '-k')
-                    ax[k,2].set_ylabel('Power')
-                    # ax[k,2].set_xscale('log')
-                    ax[k,2].set_yscale('log')
+#                 if plot_psd:
+#                     power = LombScargle(time, intensity[ind]).power(freq)
+#                     ax[k,2].plot(freq, power, '-k')
+#                     ax[k,2].set_ylabel('Power')
+#                     # ax[k,2].set_xscale('log')
+#                     ax[k,2].set_yscale('log')
                     
                     
     
-            # >> label axes
-            if debug:
-                ax[n-1,0].set_xlabel('time [BJD - 2457000]')
-                if plot_psd:
-                    ax[n-1,2].set_xlabel('Frequency [days^-1]')
-            else:
-                ax[n-1].set_xlabel('time [BJD - 2457000]')
+#             # >> label axes
+#             if debug:
+#                 ax[n-1,0].set_xlabel('time [BJD - 2457000]')
+#                 if plot_psd:
+#                     ax[n-1,2].set_xlabel('Frequency [days^-1]')
+#             else:
+#                 ax[n-1].set_xlabel('time [BJD - 2457000]')
                 
-            # >> save figures
-            if i == 0:
-                if title:
-                    fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
-                                 y=0.9)
-                fig.tight_layout()
-                fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
-                            str(n_neighbors) + '-largest_' + str(j*n) + 'to' +\
-                            str(j*n + n) + '.png',
-                            bbox_inches='tight')
-                plt.close(fig)
-            elif i == 1:
-                if title:
-                    fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
-                                 y=0.9)
-                fig.tight_layout()
-                fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
-                            str(n_neighbors) + '-smallest' + str(j*n) + 'to' +\
-                            str(j*n + n) + '.png',
-                            bbox_inches='tight')
-                plt.close(fig)
-            else:
-                if title:
-                    fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
+#             # >> save figures
+#             if i == 0:
+#                 if title:
+#                     fig.suptitle(str(n) + ' largest LOF targets', fontsize=16,
+#                                  y=0.9)
+#                 fig.tight_layout()
+#                 fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
+#                             str(n_neighbors) + '-largest_' + str(j*n) + 'to' +\
+#                             str(j*n + n) + '.png',
+#                             bbox_inches='tight')
+#                 plt.close(fig)
+#             elif i == 1:
+#                 if title:
+#                     fig.suptitle(str(n) + ' smallest LOF targets', fontsize=16,
+#                                  y=0.9)
+#                 fig.tight_layout()
+#                 fig.savefig(path + 'lof-' + prefix + 'kneigh' + \
+#                             str(n_neighbors) + '-smallest' + str(j*n) + 'to' +\
+#                             str(j*n + n) + '.png',
+#                             bbox_inches='tight')
+#                 plt.close(fig)
+#             else:
+#                 if title:
+#                     fig.suptitle(str(n) + ' random LOF targets', fontsize=16, y=0.9)
                 
-                # >> save figure
-                fig.tight_layout()
-                fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
-                            + "-random"+ str(j*n) + 'to' +\
-                            str(j*n + n) +".png", bbox_inches='tight')
-                plt.close(fig)                
+#                 # >> save figure
+#                 fig.tight_layout()
+#                 fig.savefig(path + 'lof-' + prefix + 'kneigh' + str(n_neighbors) \
+#                             + "-random"+ str(j*n) + 'to' +\
+#                             str(j*n + n) +".png", bbox_inches='tight')
+#                 plt.close(fig)                
                     
     
 def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
