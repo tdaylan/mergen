@@ -789,6 +789,94 @@ def optimize_confusion_matrix(ticid_pred, y_pred, database_dir='./',
             accuracy.append(acc)
             
 
+def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
+                      calc_psd=True, load_psd=True, n_pgram=10000,
+                      train_test_ratio=1.0, data_dir='./', output_dir='./',
+                      prefix=''):
+    '''Preprocesses output from dt.load_data_from_metafiles in preparation for
+    training a deep autoencoder.
+    Parameters:
+        * flux : array of light curves, shape=(num light curves, num points)
+        * time : time array, shape=(num points,)
+        * p : parameter dictionary
+        * ticid : list of TICIDs, shape=(num light curves)
+        * target_info : meta data (sector, cam, ccd, data_type, cadence) for each light
+                        curve, shape=(num light curves, 5)
+        * features : feature vectors to train DAE on, optional
+                     shape=(num light curves, num features)
+        * calc_psd : calculates LS periodograms to train DAE on
+        * load_psd : loads previously calculated LS periodograms from fits
+        * n_pgram : resolution of LS periodogram frequency grid
+        * train_test_ratio : partition ratio. If 1, then no partitioning.
+    '''
+
+    # -- calculate PSDs --------------------------------------------------------
+    if calc_psd:
+        # >> get frequency array
+        f, tmp = LombScargle(time, flux[0]).autopower()
+        f = np.linspace(np.min(f), np.max(f), n_pgram)
+
+        # >> calculate PSDs
+        fname = output_dir+prefix+'ls_periodograms.fits'
+
+        if not load_psd or not os.path.exists(fname):
+            print('Calculating PSD..')
+            psd = []
+            for i in range(len(flux)):
+                if i % 1000 == 0:
+                    print('Periodogram progress: '+str(i)+'/'+str(len(flux)))
+                tmp = LombScargle(time, flux[i]).power(f)
+                psd.append(tmp)
+            psd = np.array(psd)
+
+            # >> save the PSDs and TICIDs to a fits file
+            hdr = fits.Header()
+            hdu = fits.PrimaryHDU(psd, header=hdr)
+            hdu.writeto(fname)
+            fits.append(fname, ticid)
+
+        else:
+            print('Retrieving PSDs from '+fname)
+            # >> load PSDs from fits files
+            with fits.open(fname) as hdul:
+                features = hdul[0].data            
+
+        # >> plot PSD examples
+        fig, ax = plt.subplots(4, 2)
+        for i in range(4):
+            ax[i, 0].plot(time, flux[i], '.k', markersize=2)
+            ax[i, 1].plot(f, features[i])
+            ax[i, 0].set_xlabel('Time [BJD - 2457000]')
+            ax[i, 0].set_ylabel('Relative flux')
+            ax[i, 1].set_xlabel('Frequency (Hz)')
+            ax[i, 1].set_ylabel('PSD')
+            ax[i, 1].set_xscale('log')
+            ax[i, 1].set_yscale('log')
+        fig.savefig(output_dir+prefix+'periodogram_examples.png')
+
+    print('Partitioning data...')
+    x_train, x_test, y_train, y_test, flux_train, flux_test,\
+    ticid_train, ticid_test, target_info_train, target_info_test, time =\
+        split_data_features(flux, features, time, ticid, target_info,
+                            train_test_ratio=train_test_ratio)
+
+    print('Standardizing feature vectors...')
+    if calc_psd:
+        x_train = dt.standardize(x_train)
+        x_test = dt.standardize(x_test)
+    else:
+        x_train = dt.standardize(x_train, ax=0)
+        x_test = dt.standardize(x_test, ax=0)
+
+
+    if train_test_ratio < 1:
+        return x_train, x_test, flux_train, flux_test, \
+            ticid_train, ticid_test, target_info_train, target_info_test, time
+
+    else:
+        return x_train, flux_train, ticid_train, target_info_train, time
+            
+
 def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                               sector=1, mock_data=False,
                               validation_targets=[219107776],
@@ -820,7 +908,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                         minmax_normalization, none
           * input_rms : calculate RMS before normalizing
     '''
-    
+
     # -- shuffle array ---------------------------------------------------------
     print('Shuffling data...')
     inds = np.arange(len(flux))
@@ -830,191 +918,91 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
     target_info = np.array(target_info)[inds]
     if DAE:
         features = features[inds]
-        
-    # >> move specified targest to testing set [deprecated 12-01-20]
-    if len(validation_targets) > 0:
-        for t in validation_targets:
-            target_ind = np.nonzero( ticid == t )
-            if np.shape(target_ind)[1] == 0:
-                print('!! TIC '+str(t)+' is not in data set')
-            else:
-                print('Moving '+str(t)+' to test set...')
-                target_ind = target_ind[0][0]
-            flux = np.insert(flux, -1, flux[target_ind], axis=0)
-            flux = np.delete(flux, target_ind, axis=0)
-            ticid = np.insert(ticid, -1, ticid[target_ind])
-            ticid = np.delete(ticid, target_ind)
-            target_info = np.insert(target_info, -1, target_info[target_ind],
-                                    axis=0)
-            target_info = np.delete(target_info, target_ind, axis=0) 
-            if DAE:
-                features = np.insert(features, -1, features[target_ind],
-                                     axis=0)
-                features = np.delete(features, target_ind, axis=0)
                 
-    # :: partition data and normalize ::::::::::::::::::::::::::::::::::::::::::
-    if DAE:
-        print('Partitioning data...')
-        x_train, x_test, y_train, y_test, flux_train, flux_test,\
-        ticid_train, ticid_test, target_info_train, target_info_test, time = \
-            split_data_features(flux, features, time, ticid, target_info,
-                                False, p, train_test_ratio=train_test_ratio)
-        print('Standardizing feature vector...')
-        x_train = dt.standardize(x_train, ax=0)
-        x_test = dt.standardize(x_test, ax=0)
-        
-        return x_train, x_test, y_train, y_test, flux_train, flux_test, \
-            ticid_train, ticid_test, target_info_train, target_info_test, time
-    else:  
-        # -- calculate RMS -----------------------------------------------------
-        if input_rms:
-            print('Calculating RMS..')
-            rms = dt.rms(flux)
-        else: rms_train, rms_test = False, False
-        
-        # -- calculate PSDs ----------------------------------------------------
-        if input_psd:
-            # >> get frequency array
-            f, tmp = LombScargle(time, flux[0]).autopower()
-            f = np.linspace(np.min(f), np.max(f), n_pgram)
-                            
-            if not load_psd:
-                print('Calculating PSD..')
-                
-                psd = []
-                for i in range(len(flux)):
-                    print(str(i) + '/' + str(len(flux)))
-                    # f, tmp = LombScargle(time, flux[i]).autopower()
-                    tmp = LombScargle(time, flux[i]).power(f)
-                    psd.append(tmp)
-                psd = np.array(psd)
-                
-                # >> truncate
-                if not p['fully_conv']:
-                    new_length=int(np.shape(psd)[1] / \
-                                   (2**(np.max(p['num_conv_layers'])/2)))*\
-                                int((2**(np.max(p['num_conv_layers'])/2)))
-                else:
-                    new_length=int(np.shape(psd)[1] / \
-                                   (2**(np.max(p['num_conv_layers']+1)/2)))*\
-                                int((2**(np.max(p['num_conv_layers']+1)/2)))                    
-                psd = np.delete(psd,np.arange(new_length,np.shape(psd)[1]),1)
-                f = f[:new_length]
+    # -- calculate RMS -----------------------------------------------------
+    if input_rms:
+        print('Calculating RMS..')
+        rms = dt.rms(flux)
+    else: rms_train, rms_test = False, False
 
-            else:
-                # >> load PSDs from fits files
-                with fits.open(output_dir+prefix+'psd_train.fits') as hdul:
-                    psd_train = hdul[1].data            
-                with fits.open(output_dir+prefix+'psd_test.fits') as hdul:
-                    psd_test = hdul[1].data    
-    
-        # -- normalize ---------------------------------------------------------
-        if norm_type == 'standardization':
-            print('Standardizing fluxes...')
-            x = dt.standardize(flux)
-    
-        elif norm_type == 'median_normalization':
-            print('Normalizing fluxes (dividing by median)...')
-            x = dt.normalize(flux)
-            
-        elif norm_type == 'minmax_normalization':
-            print('Normalizing fluxes (changing minimum and range)...')
-            mins = np.min(x, axis = 1, keepdims=True)
-            x = x - mins
-            maxs = np.max(x, axis=1, keepdims=True)
-            x = x / maxs
-            
-        else:
-            print('Light curves were not normalized!')
-            x = flux
-            
-        # -- partitioning training and testing set -----------------------------
-        print('Partitioning data...')
-        flux_train, flux_test, x_train, x_test, y_train, y_test, ticid_train, \
-            ticid_test, target_info_train, target_info_test, time, time_plot  = \
-            split_data(flux, x, ticid, target_info, time, p,
-                       train_test_ratio=train_test_ratio,
-                       supervised=False)             
-            
-        if input_rms:
-            rms_train = rms[:np.shape(x_train)[0]]
-            rms_test = rms[-1 * np.shape(x_test)[0]:]
 
-            # >> save the RMS and TICIDs to a fits file
-            hdr = fits.Header()
-            hdu = fits.PrimaryHDU(rms_train, header=hdr)
-            hdu.writeto(output_dir+prefix+'rms_train.fits')
-            fits.append(output_dir+prefix+'rms_train.fits', ticid_train)
-            hdr = fits.Header()
-            hdu = fits.PrimaryHDU(rms_test, header=hdr)
-            hdu.writeto(output_dir+prefix+'rms_test.fits')
-            fits.append(output_dir+prefix+'rms_test.fits', ticid_test)
+    # -- normalize ---------------------------------------------------------
+    if norm_type == 'standardization':
+        print('Standardizing fluxes...')
+        x = dt.standardize(flux)
 
-        if input_psd:
-            if not load_psd:
-                psd_train = psd[:np.shape(x_train)[0]]
-                psd_test = psd[-1 * np.shape(x_test)[0]:]
-                
-                # >> save the PSDs and TICIDs to a fits file
-                hdr = fits.Header()
-                hdu = fits.PrimaryHDU(psd_train, header=hdr)
-                hdu.writeto(output_dir+prefix+'psd_train.fits')
-                fits.append(output_dir+prefix+'psd_train.fits', ticid_train)
-                hdr = fits.Header()
-                hdu = fits.PrimaryHDU(psd_test, header=hdr)
-                hdu.writeto(output_dir+prefix+'psd_test.fits')
-                fits.append(output_dir+prefix+'psd_test.fits', ticid_test)
-                
-            x_train = [x_train, psd_train]
-            x_test = [x_test, psd_test]
-            time = [time, f]
-            fig, ax = plt.subplots(4, 2)
-            for i in range(4):
-                ax[i, 0].plot(time[0], x_train[0][i], '.k', markersize=2)
-                ax[i, 1].plot(time[1], x_train[1][i])
-                ax[i, 0].set_xlabel('Time [BJD - 2457000]')
-                ax[i, 0].set_ylabel('Relative flux')
-                ax[i, 1].set_xlabel('Frequency (Hz)')
-                ax[i, 1].set_ylabel('PSD')
-                ax[i, 1].set_xscale('log')
-                ax[i, 1].set_yscale('log')
-            fig.savefig(output_dir+prefix+'x_train_PSD_examples.png')
-            
-        if split:
-            orbit_gap = np.argmax(np.diff(time))
-            # >> split x_train and x_test at orbit gap
-            x_train = np.split(x_train, [orbit_gap], axis=1)
-            x_test = np.split(x_test, [orbit_gap], axis=1)
-            
-        # -- get other external features ---------------------------------------
+    elif norm_type == 'median_normalization':
+        print('Normalizing fluxes (dividing by median)...')
+        x = dt.normalize(flux)
 
-        if concat_ext_feats:
-            external_features_train, flux_train, ticid_train, target_info_train = \
-                bottleneck_preprocessing(sector, x_train, ticid_train,
-                                         target_info_train, rms_train,
-                                         data_dir=data_dir,
-                                         output_dir=output_dir,
-                                         use_learned_features=False,
-                                         use_tess_features=use_tess_features,
-                                         use_engineered_features=False,
-                                         use_tls_features=use_tls_features,
-                                         log=False)  
-            x_train = [x_train, external_features_train]
-            external_features_test, flux_test, ticid_test, target_info_test = \
-                bottleneck_preprocessing(sector, x_test, ticid_test,
-                                         target_info_test, rms_test,
-                                         data_dir=data_dir,
-                                         output_dir=output_dir,
-                                         use_learned_features=False,
-                                         use_tess_features=use_tess_features,
-                                         use_engineered_features=False,
-                                         use_tls_features=use_tls_features,
-                                         use_rms=use_rms,
-                                         log=False)  
-            x_test = [x_test, external_features_test]
-                                    
-        return flux_train, flux_test, x_train, x_test, ticid_train, ticid_test,\
-            target_info_train, target_info_test, rms_train, rms_test, time, time_plot
+    elif norm_type == 'minmax_normalization':
+        print('Normalizing fluxes (changing minimum and range)...')
+        mins = np.min(x, axis = 1, keepdims=True)
+        x = x - mins
+        maxs = np.max(x, axis=1, keepdims=True)
+        x = x / maxs
+
+    else:
+        print('Light curves were not normalized!')
+        x = flux
+
+    # -- partitioning training and testing set -----------------------------
+    print('Partitioning data...')
+    flux_train, flux_test, x_train, x_test, y_train, y_test, ticid_train, \
+        ticid_test, target_info_train, target_info_test, time, time_plot  = \
+        split_data(flux, x, ticid, target_info, time, p,
+                   train_test_ratio=train_test_ratio,
+                   supervised=False)             
+
+    if input_rms:
+        rms_train = rms[:np.shape(x_train)[0]]
+        rms_test = rms[-1 * np.shape(x_test)[0]:]
+
+        # >> save the RMS and TICIDs to a fits file
+        hdr = fits.Header()
+        hdu = fits.PrimaryHDU(rms_train, header=hdr)
+        hdu.writeto(output_dir+prefix+'rms_train.fits')
+        fits.append(output_dir+prefix+'rms_train.fits', ticid_train)
+        hdr = fits.Header()
+        hdu = fits.PrimaryHDU(rms_test, header=hdr)
+        hdu.writeto(output_dir+prefix+'rms_test.fits')
+        fits.append(output_dir+prefix+'rms_test.fits', ticid_test)
+
+    if split:
+        orbit_gap = np.argmax(np.diff(time))
+        # >> split x_train and x_test at orbit gap
+        x_train = np.split(x_train, [orbit_gap], axis=1)
+        x_test = np.split(x_test, [orbit_gap], axis=1)
+
+    # -- get other external features ---------------------------------------
+
+    if concat_ext_feats:
+        external_features_train, flux_train, ticid_train, target_info_train = \
+            bottleneck_preprocessing(sector, x_train, ticid_train,
+                                     target_info_train, rms_train,
+                                     data_dir=data_dir,
+                                     output_dir=output_dir,
+                                     use_learned_features=False,
+                                     use_tess_features=use_tess_features,
+                                     use_engineered_features=False,
+                                     use_tls_features=use_tls_features,
+                                     log=False)  
+        x_train = [x_train, external_features_train]
+        external_features_test, flux_test, ticid_test, target_info_test = \
+            bottleneck_preprocessing(sector, x_test, ticid_test,
+                                     target_info_test, rms_test,
+                                     data_dir=data_dir,
+                                     output_dir=output_dir,
+                                     use_learned_features=False,
+                                     use_tess_features=use_tess_features,
+                                     use_engineered_features=False,
+                                     use_tls_features=use_tls_features,
+                                     use_rms=use_rms,
+                                     log=False)  
+        x_test = [x_test, external_features_test]
+
+    return flux_train, flux_test, x_train, x_test, ticid_train, ticid_test,\
+        target_info_train, target_info_test, rms_train, rms_test, time, time_plot
 
 
 
@@ -1208,6 +1196,9 @@ def load_bottleneck_from_fits(bottleneck_dir, ticid, runIter=False, numIter=1):
 
     return learned_feature_vector
         
+def load_DAE_bottleneck(output_dir, ticid):
+
+
 def load_gmm_from_txt(output_dir, ticid, runIter=False, numIter=1,
                       numClusters=100):
 
@@ -1466,8 +1457,62 @@ def model_summary_txt(output_dir, model):
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def read_hyperparameters_from_txt(savepath):
-    params = pd.read_csv(savepath+'caehyperparams.txt', delimiter='\t')['Value']
+def save_autoencoder_products(output_dir, prefix, model, history, x_train,
+                              x_test,  ticid_train, ticid_test, params):
+
+    print('Saving model...')
+    model.save(output_dir + prefix + 'model.hdf5') 
+
+    print('Retrieving bottlneck...')
+    bottleneck_train = \
+        get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
+                       out=output_dir+prefix+'bottleneck_train.fits')
+    if type(x_test) == type(None):
+        bottleneck_test = \
+        get_bottleneck(model, x_test, params, save=True, ticid=ticid_test,
+                       out=output_dir+prefix+'bottleneck_test.fits')    
+
+    print('Retrieving reconstructions...')
+    x_predict_train = model.predict(x_train)      
+    hdr = fits.Header()
+    hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
+    hdu.writeto(output_dir+prefix+'x_predict_train.fits')
+    fits.append(output_dir+prefix+'x_predict_train.fits', ticid_train)
+
+    if len(x_test) > 0:
+        x_predict_test = model.predict(x_test)     
+        hdr = fits.Header()
+        if concat_ext_feats:
+            hdu = fits.PrimaryHDU(x_predict_test[0], header=hdr)
+        else:
+            hdu = fits.PrimaryHDU(x_predict_test, header=hdr)
+        hdu.writeto(output_dir+prefix+'x_predict.fits')
+        fits.append(output_dir+prefix+'x_predict.fits', ticid_test)
+
+    model_summary_txt(output_dir+prefix, model)         
+
+    if len(x_test) > 0:
+        return model, history, bottleneck_train, bottleneck_test,\
+            x_predict_train, x_predict_test
+    else:
+        return model, history, bottleneck_train, x_predict_train
+
+
+def read_hyperparameters_from_txt(parampath):
+    readtxt = pd.read_csv(parampath, delimiter='\t')
+    keys = readtxt['Param'].tolist()
+    values = readtxt['Value'].tolist()
+
+    for i in range(len(values)): # >> ensure hyperparameters have correct dtype
+        if values[i][0] == '[': # >> values should be a list
+            values[i] = [int(num) for num in values[i][1:-1].split(',')]
+        else:
+            try: values[i] = int(values[i])
+            except:
+                try: values[i] = float(values[i])
+                except: pass
+
+    params = dict(zip(keys,values)) # >> populate parameter dictionary
     return params
 
 
@@ -1494,11 +1539,11 @@ class TimeHistory(keras.callbacks.Callback):
     def on_epoch_end(self, batch, logs={}):
         self.times.append(time.time() - self.epoch_time_start)
 
-def conv_autoencoder(x_train, y_train, x_test, y_test, params, 
+def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None, 
                      val=True, split=False, input_features=False,
                      features=None, input_psd=False, save_model_epoch=False,
-                     model_init=None, save_model=False, save_bottleneck=False,
-                     predict=False, output_dir='./', prefix='',
+                     model_init=None, save_model=True, save_bottleneck=True,
+                     predict=True, output_dir='./', prefix='',
                      input_rms=False, rms_train=None, rms_test=None,
                      ticid_train=None, ticid_test=None,
                      train=True, weights_path='./best_model.hdf5',
@@ -1616,7 +1661,7 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
             fits.append(output_dir+prefix+'bottleneck_test.fits', ticid_test)
             
         res.append(bottleneck_train)
-        res.append(bottleneck)
+        res.append(bottleneck) 
     if predict:
         print('Getting x_predict...')
         if len(x_test) > 0:
@@ -1652,6 +1697,7 @@ def conv_autoencoder(x_train, y_train, x_test, y_test, params,
                 param_summary(history, x_train, x_test, x_predict_train, x_predict,
                               params, output_dir+prefix, 0,'')            
 
+    # res = [model, history, bottleneck_train, bottleneck, x_predict, x_predict_train]
     return res
 
 def cae_encoder(x_train, params, reshape=False):
@@ -1923,22 +1969,23 @@ def cae_decoder(x_train, bottleneck, params):
 
 # :: Deep fully-connected autoencoder ::::::::::::::::::::::::::::::::::::::::::
 
-def deep_autoencoder(x_train, y_train, x_test, y_test, params, batch_norm=True):
+def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
+                     parampath=None, batch_norm=True, ticid_train=None,
+                     ticid_test=None, resize=False, output_dir='', prefix=''):
     '''The y_train and y_test arguments are place-holders in order to use the
     Talos hyperparameter optimization library.'''
+
+    if type(parampath) != type(None):
+        params = read_hyperparameters_from_txt(parampath)
+
     num_classes = np.shape(y_train)[1]
     input_dim = np.shape(x_train)[1]
     
-    # params['hidden_units'] = list(range(params['max_dim'],
-    #                                     params['latent_dim'],
-    #                                     -params['step']))
-    hidden_units = list(range(params['max_dim'],
-                              params['latent_dim'],
+    hidden_units = list(range(params['maxdim'],
+                              params['ldim'],
                               -params['step']))    
-    # params['hidden_units'] = list(range(16, params['latent_dim'],
-    #                                     -params['step']))
-    if hidden_units[-1] != params['latent_dim']:
-        hidden_units.append(params['latent_dim'])
+    if hidden_units[-1] != params['ldim']:
+        hidden_units.append(params['ldim'])
     
     if resize:
         input_img = Input(shape = (input_dim,1))
@@ -1947,23 +1994,23 @@ def deep_autoencoder(x_train, y_train, x_test, y_test, params, batch_norm=True):
         input_img = Input(shape = (input_dim,))
         x = input_img
     for i in range(len(hidden_units)):
-        x = Dense(hidden_units[i], activation=params['activation'],
-                  kernel_initializer=params['initializer'])(x)
+        x = Dense(hidden_units[i], activation=params['act'],
+                  kernel_initializer=params['init'])(x)
         if batch_norm: x = BatchNormalization()(x)
         
     # -- bottleneck ------------------------------------------------------------
-    x = Dense(params['latent_dim'], activation=params['activation'],
-              kernel_initializer=params['initializer'], name='bottleneck')(x)
+    x = Dense(params['ldim'], activation=params['act'],
+              kernel_initializer=params['init'], name='bottleneck')(x)
 
     # -- decoder ---------------------------------------------------------------
     for i in np.arange(len(hidden_units)-1, -1, -1):
         if batch_norm: x = BatchNormalization()(x)        
-        x = Dense(hidden_units[i], activation=params['activation'],
-                  kernel_initializer=params['initializer'])(x)
+        x = Dense(hidden_units[i], activation=params['act'],
+                  kernel_initializer=params['init'])(x)
 
     if batch_norm: x = BatchNormalization()(x)    
-    x = Dense(input_dim, activation=params['last_activation'],
-              kernel_initializer=params['initializer'])(x)
+    x = Dense(input_dim, activation=params['lastact'],
+              kernel_initializer=params['init'])(x)
     if resize:
         x = Reshape((input_dim, 1))(x)
         
@@ -1975,11 +2022,18 @@ def deep_autoencoder(x_train, y_train, x_test, y_test, params, batch_norm=True):
         validation_data=None
     else:
         validation_data=(x_test,x_test)
+
+    # -- train model -----------------------------------------------------------
     history = model.fit(x_train, x_train, epochs=params['epochs'],
-                        batch_size=params['batch_size'], shuffle=True,
-                        validation_data=(x_test, x_test))
+                        batch_size=params['batch'], shuffle=True,
+                        validation_data=validation_data)
         
-    return history, model
+    res = save_autoencoder_products(output_dir, prefix, model, history, x_train,
+                                    x_test, ticid_train, ticid_test, params)
+    return res
+
+
+
 
 # :: Variational Autoencoder :::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -2975,21 +3029,32 @@ def iterative_cae_clustering(ensemble_dir, data_dir, sectors=[], num_iter=2,
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def split_data_features(flux, features, time, ticid, target_info, classes, p,
-                        train_test_ratio = 0.9,
+def split_data_features(flux, features, time, ticid, target_info,
+                        classes=False, train_test_ratio = 0.9,
                         cutoff=16336, supervised=False, interpolate=False,
                         resize_arr=False, truncate=False):
 
-    # >> truncate (must be a multiple of 2**num_conv_layers)
-    if truncate:
-        new_length = int(np.shape(flux)[1] / \
-                     (2**(np.max(p['num_conv_layers'])/2)))*\
-                     int((2**(np.max(p['num_conv_layers'])/2)))
-        flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
-        time = time[:new_length]
+    # # >> truncate (must be a multiple of 2**num_conv_layers)
+    # if truncate:
+    #     new_length = int(np.shape(flux)[1] / \
+    #                  (2**(np.max(p['num_conv_layers'])/2)))*\
+    #                  int((2**(np.max(p['num_conv_layers'])/2)))
+    #     flux=np.delete(flux,np.arange(new_length,np.shape(flux)[1]),1)
+    #     time = time[:new_length]
+
+    # >> shuffle array
+    inds = np.arange(len(flux))
+    random.Random().shuffle(inds)
+    flux = flux[inds]
+    ticid = ticid[inds]
+    target_info = np.array(target_info)[inds]
+    features = features[inds]
 
     # >> split test and train data
     if supervised:
+        # >> partitions so that there are approximately equal amount of
+        # >> examples from each class in both training and testing sets
+                   
         train_inds = []
         test_inds = []
         class_types, counts = np.unique(classes, return_counts=True)
@@ -3017,7 +3082,7 @@ def split_data_features(flux, features, time, ticid, target_info, classes, p,
         ticid_test = np.copy(ticid[test_inds])
         target_info_train = np.copy(target_info[train_inds])
         target_info_test = np.copy(target_info[test_inds])
-    else:
+    else: # >> unsupervised
         split_ind = int(train_test_ratio*np.shape(flux)[0])
         x_train = np.copy(features[:split_ind])
         x_test = np.copy(features[split_ind:])
@@ -3315,7 +3380,7 @@ def get_bottleneck(model, x_test, p, save=False, ticid=None, out=None,
     else:
         bottleneck_layer = model.get_layer('bottleneck').output
     activation_model = Model(inputs=model.input,
-                             outputs=model.bottleneck_layer)
+                             outputs=bottleneck_layer)
     bottleneck = activation_model.predict(x_test)    
     
     if p['fully_conv']:
@@ -3332,16 +3397,16 @@ def get_bottleneck(model, x_test, p, save=False, ticid=None, out=None,
 
 def compile_model(model, params):
 
-    if params['optimizer'] == 'adam':
+    if params['opt'] == 'adam':
         # opt = optimizers.adam(lr = params['lr'], 
         #                       decay=params['lr']/params['epochs'])
         opt = optimizers.Adam(lr = params['lr'], 
                               decay=params['lr']/params['epochs'])        
-    elif params['optimizer'] == 'adadelta':
+    elif params['opt'] == 'adadelta':
         # opt = optimizers.adadelta(lr = params['lr'])
         opt = optimizers.Adadelta(lr = params['lr'])
         
-    model.compile(optimizer=opt, loss=params['losses'])
+    model.compile(optimizer=opt, loss=params['loss'])
 
 
 def Conv1DTranspose(input_tensor, filters, kernel_size, strides=2, padding='same',
