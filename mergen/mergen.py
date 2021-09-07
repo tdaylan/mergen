@@ -39,9 +39,10 @@ class mergen(object):
     # == Initialization ========================================================
     # ==========================================================================
 
-    def __init__(self, datapath, savepath, datatype, sector, mdumpcsv=None,
-                 filelabel=None, runiter=False, numiter=1, numclstr=100,
-                 parampath=None):
+    def __init__(self, datapath, savepath, datatype, sector,
+                 ENF=True, CAE=True, DAE=True, 
+                 mdumpcsv=None, filelabel=None, runiter=False, numiter=1,
+                 numclstr=100, parampath=None):
         """Creates mergen object from which most common routines can easily be
         run
         Parameters:
@@ -50,6 +51,15 @@ class mergen(object):
             * datatype: string, indicates type of data being worked with.
                         options are: 
                         "SPOC", "FFI-Lygos", "FFI-QLP", "FFI-eleanor"
+            * sector : int, TESS Observation Sector number
+            
+            * ENF, CAE, DAE : booleans, feature generation methods
+              * ENF : engineered features
+              * CAE : features extracted from time-series data using a 
+                      convolutional autoencoder
+              * DAE : features extracted from LS-periodograms using a deep
+                      autoencoder
+            
             * mdumpcsv : string, path to csv file containing TESS momentum dumps
             * filelabel : string, if you want to have all plots/files/folders
                           labelled specially        
@@ -61,6 +71,11 @@ class mergen(object):
             * parampath : string, path to txt file containing autoencoder
                         parameters
         """
+        
+        self.ENF = ENF
+        self.CAE = CAE
+        self.DAE = DAE
+        
         self.sector   = sector
         self.numclstr = numclstr
 
@@ -91,21 +106,54 @@ class mergen(object):
         self.initiate_folder()
 
     def initiate_folder(self):
-        """Make all the big folders"""
-        print("Setting up CAE folder")
-        self.CAEpath = self.ensbpath + "CAE/"
-        dt.create_dir(self.CAEpath)
+        """Create directories for each of the desired feature generation
+        methods."""
+        if self.CAE:
+            self.CAEpath = self.ensbpath + "CAE/"
+            dt.create_dir(self.CAEpath)
 
-        print("Setting up DAE folder")
-        self.DAEpath = self.ensbpath + "DAE/"
-        dt.create_dir(self.DAEpath)j
+        if self.DAE:
+            self.DAEpath = self.ensbpath + "DAE/"
+            dt.create_dir(self.DAEpath)
 
-        print("Setting up ENF folder")
-        self.ENFpath = self.ensbpath + "ENF/"
-        dt.create_dir(self.ENFpath)
+        if self.ENF:
+            self.ENFpath = self.ensbpath + "ENF/"
+            dt.create_dir(self.ENFpath)
 
-    def run_all(self):
-        return
+    def run(self):
+        # >> load data
+        self.load_lightcurves_local()
+        
+        # >> preprocessing and feature generation
+        if self.DAE:
+            self.data_preprocess("DAE")
+            self.generate_dae_features()
+            self.run_feature_analysis("DAE")
+            self.run_vis("DAE")
+        if self.CAE:
+            self.data_preprocess("CAE")
+            self.generate_cae_features()   
+            self.run_feature_analysis("CAE")
+            self.run_vis("CAE")
+        if self.ENF:
+            self.data_preprocess("ENF")
+            self.generate_engineered()
+            self.run_feature_analysis("ENF")
+            self.run_vis("ENF")
+            
+    def run_pretrained(self):
+        """Skips feature extraction and loads saved extracted features."""
+        self.load_lightcurves_local()
+        
+        if self.DAE:
+            self.load("DAE")
+            self.run_vis("DAE")
+        if self.CAE:
+            self.load("CAE")
+            self.run_vis("CAE")
+        if self.ENF:
+            self.load("ENF")
+            self.run_vis("ENF")       
 
     # ==========================================================================
     # == Data and Preprocessing ================================================
@@ -125,24 +173,24 @@ class mergen(object):
     def download_lightcurves(self):
         """Downloads and process light SPOC light curves, if not already
         downloaded."""
-        dt.bulk_download_helper(datapath, sector=self.sector)
-        dt.data_access_sector_by_bulk(datapath, sector=self.sector)
+        dt.bulk_download_helper(self.datapath, sector=self.sector)
+        dt.data_access_sector_by_bulk(self.datapath, sector=self.sector)
 
-    def data_clean(self): 
-        self.flux = dt.normalize(self.flux)
+    def data_preprocess(self, featgen):
+        if featgen == "ENF":
+            self.flux = dt.normalize(self.flux)
+        if featgen == "CAE":
+            self.pflux, self.pflux_test = \
+            lt.autoencoder_preprocessing(self.flux, self.time, self.parampath,
+                                         ticid=self.objid,
+                                         data_dir=self.datapath,
+                                         output_dir=self.CAEpath)
+        if featgen == "DAE":
+            self.pgram, self.flux, self.objid, self.target_info, self.time=\
+            lt.DAE_preprocessing(self.flux, self.time, self.parampath,
+                                 self.objid, self.target_info,
+                                 data_dir=self.datapath, utput_dir=self.DAEpath)
 
-    def preprocess_dae(self):
-        """Preprocessing for deep autoencoder. Returns:
-            * pgram : LS periodograms"""
-        self.pgram, self.flux, self.objid, self.target_info, self.time=\
-        lt.DAE_preprocessing(self.flux, self.time, self.parampath, self.objid,
-                             self.target_info, data_dir=self.datapath,
-                             output_dir=self.ensbpath)
-    def preprocess_cae(self):
-        self.pflux, self.pflux_test = \
-        lt.autoencoder_preprocessing(self.flux, self.time, self.parampath,
-                                     ticid=self.objid, data_dir=self.datapath,
-                                     output_dir=self.ensbpath)
     
     # ==========================================================================
     # == Feature Generation ====================================================
@@ -162,7 +210,7 @@ class mergen(object):
         periodograms."""
         self.model, self.hist, self.feats, self.rcon = \
         lt.deep_autoencoder(self.pgram, self.pgram, parampath=self.parampath,
-                            ticid_train=self.objid, output_dir=self.ensbpathpath)
+                            ticid_train=self.objid, output_dir=self.DAEpath)
 
     def generate_cae_features(self):
         """Train convolutional autoencoder to extract representative
@@ -175,81 +223,100 @@ class mergen(object):
         self.model, self.hist, self.feats, self.feats_test, self.rcon_test, \
         self.recon = lt.conv_autoencoder(xtrain=self.pflux, ytrain=self.pflux, 
                                          params=self.parampath,
-                                         output_dir=self.ensbpath,
+                                         output_dir=self.CAEpath,
                                          ticid_train=self.objid)
         return
 
     # ==========================================================================
     # == Clustering and Outlier Analysis =======================================
     # ==========================================================================
-
-    def generate_clusters(self):
+    
+    # >> featgen : feature generation method, e.g. 'CAE', 'DAE', 'ENF'
+    
+    def generate_clusters(self, featgen):
         """Run clustering algorithm on feature space.
         Returns:
             * clstr : array of cluster numbers, shape=(len(objid),)"""
         print('Performing clustering analysis in feature space...')
         self.clstr = lt.run_gmm(self.objid, self.feats, numclstr=self.numclstr,
-                                savepath=self.ensbpath, runiter=self.runiter,
-                                numiter=self.numiter)
+                                savepath=self.ensbpath+featgen+'/',
+                                runiter=self.runiter, numiter=self.numiter)
 
-    def generate_tsne(self):
+    def generate_tsne(self, featgen):
         """Reduces dimensionality of feature space for visualization."""
-        self.tsne = lt.load_tsne(self.ensbpath)
+        self.tsne = lt.run_tsne(self.feats, savepath=self.ensbpath+featgen+'/')
 
-    def generate_predicted_otypes(self):
+    def generate_predicted_otypes(self, featgen):
         """Predicts object types using known classifications in SIMBAD, ASAS-SN,
         and GCVS.
         Returns:
             * potd : predicted object type dictionary
             * potype : array of predicted object types, shape=(len(objid),)"""
-        self.potd, self.potype = lt.label_clusters(self.ensbpath, self.sector,
-                                                   self.objid, self.clstr,
-                                                   self.totype, self.numtot,
-                                                   self.totd)
+        self.potd, self.potype = \
+            lt.label_clusters(self.ensbpath+featgen+'/', self.sector,
+                              self.objid, self.clstr, self.totype, self.numtot,
+                              self.totd)
 
-    def produce_clustering_visualizations(self):
+    def produce_clustering_visualizations(self, featgen):
         '''Produces t-SNEs, confusion matrices, distribution plots, ensemble
         summary pie charts.'''
-        pt.produce_clustering_visualizations(self.feats, self.numpot, self.tsne,
-                                             self.ensbpath, self.potd,
-                                             self.totd)
+        pt.produce_clustering_visualizations(self.feats, self.numpot,
+                                             self.tsne,
+                                             self.ensbpath+featgen+'/',
+                                             self.potd, self.totd)
 
 
-    def generate_novelty_scores(self):
+    def generate_novelty_scores(self, featgen):
         """
         Returns:
             * nvlty : novelty scores, shape=(len(objid),)"""
         print("Generating novelty scores...")
         self.nvlty = pt.generate_novelty_scores(self.feats, self.objid,
-                                                self.ensbpath)
+                                                self.ensbpath+featgen+'/')
 
-    def produce_novelty_visualizations(self):
+    def produce_novelty_visualizations(self, featgen):
         print("Producing novelty visualizations...")
-        pt.produce_novelty_visualizations(self.nvlty, self.ensbpath, self.time,
-                                          self.flux, self.objid)
+        pt.produce_novelty_visualizations(self.nvlty, self.ensbpath+featgen+'/',
+                                          self.time, self.flux, self.objid)
+        
+    def run_feature_analysis(self, featgen):
+        self.load_true_otypes()
+        self.numerize_true_otypes()
+        self.generate_clusters(featgen)
+        self.generate_predicted_otypes(featgen)
+        self.numerize_pred_otypes()
+        
+        self.generate_tsne(featgen)
+        self.generate_novelty_scores(featgen)
+        
+    def run_vis(self, featgen):
+        self.produce_clustering_visualizations(featgen)
+        self.produce_novelty_visualizations(featgen)
 
     # ==========================================================================
     # == Loading Mergen Products ===============================================
     # ==========================================================================
 
-    def load_features(self, typeFeatures):
+    def load_features(self, featgen):
         """ Load in feature metafiles stored in the datapath"""
-        if typeFeatures == "ENF":
+        if featgen == "ENF":
+            print("Loading engineered features...")
             self.feats = dt.load_ENF_feature_metafile(self.ENFpath)
-        elif typeFeatures == "CAE": 
+        elif featgen == "CAE": 
             print("Loading CAE-learned features...")
-            self.feats = lt.load_bottleneck_from_fits(self.ensbpath, self.objid,
-                                                      self.runiter, self.numiter)
-        elif typeFeatures == "DAE": 
+            self.feats = \
+                lt.load_bottleneck_from_fits(self.CAEpath, self.objid,
+                                             self.runiter, self.numiter)
+        elif featgen == "DAE": 
             print("Loading DAE-learned features...")
-            self.feats = lt.load_DAE_bottleneck(self.ensbpath, self.objid)
+            self.feats = lt.load_DAE_bottleneck(self.DAEpath, self.objid)
 
-    def load_gmm_clusters(self):
+    def load_gmm_clusters(self, featgen):
         """ clstr : array of cluster numbers, shape=(len(objid),)"""
         print('Loading GMM clustering results...')
-        self.clstr = lt.load_gmm_from_txt(self.ensbpath, self.objid,
-                                           self.runiter, self.numiter, 
-                                           self.numclstr)
+        self.clstr = \
+            lt.load_gmm_from_txt(self.ensbpath+featgen+'/', self.objid,
+                                 self.runiter, self.numiter, self.numclstr)
 
     def load_true_otypes(self):
         """ totype : true object types"""
@@ -269,11 +336,11 @@ class mergen(object):
         self.numtot = np.array([np.nonzero(unqtot == ot)[0][0] for \
                                 ot in self.totype])
 
-    def load_pred_otypes(self):
+    def load_pred_otypes(self, featgen):
         """ potype : predicted object types"""
         print('Loading predicted object types...')
-        self.potype = dt.load_otype_pred_from_txt(self.ensbpath, self.sector,
-                                                  self.objid)
+        self.potype = dt.load_otype_pred_from_txt(self.ensbpath+featgen+'/',
+                                                  self.sector, self.objid)
 
     def numerize_pred_otypes(self):
         """
@@ -286,3 +353,18 @@ class mergen(object):
         self.numpot = np.array([np.nonzero(unqpot == ot)[0][0] for \
                                 ot in self.potype])
 
+    def load_tsne(self, featgen):
+        self.tsne = lt.load_tsne_from_fits(self.ensbpath+featgen+'/')
+            
+    def load(self, featgen):
+        self.load_features(featgen)
+        
+        self.load_true_otypes()
+        self.numerize_true_otypes()
+
+        self.load_gmm_clusters(featgen)
+
+        self.load_pred_otypes(featgen)
+        self.numerize_pred_otypes()
+        
+        self.load_tsne(featgen)

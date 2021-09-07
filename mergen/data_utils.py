@@ -152,6 +152,7 @@ from . import learn_utils as lt
 
 
 def create_dir(path):
+    print('Setting up '+path)
     try:
         os.makedirs(path)
     except OSError:

@@ -173,7 +173,7 @@ def run_tsne(features, n_components=2, perplexity=30, early_exaggeration=12,
 
     return X
     
-def load_tsne(ensbpath):
+def load_tsne_from_fits(ensbpath):
     with fits.open(ensbpath+'tsne.fits') as hdul:
         X = hdul[0].data
     return X
@@ -1196,8 +1196,29 @@ def load_bottleneck_from_fits(bottleneck_dir, ticid, runIter=False, numIter=1):
 
     return learned_feature_vector
         
-def load_DAE_bottleneck(output_dir, ticid):
+def load_DAE_bottleneck(savepath, ticid):
 
+    with fits.open(savepath+'bottleneck_train.fits') as hdul:
+        bottleneck_train = hdul[0].data
+        ticid_train = hdul[1].data
+        
+    fname = savepath+'bottleneck_test.fits'
+    if os.path.exists(fname):
+        with fits.open(fname) as hdul:
+            bottleneck_test = hdul[0].data
+            ticid_test = hdul[1].data
+        bottleneck_train = np.concatenate([bottleneck_train,
+                                           bottleneck_test], axis=0)
+        ticid_train = np.concatenate([ticid_train, ticid_test])
+
+    sorted_inds = np.argsort(ticid)
+    # >> intersect1d returns sorted arrays, so
+    # >> ticid == ticid[sorted_inds][np.argsort(sorted_inds)]
+    new_inds = np.argsort(sorted_inds)
+    _, comm1, comm2 = np.intersect1d(ticid, ticid_train, return_indices=True)
+    bottleneck_train = bottleneck_train[comm2][new_inds]   
+    
+    return bottleneck_train
 
 def load_gmm_from_txt(output_dir, ticid, runIter=False, numIter=1,
                       numClusters=100):
