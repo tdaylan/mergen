@@ -2752,9 +2752,9 @@ def get_extrema(feature_vectors, feat1, feat2):
     
     return indexes_unique      
 
-def plot_histogram(data, bins=20, x_label='', filename='./', insetx = None, insety = None, targets = None, 
-                   insets=True, log=True, multix = False, skip_bins=6, figsize=(5,5),
-                   inset_fontsize=4):
+def plot_histogram(data, bins=40, x_label='', filename='./', insetx = None, insety = None, targets = None, 
+                   insets=True, log=True, multix = False, skip_bins=2, figsize=(5,5),
+                   inset_fontsize=6):
     """ 
     Plot a histogram with one light curve from each bin plotted on top
     * Data is the histogram data
@@ -2767,63 +2767,80 @@ def plot_histogram(data, bins=20, x_label='', filename='./', insetx = None, inse
     * filename is the exact place you want it saved
     * insets is a true/false of if you want them
     * log is true/false if you want the histogram on a logarithmic scale
-    modified [lcg 12302020]
+    modified [etc 210909]
     """
     fig, ax1 = plt.subplots(figsize=figsize)
     # >> n_in : values of the histogram bins, bins : edges of the bins
-    n_in, bins, patches = ax1.hist(data, bins, log=log)
+    n_in, bins, patches = ax1.hist(data, bins, log=log, edgecolor='k')
     
     y_range = np.abs(n_in.max() - n_in.min())
     x_range = np.abs(data.max() - data.min())
-    ax1.set_ylabel('Number of light curves')
+    ax1.set_ylabel('Number of targets')
     ax1.set_xlabel(x_label)
     
+    bin_width = bins[1] - bins[0]
     if insets == True:
-        for n in np.arange(len(n_in))[::skip_bins]:
-            if n_in[n] == 0: 
-                continue
-            else: 
-                axis_name = "axins" + str(n)
-                inset_width = 0.33 * x_range # >> in data coords
-                inset_x = bins[n] - (0.5*inset_width) # >> in data coords
-                if log:
-                    inset_y = np.log(n_in[n]) / np.log(y_range) + 0.1 # >> in axes coords
-                else:
-                    inset_y = n_in[n] / y_range + 0.1 # >> in axes coords
-                inset_height = 0.3 * inset_width/x_range # >> in axes coords
-                # inset_height = 0.125 * y_range * 0.5
+        for n in np.nonzero(n_in)[0][::skip_bins]:
+            axis_name = "axins" + str(n)
 
-                # if n > 0: pdb.set_trace()
-                # >> want inset_x in data coords and inset_y in axes coordinates
-                axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height],
-                                           transform = ax1.get_xaxis_transform())
-                # axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height], transform = ax1.transData) #x pos, y pos, width, height
-                                
-                #identify a light curve from that one
-                for m in range(len(data)):
-                    #print(bins[n], bins[n+1])
-                    if bins[n] <= data[m] <= bins[n+1]:
-                        #print(data[m], m)
-                        if multix:
-                            lc_time_to_plot = insetx[m]
-                        else:
-                            lc_time_to_plot = insetx
-                        lc_to_plot = insety[m]
-                        lc_ticid = targets[m]
-                        break
-                    else: 
-                        continue
-                
-                axis_name.set_xlabel('t', fontsize=inset_fontsize)
-                axis_name.set_ylabel('F', fontsize=inset_fontsize)
-                axis_name.set_xticklabels(axis_name.get_xticklabels(), fontsize=inset_fontsize)
-                axis_name.set_yticklabels(axis_name.get_yticklabels(), fontsize=inset_fontsize)
+            # >> x location of lower-left corner of inset in data coords
+            inset_width = 0.33 * x_range
+            inset_x = bins[n] - (0.5*inset_width)
+            inset_x = np.max([data.min(), inset_x]) # >> check within bounds of ax1
 
-                axis_name.scatter(lc_time_to_plot, lc_to_plot, c='black', s = 0.1, rasterized=True)
-                try:
-                    axis_name.set_title("TIC " + str(int(lc_ticid)), fontsize=inset_fontsize)
-                except ValueError:
-                    axis_name.set_title(lc_ticid, fontsize=inset_fontsize)
+            # >> y location of lower-left corner inset in axes coords
+            inset_height = 0.3 * inset_width/x_range 
+            hoffset = 0.1
+            if log:
+                inset_y = np.log(n_in[n]) / np.log(y_range) + hoffset 
+            else:
+                inset_y = n_in[n] / y_range + hoffset
+            inset_y = np.min([inset_y, 1-inset_height])
+            inset_y = np.max([inset_y, 0])
+
+            # >> want inset_x in data coords and inset_y in axes coordinates
+            axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height],
+                                       transform = ax1.get_xaxis_transform())
+
+            # >> create arrow from inset plot to bin
+            xi, xf = inset_x + 0.5*inset_width, bins[n] + 0.5*bin_width
+            yi, yf = inset_y, np.max([n_in.min(), inset_y-hoffset])
+
+            ax1.arrow(xi, inset_y, xf-xi, yf-yi, width=0.01,
+                      transform=ax1.get_xaxis_transform())
+
+            # >> identify a light curve from relevant bin
+            for m in range(len(data)):
+                #print(bins[n], bins[n+1])
+                if bins[n] <= data[m] <= bins[n+1]:
+                    #print(data[m], m)
+                    if multix:
+                        lc_time_to_plot = insetx[m]
+                    else:
+                        lc_time_to_plot = insetx
+                    lc_to_plot = insety[m]
+                    lc_ticid = targets[m]
+                    break
+                else: 
+                    continue
+
+            axis_name.plot(lc_time_to_plot, lc_to_plot, '.k', ms=0.1,
+                           rasterized=True)
+            try:
+                axis_name.text(0.5, 0.8, "TIC " + str(int(lc_ticid)),
+                               fontsize=inset_fontsize)
+                               # transform=axis_name.transAxes)
+            except ValueError:
+                axis_name.set_title(lc_ticid, fontsize=inset_fontsize)
+
+            # if n > 10: pdb.set_trace()
+
+            axis_name.set_xticklabels([])
+            axis_name.tick_params('x', bottom=False)
+
+            axis_name.set_ylabel('F', fontsize=inset_fontsize)               
+            # axis_name.set_yticklabels(axis_name.get_yticklabels(), c='k',
+            #                           fontsize=inset_fontsize)
 
     plt.savefig(filename, dpi=300)
     plt.close()
