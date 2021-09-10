@@ -156,7 +156,7 @@ def create_dir(path):
     try:
         os.makedirs(path)
     except OSError:
-        print ("Directory %s already exists" % self.path)
+        print ("Directory %s already exists" % path)
 
 # -- DATA LOADING (SPOC) -------------------------------------------------------
 
@@ -814,6 +814,8 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
 # -- FEATURE LOADING -----------------------------------------------------------
 
 def load_ENF_feature_metafile(folderpath):
+    print("Loading engineered features...")
+
     filepaths = []
     for root, dirs, files in os.walk(folderpath):
         for file in files:
@@ -3678,6 +3680,8 @@ def load_otype_true_from_datadir(datapath, sector, ticid):
     '''Reads *-ticid_to_label.txt and returns:
     * otype : Variability types (following nomenclature by GCVS)'''
     
+    print('Loading ground truth object types...')
+
     ticid_true, otype = get_true_classifications(ticid, datapath,
                                                  sector=sector)
 
@@ -3693,6 +3697,7 @@ def load_otype_true_from_datadir(datapath, sector, ticid):
 def load_otype_pred_from_txt(ensbpath, sector, ticid):
     '''Reads *-ticid_to_label.txt and returns:
     * otype : Object types'''
+    print('Loading predicted object types...')
 
     fname = ensbpath+'Sector'+str(sector)+'-ticid_to_label.txt'
     fileo = np.loadtxt(fname, delimiter=',', dtype='str', skiprows=1)

@@ -176,7 +176,7 @@ class mergen(object):
         dt.bulk_download_helper(self.datapath, sector=self.sector)
         dt.data_access_sector_by_bulk(self.datapath, sector=self.sector)
 
-    def data_preprocess(self, featgen):
+    def preprocess_data(self, featgen):
         if featgen == "ENF":
             self.flux = dt.normalize(self.flux)
         if featgen == "CAE":
@@ -186,10 +186,11 @@ class mergen(object):
                                          data_dir=self.datapath,
                                          output_dir=self.CAEpath)
         if featgen == "DAE":
-            self.pgram, self.flux, self.objid, self.target_info, self.time=\
+            self.pgram, self.flux, self.objid, self.target_info, self.freq, self.time=\
             lt.DAE_preprocessing(self.flux, self.time, self.parampath,
                                  self.objid, self.target_info,
-                                 data_dir=self.datapath, utput_dir=self.DAEpath)
+                                 data_dir=self.datapath, sector=self.sector,
+                                 output_dir=self.DAEpath)
 
     
     # ==========================================================================
@@ -221,11 +222,22 @@ class mergen(object):
             * feats : CAE-derived features
             * rcon : reconstructions of the input light curves"""        
         self.model, self.hist, self.feats, self.feats_test, self.rcon_test, \
-        self.recon = lt.conv_autoencoder(xtrain=self.pflux, ytrain=self.pflux, 
-                                         params=self.parampath,
-                                         output_dir=self.CAEpath,
-                                         ticid_train=self.objid)
+        self.rcon = lt.conv_autoencoder(xtrain=self.pflux, ytrain=self.pflux, 
+                                        params=self.parampath,
+                                        output_dir=self.CAEpath,
+                                        ticid_train=self.objid)
         return
+
+    def produce_ae_visualizations(self,featgen):
+        if featgen == "DAE":
+            pt.produce_ae_visualizations(self.freq, self.pgram, self.rcon,
+                                         self.DAEpath, self.objid, self.target_info,
+                                         psd=True)
+
+        if featgen == "CAE":
+            pt.produce_ae_visualizations(self.time, self.pflux, self.rcon,
+                                         self.CAEpath, self.objid, self.target_info,
+                                         psd=False)
 
     # ==========================================================================
     # == Clustering and Outlier Analysis =======================================
@@ -260,22 +272,21 @@ class mergen(object):
     def produce_clustering_visualizations(self, featgen):
         '''Produces t-SNEs, confusion matrices, distribution plots, ensemble
         summary pie charts.'''
-        pt.produce_clustering_visualizations(self.feats, self.numpot,
-                                             self.tsne,
+        pt.produce_clustering_visualizations(self.feats, self.numtot,
+                                             self.numpot, self.tsne,
                                              self.ensbpath+featgen+'/',
-                                             self.potd, self.totd)
+                                             self.totd, self.potd)
 
 
     def generate_novelty_scores(self, featgen):
-        """
-        Returns:
-            * nvlty : novelty scores, shape=(len(objid),)"""
-        print("Generating novelty scores...")
+        """Returns: * nvlty : novelty scores, shape=(len(objid),)"""
         self.nvlty = pt.generate_novelty_scores(self.feats, self.objid,
                                                 self.ensbpath+featgen+'/')
 
+    def generate_rcon(self, featgen):
+        self.rcon = lt.load_reconstructions(self.ensbpath+featgen+'/', self.objid)
+
     def produce_novelty_visualizations(self, featgen):
-        print("Producing novelty visualizations...")
         pt.produce_novelty_visualizations(self.nvlty, self.ensbpath+featgen+'/',
                                           self.time, self.flux, self.objid)
         
@@ -300,27 +311,29 @@ class mergen(object):
     def load_features(self, featgen):
         """ Load in feature metafiles stored in the datapath"""
         if featgen == "ENF":
-            print("Loading engineered features...")
             self.feats = dt.load_ENF_feature_metafile(self.ENFpath)
         elif featgen == "CAE": 
-            print("Loading CAE-learned features...")
             self.feats = \
                 lt.load_bottleneck_from_fits(self.CAEpath, self.objid,
                                              self.runiter, self.numiter)
         elif featgen == "DAE": 
-            print("Loading DAE-learned features...")
             self.feats = lt.load_DAE_bottleneck(self.DAEpath, self.objid)
 
     def load_gmm_clusters(self, featgen):
         """ clstr : array of cluster numbers, shape=(len(objid),)"""
-        print('Loading GMM clustering results...')
         self.clstr = \
             lt.load_gmm_from_txt(self.ensbpath+featgen+'/', self.objid,
                                  self.runiter, self.numiter, self.numclstr)
 
+    def load_reconstructions(self, featgen):
+        self.rcon = lt.load_reconstructions(self.ensbpath+featgen+'/', self.objid)
+
+    def load_nvlty(self, featgen):
+        self.nvlty = pt.load_novelty_scores(self.ensbpath+featgen+'/',
+                                            self.objid)
+
     def load_true_otypes(self):
         """ totype : true object types"""
-        print('Loading ground truth object types...')
         self.totype = dt.load_otype_true_from_datadir(self.datapath,
                                                       self.sector,
                                                       self.objid)
@@ -338,7 +351,6 @@ class mergen(object):
 
     def load_pred_otypes(self, featgen):
         """ potype : predicted object types"""
-        print('Loading predicted object types...')
         self.potype = dt.load_otype_pred_from_txt(self.ensbpath+featgen+'/',
                                                   self.sector, self.objid)
 
@@ -358,10 +370,12 @@ class mergen(object):
             
     def load(self, featgen):
         self.load_features(featgen)
+        self.load_reconstructions(featgen)
         
         self.load_true_otypes()
         self.numerize_true_otypes()
 
+        self.load_nvlty(featgen)
         self.load_gmm_clusters(featgen)
 
         self.load_pred_otypes(featgen)

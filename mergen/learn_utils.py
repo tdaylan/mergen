@@ -792,7 +792,7 @@ def optimize_confusion_matrix(ticid_pred, y_pred, database_dir='./',
 def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
                       calc_psd=True, load_psd=True, n_pgram=10000,
                       train_test_ratio=1.0, data_dir='./', output_dir='./',
-                      prefix=''):
+                      prefix='', sector=1):
     '''Preprocesses output from dt.load_data_from_metafiles in preparation for
     training a deep autoencoder.
     Parameters:
@@ -813,11 +813,11 @@ def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
     # -- calculate PSDs --------------------------------------------------------
     if calc_psd:
         # >> get frequency array
-        f, tmp = LombScargle(time, flux[0]).autopower()
-        f = np.linspace(np.min(f), np.max(f), n_pgram)
+        freq, tmp = LombScargle(time, flux[0]).autopower()
+        freq = np.linspace(np.min(freq), np.max(freq), n_pgram)
 
         # >> calculate PSDs
-        fname = output_dir+prefix+'ls_periodograms.fits'
+        fname = data_dir+'Sector'+str(sector)+'/ls_periodograms.fits'
 
         if not load_psd or not os.path.exists(fname):
             print('Calculating PSD..')
@@ -825,7 +825,7 @@ def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
             for i in range(len(flux)):
                 if i % 1000 == 0:
                     print('Periodogram progress: '+str(i)+'/'+str(len(flux)))
-                tmp = LombScargle(time, flux[i]).power(f)
+                tmp = LombScargle(time, flux[i]).power(freq)
                 psd.append(tmp)
             psd = np.array(psd)
 
@@ -833,25 +833,30 @@ def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
             hdr = fits.Header()
             hdu = fits.PrimaryHDU(psd, header=hdr)
             hdu.writeto(fname)
+            fits.append(fname, freq)
             fits.append(fname, ticid)
+
+            features = psd
 
         else:
             print('Retrieving PSDs from '+fname)
             # >> load PSDs from fits files
             with fits.open(fname) as hdul:
                 features = hdul[0].data            
+                freq = hdul[1].data
 
         # >> plot PSD examples
         fig, ax = plt.subplots(4, 2)
         for i in range(4):
             ax[i, 0].plot(time, flux[i], '.k', markersize=2)
-            ax[i, 1].plot(f, features[i])
+            ax[i, 1].plot(freq, features[i])
             ax[i, 0].set_xlabel('Time [BJD - 2457000]')
             ax[i, 0].set_ylabel('Relative flux')
             ax[i, 1].set_xlabel('Frequency (Hz)')
             ax[i, 1].set_ylabel('PSD')
-            ax[i, 1].set_xscale('log')
+            # ax[i, 1].set_xscale('log')
             ax[i, 1].set_yscale('log')
+        fig.tight_layout()
         fig.savefig(output_dir+prefix+'periodogram_examples.png')
 
     print('Partitioning data...')
@@ -860,21 +865,20 @@ def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
         split_data_features(flux, features, time, ticid, target_info,
                             train_test_ratio=train_test_ratio)
 
-    print('Standardizing feature vectors...')
     if calc_psd:
-        x_train = dt.standardize(x_train)
-        x_test = dt.standardize(x_test)
+        print('No normalization performed...')
     else:
+        print('Standardizing feature vectors...')
         x_train = dt.standardize(x_train, ax=0)
         x_test = dt.standardize(x_test, ax=0)
 
 
     if train_test_ratio < 1:
         return x_train, x_test, flux_train, flux_test, \
-            ticid_train, ticid_test, target_info_train, target_info_test, time
+            ticid_train, ticid_test, target_info_train, target_info_test, freq, time
 
     else:
-        return x_train, flux_train, ticid_train, target_info_train, time
+        return x_train, flux_train, ticid_train, target_info_train, freq, time
             
 
 def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
@@ -1171,6 +1175,7 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
     return features, flux, ticid, target_info
 
 def load_bottleneck_from_fits(bottleneck_dir, ticid, runIter=False, numIter=1):
+    print("Loading CAE-learned features...")
 
     if runIter: # !! TODO: deal with cases numIter > 1
         prefix = 'iteration'+str(numIter-1)+'-'
@@ -1197,7 +1202,7 @@ def load_bottleneck_from_fits(bottleneck_dir, ticid, runIter=False, numIter=1):
     return learned_feature_vector
         
 def load_DAE_bottleneck(savepath, ticid):
-
+    print("Loading DAE-learned features...")
     with fits.open(savepath+'bottleneck_train.fits') as hdul:
         bottleneck_train = hdul[0].data
         ticid_train = hdul[1].data
@@ -1220,8 +1225,21 @@ def load_DAE_bottleneck(savepath, ticid):
     
     return bottleneck_train
 
+def load_reconstructions(output_dir, ticid):
+    filo = fits.open(output_dir + 'x_predict_train.fits')
+    rcon = filo[0].data
+    ticid_filo = filo[1].data
+
+    sorted_inds = np.argsort(ticid)
+    new_inds = np.argsort(sorted_inds)
+    _, comm1, comm2 = np.intersect1d(ticid, ticid_filo, return_indices=True)
+    rcon = rcon[comm2][new_inds]
+
+    return rcon
+
 def load_gmm_from_txt(output_dir, ticid, runIter=False, numIter=1,
                       numClusters=100):
+    print('Loading GMM clustering results...')
 
     if runIter: # !! TODO: deal with cases numIter > 1
         prefix = 'iteration'+str(numIter-1)+'-all-'

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Thu Jun  4 21:58:45 2020
 
@@ -123,26 +122,43 @@ from . import data_utils as dt
 import random
 
 
-def produce_clustering_visualizations(feats, numpot, tsne, output_dir, potd,
-                                      totd, prefix='', anim=False, elev=45):
+def produce_clustering_visualizations(feats, numtot, numpot, tsne, output_dir,
+                                      totd, potd, prefix='', anim=False, elev=45,
+                                      crot_analysis=True):
     # prefix = 'perplexity'+str(perplexity)+'_elev'+str(elev)+'_'
 
     # >> color with clustering results
     prefix = 'pred_'
-    pt.plot_tsne(feats, numpot, X=tsne, output_dir=output_dir,
-                 prefix=prefix, animate=anim, elev=elev, otypedict=potd)
+    plot_tsne(feats, numpot, X=tsne, output_dir=output_dir,
+              prefix=prefix, animate=anim, elev=elev, otypedict=potd)
 
     # >> color with classifications from GCVS, SIMBAD, ASAS-SN
     prefix = 'true_'
-    pt.plot_tsne(feats, numtot, X=tsne, output_dir=output_dir,
-                 prefix=prefix, animate=anim, elev=elev, otypedict=totd)
+    plot_tsne(feats, numtot, X=tsne, output_dir=output_dir,
+              prefix=prefix, animate=anim, elev=elev, otypedict=totd)
+
+    # >> specific science case: complex rotators
+    if crot_analysis:
+        crot = []
+
     return
 
 def produce_novelty_visualizations(lof, output_dir, time, flux, objid, bins=20):
+    print("Producing novelty visualizations...")
     plot_histogram(lof, bins=bins, x_label="Local Outlier Factor (LOF)",
                    filename=output_dir+'lof-histogram.png', insetx=time,
                    insety=flux, targets=objid)
     return
+
+def produce_ae_visualizations(x, x_train, x_pred, output_dir, ticid, target_info,
+                              psd=False):
+
+    fig, ax = input_output_plot(x, x_train, x_pred,
+                                output_dir+'input_output.png', ticid_test=ticid,
+                                target_info=target_info, psd=psd)
+
+    plot_reconstruction_error(x, x_train, x_pred, ticid, output_dir=output_dir,
+                              target_info=target_info, psd=psd)
 
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -312,16 +328,33 @@ def generate_novelty_scores(features, object_ids, output_dir, prefix='',
     * n_neighbors, p, metric, contamination, algorithm : arguments of 
       sklearn.neighbors.LocalOutlierFactor()
     """
+    print("Generating novelty scores...")
+
     clf = LocalOutlierFactor(n_neighbors=n_neighbors, p=p, metric=metric,
                              contamination=contamination, algorithm=algorithm)
     fit_predictor = clf.fit_predict(features)
     negative_factor = clf.negative_outlier_factor_
     
     lof = -1 * negative_factor
-    with open(output_dir+'lof-'+prefix+'kneigh' + str(n_neighbors)+'.txt', 'w') as f:
+    with open(output_dir+'lof.txt', 'w') as f:
         f.write('OBJECT_ID LOF\n')
         for i in range(len(object_ids)):
             f.write('{} {}\n'.format(int(object_ids[i]), lof[i]))
+    return lof
+
+def load_novelty_scores(output_dir, ticid):
+    print('Loading novelty scores...')
+    fname = output_dir+'lof.txt'
+    filo = np.loadtxt(fname, skiprows=1)
+    ticid_filo, lof = [filo[:,0], filo[:,1]]
+
+    sorted_inds = np.argsort(ticid)
+    # >> intersect1d returns sorted arrays, so
+    # >> ticid == ticid[sorted_inds][np.argsort(sorted_inds)]
+    new_inds = np.argsort(sorted_inds)
+    _, comm1, comm2 = np.intersect1d(ticid, ticid_filo, return_indices=True)
+    learned_feature_vector = lof[comm2][new_inds]
+
     return lof
 
 def plot_lof(savepath, lof, time, intensity, targets, features, n, n_tot=100,
@@ -1820,6 +1853,12 @@ def input_output_plot(x, x_test, x_predict, out, ticid_test=False,
         else: # >> x-axis is time
             axes[-1, i].set_xlabel('Time [BJD - 2457000]', fontsize='small')
             
+    # >> change y-axis scale
+    if psd:
+        for a in axes.flatten():
+            a.set_yscale('log')
+        pdb.set_trace()
+
     # >> make y-axis labels
     for i in range(ngroups):
         if feature_vector:
@@ -2138,67 +2177,68 @@ def training_test_plot(x, x_train, x_test, y_train_classes, y_test_classes,
     plt.close(fig)
     plt.close(fig1)
 
-def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
-                              output_dir='./', addend=1., mock_data=False,
-                              feature_vector=False, n=20, target_info=False):
-    '''For autoencoder, intensity = x_test'''
-    # >> calculate reconstruction error (mean squared error)
-    err = (x_test - x_predict)**2
-    err = np.mean(err, axis=1)
-    err = err.reshape(np.shape(err)[0])
+# def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
+#                               output_dir='./', addend=1., mock_data=False,
+#                               feature_vector=False, n=20, target_info=False):
+#     '''For autoencoder, intensity = x_test'''
+#     # >> calculate reconstruction error (mean squared error)
+#     err = (x_test - x_predict)**2
+#     err = np.mean(err, axis=1)
+#     err = err.reshape(np.shape(err)[0])
     
-    # >> get top n light curves
-    ranked = np.argsort(err)
-    largest_inds = np.copy(ranked[::-1][:n])
-    smallest_inds = np.copy(ranked[:n])
-    random.Random(4).shuffle(ranked)
-    random_inds = ranked[:n]
+#     # >> get top n light curves
+#     ranked = np.argsort(err)
+#     largest_inds = np.copy(ranked[::-1][:n])
+#     smallest_inds = np.copy(ranked[:n])
+#     random.Random(4).shuffle(ranked)
+#     random_inds = ranked[:n]
     
-    # >> save in txt file
-    if not mock_data:
-        out = np.column_stack([ticid_test.astype('int'), err])
-        np.savetxt(output_dir+'reconstruction_error.txt', out, fmt='%-16s')
+#     # >> save in txt file
+#     if not mock_data:
+#         out = np.column_stack([ticid_test.astype('int'), err])
+#         np.savetxt(output_dir+'reconstruction_error.txt', out, fmt='%-16s')
         
-        # with open(output_dir+'reconstruction_error.txt', 'w') as f:
-        #     for i in range(len(ticid_test)):
-        #         f.write('{}\t\t{}\n'.format(ticid_test[i], err[i]))
+#         # with open(output_dir+'reconstruction_error.txt', 'w') as f:
+#         #     for i in range(len(ticid_test)):
+#         #         f.write('{}\t\t{}\n'.format(ticid_test[i], err[i]))
     
-    for i in range(3):
-        fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
-        for k in range(n): # >> loop through each row
-            if i == 0: ind = largest_inds[k]
-            elif i == 1: ind = smallest_inds[k]
-            else: ind = random_inds[k]
+#     for i in range(3):
+#         fig, ax = plt.subplots(n, 1, sharex=True, figsize = (8, 3*n))
+#         for k in range(n): # >> loop through each row
+#             if i == 0: ind = largest_inds[k]
+#             elif i == 1: ind = smallest_inds[k]
+#             else: ind = random_inds[k]
             
-            # >> plot light curve
-            ax[k].plot(time, intensity[ind]+addend, '.k')
-            if not feature_vector:
-                ax[k].plot(time, x_predict[ind]+addend, '.')
-            ax[k].text(0.98, 0.02, 'mse: ' +str(err[ind]),
-                       transform=ax[k].transAxes, horizontalalignment='right',
-                       verticalalignment='bottom', fontsize='xx-small')
-            format_axes(ax[k], ylabel=True)
-            if not mock_data:
-                ticid_label(ax[k], ticid_test[ind], target_info[ind],
-                            title=True)
+#             # >> plot light curve
+#             ax[k].plot(time, intensity[ind]+addend, '.k')
+#             if not feature_vector:
+#                 ax[k].plot(time, x_predict[ind]+addend, '.')
+#                 ax[k].set_ylabel('Relative PSD')
+#             ax[k].text(0.98, 0.02, 'mse: ' +str(err[ind]),
+#                        transform=ax[k].transAxes, horizontalalignment='right',
+#                        verticalalignment='bottom', fontsize='xx-small')
+#             format_axes(ax[k])
+#             if not mock_data:
+#                 ticid_label(ax[k], ticid_test[ind], target_info[ind],
+#                             title=True)
                 
-        if feature_vector:
-            ax[n-1].set_xlabel('\u03C8')
-        else:
-            ax[n-1].set_xlabel('Time [BJD - 2457000]')
-        if i == 0:
-            fig.suptitle('largest reconstruction error', fontsize=16, y=0.9)
-            fig.savefig(output_dir + 'reconstruction_error-largest.png',
-                        bbox_inches='tight')
-        elif i == 1:
-            fig.suptitle('smallest reconstruction error', fontsize=16, y=0.9)
-            fig.savefig(output_dir + 'reconstruction_error-smallest.png',
-                        bbox_inches='tight')
-        else:
-            fig.suptitle('random reconstruction error', fontsize=16, y=0.9)
-            fig.savefig(output_dir + 'reconstruction_error-random.png',
-                        bbox_inches='tight')            
-        plt.close(fig)
+#         if feature_vector:
+#             ax[n-1].set_xlabel('\u03C8')
+#         else:
+#             ax[n-1].set_xlabel('Time [BJD - 2457000]')
+#         if i == 0:
+#             fig.suptitle('largest reconstruction error', fontsize=16, y=0.9)
+#             fig.savefig(output_dir + 'reconstruction_error-largest.png',
+#                         bbox_inches='tight')
+#         elif i == 1:
+#             fig.suptitle('smallest reconstruction error', fontsize=16, y=0.9)
+#             fig.savefig(output_dir + 'reconstruction_error-smallest.png',
+#                         bbox_inches='tight')
+#         else:
+#             fig.suptitle('random reconstruction error', fontsize=16, y=0.9)
+#             fig.savefig(output_dir + 'reconstruction_error-random.png',
+#                         bbox_inches='tight')            
+#         plt.close(fig)
     
 
                 
@@ -2753,7 +2793,7 @@ def plot_histogram(data, bins=20, x_label='', filename='./', insetx = None, inse
                 inset_height = 0.3 * inset_width/x_range # >> in axes coords
                 # inset_height = 0.125 * y_range * 0.5
 
-                if n > 0: pdb.set_trace()
+                # if n > 0: pdb.set_trace()
                 # >> want inset_x in data coords and inset_y in axes coordinates
                 axis_name = ax1.inset_axes([inset_x, inset_y, inset_width, inset_height],
                                            transform = ax1.get_xaxis_transform())
@@ -2887,7 +2927,7 @@ def format_axes(ax, xlabel=False, ylabel=False):
     else:
         ax.tick_params('x', labelsize='small')
     ax.tick_params('y', labelsize='small')
-    ax.ticklabel_format(useOffset=False)
+    # ax.ticklabel_format(useOffset=False)
     if xlabel:
         ax.set_xlabel('Time [BJD - 2457000]')
     if ylabel:
@@ -3942,6 +3982,7 @@ def diagnostic_plots(history, model, p, output_dir,
         print('Plotting kernel vs. filter')
         kernel_filter_plot(model, output_dir+prefix+'kernel-')    
 
+
 def classification_plots(features, time, flux_feat, ticid_feat, info_feat, labels,
                          x_predict, output_dir='./', prefix='', 
                          data_dir='./', do_diagnostic_plots=True, do_summary=True,
@@ -4946,10 +4987,10 @@ def reconstruction_error_power(time, intensity, x_test, x_predict, ticid_test,
                 bbox_inches='tight')  
 
 
-def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
+def plot_reconstruction_error(x, x_test, x_predict, ticid_test,
                               output_dir='./', err=None, mock_data=False,
                               feature_vector=False, n=20, target_info=False,
-                              prefix=''):
+                              prefix='', psd=False):
     if type(err) == type(None):
         print('Calculating reconstruction error ...')
         err = (x_test - x_predict)**2
@@ -4982,22 +5023,28 @@ def plot_reconstruction_error(time, intensity, x_test, x_predict, ticid_test,
             else: ind = random_inds[k]
             
             # >> plot light curve
-            ax[k].plot(time, intensity[ind], '.k')
-            if not feature_vector:
-                ax[k].plot(time, x_predict[ind], '.')
-            text='mae: '+str(np.mean(np.abs(intensity[ind]-x_predict[ind])))+\
+            # ax[k].plot(time, intensity[ind], '.k')
+            ax[k].plot(x, x_predict[ind], '.')
+            text='mae: '+str(np.mean(np.abs(x_test[ind]-x_test[ind])))+\
                 '\nmse: '+str(err[ind])+\
-                '\nmce: '+str(np.mean(np.abs((intensity[ind]-x_predict[ind])**3)))
+                '\nmce: '+str(np.mean(np.abs((x_test[ind]-x_predict[ind])**3)))
             ax[k].text(0.98, 0.02, 'mse: ' +str(err[ind]),
                        transform=ax[k].transAxes, horizontalalignment='right',
                        verticalalignment='bottom', fontsize='xx-small')
-            format_axes(ax[k], ylabel=True)
+            if psd:
+                ax[k].set_yscale('log')
+                ax[k].set_ylabel('Relative PSD')
+            else:
+                ax[k].set_ylabel('Relative flux')
+            format_axes(ax[k])
             if not mock_data:
                 ticid_label(ax[k], ticid_test[ind], target_info[ind],
                             title=True)
                 
         if feature_vector:
             ax[n-1].set_xlabel('\u03C8')
+        elif psd:
+            axes[n-1].set_xlabel('Frequency [Hz]')
         else:
             ax[n-1].set_xlabel('Time [BJD - 2457000]')
         if i == 0:
