@@ -173,7 +173,11 @@ class mergen(object):
     def download_lightcurves(self):
         """Downloads and process light SPOC light curves, if not already
         downloaded."""
-        dt.bulk_download_helper(self.datapath, sector=self.sector)
+        dt.bulk_download_lc(self.datapath, sector=self.sector)
+
+    def clean_data(self):
+        """Sigma clips to 10 sigma and linearly interpolates data gaps shorter
+        than 20 minutes to produce a homogenous input matrix."""
         dt.data_access_sector_by_bulk(self.datapath, sector=self.sector)
 
     def preprocess_data(self, featgen):

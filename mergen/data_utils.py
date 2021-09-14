@@ -350,7 +350,15 @@ def data_access_sector_by_bulk(yourpath, sector, custom_mask=[],
                                       custom_mask=custom_mask,
                                       apply_nan_mask=apply_nan_mask)
             
-def bulk_download_helper(yourpath, shell_script='', sector=1):
+def get_target_lists(data_dir, sectors=[]):
+    create_dir(data_dir):
+
+    for sector in sectors:
+        out = yourpath + 'targ_lists/all_targets_S%3d'%sector+'_v1.txt'
+        load = 'https://tess.mit.edu/wp-content/uploads/all_targets_S%3d'%sector+'_v1.txt'
+        os.system('curl -L -o '+ out + ' ' + load)
+
+def bulk_download_lc(yourpath, shell_script='', sector=1):
     '''Downloads all the light curves for a sector. Can also be used to go back
     and check you have all the light curves from a sector.
     Parameters:
