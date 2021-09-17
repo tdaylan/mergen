@@ -535,6 +535,150 @@ def standardize(x, ax=1):
     x = x / stdevs
     return x
 
+def sigma_clip(lcfile, n_chunks=20, n_sigma=7):
+    """
+    Reads and sigma clips PDCSAP_FLUX light curves.
+    * lcfile : light curve file
+    """
+    # >> open light curve file
+    lchdu = fits.open(lcfile)
+
+    # >> get light curve
+    #    * PDCSAP_FLUX : Systematics corrected photometry using cotrending
+    #      basis vectors.
+    #    * TIME : stored in BJD-2457000
+    flux = lchdu[1].data['PDCSAP_FLUX']
+    time = lchdu[1].data['TIME']
+
+    # >> split light curve into equal chunks
+    flux_split = np.split(flux[:(len(flux)//n_chunks)*n_chunks], n_chunks)
+    flux_split[-1] = flux[(len(flux)//n_chunks)*(n_chunks-1):]
+    time_split = np.split(time[:(len(time)//n_chunks)*n_chunks], n_chunks)
+    time_split[-1] = time[(len(time)//n_chunks)*(n_chunks-1):]
+
+    # >> sigma clip
+    numbtimecutt = np.ones(n_chunks)
+    for n in range(n_chunks):
+        print('Detrending data from chunck %s...' % n)
+
+        r = 0
+        while numbtimecutt[n] > 0:
+
+            # >> sigma-clip light curve
+            clipped, lower, upper = scipy.stats.sigmaclip(flux_split[n],
+                                                          low=n_sigma, high=n_sigma)
+            indx = np.where((flux_split[n] < upper) & \
+                            (flux_split[n] > lower))[0]
+            if indx.size == 0:
+                raise Exception('')
+
+            flux_split[n] = flux_split[n][indx]
+            numbtimecutt[n] = gdat.listarrytser['temp'][0][p][y][:, 1].size - indx.size
+
+            gdat.numbiterbdtr[p][y] += 1
+
+            if gdat.numbiterbdtr[p][y] == gdat.maxmnumbiterbdtr:
+                break
+
+            # >> merge chunks
+            gdat.arrytser[strgarryclipintebdtr][0][p] = np.concatenate(gdat.listarrytser[strgarryclipintebdtr][0][p][y], 0)
+            gdat.arrytser[strgarryclipinteclipfinl][0][p] = np.concatenate(gdat.listarrytser[strgarryclipinteclipfinl][0][p][y], 0)
+
+            # >> plot the sigma-clipped time-series data
+            if gdat.boolplottser and numbtimecutt[p][y] > 0:
+                plot_tser(gdat, 0, p, y, strgarryclipinteclipfinl)
+
+        gdat.listarrytser['bdtr'][0][p][y] = gdat.listarrytser[strgarryclipintebdtr][0][p][y]
+    gdat.arrytser['bdtr'][0][p] = gdat.arrytser[strgarryclipintebdtr][0][p
+
+def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
+                      calc_psd=True, load_psd=True, n_pgram=10000,
+                      train_test_ratio=1.0, data_dir='./', output_dir='./',
+                      prefix='', sector=1):
+    '''Preprocesses TESS light curves in preparation for training a deep
+    fully-connected autoencoder. Preprocessing steps include:
+        1) Read light curve data.
+        2) Sigma clip.
+        3) Compute the LS periodogram.
+    Parameters:
+        * flux : array of light curves, shape=(num light curves, num points)
+        * time : time array, shape=(num points,)
+        * p : parameter dictionary
+        * ticid : list of TICIDs, shape=(num light curves)
+        * target_info : meta data (sector, cam, ccd, data_type, cadence) for each light
+                        curve, shape=(num light curves, 5)
+        * features : feature vectors to train DAE on, optional
+                     shape=(num light curves, num features)
+        * calc_psd : calculates LS periodograms to train DAE on
+        * load_psd : loads previously calculated LS periodograms from fits
+        * n_pgram : resolution of LS periodogram frequency grid
+        * train_test_ratio : partition ratio. If 1, then no partitioning.
+    '''
+
+    # -- calculate PSDs --------------------------------------------------------
+    if calc_psd:
+        # >> get frequency array
+        freq, tmp = LombScargle(time, flux[0]).autopower()
+        freq = np.linspace(np.min(freq), np.max(freq), n_pgram)
+        print(np.min(freq))
+        print(np.max(freq))
+
+        # >> calculate PSDs
+        fname = data_dir+'Sector'+str(sector)+'/ls_periodograms.fits'
+
+        if not load_psd or not os.path.exists(fname):
+            print('Calculating PSD..')
+            psd = []
+            for i in range(len(flux)):
+                if i % 1000 == 0:
+                    print('Periodogram progress: '+str(i)+'/'+str(len(flux)))
+                tmp = LombScargle(time, flux[i]).power(freq)
+                psd.append(tmp)
+            psd = np.array(psd)
+
+            # >> save the PSDs and TICIDs to a fits file
+            hdr = fits.Header()
+            hdu = fits.PrimaryHDU(psd, header=hdr)
+            hdu.writeto(fname)
+            fits.append(fname, freq)
+            fits.append(fname, ticid)
+
+            features = psd
+
+        else:
+            print('Retrieving PSDs from '+fname)
+            # >> load PSDs from fits files
+            with fits.open(fname) as hdul:
+                features = hdul[0].data            
+                freq = hdul[1].data
+
+        # >> plot PSD examples
+        fig, ax = plt.subplots(4, 2)
+        for i in range(4):
+            ax[i, 0].plot(time, flux[i], '.k', markersize=2)
+            ax[i, 1].plot(freq, features[i])
+            ax[i, 0].set_xlabel('Time [BJD - 2457000]')
+            ax[i, 0].set_ylabel('Relative flux')
+            ax[i, 1].set_xlabel('Frequency (Hz)')
+            ax[i, 1].set_ylabel('PSD')
+            # ax[i, 1].set_xscale('log')
+            ax[i, 1].set_yscale('log')
+        fig.tight_layout()
+        fig.savefig(output_dir+prefix+'periodogram_examples.png')
+
+    print('Partitioning data...')
+    x_train, x_test, y_train, y_test, flux_train, flux_test,\
+    ticid_train, ticid_test, target_info_train, target_info_test, time =\
+        split_data_features(flux, features, time, ticid, target_info,
+                            train_test_ratio=train_test_ratio)
+
+    if calc_psd:
+        print('No normalization performed...')
+    else:
+        print('Standardizing feature vectors...')
+        x_train = dt.standardize(x_train, ax=0)
+        x_test = dt.standardize(x_test, ax=0)
+
 def interpolate_all(flux, time, ticid, flux_err=False, interp_tol=20./(24*60),
                     num_sigma=10, k=3, DEBUG_INTERP=False, output_dir='./',
                     apply_nan_mask=False, DEBUG_MASK=False, custom_mask=[]):
