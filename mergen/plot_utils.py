@@ -2825,20 +2825,21 @@ def plot_histogram(data, bins=40, x_label='', filename='./', insetx = None, inse
                     continue
 
             axis_name.plot(lc_time_to_plot, lc_to_plot, '.k', ms=0.1,
-                           rasterized=True)
+                           rasterized=True, fillstyle='full')
             try:
                 axis_name.text(0.5, 0.8, "TIC " + str(int(lc_ticid)),
-                               fontsize=inset_fontsize)
-                               # transform=axis_name.transAxes)
+                               fontsize=inset_fontsize, ha='center',
+                               transform=axis_name.transAxes)
             except ValueError:
                 axis_name.set_title(lc_ticid, fontsize=inset_fontsize)
 
-            # if n > 10: pdb.set_trace()
+            # if n == 0: pdb.set_trace()
 
             axis_name.set_xticklabels([])
             axis_name.tick_params('x', bottom=False)
 
             axis_name.set_ylabel('F', fontsize=inset_fontsize)               
+            axis_name.tick_params('y', labelsize=inset_fontsize)
             # axis_name.set_yticklabels(axis_name.get_yticklabels(), c='k',
             #                           fontsize=inset_fontsize)
 
