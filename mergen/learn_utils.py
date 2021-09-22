@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 """
 Created on Thu Feb 25 18:50:41 2021
@@ -103,7 +104,7 @@ from sklearn.mixture import GaussianMixture
 from sklearn.metrics import confusion_matrix
 from scipy.optimize import linear_sum_assignment
 
-import talos
+#import talos
 
 def run_kmeans(features, n_clusters = 2):
     from sklearn.cluster import KMeans

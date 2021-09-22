@@ -2931,7 +2931,7 @@ def classification_label(ax, ticid, classification_info, fontsize='xx-small'):
             transform=ax.transAxes, fontsize=fontsize,
             horizontalalignment='right', verticalalignment='top')
     
-def format_axes(ax, xlabel=False, ylabel=False):
+def format_axes(ax, xlabel=True, ylabel=True):
     '''Helper function to plot TESS light curves. Aspect ratio is 3/8.
     Parameters:
         * ax : matplotlib axis'''
@@ -2952,21 +2952,46 @@ def format_axes(ax, xlabel=False, ylabel=False):
         ax.set_ylabel('Relative flux')           
           
     
-def plot_lc(time, intensity, target, sector):
-    """plots a formatted light curve"""
-    rcParams['figure.figsize'] = 8,3
-    plt.scatter(time, intensity, c = 'black', s=0.5)
-    plt.xlabel("BJD [-2457000]")
-    plt.ylabel("relative flux")
-    plt.title("TIC " + str(int(target)))
+# def plot_lc(lcfile, momdumpcsv, flux_col='PDCSAP_FLUX'):
+#     '''Plots formatted light curve'''
+#     lchdu = fits.open(lcfile)
+#     flux = lchdu[1].data[flux_col]
+#     time = lchdu[1].data['TIME']
+
+#     fix, ax = plt.subplots(figsize=(8,3))
+#     ax.plot(time, flux, '.k', ms=0.5)
+#     ticid_label(ax, lchdu[0].header['TICID'], target_info[ind], title=True)
+#     format_axes(ax, ylabel=True)
+#     plt.xlabel("BJD [-2457000]")
+#     plt.ylabel("relative flux")
+#     plt.title("TIC " + str(int(target)))
     
-    data = pd.read_csv("/Users/conta/UROP_Spring_2020/Table_of_momentum_dumps.csv", header=5, skiprows=6)
-    momdump = data.to_numpy()
-    bjdcolumn = momdump[:,1]
-    if sector == 20:
-        dumppoints = bjdcolumn[1290:]
-        for n in range(len(dumppoints)):
-            plt.axvline(dumppoints[n], linewidth=0.5)
+#     data = pd.read_csv(momdumpcsv, header=5, skiprows=6)
+#     momdump = data.to_numpy()
+#     bjdcolumn = momdump[:,1]
+#     if sector == 20:
+#         dumppoints = bjdcolumn[1290:]
+#         for n in range(len(dumppoints)):
+#             plt.axvline(dumppoints[n], linewidth=0.5)
+
+# def plot_lc(time, intensity, target, sector, momdumpcsv):
+#     '''Plots formatted light curve'''
+#     fix, ax = plt.subplots(figsize=(8,3))
+#     ax.plot(time, intensity, '.k', s=0.5)
+#     ticid_label(ax, ticid[ind], target_info[ind], title=True)
+#     format_axes(ax, ylabel=True)
+#     plt.xlabel("BJD [-2457000]")
+#     plt.ylabel("relative flux")
+#     plt.title("TIC " + str(int(target)))
+    
+#     data = pd.read_csv(momdumpcsv, header=5, skiprows=6)
+#     momdump = data.to_numpy()
+#     bjdcolumn = momdump[:,1]
+#     if sector == 20:
+#         dumppoints = bjdcolumn[1290:]
+#         for n in range(len(dumppoints)):
+#             plt.axvline(dumppoints[n], linewidth=0.5)
+
        
 def sector_nan_mask_diag(custom_masks=[[]]*26,
                          output_dir='/nfs/blender/data/tdaylan/'):
@@ -5333,30 +5358,15 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./', prefix=''):
     import pandas as pd
     pca = PCA(n_components=n_components)
     principalComponents = pca.fit_transform(bottleneck)
-    # principalDf = pd.DataFrame(data = principalComponents,
-    #                            columns=['principal component 1',
-    #                                     'principal component 2'])
     fig, ax = plt.subplots()
     ax.set_ylabel('Principal Component 1')
     ax.set_xlabel('Principal Component 2')
     ax.set_title('2 component PCA')
-    # colors=['red', 'blue', 'green', 'purple', 'yellow', 'cyan', 'magenta',
-    #     'skyblue', 'sienna', 'palegreen']*10
     colors = get_colors() 
     # >> loop through classes
     class_labels = np.unique(classes)
     for i in range(len(class_labels)):
         inds = np.nonzero(classes == class_labels[i])
-        # if class_labels[i] == 0:
-        #     color='r'
-        # elif class_labels[i] == 1:
-        #     color = 'b'
-        # elif class_labels[i] == 2:
-        #     color='g'
-        # elif class_labels[i] == 3:
-        #     color='m'
-        # else:
-        #     color='k'
         if class_labels[i] == -1:
             color = 'black'
         elif class_labels[i] < len(colors)-1:
@@ -5373,11 +5383,7 @@ def plot_pca(bottleneck, classes, n_components=2, output_dir='./', prefix=''):
 
 def ticid_label(ax, ticid, target_info, title=False, color='black',
                 fontsize='xx-small'):
-    '''Query catalog data and add text to axis.
-    Parameters:
-        * target_info : [sector, camera, ccd, data_type, cadence]
-    TODO: use Simbad classifications and other cross-checking database
-    classifications'''
+    '''Query catalog data and add text to axis.'''
     try:
         # >> query catalog data
         target, Teff, rad, mass, GAIAmag, d, objType, Tmag = \
@@ -6340,13 +6346,15 @@ def paper_schematic(x_test, x_predict, output_dir='./'):
     ax.set_yticklabels([])
     ax.plot(x_predict[ind], '.k', markersize=1)    
 
-def plot_lc(time, flux, target_info, ticid, ind, output_dir='./',
-            momentum_dump_csv = '../../Table_of_momentum_dumps.csv',
-            plot_mom_dump=False):
+def plot_lc(time, flux, lcfile, output_dir='./', f_mdump=None, plot_mdump=False,
+            prefix=''):
+
+    # >> get metadata
+    lchdu = fits.open(lcfile)
+    ticid = lchdu[0].header['TICID']
+
     # -- momentum dumps ------------------------------------------------------
-    # >> get momentum dump times
-    print('Loading momentum dump times')
-    with open(momentum_dump_csv, 'r') as f:
+    with open(f_mdump, 'r') as f:
         lines = f.readlines()
         mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
         inds = np.nonzero((mom_dumps >= np.min(time)) * \
@@ -6355,19 +6363,17 @@ def plot_lc(time, flux, target_info, ticid, ind, output_dir='./',
     
     # -- plot -----------------------------------------------------------------
     fig, ax = plt.subplots(figsize=(8,3))
-    if plot_mom_dump:
+    if plot_mdump:
         for t in mom_dumps:
             ax.axvline(t, color='g', linestyle='--')
         
-    ax.plot(time, flux[ind][0], '.k', ms=2)
-    format_axes(ax, xlabel=True)
-    ticid_label(ax, ticid[ind], target_info[ind][0], title=True)      
-    ax.set_ylabel('Flux')
+    ax.plot(time, flux, '.k', ms=0.5)
+    format_axes(ax)
+    # ticid_label(ax, ticid[ind], target_info[ind][0], title=True)      
     
     fig.tight_layout()
-    fig.savefig(output_dir + 'TICID' + str(int(ticid[ind])) + '.png')
-    
-    return fig, ax
+    fig.savefig(output_dir + prefix + 'TIC' + str(ticid) + '.png', dpi=300)
+    plt.close(fig)
     
 def presentation_act(activations, filter_nums=[3,9,15]):
     fig, ax = plt.subplots(3, figsize=(4,8))

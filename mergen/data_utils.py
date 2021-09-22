@@ -93,6 +93,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)
 
 from scipy.stats import moment
+from scipy.stats import sigmaclip
+from scipy.signal import detrend
 from scipy import stats
 from pylab import rcParams
 rcParams['figure.figsize'] = 10, 10
@@ -351,7 +353,7 @@ def data_access_sector_by_bulk(yourpath, sector, custom_mask=[],
                                       apply_nan_mask=apply_nan_mask)
             
 def get_target_lists(data_dir, sectors=[]):
-    create_dir(data_dir):
+    create_dir(data_dir)
 
     for sector in sectors:
         out = yourpath + 'targ_lists/all_targets_S%3d'%sector+'_v1.txt'
@@ -535,11 +537,66 @@ def standardize(x, ax=1):
     x = x / stdevs
     return x
 
-def sigma_clip(lcfile, n_chunks=20, n_sigma=7):
-    """
-    Reads and sigma clips PDCSAP_FLUX light curves.
+# -- quality and sigma-clip mask -----------------------------------------------
+
+def clean_sector(datapath, sector, mdumpcsv, plot=True, savepath=None):
+    sectpath = datapath + 'raws/sector-%02d'%sector+'/'
+    maskpath = datapath + 'mask/sector-%02d'%sector+'/'
+    create_dir(maskpath)
+    lcfile_list = os.listdir(sectpath)
+    for i in range(len(lcfile_list)):
+        if i % 200 == 0:
+            print('Processing light curve '+str(i)+'/'+\
+                  str(len(lcfile_list)))
+        clean_lc(sectpath+lcfile_list[i], maskpath, mdumpcsv, plot=plot,
+                 savepath=savepath)
+
+    if plot:
+        clean_sector_diag(maskpath, savepath, sector, mdumpcsv)
+
+    return maskpath
+
+def load_lc(lcdir, objid):
+    lchdu = fits.open(lcdir+str(int(objid))+'.fits')
+    time = lchdu[1].data['TIME']
+    flux = lchdu[1].data['FLUX']
+    meta = lchdu[0].header
+    return time, flux, meta
+
+def clean_sector_diag(maskpath, savepath, sector, mdumpcsv, bins=40):
+    '''Produces text file with TICIDs ranked by the number of data points masked
+    during sigma clipping, and a histogram of those numbers.'''
+
+    ticid = np.empty(0)
+    num_clip = np.empty(0)
+    for lcfile in os.listdir(maskpath):
+        lchdu = fits.open(maskpath+lcfile)
+        ticid = np.append(ticid, lchdu[0].header['TICID'])
+        num_clip = np.append(num_clip, lchdu[1].header['NUM_CLIP'])
+
+    fig, ax = plt.subplots(figsize=(5,5))
+    ax.hist(num_clip, bins=bins)
+    ax.set_xlabel('Number of data points sigma-clipped')
+    ax.set_ylabel('Number of targets')
+    ax.set_title('Sector '+str(sector)+' Sigma Clipping')
+    fname = savepath+'Sector'+str(sector)+'_sigmaclip_hist.png'
+    fig.tight_layout()
+    fig.savefig(fname)
+    print('Saved '+fname)
+
+    sort_indx = np.argsort(num_clip)
+    df = pd.DataFrame({'TICID': ticid[sort_indx],
+                       'NUM_CLIP': num_clip[sort_indx]})
+    fname = savepath+'Sector'+str(sector)+'_sigmaclip.txt'
+    df.to_csv(fname, index=False, sep='\t')
+    print('Saved '+fname)
+
+def clean_lc(lcfile, output_dir, f_mdump, plot=False, n_sigma=5, savepath=None):
+    '''
+    Reads, masks flagged data points, and sigma clips PDCSAP_FLUX light curves.
     * lcfile : light curve file
-    """
+    '''
+
     # >> open light curve file
     lchdu = fits.open(lcfile)
 
@@ -549,47 +606,87 @@ def sigma_clip(lcfile, n_chunks=20, n_sigma=7):
     #    * TIME : stored in BJD-2457000
     flux = lchdu[1].data['PDCSAP_FLUX']
     time = lchdu[1].data['TIME']
-
-    # >> split light curve into equal chunks
-    flux_split = np.split(flux[:(len(flux)//n_chunks)*n_chunks], n_chunks)
-    flux_split[-1] = flux[(len(flux)//n_chunks)*(n_chunks-1):]
-    time_split = np.split(time[:(len(time)//n_chunks)*n_chunks], n_chunks)
-    time_split[-1] = time[(len(time)//n_chunks)*(n_chunks-1):]
+    qual = lchdu[1].data['QUALITY']
+    ticid = lchdu[0].header['TICID']
+    
+    # >> mask out data points with nonzero quality flags
+    flux = mask_flagged(flux, qual)
 
     # >> sigma clip
-    numbtimecutt = np.ones(n_chunks)
-    for n in range(n_chunks):
-        print('Detrending data from chunck %s...' % n)
+    flux_clip = sigma_clip(time, flux, lcfile, f_mdump=f_mdump, plot=plot,
+                           n_sigma=n_sigma, savepath=savepath)
+    num_clip = np.count_nonzero(np.isnan(flux_clip)) - \
+               np.count_nonzero(np.isnan(flux))
 
-        r = 0
-        while numbtimecutt[n] > 0:
+    # >> save masked light curve
+    fname = output_dir+str(ticid)+'.fits'
 
-            # >> sigma-clip light curve
-            clipped, lower, upper = scipy.stats.sigmaclip(flux_split[n],
-                                                          low=n_sigma, high=n_sigma)
-            indx = np.where((flux_split[n] < upper) & \
-                            (flux_split[n] > lower))[0]
-            if indx.size == 0:
-                raise Exception('')
+    primary_hdr = fits.Header(lchdu[0].header)
+    primary_hdu = fits.PrimaryHDU(None, header=primary_hdr) # >> metadata
 
-            flux_split[n] = flux_split[n][indx]
-            numbtimecutt[n] = gdat.listarrytser['temp'][0][p][y][:, 1].size - indx.size
+    table_hdr = fits.Header([('NUM_CLIP', num_clip)])
+    col1 = fits.Column(name='TIME', array=time, format='10E')
+    col2 = fits.Column(name='FLUX', array=flux_clip, format='10E')
+    table_hdu = fits.BinTableHDU.from_columns([col1, col2], header=table_hdr)
 
-            gdat.numbiterbdtr[p][y] += 1
+    hdul = fits.HDUList([primary_hdu, table_hdu])
+    hdul.writeto(fname, overwrite=True)
 
-            if gdat.numbiterbdtr[p][y] == gdat.maxmnumbiterbdtr:
-                break
+    lchdu.close()
 
-            # >> merge chunks
-            gdat.arrytser[strgarryclipintebdtr][0][p] = np.concatenate(gdat.listarrytser[strgarryclipintebdtr][0][p][y], 0)
-            gdat.arrytser[strgarryclipinteclipfinl][0][p] = np.concatenate(gdat.listarrytser[strgarryclipinteclipfinl][0][p][y], 0)
+def mask_flagged(flux, qual):
+    flagged_inds = np.nonzero(qual)
+    flux[flagged_inds] = np.nan
+    return flux
 
-            # >> plot the sigma-clipped time-series data
-            if gdat.boolplottser and numbtimecutt[p][y] > 0:
-                plot_tser(gdat, 0, p, y, strgarryclipinteclipfinl)
+def sigma_clip(time, flux, lcfile, n_sigma=5, plot=False, f_mdump=None,
+               savepath=None):
 
-        gdat.listarrytser['bdtr'][0][p][y] = gdat.listarrytser[strgarryclipintebdtr][0][p][y]
-    gdat.arrytser['bdtr'][0][p] = gdat.arrytser[strgarryclipintebdtr][0][p
+    # >> initialize variables 
+    n_clip = 1 # >> number of data points clipped in an iteration
+    n_iter = 0 # >> number of iterations
+    flux_clip = np.copy(flux) # >> initialize sigma-clipped flux
+
+    pt.plot_lc(time, flux, lcfile, prefix='sigmaclip_niter0_', f_mdump=f_mdump)
+
+    while n_clip > 0:
+
+        n_iter += 1
+
+        # >> temporarily remove NaNs
+        num_indx = np.nonzero(~np.isnan(flux_clip))
+        flux_num = flux_clip[num_indx]
+
+        # >> trial detrending
+        flux_dtrn = detrend(flux_num)
+
+        # >> sigma-clip light curve
+        clipped, lower, upper = sigmaclip(flux_dtrn, low=n_sigma,
+                                          high=n_sigma)
+        
+        # >> data points that are beyond threshold
+        clip_indx = np.where((flux_dtrn > upper) & (flux_dtrn < lower))[0]
+
+        # >> apply sigma-clip mask
+        flux_clip = np.copy(flux)
+        flux_clip[num_indx][clip_indx] = np.nan
+
+        # >> plot the sigma-clipped time-series data
+        if plot:
+            prefix='sigmaclip_niter'+str(n_iter)+'_dtrn_'
+            pt.plot_lc(time[num_indx], flux_dtrn, lcfile, prefix=prefix,
+                       f_mdump=f_mdump, output_dir=savepath)
+
+            prefix='sigmaclip_niter'+str(n_iter)+'_'
+            pt.plot_lc(time, flux_clip, lcfile, prefix=prefix, f_mdump=f_mdump,
+                       output_dir=savepath)
+
+        # >> break loop if no data points are clipped
+        n_clip = clip_indx.size
+
+    return flux_clip
+
+# -- method-specific preprocessing ---------------------------------------------
 
 def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
                       calc_psd=True, load_psd=True, n_pgram=10000,

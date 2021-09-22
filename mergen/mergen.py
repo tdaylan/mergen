@@ -83,11 +83,7 @@ class mergen(object):
         self.savepath = savepath
         self.datatype = datatype # >> SPOC or FFI
         self.ensbpath = self.savepath+'Ensemble-Sector_'+str(self.sector)+'/'
-
-        if mdumpcsv is not None:
-            self.mdumpcsv = mdumpcsv
-        else:
-            self.mdumpcsv = datapath + 'Table_of_momentum_dumps.csv'
+        self.mdumpcsv = mdumpcsv
 
         if filelabel is not None:
             self.filelabel = filelabel
@@ -176,9 +172,11 @@ class mergen(object):
         dt.bulk_download_lc(self.datapath, sector=self.sector)
 
     def clean_data(self):
-        """Sigma clips to 10 sigma and linearly interpolates data gaps shorter
-        than 20 minutes to produce a homogenous input matrix."""
-        dt.data_access_sector_by_bulk(self.datapath, sector=self.sector)
+        """Masks out data points with nonzero QUALITY flags and sigma-clips
+        with a threshold of 7 sigma from the median of the detrended light
+        curve."""
+        self.maskpath = dt.clean_sector(self.datapath, self.sector,
+                                        self.mdumpcsv, savepath=self.savepath)
 
     def preprocess_data(self, featgen):
         if featgen == "ENF":
