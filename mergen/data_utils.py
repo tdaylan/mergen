@@ -123,6 +123,7 @@ from astropy.io import fits
 import scipy.signal as signal
 from astropy.stats import SigmaClip
 from astropy.utils import exceptions
+from astropy.timeseries import LombScargle
 
 from sklearn.metrics import confusion_matrix
 from sklearn.neighbors import LocalOutlierFactor
@@ -151,6 +152,8 @@ from transitleastsquares import transitleastsquares
 
 # import model as ml
 from . import learn_utils as lt
+
+# import ephesus.ephesus.util as ephesus
 
 
 def create_dir(path):
@@ -539,17 +542,25 @@ def standardize(x, ax=1):
 
 # -- quality and sigma-clip mask -----------------------------------------------
 
-def clean_sector(datapath, sector, mdumpcsv, plot=True, savepath=None):
+def clean_sector(datapath, sector, mdumpcsv, plot=True, savepath=None,
+                 plot_int=200):
     sectpath = datapath + 'raws/sector-%02d'%sector+'/'
     maskpath = datapath + 'mask/sector-%02d'%sector+'/'
     create_dir(maskpath)
     lcfile_list = os.listdir(sectpath)
+
+    savepath = savepath + 'mask/'
+    create_dir(savepath)
+
     for i in range(len(lcfile_list)):
-        if i % 200 == 0:
+        if i % plot_int == 0:
             print('Processing light curve '+str(i)+'/'+\
                   str(len(lcfile_list)))
-        clean_lc(sectpath+lcfile_list[i], maskpath, mdumpcsv, plot=plot,
-                 savepath=savepath)
+            if plot: plot_sigma_clip = True
+        else:
+            plot_sigma_clip = False
+        clean_lc(sectpath+lcfile_list[i], maskpath, mdumpcsv,
+                 plot=plot_sigma_clip, savepath=savepath)
 
     if plot:
         clean_sector_diag(maskpath, savepath, sector, mdumpcsv)
@@ -584,7 +595,7 @@ def clean_sector_diag(maskpath, savepath, sector, mdumpcsv, bins=40):
     fig.savefig(fname)
     print('Saved '+fname)
 
-    sort_indx = np.argsort(num_clip)
+    sort_indx = np.argsort(num_clip)[::-1]
     df = pd.DataFrame({'TICID': ticid[sort_indx],
                        'NUM_CLIP': num_clip[sort_indx]})
     fname = savepath+'Sector'+str(sector)+'_sigmaclip.txt'
@@ -625,12 +636,14 @@ def clean_lc(lcfile, output_dir, f_mdump, plot=False, n_sigma=5, savepath=None):
     primary_hdu = fits.PrimaryHDU(None, header=primary_hdr) # >> metadata
 
     table_hdr = fits.Header([('NUM_CLIP', num_clip)])
-    col1 = fits.Column(name='TIME', array=time, format='10E')
-    col2 = fits.Column(name='FLUX', array=flux_clip, format='10E')
+    col1 = fits.Column(name='TIME', array=time, format=np.dtype('float'))
+    col2 = fits.Column(name='FLUX', array=flux_clip, format=np.dtype('float'))
     table_hdu = fits.BinTableHDU.from_columns([col1, col2], header=table_hdr)
+
 
     hdul = fits.HDUList([primary_hdu, table_hdu])
     hdul.writeto(fname, overwrite=True)
+    print('Wrote '+fname)
 
     lchdu.close()
 
@@ -640,14 +653,16 @@ def mask_flagged(flux, qual):
     return flux
 
 def sigma_clip(time, flux, lcfile, n_sigma=5, plot=False, f_mdump=None,
-               savepath=None):
+               savepath=None, max_iter=5):
 
     # >> initialize variables 
     n_clip = 1 # >> number of data points clipped in an iteration
     n_iter = 0 # >> number of iterations
     flux_clip = np.copy(flux) # >> initialize sigma-clipped flux
 
-    pt.plot_lc(time, flux, lcfile, prefix='sigmaclip_niter0_', f_mdump=f_mdump)
+    if plot:
+        pt.plot_lc(time, flux, lcfile, prefix='sigmaclip_', suffix='_niter0',
+                   f_mdump=f_mdump, output_dir=savepath)
 
     while n_clip > 0:
 
@@ -658,35 +673,106 @@ def sigma_clip(time, flux, lcfile, n_sigma=5, plot=False, f_mdump=None,
         flux_num = flux_clip[num_indx]
 
         # >> trial detrending
-        flux_dtrn = detrend(flux_num)
+        # flux_dtrn = detrend(flux_num)
+        flux_dtrn, _, _, _, _ = ephesus.bdtr_tser(time[num_indx], flux_num)
+        flux_dtrn = np.concatenate(flux_dtrn)
 
         # >> sigma-clip light curve
         clipped, lower, upper = sigmaclip(flux_dtrn, low=n_sigma,
                                           high=n_sigma)
         
         # >> data points that are beyond threshold
-        clip_indx = np.where((flux_dtrn > upper) & (flux_dtrn < lower))[0]
+        clip_indx = np.nonzero((flux_dtrn > upper) + (flux_dtrn < lower))[0]
 
         # >> apply sigma-clip mask
-        flux_clip = np.copy(flux)
-        flux_clip[num_indx][clip_indx] = np.nan
+        flux_clip[num_indx[0][clip_indx]] = np.nan
 
         # >> plot the sigma-clipped time-series data
         if plot:
-            prefix='sigmaclip_niter'+str(n_iter)+'_dtrn_'
+            prefix='sigmaclip_'
+            suffix='_niter'+str(n_iter)+'_dtrn'
             pt.plot_lc(time[num_indx], flux_dtrn, lcfile, prefix=prefix,
-                       f_mdump=f_mdump, output_dir=savepath)
+                       suffix=suffix, f_mdump=f_mdump, output_dir=savepath)
 
-            prefix='sigmaclip_niter'+str(n_iter)+'_'
+            prefix='sigmaclip_'
+            suffix='_niter'+str(n_iter)
             pt.plot_lc(time, flux_clip, lcfile, prefix=prefix, f_mdump=f_mdump,
-                       output_dir=savepath)
+                       suffix=suffix, output_dir=savepath)
 
         # >> break loop if no data points are clipped
         n_clip = clip_indx.size
+        print(n_clip)
+
+        # >> break loop if number of iterations exceeds limit
+        if n_iter == 5:
+            break
 
     return flux_clip
 
 # -- method-specific preprocessing ---------------------------------------------
+
+def compute_ls_pgram_sector(datapath, sector, plot=True, savepath=None,
+                     plot_int=200):
+
+    maskpath = datapath + 'mask/sector-%02d'%sector+'/'
+    lspmpath = datapath + 'lspm/sector-%02d'%sector+'/'
+    create_dir(lspmpath)
+    lcfile_list = os.listdir(maskpath)
+
+    savepath = savepath + 'lspm/'
+    create_dir(savepath)
+
+    for i in range(len(lcfile_list)):
+        if i % plot_int == 0:
+            print('Computing LS periodogram of light curve '+str(i)+'/'+\
+                  str(len(lcfile_list)))
+            if plot: plot_pgram = True
+        else:
+            plot_pgram = False
+        compute_ls_pgram(maskpath+lcfile_list[i], lspmpath, 
+                         plot=plot_pgram, savepath=savepath)
+
+def compute_ls_pgram(lcfile, output_dir, plot=False, savepath=None):
+    # >> open light curve file
+    lchdu = fits.open(lcfile)
+
+    # >> get light curve !!
+    flux = lchdu[1].data['FLUX']
+    time = lchdu[1].data['TIME']
+    ticid = lchdu[0].header['TICID']
+
+    num_inds = np.nonzero(~np.isnan(flux))
+    freq, power = LombScargle(time[num_inds], flux[num_inds]).autopower()
+
+    # >> save periodogram
+    fname = output_dir+str(ticid)+'.fits'
+
+    primary_hdr = fits.Header(lchdu[0].header)
+    primary_hdu = fits.PrimaryHDU(None, header=primary_hdr) # >> metadata
+
+    col1 = fits.Column(name='FREQ', array=freq, format=np.dtype('float'))
+    col2 = fits.Column(name='LSPM', array=power, format=np.dtype('float'))
+    table_hdu = fits.BinTableHDU.from_columns([col1, col2])
+
+    hdul = fits.HDUList([primary_hdu, table_hdu])
+    hdul.writeto(fname, overwrite=True)
+    print('Wrote '+fname)
+
+    if plot:
+        fig, ax = plt.subplots(2)
+        ax[0].plot(time, flux, '.k', markersize=2)
+        ax[1].plot(freq, power)
+        ax[0].set_xlabel('Time [BJD - 2457000]')
+        ax[0].set_ylabel('Relative flux')
+        ax[1].set_xlabel('Frequency (days -1)')
+        ax[1].set_ylabel('LS Periodogram')
+        # ax[i, 1].set_xscale('log')
+        ax[1].set_yscale('log')
+        fig.tight_layout()
+        fname = savepath+'lspgram_TIC'+str(int(ticid))+'.png'
+        fig.savefig(fname)
+        print('Saved '+fname)
+
 
 def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
                       calc_psd=True, load_psd=True, n_pgram=10000,
@@ -716,7 +802,7 @@ def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
     if calc_psd:
         # >> get frequency array
         freq, tmp = LombScargle(time, flux[0]).autopower()
-        freq = np.linspace(np.min(freq), np.max(freq), n_pgram)
+        # freq = np.linspace(np.min(freq), np.max(freq), n_pgram)
         print(np.min(freq))
         print(np.max(freq))
 

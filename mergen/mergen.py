@@ -176,7 +176,7 @@ class mergen(object):
         with a threshold of 7 sigma from the median of the detrended light
         curve."""
         self.maskpath = dt.clean_sector(self.datapath, self.sector,
-                                        self.mdumpcsv, savepath=self.savepath)
+                                        self.mdumpcsv, savepath=self.ensbpath)
 
     def preprocess_data(self, featgen):
         if featgen == "ENF":

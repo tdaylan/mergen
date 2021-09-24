@@ -6347,7 +6347,7 @@ def paper_schematic(x_test, x_predict, output_dir='./'):
     ax.plot(x_predict[ind], '.k', markersize=1)    
 
 def plot_lc(time, flux, lcfile, output_dir='./', f_mdump=None, plot_mdump=False,
-            prefix=''):
+            prefix='', suffix='', verbose=True):
 
     # >> get metadata
     lchdu = fits.open(lcfile)
@@ -6372,7 +6372,10 @@ def plot_lc(time, flux, lcfile, output_dir='./', f_mdump=None, plot_mdump=False,
     # ticid_label(ax, ticid[ind], target_info[ind][0], title=True)      
     
     fig.tight_layout()
-    fig.savefig(output_dir + prefix + 'TIC' + str(ticid) + '.png', dpi=300)
+    fname = output_dir + prefix + 'TIC' + str(ticid) + suffix + '.png'
+    fig.savefig(fname, dpi=300)
+    if verbose:
+        print('Wrote '+fname)
     plt.close(fig)
     
 def presentation_act(activations, filter_nums=[3,9,15]):
