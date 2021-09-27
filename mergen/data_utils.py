@@ -540,72 +540,83 @@ def standardize(x, ax=1):
     x = x / stdevs
     return x
 
-# -- quality and sigma-clip mask -----------------------------------------------
+# -- Open and write light curve Fits files -------------------------------------
 
-def clean_sector(datapath, sector, mdumpcsv, plot=True, savepath=None,
-                 plot_int=200):
-    sectpath = datapath + 'raws/sector-%02d'%sector+'/'
-    maskpath = datapath + 'mask/sector-%02d'%sector+'/'
-    create_dir(maskpath)
-    lcfile_list = os.listdir(sectpath)
+def open_fits(lcdir, objid=None, fname=None, data_names=['TIME', 'FLUX']):
+    """Loads preprocessed light curves from Fits file. Must either supply
+    objid or fname."""
+    if type(fname) == type(None):
+        fname = str(int(objid))+'.fits'
+    lchdu = fits.open(lcdir+fname)
+    data = []
+    for data_name in data_names:
+        data.append(lchdu[1].data[data_name])
 
-    savepath = savepath + 'mask/'
-    create_dir(savepath)
+    meta = lchdu[0].header
+    data.append(meta)
+
+    return data
+
+def write_fits(lcdir, meta, objid, data, data_names, table_meta=[],
+               verbose=False, verbose_msg=''):
+    """ 
+    * lcdir : string, directory to save light curve in
+    * objid : int, object id and name of output file
+    * time : 1D NumPy array
+    * flux : 1D NumPy array
+    * table_meta : list of tuples (header_name, value) for the Fits table header
+    """
+
+    fname = lcdir+str(objid)+'.fits' # >> filename
+
+    primary_hdr = fits.Header(meta)
+    primary_hdu = fits.PrimaryHDU(None, header=primary_hdr) # >> metadata
+
+    table_hdr = fits.Header(meta)
+    col_list = []
+    for i in range(len(data_names)):
+        col = fits.Column(name=data_names[i], array=data[i],
+                          format=np.dtype('float'))
+        col_list.append(col)
+    table_hdu = fits.BinTableHDU.from_columns(col_list, header=table_hdr)
+
+    hdul = fits.HDUList([primary_hdu, table_hdu])
+    hdul.writeto(fname, overwrite=True)
+    if verbose:
+        print(verbose_msg+'\n')
+        print('Wrote '+fname)    
+
+# -- Quality flag mask ---------------------------------------------------------
+
+def qual_mask_sector(datapath, sector, verbose=True, v_int=200):
+    '''
+    Reads and masks flagged data points in all PDCSAP_FLUX light curves of a 
+    specified sector.
+    * datapath : string, directory with light curve data (includes subdirectory
+                 raws/)
+    * sector   : int, sector number
+    '''
+
+    raws_sector_path = datapath + 'raws/sector-%02d'%sector+'/'
+    mask_sector_path = datapath + 'mask/sector-%02d'%sector+'/'
+    create_dir(mask_sector_path)
+    lcfile_list = os.listdir(raws_sector_path)
 
     for i in range(len(lcfile_list)):
-        if i % plot_int == 0:
-            print('Processing light curve '+str(i)+'/'+\
-                  str(len(lcfile_list)))
-            if plot: plot_sigma_clip = True
+        if i % v_int == 0:
+            verbose_msg='Processing light curve '+str(i)+'/'+\
+                        str(len(lcfile_list))
+            verbose=True
         else:
-            plot_sigma_clip = False
-        clean_lc(sectpath+lcfile_list[i], maskpath, mdumpcsv,
-                 plot=plot_sigma_clip, savepath=savepath)
+            verbose=False
+        qual_mask_lc(raws_sector_path+lcfile_list[i], mask_sector_path,
+                     verbose=verbose, verbose_msg=verbose_msg)
 
-    if plot:
-        clean_sector_diag(maskpath, savepath, sector, mdumpcsv)
-
-    return maskpath
-
-def load_lc(lcdir, objid):
-    lchdu = fits.open(lcdir+str(int(objid))+'.fits')
-    time = lchdu[1].data['TIME']
-    flux = lchdu[1].data['FLUX']
-    meta = lchdu[0].header
-    return time, flux, meta
-
-def clean_sector_diag(maskpath, savepath, sector, mdumpcsv, bins=40):
-    '''Produces text file with TICIDs ranked by the number of data points masked
-    during sigma clipping, and a histogram of those numbers.'''
-
-    ticid = np.empty(0)
-    num_clip = np.empty(0)
-    for lcfile in os.listdir(maskpath):
-        lchdu = fits.open(maskpath+lcfile)
-        ticid = np.append(ticid, lchdu[0].header['TICID'])
-        num_clip = np.append(num_clip, lchdu[1].header['NUM_CLIP'])
-
-    fig, ax = plt.subplots(figsize=(5,5))
-    ax.hist(num_clip, bins=bins)
-    ax.set_xlabel('Number of data points sigma-clipped')
-    ax.set_ylabel('Number of targets')
-    ax.set_title('Sector '+str(sector)+' Sigma Clipping')
-    fname = savepath+'Sector'+str(sector)+'_sigmaclip_hist.png'
-    fig.tight_layout()
-    fig.savefig(fname)
-    print('Saved '+fname)
-
-    sort_indx = np.argsort(num_clip)[::-1]
-    df = pd.DataFrame({'TICID': ticid[sort_indx],
-                       'NUM_CLIP': num_clip[sort_indx]})
-    fname = savepath+'Sector'+str(sector)+'_sigmaclip.txt'
-    df.to_csv(fname, index=False, sep='\t')
-    print('Saved '+fname)
-
-def clean_lc(lcfile, output_dir, f_mdump, plot=False, n_sigma=5, savepath=None):
+def qual_mask_lc(lcfile, mask_sector_path):
     '''
-    Reads, masks flagged data points, and sigma clips PDCSAP_FLUX light curves.
+    Reads and masks flagged data points in PDCSAP_FLUX light curves.
     * lcfile : light curve file
+    * mask_sector_path : string, datapath/sector-XX/mask/
     '''
 
     # >> open light curve file
@@ -618,246 +629,43 @@ def clean_lc(lcfile, output_dir, f_mdump, plot=False, n_sigma=5, savepath=None):
     flux = lchdu[1].data['PDCSAP_FLUX']
     time = lchdu[1].data['TIME']
     qual = lchdu[1].data['QUALITY']
-    ticid = lchdu[0].header['TICID']
+    meta = lchdu[0].header
+    ticid = meta['TICID']
     
     # >> mask out data points with nonzero quality flags
-    flux = mask_flagged(flux, qual)
-
-    # >> sigma clip
-    flux_clip = sigma_clip(time, flux, lcfile, f_mdump=f_mdump, plot=plot,
-                           n_sigma=n_sigma, savepath=savepath)
-    num_clip = np.count_nonzero(np.isnan(flux_clip)) - \
-               np.count_nonzero(np.isnan(flux))
-
-    # >> save masked light curve
-    fname = output_dir+str(ticid)+'.fits'
-
-    primary_hdr = fits.Header(lchdu[0].header)
-    primary_hdu = fits.PrimaryHDU(None, header=primary_hdr) # >> metadata
-
-    table_hdr = fits.Header([('NUM_CLIP', num_clip)])
-    col1 = fits.Column(name='TIME', array=time, format=np.dtype('float'))
-    col2 = fits.Column(name='FLUX', array=flux_clip, format=np.dtype('float'))
-    table_hdu = fits.BinTableHDU.from_columns([col1, col2], header=table_hdr)
-
-
-    hdul = fits.HDUList([primary_hdu, table_hdu])
-    hdul.writeto(fname, overwrite=True)
-    print('Wrote '+fname)
-
-    lchdu.close()
-
-def mask_flagged(flux, qual):
     flagged_inds = np.nonzero(qual)
     flux[flagged_inds] = np.nan
-    return flux
 
-def sigma_clip(time, flux, lcfile, n_sigma=5, plot=False, f_mdump=None,
-               savepath=None, max_iter=5):
-
-    # >> initialize variables 
-    n_clip = 1 # >> number of data points clipped in an iteration
-    n_iter = 0 # >> number of iterations
-    flux_clip = np.copy(flux) # >> initialize sigma-clipped flux
-
-    if plot:
-        pt.plot_lc(time, flux, lcfile, prefix='sigmaclip_', suffix='_niter0',
-                   f_mdump=f_mdump, output_dir=savepath)
-
-    while n_clip > 0:
-
-        n_iter += 1
-
-        # >> temporarily remove NaNs
-        num_indx = np.nonzero(~np.isnan(flux_clip))
-        flux_num = flux_clip[num_indx]
-
-        # >> trial detrending
-        # flux_dtrn = detrend(flux_num)
-        flux_dtrn, _, _, _, _ = ephesus.bdtr_tser(time[num_indx], flux_num)
-        flux_dtrn = np.concatenate(flux_dtrn)
-
-        # >> sigma-clip light curve
-        clipped, lower, upper = sigmaclip(flux_dtrn, low=n_sigma,
-                                          high=n_sigma)
-        
-        # >> data points that are beyond threshold
-        clip_indx = np.nonzero((flux_dtrn > upper) + (flux_dtrn < lower))[0]
-
-        # >> apply sigma-clip mask
-        flux_clip[num_indx[0][clip_indx]] = np.nan
-
-        # >> plot the sigma-clipped time-series data
-        if plot:
-            prefix='sigmaclip_'
-            suffix='_niter'+str(n_iter)+'_dtrn'
-            pt.plot_lc(time[num_indx], flux_dtrn, lcfile, prefix=prefix,
-                       suffix=suffix, f_mdump=f_mdump, output_dir=savepath)
-
-            prefix='sigmaclip_'
-            suffix='_niter'+str(n_iter)
-            pt.plot_lc(time, flux_clip, lcfile, prefix=prefix, f_mdump=f_mdump,
-                       suffix=suffix, output_dir=savepath)
-
-        # >> break loop if no data points are clipped
-        n_clip = clip_indx.size
-        print(n_clip)
-
-        # >> break loop if number of iterations exceeds limit
-        if n_iter == 5:
-            break
-
-    return flux_clip
-
-# -- method-specific preprocessing ---------------------------------------------
-
-def compute_ls_pgram_sector(datapath, sector, plot=True, savepath=None,
-                     plot_int=200):
-
-    maskpath = datapath + 'mask/sector-%02d'%sector+'/'
-    lspmpath = datapath + 'lspm/sector-%02d'%sector+'/'
-    create_dir(lspmpath)
-    lcfile_list = os.listdir(maskpath)
-
-    savepath = savepath + 'lspm/'
-    create_dir(savepath)
-
-    for i in range(len(lcfile_list)):
-        if i % plot_int == 0:
-            print('Computing LS periodogram of light curve '+str(i)+'/'+\
-                  str(len(lcfile_list)))
-            if plot: plot_pgram = True
-        else:
-            plot_pgram = False
-        compute_ls_pgram(maskpath+lcfile_list[i], lspmpath, 
-                         plot=plot_pgram, savepath=savepath)
-
-def compute_ls_pgram(lcfile, output_dir, plot=False, savepath=None):
-    # >> open light curve file
-    lchdu = fits.open(lcfile)
-
-    # >> get light curve !!
-    flux = lchdu[1].data['FLUX']
-    time = lchdu[1].data['TIME']
-    ticid = lchdu[0].header['TICID']
-
-    num_inds = np.nonzero(~np.isnan(flux))
-    freq, power = LombScargle(time[num_inds], flux[num_inds]).autopower()
-
-    # >> save periodogram
-    fname = output_dir+str(ticid)+'.fits'
-
-    primary_hdr = fits.Header(lchdu[0].header)
-    primary_hdu = fits.PrimaryHDU(None, header=primary_hdr) # >> metadata
-
-    col1 = fits.Column(name='FREQ', array=freq, format=np.dtype('float'))
-    col2 = fits.Column(name='LSPM', array=power, format=np.dtype('float'))
-    table_hdu = fits.BinTableHDU.from_columns([col1, col2])
-
-    hdul = fits.HDUList([primary_hdu, table_hdu])
-    hdul.writeto(fname, overwrite=True)
-    print('Wrote '+fname)
-
-    if plot:
-        fig, ax = plt.subplots(2)
-        ax[0].plot(time, flux, '.k', markersize=2)
-        ax[1].plot(freq, power)
-        ax[0].set_xlabel('Time [BJD - 2457000]')
-        ax[0].set_ylabel('Relative flux')
-        ax[1].set_xlabel('Frequency (days -1)')
-        ax[1].set_ylabel('LS Periodogram')
-        # ax[i, 1].set_xscale('log')
-        ax[1].set_yscale('log')
-        fig.tight_layout()
-        fname = savepath+'lspgram_TIC'+str(int(ticid))+'.png'
-        fig.savefig(fname)
-        print('Saved '+fname)
+    # >> save masked light curve
+    write_fits(mask_sector_path, meta, ticid, [time, flux], ['TIME', 'FLUX'])
+    lchdu.close()
 
 
-def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
-                      calc_psd=True, load_psd=True, n_pgram=10000,
-                      train_test_ratio=1.0, data_dir='./', output_dir='./',
-                      prefix='', sector=1):
-    '''Preprocesses TESS light curves in preparation for training a deep
+def DAE_preprocessing(mg, train_test_ratio=1.0, norm_type='standardization'):
+    '''Preprocesses engineered features in preparation for training a deep
     fully-connected autoencoder. Preprocessing steps include:
-        1) Read light curve data.
-        2) Sigma clip.
-        3) Compute the LS periodogram.
+        1) Reading feature vector for each target
+        2) Producing a homogenous input matrix
+        3) Partitioning into training and testing sets, if train_test_ratio<1
+        4) Normalizing
     Parameters:
-        * flux : array of light curves, shape=(num light curves, num points)
-        * time : time array, shape=(num points,)
-        * p : parameter dictionary
-        * ticid : list of TICIDs, shape=(num light curves)
-        * target_info : meta data (sector, cam, ccd, data_type, cadence) for each light
-                        curve, shape=(num light curves, 5)
-        * features : feature vectors to train DAE on, optional
-                     shape=(num light curves, num features)
-        * calc_psd : calculates LS periodograms to train DAE on
-        * load_psd : loads previously calculated LS periodograms from fits
-        * n_pgram : resolution of LS periodogram frequency grid
+        * mg : Mergen object
         * train_test_ratio : partition ratio. If 1, then no partitioning.
+        * norm_type : None, or 'standardization'
     '''
 
-    # -- calculate PSDs --------------------------------------------------------
-    if calc_psd:
-        # >> get frequency array
-        freq, tmp = LombScargle(time, flux[0]).autopower()
-        # freq = np.linspace(np.min(freq), np.max(freq), n_pgram)
-        print(np.min(freq))
-        print(np.max(freq))
+    # >> Read data
 
-        # >> calculate PSDs
-        fname = data_dir+'Sector'+str(sector)+'/ls_periodograms.fits'
+    if train_test_ratio < 1:
+        print('Partitioning data...')
+        x_train, x_test, y_train, y_test, flux_train, flux_test,\
+        ticid_train, ticid_test, target_info_train, target_info_test, time =\
+            split_data_features(flux, features, time, ticid, target_info,
+                                train_test_ratio=train_test_ratio)
 
-        if not load_psd or not os.path.exists(fname):
-            print('Calculating PSD..')
-            psd = []
-            for i in range(len(flux)):
-                if i % 1000 == 0:
-                    print('Periodogram progress: '+str(i)+'/'+str(len(flux)))
-                tmp = LombScargle(time, flux[i]).power(freq)
-                psd.append(tmp)
-            psd = np.array(psd)
-
-            # >> save the PSDs and TICIDs to a fits file
-            hdr = fits.Header()
-            hdu = fits.PrimaryHDU(psd, header=hdr)
-            hdu.writeto(fname)
-            fits.append(fname, freq)
-            fits.append(fname, ticid)
-
-            features = psd
-
-        else:
-            print('Retrieving PSDs from '+fname)
-            # >> load PSDs from fits files
-            with fits.open(fname) as hdul:
-                features = hdul[0].data            
-                freq = hdul[1].data
-
-        # >> plot PSD examples
-        fig, ax = plt.subplots(4, 2)
-        for i in range(4):
-            ax[i, 0].plot(time, flux[i], '.k', markersize=2)
-            ax[i, 1].plot(freq, features[i])
-            ax[i, 0].set_xlabel('Time [BJD - 2457000]')
-            ax[i, 0].set_ylabel('Relative flux')
-            ax[i, 1].set_xlabel('Frequency (Hz)')
-            ax[i, 1].set_ylabel('PSD')
-            # ax[i, 1].set_xscale('log')
-            ax[i, 1].set_yscale('log')
-        fig.tight_layout()
-        fig.savefig(output_dir+prefix+'periodogram_examples.png')
-
-    print('Partitioning data...')
-    x_train, x_test, y_train, y_test, flux_train, flux_test,\
-    ticid_train, ticid_test, target_info_train, target_info_test, time =\
-        split_data_features(flux, features, time, ticid, target_info,
-                            train_test_ratio=train_test_ratio)
-
-    if calc_psd:
+    if norm_type == None:
         print('No normalization performed...')
-    else:
+    elif norm_type == 'standardization':
         print('Standardizing feature vectors...')
         x_train = dt.standardize(x_train, ax=0)
         x_test = dt.standardize(x_test, ax=0)

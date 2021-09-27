@@ -6346,7 +6346,7 @@ def paper_schematic(x_test, x_predict, output_dir='./'):
     ax.set_yticklabels([])
     ax.plot(x_predict[ind], '.k', markersize=1)    
 
-def plot_lc(time, flux, lcfile, output_dir='./', f_mdump=None, plot_mdump=False,
+def plot_lc(time, flux, lcfile, output_dir='./', mdumpcsv=None, plot_mdump=False,
             prefix='', suffix='', verbose=True):
 
     # >> get metadata
@@ -6354,7 +6354,7 @@ def plot_lc(time, flux, lcfile, output_dir='./', f_mdump=None, plot_mdump=False,
     ticid = lchdu[0].header['TICID']
 
     # -- momentum dumps ------------------------------------------------------
-    with open(f_mdump, 'r') as f:
+    with open(mdumpcsv, 'r') as f:
         lines = f.readlines()
         mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
         inds = np.nonzero((mom_dumps >= np.min(time)) * \

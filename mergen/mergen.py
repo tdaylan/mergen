@@ -172,11 +172,8 @@ class mergen(object):
         dt.bulk_download_lc(self.datapath, sector=self.sector)
 
     def clean_data(self):
-        """Masks out data points with nonzero QUALITY flags and sigma-clips
-        with a threshold of 7 sigma from the median of the detrended light
-        curve."""
-        self.maskpath = dt.clean_sector(self.datapath, self.sector,
-                                        self.mdumpcsv, savepath=self.ensbpath)
+        """Masks out data points with nonzero QUALITY flags."""
+        dt.qual_mask_sector(self.datapath, self.sector)
 
     def preprocess_data(self, featgen):
         if featgen == "ENF":
