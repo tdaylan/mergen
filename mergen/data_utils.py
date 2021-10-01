@@ -547,15 +547,22 @@ def open_fits(lcdir, objid=None, fname=None, data_names=['TIME', 'FLUX']):
     objid or fname."""
     if type(fname) == type(None):
         fname = str(int(objid))+'.fits'
-    lchdu = fits.open(lcdir+fname)
-    data = []
-    for data_name in data_names:
-        data.append(lchdu[1].data[data_name])
+    fname = lcdir + fname
 
-    meta = lchdu[0].header
-    data.append(meta)
+    data  = fits.getdata(fname, 1)
+    meta = fits.getheader(fname, 0)
 
-    return data
+    # lchdu = fits.open(lcdir+fname)
+    # data = []
+    # for data_name in data_names:
+    #     data.append(lchdu[1].data[data_name])
+
+    # meta = lchdu[0].header
+    # data.append(meta)
+
+    # lchdu.close()
+
+    return [data, meta]
 
 def write_fits(lcdir, meta, objid, data, data_names, table_meta=[],
                verbose=False, verbose_msg=''):
@@ -641,7 +648,7 @@ def qual_mask_lc(lcfile, mask_sector_path):
     lchdu.close()
 
 
-def DAE_preprocessing(mg, train_test_ratio=1.0, norm_type='standardization'):
+def DAE_preprocessing(lcdir, train_test_ratio=1.0, norm_type='standardization'):
     '''Preprocesses engineered features in preparation for training a deep
     fully-connected autoencoder. Preprocessing steps include:
         1) Reading feature vector for each target
@@ -655,6 +662,15 @@ def DAE_preprocessing(mg, train_test_ratio=1.0, norm_type='standardization'):
     '''
 
     # >> Read data
+    lcfile_list = os.listdir(lcdir)
+    freq, lspm, meta = [], [], []
+    for lcfile in lcfile_list:
+        d, m = open_fits(lcdir, fname=lcfile, data_names=['FREQ', 'LSPM'])
+        freq.append(d['FREQ'])
+        lspm.append(d['LSPM'])
+        meta.append(m)
+
+    pdb.set_trace()
 
     if train_test_ratio < 1:
         print('Partitioning data...')
