@@ -39,8 +39,8 @@ class mergen(object):
     # == Initialization ========================================================
     # ==========================================================================
 
-    def __init__(self, datapath, savepath, datatype, sector,
-                 ENF=True, CAE=True, DAE=True, 
+    def __init__(self, datapath, savepath, datatype, sectors=None,
+                 ENF=True, CAE=True, DAE=True, metapath=None,
                  mdumpcsv=None, filelabel=None, runiter=False, numiter=1,
                  numclstr=100, parampath=None):
         """Creates mergen object from which most common routines can easily be
@@ -51,7 +51,7 @@ class mergen(object):
             * datatype: string, indicates type of data being worked with.
                         options are: 
                         "SPOC", "FFI-Lygos", "FFI-QLP", "FFI-eleanor"
-            * sector : int, TESS Observation Sector number
+            * sectors  : list of ints, TESS Observation Sector numbers
             
             * ENF, CAE, DAE : booleans, feature generation methods
               * ENF : engineered features
@@ -76,13 +76,14 @@ class mergen(object):
         self.CAE = CAE
         self.DAE = DAE
         
-        self.sector   = sector
+        self.sectors   = sectors
         self.numclstr = numclstr
 
         self.datapath = datapath
         self.savepath = savepath
+        self.metapath = metapath
         self.datatype = datatype # >> SPOC or FFI
-        self.ensbpath = self.savepath+'Ensemble-Sector_'+str(self.sector)+'/'
+        # self.ensbpath = self.savepath+'Ensemble-Sector_'+str(self.sector)+'/'
         self.mdumpcsv = mdumpcsv
 
         if filelabel is not None:
@@ -105,15 +106,15 @@ class mergen(object):
         """Create directories for each of the desired feature generation
         methods."""
         if self.CAE:
-            self.CAEpath = self.ensbpath + "CAE/"
+            self.CAEpath = self.savepath + "CAE/"
             dt.create_dir(self.CAEpath)
 
         if self.DAE:
-            self.DAEpath = self.ensbpath + "DAE/"
+            self.DAEpath = self.savepath + "DAE/"
             dt.create_dir(self.DAEpath)
 
         if self.ENF:
-            self.ENFpath = self.ensbpath + "ENF/"
+            self.ENFpath = self.savepath + "ENF/"
             dt.create_dir(self.ENFpath)
 
     def run(self):
@@ -155,7 +156,7 @@ class mergen(object):
     # == Data and Preprocessing ================================================
     # ==========================================================================
 
-    def load_lightcurves_local(self):
+    def load_lightcurves_local(self, lcdir, sector):
         """Load in data saved in metafiles on datapath"""
         #check for self.datatype to determine loading scheme. 
         #figure out consistent stuff for FFI original locations
@@ -163,8 +164,11 @@ class mergen(object):
             self.time, self.flux, self.errors, self.objid = \
             dt.load_all_lygos(self.datapath)
         elif self.datatype == "SPOC":
-            self.flux, self.time, self.objid, self.target_info = \
-            dt.load_data_from_metafiles(self.datapath, self.sector)
+            # self.flux, self.time, self.objid, self.target_info = \
+            # dt.load_data_from_metafiles(self.datapath, self.sector)
+
+            self.flux, self.time, self.meta = \
+                    dt.load_data_from_metafiles(lcdir, sector)
         
     def download_lightcurves(self):
         """Downloads and process light SPOC light curves, if not already
@@ -173,7 +177,7 @@ class mergen(object):
 
     def clean_data(self):
         """Masks out data points with nonzero QUALITY flags."""
-        dt.qual_mask_sector(self.datapath, self.sector)
+        dt.qual_mask(self.datapath)
 
     def preprocess_data(self, featgen):
         if featgen == "ENF":

@@ -790,88 +790,33 @@ def optimize_confusion_matrix(ticid_pred, y_pred, database_dir='./',
             accuracy.append(acc)
             
 
-def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
-                      calc_psd=True, load_psd=True, n_pgram=10000,
-                      train_test_ratio=1.0, data_dir='./', output_dir='./',
-                      prefix='', sector=1):
-    '''Preprocesses output from dt.load_data_from_metafiles in preparation for
+def DAE_preprocessing(x, train_test_ratio=1, norm_type=None):
+    '''Preprocesses data in preparation for
     training a deep autoencoder.
     Parameters:
-        * flux : array of light curves, shape=(num light curves, num points)
-        * time : time array, shape=(num points,)
         * p : parameter dictionary
         * ticid : list of TICIDs, shape=(num light curves)
         * target_info : meta data (sector, cam, ccd, data_type, cadence) for each light
                         curve, shape=(num light curves, 5)
-        * features : feature vectors to train DAE on, optional
-                     shape=(num light curves, num features)
-        * calc_psd : calculates LS periodograms to train DAE on
-        * load_psd : loads previously calculated LS periodograms from fits
-        * n_pgram : resolution of LS periodogram frequency grid
         * train_test_ratio : partition ratio. If 1, then no partitioning.
     '''
 
-    # -- calculate PSDs --------------------------------------------------------
-    if calc_psd:
-        # >> get frequency array
-        freq, tmp = LombScargle(time, flux[0]).autopower()
-        freq = np.linspace(np.min(freq), np.max(freq), n_pgram)
 
-        # >> calculate PSDs
-        fname = data_dir+'Sector'+str(sector)+'/ls_periodograms.fits'
-
-        if not load_psd or not os.path.exists(fname):
-            print('Calculating PSD..')
-            psd = []
-            for i in range(len(flux)):
-                if i % 1000 == 0:
-                    print('Periodogram progress: '+str(i)+'/'+str(len(flux)))
-                tmp = LombScargle(time, flux[i]).power(freq)
-                psd.append(tmp)
-            psd = np.array(psd)
-
-            # >> save the PSDs and TICIDs to a fits file
-            hdr = fits.Header()
-            hdu = fits.PrimaryHDU(psd, header=hdr)
-            hdu.writeto(fname)
-            fits.append(fname, freq)
-            fits.append(fname, ticid)
-
-            features = psd
-
-        else:
-            print('Retrieving PSDs from '+fname)
-            # >> load PSDs from fits files
-            with fits.open(fname) as hdul:
-                features = hdul[0].data            
-                freq = hdul[1].data
-
-        # >> plot PSD examples
-        fig, ax = plt.subplots(4, 2)
-        for i in range(4):
-            ax[i, 0].plot(time, flux[i], '.k', markersize=2)
-            ax[i, 1].plot(freq, features[i])
-            ax[i, 0].set_xlabel('Time [BJD - 2457000]')
-            ax[i, 0].set_ylabel('Relative flux')
-            ax[i, 1].set_xlabel('Frequency (Hz)')
-            ax[i, 1].set_ylabel('PSD')
-            # ax[i, 1].set_xscale('log')
-            ax[i, 1].set_yscale('log')
-        fig.tight_layout()
-        fig.savefig(output_dir+prefix+'periodogram_examples.png')
-
-    print('Partitioning data...')
-    x_train, x_test, y_train, y_test, flux_train, flux_test,\
-    ticid_train, ticid_test, target_info_train, target_info_test, time =\
-        split_data_features(flux, features, time, ticid, target_info,
-                            train_test_ratio=train_test_ratio)
-
-    if calc_psd:
-        print('No normalization performed...')
+    if train_test_ratio < 1:
+        print('Partitioning data...')
+        x_train, x_test, y_train, y_test, flux_train, flux_test,\
+        ticid_train, ticid_test, target_info_train, target_info_test, time =\
+            split_data_features(flux, features, time, ticid, target_info,
+                                train_test_ratio=train_test_ratio)
     else:
+        x_train = x
+
+    if type(norm_type) == type(None):
+        print('No normalization performed...')
+    elif norm_type == 'standardization':
         print('Standardizing feature vectors...')
         x_train = dt.standardize(x_train, ax=0)
-        x_test = dt.standardize(x_test, ax=0)
+        if train_test_ratio < 1: x_test = dt.standardize(x_test, ax=0)
 
 
     if train_test_ratio < 1:
@@ -879,7 +824,7 @@ def DAE_preprocessing(flux, time, p, ticid, target_info, features=None,
             ticid_train, ticid_test, target_info_train, target_info_test, freq, time
 
     else:
-        return x_train, flux_train, ticid_train, target_info_train, freq, time
+        return x_train
             
 
 def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,

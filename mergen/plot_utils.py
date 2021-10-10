@@ -85,6 +85,9 @@ rcParams["lines.markersize"] = 2
 # rcParams['lines.color'] = 'k'
 from scipy.signal import argrelextrema
 
+from matplotlib import rc
+rc("text", usetex=False)
+
 import sklearn
 from sklearn.cluster import KMeans
 from sklearn.cluster import DBSCAN
@@ -2858,7 +2861,8 @@ def plot_lygos(t, intensity, error, title):
     plt.scatter(t, intensity)
     plt.title(title)
     plt.show()
-    plt.errorbar(t, intensity, yerr = error, fmt = 'o', markersize = 0.1)
+    plt.errorbar(t, intensity, yerr = error, fmt = 'o', markersize = 0.1,
+                 fillstyle='full')
     plt.show()
     
 def ticid_label(ax, ticid, target_info, title=False, color='black',
@@ -6347,7 +6351,7 @@ def paper_schematic(x_test, x_predict, output_dir='./'):
     ax.plot(x_predict[ind], '.k', markersize=1)    
 
 def plot_lc(time, flux, lcfile, output_dir='./', mdumpcsv=None, plot_mdump=False,
-            prefix='', suffix='', verbose=True):
+            prefix='', suffix='', verbose=True, title=''):
 
     # >> get metadata
     lchdu = fits.open(lcfile)
@@ -6368,12 +6372,15 @@ def plot_lc(time, flux, lcfile, output_dir='./', mdumpcsv=None, plot_mdump=False
             ax.axvline(t, color='g', linestyle='--')
         
     ax.plot(time, flux, '.k', ms=0.5)
+    # ax.set_title(str('TIC {} '.format(int(ticid))+str(title)))
+    ax.set_title('TIC '+str(int(ticid))+' '+title)
     format_axes(ax)
     # ticid_label(ax, ticid[ind], target_info[ind][0], title=True)      
     
     fig.tight_layout()
     fname = output_dir + prefix + 'TIC' + str(ticid) + suffix + '.png'
     fig.savefig(fname, dpi=300)
+
     if verbose:
         print('Wrote '+fname)
     plt.close(fig)

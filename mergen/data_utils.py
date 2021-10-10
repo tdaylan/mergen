@@ -165,71 +165,18 @@ def create_dir(path):
 
 # -- DATA LOADING (SPOC) -------------------------------------------------------
 
-def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
-                             ccds=[[1,2,3,4]]*4, data_type='SPOC',
-                             cadence='2-minute', DEBUG=False, fast=False,
-                             output_dir='./', debug_ind=0,
-                             nan_mask_check=True,
-                             custom_mask=[]):
-    '''Pulls light curves from fits files, and applies nan mask.
-    
-    Parameters:
-        * data_dir : folder containing fits files for each group
-        * sector : sector, given as int, or as a list
-        * cams : list of cameras
-        * ccds : list of CCDs
-        * data_type : 'SPOC', 'FFI'
-        * cadence : '2-minute', '20-second'
-        * DEBUG : makes nan_mask debugging plots. If True, the following are
-                  required:
-            * output_dir
-            * debug_ind
-        * nan_mask_check : if True, applies NaN mask
-    
-    Returns:
-        * flux : array of light curve PDCSAP_FLUX,
-                 shape=(num light curves, num data points)
-        * x : time array, shape=(num data points)
-        * ticid : list of TICIDs, shape=(num light curves)
-        * target_info : [sector, cam, ccd, data_type, cadence] for each light
-                        curve, shape=(num light curves, 5)
-    '''
-    
-    # >> get file names for each group
-    fnames = []
-    fname_info = []
-    for i in range(len(cams)):
-        cam = cams[i]
-        for ccd in ccds[i]:
-            if fast:
-                s = 'Sector{sector}_20s/Sector{sector}Cam{cam}CCD{ccd}/' + \
-                    'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
-            else:
-                s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
-                    'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
-            fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
-            fname_info.append([sector, cam, ccd, data_type, cadence])
-                
-    # >> pull data from each fits file
-    print('Pulling data')
-    flux_list = []
-    ticid = np.empty((0, 1))
-    target_info = [] # >> [sector, cam, ccd, data_type, cadence]
-    for i in range(len(fnames)):
-        print('Loading ' + fnames[i] + '...')
-        with fits.open(data_dir + fnames[i], memmap=False) as hdul:
-            if i == 0:
-                x = hdul[0].data
-            flux = hdul[1].data
-            ticid_list = hdul[2].data
-    
-        flux_list.append(flux)
-        ticid = np.append(ticid, ticid_list)
-        target_info.extend([fname_info[i]] * len(flux))
-
-    # >> concatenate flux array         
-    flux = np.concatenate(flux_list, axis=0)
+def load_data_from_metafiles(lcdir, sector, nan_mask_check=False):
         
+    sector_path + lcdir+'-%02d'%sector+'/'
+    lcfile_list = os.listdir(sector_path)
+
+    time, flux, meta = [], [], []
+    for lcfile in lcfile_list:
+        data, m = dt.open_fits(fname=sector_path+lcfile)
+        time.append(data['TIME'])
+        flux.append(data['FLUX'])
+        meta.append(m)
+
     # >> apply nan mask
     if nan_mask_check:
         print('Applying nan mask')
@@ -237,7 +184,82 @@ def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
                            debug_ind=debug_ind, target_info=target_info,
                            output_dir=output_dir, custom_mask=custom_mask)
 
-    return x, flux, ticid.astype('int'), np.array(target_info)
+    return time, flux, meta
+
+
+# def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
+#                              ccds=[[1,2,3,4]]*4, data_type='SPOC',
+#                              cadence='2-minute', DEBUG=False, fast=False,
+#                              output_dir='./', debug_ind=0,
+#                              nan_mask_check=True,
+#                              custom_mask=[]):
+#     '''Pulls light curves from fits files, and applies nan mask.
+    
+#     Parameters:
+#         * data_dir : folder containing fits files for each group
+#         * sector : sector, given as int, or as a list
+#         * cams : list of cameras
+#         * ccds : list of CCDs
+#         * data_type : 'SPOC', 'FFI'
+#         * cadence : '2-minute', '20-second'
+#         * DEBUG : makes nan_mask debugging plots. If True, the following are
+#                   required:
+#             * output_dir
+#             * debug_ind
+#         * nan_mask_check : if True, applies NaN mask
+    
+#     Returns:
+#         * flux : array of light curve PDCSAP_FLUX,
+#                  shape=(num light curves, num data points)
+#         * x : time array, shape=(num data points)
+#         * ticid : list of TICIDs, shape=(num light curves)
+#         * target_info : [sector, cam, ccd, data_type, cadence] for each light
+#                         curve, shape=(num light curves, 5)
+#     '''
+    
+#     # >> get file names for each group
+#     fnames = []
+#     fname_info = []
+#     for i in range(len(cams)):
+#         cam = cams[i]
+#         for ccd in ccds[i]:
+#             if fast:
+#                 s = 'Sector{sector}_20s/Sector{sector}Cam{cam}CCD{ccd}/' + \
+#                     'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+#             else:
+#                 s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
+#                     'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+#             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
+#             fname_info.append([sector, cam, ccd, data_type, cadence])
+                
+#     # >> pull data from each fits file
+#     print('Pulling data')
+#     flux_list = []
+#     ticid = np.empty((0, 1))
+#     target_info = [] # >> [sector, cam, ccd, data_type, cadence]
+#     for i in range(len(fnames)):
+#         print('Loading ' + fnames[i] + '...')
+#         with fits.open(data_dir + fnames[i], memmap=False) as hdul:
+#             if i == 0:
+#                 x = hdul[0].data
+#             flux = hdul[1].data
+#             ticid_list = hdul[2].data
+    
+#         flux_list.append(flux)
+#         ticid = np.append(ticid, ticid_list)
+#         target_info.extend([fname_info[i]] * len(flux))
+
+#     # >> concatenate flux array         
+#     flux = np.concatenate(flux_list, axis=0)
+        
+#     # >> apply nan mask
+#     if nan_mask_check:
+#         print('Applying nan mask')
+#         flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid,
+#                            debug_ind=debug_ind, target_info=target_info,
+#                            output_dir=output_dir, custom_mask=custom_mask)
+
+#     return x, flux, ticid.astype('int'), np.array(target_info)
 
 def combine_sectors(sectors, data_dir, custom_masks=None):
     '''Combine sectors by the time axis (i.e. the light curves of stars 
@@ -542,15 +564,34 @@ def standardize(x, ax=1):
 
 # -- Open and write light curve Fits files -------------------------------------
 
-def open_fits(lcdir, objid=None, fname=None, data_names=['TIME', 'FLUX']):
+def open_fits(lcdir='', objid=None, fname=None):
     """Loads preprocessed light curves from Fits file. Must either supply
     objid or fname."""
     if type(fname) == type(None):
         fname = str(int(objid))+'.fits'
     fname = lcdir + fname
 
-    data  = fits.getdata(fname, 1)
-    meta = fits.getheader(fname, 0)
+    # try:
+    #     data  = fits.getdata(fname, 1)
+    #     meta = fits.getheader(fname, 0)
+    #     return [data, meta]
+    # except:
+    #     print('Failed to open the following FITS file:')
+    #     print(lcdir+fname)
+    #     return [None, None]
+
+    try:
+        with fits.open(fname) as hdul:
+            data = hdul[1].data
+            meta = hdul[0].header
+        return [data, meta]
+    except:
+        print('Failed to open the following FITS file:')
+        print(lcdir+fname)
+        return [None, None]
+
+    gc.collect()
+
 
     # lchdu = fits.open(lcdir+fname)
     # data = []
@@ -562,18 +603,18 @@ def open_fits(lcdir, objid=None, fname=None, data_names=['TIME', 'FLUX']):
 
     # lchdu.close()
 
-    return [data, meta]
 
-def write_fits(lcdir, meta, objid, data, data_names, table_meta=[],
+def write_fits(lcdir, meta, data, data_names, table_meta=[],
                verbose=False, verbose_msg=''):
     """ 
     * lcdir : string, directory to save light curve in
-    * objid : int, object id and name of output file
-    * time : 1D NumPy array
-    * flux : 1D NumPy array
+    * meta : primary HDU header data
+    * data : second HDU table data, with column names given by data_names
+    * data_names : e.g. ['TIME', 'FLUX']
     * table_meta : list of tuples (header_name, value) for the Fits table header
     """
 
+    objid = meta['TICID']
     fname = lcdir+str(objid)+'.fits' # >> filename
 
     primary_hdr = fits.Header(meta)
@@ -595,35 +636,38 @@ def write_fits(lcdir, meta, objid, data, data_names, table_meta=[],
 
 # -- Quality flag mask ---------------------------------------------------------
 
-def qual_mask_sector(datapath, sector, verbose=True, v_int=200):
+def qual_mask(datapath, verbose=True, v_int=200):
     '''
     Reads and masks flagged data points in all PDCSAP_FLUX light curves of a 
     specified sector.
     * datapath : string, directory with light curve data (includes subdirectory
                  raws/)
-    * sector   : int, sector number
     '''
 
-    raws_sector_path = datapath + 'raws/sector-%02d'%sector+'/'
-    mask_sector_path = datapath + 'mask/sector-%02d'%sector+'/'
-    create_dir(mask_sector_path)
-    lcfile_list = os.listdir(raws_sector_path)
+    sectors = os.listdir(datapath+'raws/')
+    sectors.sort()
 
-    for i in range(len(lcfile_list)):
-        if i % v_int == 0:
-            verbose_msg='Processing light curve '+str(i)+'/'+\
-                        str(len(lcfile_list))
-            verbose=True
-        else:
-            verbose=False
-        qual_mask_lc(raws_sector_path+lcfile_list[i], mask_sector_path,
-                     verbose=verbose, verbose_msg=verbose_msg)
+    for sector in sectors:
 
-def qual_mask_lc(lcfile, mask_sector_path):
+        raws_sector_path = datapath+'raws/'+sector+'/'
+        mask_sector_path = datapath+'mask/'+sector+'/'
+        create_dir(mask_sector_path)
+        lcfile_list = os.listdir(raws_sector_path)
+
+        for i in range(len(lcfile_list)):
+            if i % v_int == 0:
+                verbose_msg='Processing light curve '+str(i)+'/'+\
+                            str(len(lcfile_list))
+                verbose=True
+            else:
+                verbose=False
+            qual_mask_lc(raws_sector_path+lcfile_list[i], mask_sector_path,
+                         verbose=verbose, verbose_msg=verbose_msg)
+
+def qual_mask_lc(lcfile, savepath, verbose=True, verbose_msg=''):
     '''
     Reads and masks flagged data points in PDCSAP_FLUX light curves.
     * lcfile : light curve file
-    * mask_sector_path : string, datapath/sector-XX/mask/
     '''
 
     # >> open light curve file
@@ -644,7 +688,8 @@ def qual_mask_lc(lcfile, mask_sector_path):
     flux[flagged_inds] = np.nan
 
     # >> save masked light curve
-    write_fits(mask_sector_path, meta, ticid, [time, flux], ['TIME', 'FLUX'])
+    write_fits(savepath, meta, [time, flux], ['TIME', 'FLUX'], verbose=verbose,
+               verbose_msg=verbose_msg)
     lchdu.close()
 
 
@@ -2706,27 +2751,22 @@ def calculate_variability_statistics(data_dir):
 
 
 
-def get_tess_features(ticid):
+def get_tess_features(ticid, cols=['Teff', 'rad', 'mass', 'GAIAmag', 'd',\
+                                   'objType', 'Tmag']):
     '''Query catalog data https://arxiv.org/pdf/1905.10694.pdf'''
     
 
     target = 'TIC '+str(int(ticid))
     catalog_data = Catalogs.query_object(target, radius=0.02, catalog='TIC')
-    Teff = catalog_data[0]["Teff"]
 
-    rad = catalog_data[0]["rad"]
-    mass = catalog_data[0]["mass"]
-    GAIAmag = catalog_data[0]["GAIAmag"]
-    d = catalog_data[0]["d"]
-    # Bmag = catalog_data[0]["Bmag"]
-    # Vmag = catalog_data[0]["Vmag"]
-    objType = catalog_data[0]["objType"]
-    Tmag = catalog_data[0]["Tmag"]
-    # lum = catalog_data[0]["lum"]
+    feats = []
+    for col in cols:
+        feats.append(catalog_data[0][col])
 
-    return target, Teff, rad, mass, GAIAmag, d, objType, Tmag
+    return target, feats
 
-def get_tess_feature_all(data_dir='./data/'):
+def get_tess_feature_all(data_dir=''):
+    # >> get column names
     columns = np.loadtxt(data_dir+'exo_CTL_08.01xTIC_v8.1_header.csv',
                          dtype='str', delimiter=',')
     columns = np.char.replace(columns, '[', '') # >> clean up
@@ -2734,7 +2774,8 @@ def get_tess_feature_all(data_dir='./data/'):
     columns = [x[0] for x in columns]
     columns.remove('objID')
 
-    sectors =  [26] # np.arange(8,27)
+    # >> loop through sectors
+    # sectors =  [26] # np.arange(8,27)
     for sector in sectors:
         print('Sector '+str(sector))
         output_dir = data_dir + 'Sector'+str(sector)+'/'
@@ -2851,7 +2892,8 @@ def download_TIC_catalog(output_dir='./'):
     os.system('curl -# -o '+output_dir+fname+' '+url+fname)
     
 def get_TIC_catalog_sector(data_dir='data/'):
-    '''Will read TICv8 CSV files and return a pandas dataframe as another csv.'''
+    '''Will read TICv8 CSV files and return a pandas dataframe as another csv
+    (for CTL objects only)'''
     # import glob
 
     # >> get column descriptions
