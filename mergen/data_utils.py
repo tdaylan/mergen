@@ -605,7 +605,7 @@ def open_fits(lcdir='', objid=None, fname=None):
 
 
 def write_fits(lcdir, meta, data, data_names, table_meta=[],
-               verbose=False, verbose_msg=''):
+               verbose=True, verbose_msg='', fname=None, fmt=None):
     """ 
     * lcdir : string, directory to save light curve in
     * meta : primary HDU header data
@@ -614,17 +614,22 @@ def write_fits(lcdir, meta, data, data_names, table_meta=[],
     * table_meta : list of tuples (header_name, value) for the Fits table header
     """
 
-    objid = meta['TICID']
-    fname = lcdir+str(objid)+'.fits' # >> filename
+    if type(fname) == type(None):
+        objid = meta['TICID']
+        fname = lcdir+str(objid)+'.fits' # >> filename
 
-    primary_hdr = fits.Header(meta)
+    if type(meta) == type(None):
+        primary_hdr = None
+    else:
+        primary_hdr = fits.Header(meta)
     primary_hdu = fits.PrimaryHDU(None, header=primary_hdr) # >> metadata
 
-    table_hdr = fits.Header(meta)
+    if type(fmt) == type(None):
+        fmt = ['K'] * len(data)
+    table_hdr = fits.Header(table_meta)
     col_list = []
     for i in range(len(data_names)):
-        col = fits.Column(name=data_names[i], array=data[i],
-                          format=np.dtype('float'))
+        col = fits.Column(name=data_names[i], array=data[i], format=fmt[i])
         col_list.append(col)
     table_hdu = fits.BinTableHDU.from_columns(col_list, header=table_hdr)
 

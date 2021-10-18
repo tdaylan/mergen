@@ -58,4 +58,5 @@ from tf_keras_vis.saliency import Saliency
 #import plotting_functions as pf
 #import ffi_hyperleda as fh
 
-import ephesus.ephesus.util as ephesus
+# import ephesus.ephesus.util as ephesus
+import ephesus.util as ephesus
