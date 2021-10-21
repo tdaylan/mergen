@@ -790,7 +790,7 @@ def optimize_confusion_matrix(ticid_pred, y_pred, database_dir='./',
             accuracy.append(acc)
             
 
-def DAE_preprocessing(x, train_test_ratio=1, norm_type=None):
+def DAE_preprocessing(x, train_test_ratio=1, norm_type=None, ax=0):
     '''Preprocesses data in preparation for
     training a deep autoencoder.
     Parameters:
@@ -815,8 +815,8 @@ def DAE_preprocessing(x, train_test_ratio=1, norm_type=None):
         print('No normalization performed...')
     elif norm_type == 'standardization':
         print('Standardizing feature vectors...')
-        x_train = dt.standardize(x_train, ax=0)
-        if train_test_ratio < 1: x_test = dt.standardize(x_test, ax=0)
+        x_train = dt.standardize(x_train, ax=ax)
+        if train_test_ratio < 1: x_test = dt.standardize(x_test, ax=ax)
 
 
     if train_test_ratio < 1:
@@ -1963,7 +1963,7 @@ def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     if type(parampath) != type(None):
         params = read_hyperparameters_from_txt(parampath)
 
-    num_classes = np.shape(y_train)[1]
+    # num_classes = np.shape(y_train)[1]
     input_dim = np.shape(x_train)[1]
     
     hidden_units = list(range(params['maxdim'],
@@ -1971,13 +1971,14 @@ def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                               -params['step']))    
     if hidden_units[-1] != params['ldim']:
         hidden_units.append(params['ldim'])
-    
+
     if resize:
         input_img = Input(shape = (input_dim,1))
         x = Flatten()(input_img)
     else:
         input_img = Input(shape = (input_dim,))
         x = input_img
+
     for i in range(len(hidden_units)):
         x = Dense(hidden_units[i], activation=params['act'],
                   kernel_initializer=params['init'])(x)
@@ -2009,6 +2010,7 @@ def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         validation_data=(x_test,x_test)
 
     # -- train model -----------------------------------------------------------
+
     history = model.fit(x_train, x_train, epochs=params['epochs'],
                         batch_size=params['batch'], shuffle=True,
                         validation_data=validation_data)
@@ -3368,8 +3370,8 @@ def get_bottleneck(model, x_test, p, save=False, ticid=None, out=None,
                              outputs=bottleneck_layer)
     bottleneck = activation_model.predict(x_test)    
     
-    if p['fully_conv']:
-        bottleneck = np.squeeze(bottleneck, axis=-1)
+    # if p['fully_conv']:
+    #     bottleneck = np.squeeze(bottleneck, axis=-1)
     bottleneck = dt.standardize(bottleneck, ax=0)
     
     if save:
