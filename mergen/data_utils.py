@@ -163,16 +163,43 @@ def create_dir(path):
     except OSError:
         print ("Directory %s already exists" % path)
 
+# -- DOWNLOAD META DATA --------------------------------------------------------
+
+def init_meta_folder(metapath):
+    create_dir(metapath+'spoc/')
+    create_dir(metapath+'spoc/cat/') # >> external catalogs 
+    create_dir(metapath+'spoc/tic/') # >> TESS Input Catalog
+    create_dir(metapath+'spoc/targ/') # >> target lists
+    create_dir(metapath+'spoc/targ/2m/') # >> 2-minute cadence target lists
+    create_dir(metapath+'spoc/targ/20s/') # >> 20-second cadence target lists
+    for s in range(1, 45):
+        savepath=metapath+'spoc/targ/2m/'
+        fname = 'all_targets_S%03d'%s+'_v1.txt'
+
+        if not os.path.exists(savepath+fname):
+            url = 'https://tess.mit.edu/wp-content/uploads/'+fname
+            os.system('curl -o '+savepath+fname+' '+url)
+
+    for s in range(27, 45):
+        savepath=metapath+'spoc/targ/20s/'
+        fname = 'all_targets_20s_S%03d'%s+'_v1.txt'
+        if not os.path.exists(savepath+fname):
+            url = 'https://tess.mit.edu/wp-content/uploads/'+fname
+            os.system('curl -o '+savepath+fname+' '+url)
+    
+
 # -- DATA LOADING (SPOC) -------------------------------------------------------
 
 def load_data_from_metafiles(lcdir, sector, nan_mask_check=False):
         
-    sector_path + lcdir+'-%02d'%sector+'/'
+    sector_path = lcdir+'sector-%02d'%sector+'/'
     lcfile_list = os.listdir(sector_path)
 
     time, flux, meta = [], [], []
     for lcfile in lcfile_list:
-        data, m = dt.open_fits(fname=sector_path+lcfile)
+        data, m = open_fits(fname=sector_path+lcfile)
+        if type(data) == type(None):
+            data, m = open_fits(fname=sector_path+lcfile)
         time.append(data['TIME'])
         flux.append(data['FLUX'])
         meta.append(m)
@@ -605,9 +632,9 @@ def open_fits(lcdir='', objid=None, fname=None):
 
 
 def write_fits(savepath, meta, data, data_names, table_meta=[],
-               verbose=True, verbose_msg='', fname=None, fmt=None):
+               verbose=True, verbose_msg='', fname=None, fmt=None,
+               n_table_hdu=1, primary_data = None):
     """ 
-
     * savepath : string, directory to save light curve in
     * meta : primary HDU header data
     * data : second HDU table data, with column names given by data_names
@@ -619,23 +646,43 @@ def write_fits(savepath, meta, data, data_names, table_meta=[],
         objid = meta['TICID']
         fname = str(objid)+'.fits' # >> filename
 
+    hdu_list = []
+
     if type(meta) == type(None):
         primary_hdr = None
     else:
         primary_hdr = fits.Header(meta)
-    primary_hdu = fits.PrimaryHDU(None, header=primary_hdr) # >> metadata
+    primary_hdu = fits.PrimaryHDU(primary_data, header=primary_hdr) # >> metadata
+    hdu_list.append(primary_hdu)
 
-    if type(fmt) == type(None):
-        fmt = ['D'] * len(data)
-    table_hdr = fits.Header(table_meta)
-    col_list = []
-    for i in range(len(data_names)):
-        col = fits.Column(name=data_names[i], array=data[i], format=fmt[i])
-        col_list.append(col)
-    table_hdu = fits.BinTableHDU.from_columns(col_list, header=table_hdr)
+    if n_table_hdu == 1:
+        if type(fmt) == type(None):
+            fmt = ['D'] * len(data)
+        table_hdr = fits.Header(table_meta)
+        col_list = []
+        for i in range(len(data_names)):
+            col = fits.Column(name=data_names[i], array=data[i], format=fmt[i])
+            col_list.append(col)
+        table_hdu = fits.BinTableHDU.from_columns(col_list, header=table_hdr)
+        hdu_list.append(table_hdu)
+    else:
+        for n in range(n_table_hdu):
+            data_hdu = data[n]
+            if type(fmt) == type(None):
+                fmt_hdu = ['D'] * len(data_hdu)
+            else:
+                fmt_hdu = fmt[n]
+            table_hdr = fits.Header(table_meta)
+            col_list = []
+            for i in range(len(data_names[n])):
+                col = fits.Column(name=data_names[n][i], array=data_hdu[i],
+                                  format=fmt_hdu[i])
+                col_list.append(col)
+            table_hdu = fits.BinTableHDU.from_columns(col_list, header=table_hdr)
+            hdu_list.append(table_hdu)
 
     fname = savepath+fname
-    hdul = fits.HDUList([primary_hdu, table_hdu])
+    hdul = fits.HDUList(hdu_list)
     hdul.writeto(fname, overwrite=True)
     if verbose:
         print(verbose_msg+'\n')
@@ -1410,79 +1457,79 @@ def combine_sectors_by_lc(sectors, data_dir, custom_mask=[],
 
     return flux, x, ticid, np.array(target_info)
 
-def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
-                             ccds=[[1,2,3,4]]*4, data_type='SPOC',
-                             cadence='2-minute', DEBUG=False, fast=False,
-                             output_dir='./', debug_ind=0,
-                             nan_mask_check=True,
-                             custom_mask=[]):
-    '''Pulls light curves from fits files, and applies nan mask.
+# def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
+#                              ccds=[[1,2,3,4]]*4, data_type='SPOC',
+#                              cadence='2-minute', DEBUG=False, fast=False,
+#                              output_dir='./', debug_ind=0,
+#                              nan_mask_check=True,
+#                              custom_mask=[]):
+#     '''Pulls light curves from fits files, and applies nan mask.
     
-    Parameters:
-        * data_dir : folder containing fits files for each group
-        * sector : sector, given as int, or as a list
-        * cams : list of cameras
-        * ccds : list of CCDs
-        * data_type : 'SPOC', 'FFI'
-        * cadence : '2-minute', '20-second'
-        * DEBUG : makes nan_mask debugging plots. If True, the following are
-                  required:
-            * output_dir
-            * debug_ind
-        * nan_mask_check : if True, applies NaN mask
+#     Parameters:
+#         * data_dir : folder containing fits files for each group
+#         * sector : sector, given as int, or as a list
+#         * cams : list of cameras
+#         * ccds : list of CCDs
+#         * data_type : 'SPOC', 'FFI'
+#         * cadence : '2-minute', '20-second'
+#         * DEBUG : makes nan_mask debugging plots. If True, the following are
+#                   required:
+#             * output_dir
+#             * debug_ind
+#         * nan_mask_check : if True, applies NaN mask
     
-    Returns:
-        * flux : array of light curve PDCSAP_FLUX,
-                 shape=(num light curves, num data points)
-        * x : time array, shape=(num data points)
-        * ticid : list of TICIDs, shape=(num light curves)
-        * target_info : [sector, cam, ccd, data_type, cadence] for each light
-                        curve, shape=(num light curves, 5)
-    '''
+#     Returns:
+#         * flux : array of light curve PDCSAP_FLUX,
+#                  shape=(num light curves, num data points)
+#         * x : time array, shape=(num data points)
+#         * ticid : list of TICIDs, shape=(num light curves)
+#         * target_info : [sector, cam, ccd, data_type, cadence] for each light
+#                         curve, shape=(num light curves, 5)
+#     '''
     
-    # >> get file names for each group
-    fnames = []
-    fname_info = []
-    for i in range(len(cams)):
-        cam = cams[i]
-        for ccd in ccds[i]:
-            if fast:
-                s = 'Sector{sector}_20s/Sector{sector}Cam{cam}CCD{ccd}/' + \
-                    'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
-            else:
-                s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
-                    'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
-            fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
-            fname_info.append([sector, cam, ccd, data_type, cadence])
+#     # >> get file names for each group
+#     fnames = []
+#     fname_info = []
+#     for i in range(len(cams)):
+#         cam = cams[i]
+#         for ccd in ccds[i]:
+#             if fast:
+#                 s = 'Sector{sector}_20s/Sector{sector}Cam{cam}CCD{ccd}/' + \
+#                     'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+#             else:
+#                 s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
+#                     'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
+#             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
+#             fname_info.append([sector, cam, ccd, data_type, cadence])
                 
-    # >> pull data from each fits file
-    print('Pulling data')
-    flux_list = []
-    ticid = np.empty((0, 1))
-    target_info = [] # >> [sector, cam, ccd, data_type, cadence]
-    for i in range(len(fnames)):
-        print('Loading ' + fnames[i] + '...')
-        with fits.open(data_dir + fnames[i], memmap=False) as hdul:
-            if i == 0:
-                x = hdul[0].data
-            flux = hdul[1].data
-            ticid_list = hdul[2].data
+#     # >> pull data from each fits file
+#     print('Pulling data')
+#     flux_list = []
+#     ticid = np.empty((0, 1))
+#     target_info = [] # >> [sector, cam, ccd, data_type, cadence]
+#     for i in range(len(fnames)):
+#         print('Loading ' + fnames[i] + '...')
+#         with fits.open(data_dir + fnames[i], memmap=False) as hdul:
+#             if i == 0:
+#                 x = hdul[0].data
+#             flux = hdul[1].data
+#             ticid_list = hdul[2].data
     
-        flux_list.append(flux)
-        ticid = np.append(ticid, ticid_list)
-        target_info.extend([fname_info[i]] * len(flux))
+#         flux_list.append(flux)
+#         ticid = np.append(ticid, ticid_list)
+#         target_info.extend([fname_info[i]] * len(flux))
 
-    # >> concatenate flux array         
-    flux = np.concatenate(flux_list, axis=0)
+#     # >> concatenate flux array         
+#     flux = np.concatenate(flux_list, axis=0)
         
-    # >> apply nan mask
-    if nan_mask_check:
-        print('Applying nan mask')
-        flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid,
-                           debug_ind=debug_ind, target_info=target_info,
-                           output_dir=output_dir, custom_mask=custom_mask)
+#     # >> apply nan mask
+#     if nan_mask_check:
+#         print('Applying nan mask')
+#         flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid,
+#                            debug_ind=debug_ind, target_info=target_info,
+#                            output_dir=output_dir, custom_mask=custom_mask)
 
-    return flux, x, ticid, np.array(target_info)
+#     return flux, x, ticid, np.array(target_info)
     
     
 def load_group_from_fits(path, sector, camera, ccd): 
@@ -3305,102 +3352,102 @@ def query_gcvs(data_dir='./', sector='all', tol=0.1, diag_plot=True):
                 plt.savefig(prefix+'_tol'+str(tol)+'.png')
                 plt.close()
                 
-def query_asas_sn(data_dir='./', sector='all', diag_plot=True):
-    '''Cross-matches ASAS-SN catalog with TIC catalog based on matching GAIA IDs
-    * data_dir
-    * sector: 'all' or int, currently only handles short-cadence
-    '''
-    data = pd.read_csv(data_dir+'asas_sn_database.csv')
-    print('Loaded asas_sn_database.csv')
-    data_coords = coord.SkyCoord(data['RAJ2000'], data['DEJ2000'],
-                                 unit=(u.deg, u.deg))
+# def query_asas_sn(data_dir='./', sector='all', diag_plot=True):
+#     '''Cross-matches ASAS-SN catalog with TIC catalog based on matching GAIA IDs
+#     * data_dir
+#     * sector: 'all' or int, currently only handles short-cadence
+#     '''
+#     data = pd.read_csv(data_dir+'asas_sn_database.csv')
+#     print('Loaded asas_sn_database.csv')
+#     data_coords = coord.SkyCoord(data['RAJ2000'], data['DEJ2000'],
+#                                  unit=(u.deg, u.deg))
 
-    if sector=='all':
-        sectors = list(range(1,27))
-    else:
-        sectors=[sector]
+#     if sector=='all':
+#         sectors = list(range(1,27))
+#     else:
+#         sectors=[sector]
 
-    for sector in sectors:
-        # >> could also have retrieved ra dec from all_targets_S*_v1.txt
-        sector_data = pd.read_csv(data_dir+'Sector'+str(sector)+\
-                                  '/Sector'+str(sector)+'tic_cat_all.csv',
-                                  index_col=False)
-        print('Loaded Sector'+str(sector)+'tic_cat_all.csv')
-        out_fname = data_dir+'databases/Sector'+str(sector)+'_asassn.txt'
+#     for sector in sectors:
+#         # >> could also have retrieved ra dec from all_targets_S*_v1.txt
+#         sector_data = pd.read_csv(data_dir+'Sector'+str(sector)+\
+#                                   '/Sector'+str(sector)+'tic_cat_all.csv',
+#                                   index_col=False)
+#         print('Loaded Sector'+str(sector)+'tic_cat_all.csv')
+#         out_fname = data_dir+'databases/Sector'+str(sector)+'_asassn.txt'
 
-        _, comm1, comm2 = np.intersect1d(sector_data['GAIA'], data['GDR2_ID'],
-                                         return_indices=True)
+#         _, comm1, comm2 = np.intersect1d(sector_data['GAIA'], data['GDR2_ID'],
+#                                          return_indices=True)
 
-        # >> save cross-matched target in text file
-        with open(out_fname, 'w') as f:
-            for i in range(len(sector_data)):            
-                if i in comm1:
-                    ind = comm2[np.nonzero(comm1 == i)][0]
-                    f.write(str(int(sector_data['ID'][i]))+','+\
-                            str(data['Type'][ind])+','+str(data['ID'][ind])+'\n')
-                else:
-                    f.write(str(int(sector_data['ID'][i]))+',,\n')
-        print('Saved '+out_fname)
+#         # >> save cross-matched target in text file
+#         with open(out_fname, 'w') as f:
+#             for i in range(len(sector_data)):            
+#                 if i in comm1:
+#                     ind = comm2[np.nonzero(comm1 == i)][0]
+#                     f.write(str(int(sector_data['ID'][i]))+','+\
+#                             str(data['Type'][ind])+','+str(data['ID'][ind])+'\n')
+#                 else:
+#                     f.write(str(int(sector_data['ID'][i]))+',,\n')
+#         print('Saved '+out_fname)
 
-        if diag_plot:
-            prefix = data_dir+'databases/Sector'+str(sector)+'_'
+#         if diag_plot:
+#             prefix = data_dir+'databases/Sector'+str(sector)+'_'
 
-            # >> compare magnitude from TIC and ASAS-SN of cross-matched targets
-            plt.figure()
-            plt.plot(sector_data['GAIAmag'][comm1], data['Mean Vmag'][comm2], '.k')
-            plt.xlabel('GAIA magnitude (TIC)')
-            plt.ylabel('Mean Vmag (ASAS-SN)')
-            plt.savefig(prefix+'asassn_mag_cross_match.png')
-            plt.close()
+#             # >> compare magnitude from TIC and ASAS-SN of cross-matched targets
+#             plt.figure()
+#             plt.plot(sector_data['GAIAmag'][comm1], data['Mean Vmag'][comm2], '.k')
+#             plt.xlabel('GAIA magnitude (TIC)')
+#             plt.ylabel('Mean Vmag (ASAS-SN)')
+#             plt.savefig(prefix+'asassn_mag_cross_match.png')
+#             plt.close()
 
-            # >> get minimum separations between TIC and ASAS-SN targts
-            if os.path.exists(prefix+'asassn_sep.txt'):
-                sep_arcsec = np.loadtxt(prefix+'asassn_sep.txt')
-                min_inds = np.loadtxt(prefix+'asassn_sep_inds.txt').astype('int')
-            else:
-                min_sep = []
-                min_inds = []
-                for i in range(len(sector_data)):
-                    print('TIC '+str(int(sector_data['ID'][i]))+'\t'+str(i)+'/'+\
-                          str(len(sector_data)))
-                    ticid_coord = coord.SkyCoord(sector_data['ra'][i],
-                                                 sector_data['dec'][i],
-                                                 unit=(u.deg, u.deg)) 
-                    sep = ticid_coord.separation(data_coords)
-                    min_sep.append(np.min(sep))
-                    min_inds.append(np.argmin(sep))
-                sep_arcsec = np.array([sep.to(u.arcsec).value for sep in min_sep])
-                min_inds = np.array(min_inds)
-                np.savetxt(prefix+'asassn_sep.txt', sep_arcsec)
-                np.savetxt(prefix+'asassn_sep_inds.txt', min_inds)
+#             # >> get minimum separations between TIC and ASAS-SN targts
+#             if os.path.exists(prefix+'asassn_sep.txt'):
+#                 sep_arcsec = np.loadtxt(prefix+'asassn_sep.txt')
+#                 min_inds = np.loadtxt(prefix+'asassn_sep_inds.txt').astype('int')
+#             else:
+#                 min_sep = []
+#                 min_inds = []
+#                 for i in range(len(sector_data)):
+#                     print('TIC '+str(int(sector_data['ID'][i]))+'\t'+str(i)+'/'+\
+#                           str(len(sector_data)))
+#                     ticid_coord = coord.SkyCoord(sector_data['ra'][i],
+#                                                  sector_data['dec'][i],
+#                                                  unit=(u.deg, u.deg)) 
+#                     sep = ticid_coord.separation(data_coords)
+#                     min_sep.append(np.min(sep))
+#                     min_inds.append(np.argmin(sep))
+#                 sep_arcsec = np.array([sep.to(u.arcsec).value for sep in min_sep])
+#                 min_inds = np.array(min_inds)
+#                 np.savetxt(prefix+'asassn_sep.txt', sep_arcsec)
+#                 np.savetxt(prefix+'asassn_sep_inds.txt', min_inds)
 
-            # >> make histogram of minimum separations
-            fig, ax = plt.subplots()
-            ax.hist(sep_arcsec, bins=10**np.linspace(-2, 4, 30), log=True)
-            ax.set_xlabel('arcseconds')
-            ax.set_ylabel('number of targets in Sector '+str(sector))
-            ax.set_xscale('log')
-            fig.savefig(prefix+'asassn_sep_arcsec.png')
+#             # >> make histogram of minimum separations
+#             fig, ax = plt.subplots()
+#             ax.hist(sep_arcsec, bins=10**np.linspace(-2, 4, 30), log=True)
+#             ax.set_xlabel('arcseconds')
+#             ax.set_ylabel('number of targets in Sector '+str(sector))
+#             ax.set_xscale('log')
+#             fig.savefig(prefix+'asassn_sep_arcsec.png')
 
-            fig1, ax1 = plt.subplots()
-            ax1.hist(sep_arcsec[comm1], bins=10**np.linspace(-2, 4, 30), log=True)
-            ax1.set_xlabel('arcseconds')
-            ax1.set_ylabel('number of cross-matched targets in Sector '+str(sector))
-            ax1.set_xscale('log')
-            ax1.set_ylim(ax.get_ylim())
-            fig1.savefig(prefix+'asassn_sep_cross_match.png')
+#             fig1, ax1 = plt.subplots()
+#             ax1.hist(sep_arcsec[comm1], bins=10**np.linspace(-2, 4, 30), log=True)
+#             ax1.set_xlabel('arcseconds')
+#             ax1.set_ylabel('number of cross-matched targets in Sector '+str(sector))
+#             ax1.set_xscale('log')
+#             ax1.set_ylim(ax.get_ylim())
+#             fig1.savefig(prefix+'asassn_sep_cross_match.png')
 
-            # >> compare magnitude from TIC and ASAS-SN of cross-matched targets
-            tol_tests = [10, 1, 0.1]
-            for tol in tol_tests:
-                inds1 = np.nonzero(sep_arcsec < tol)
-                inds2 = min_inds[inds1]
-                plt.figure()
-                plt.plot(sector_data['GAIAmag'][inds1][0], data['Mean Vmag'][inds2], '.k')
-                plt.xlabel('GAIA magnitude (TIC)')
-                plt.ylabel('Mean Vmag (ASAS-SN)')
-                plt.savefig(prefix+'asassn_mag_tol'+str(tol)+'.png')
-                plt.close()
+#             # >> compare magnitude from TIC and ASAS-SN of cross-matched targets
+#             tol_tests = [10, 1, 0.1]
+#             for tol in tol_tests:
+#                 inds1 = np.nonzero(sep_arcsec < tol)
+#                 inds2 = min_inds[inds1]
+#                 plt.figure()
+#                 plt.plot(sector_data['GAIAmag'][inds1][0], data['Mean Vmag'][inds2], '.k')
+#                 plt.xlabel('GAIA magnitude (TIC)')
+#                 plt.ylabel('Mean Vmag (ASAS-SN)')
+#                 plt.savefig(prefix+'asassn_mag_tol'+str(tol)+'.png')
+#                 plt.close()
 
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -3706,38 +3753,6 @@ def make_remove_class_list(simbad=False, rmv_flagged=True):
 
     return rmv+sequence_descriptors+flagged
 
-def make_flagged_class_list():
-
-    # >> section 5bc of GCVS classifications: eclipsing systems classified
-    # >> based on physical characteristics rather than shape of light curve
-    eclip = ['GS', 'PN', 'RS', 'WD', 'WR', 'AR', 'D', 'DM', 'DS', 'DW', 'K',
-             'KE', 'KW', 'SD'] 
-
-    flagged = ['Em', 'Pe']
-
-    return eclip+flagged
-
-def make_true_label_txt(data_dir, sector):
-    '''Combine Sector*_simbad.txt, Sector*_GCVS.txt, and Sector*_asassn.txt
-    TODO: edit to handle 30-min cadence, etc.'''
-    prefix = data_dir+'databases/Sector'+str(sector)+'_'
-    ticid = np.loadtxt(data_dir+'Sector'+str(sector)+'/all_targets_S%03d'%sector\
-                       +'_v1.txt')[:,0]
-    otypes = {key: [] for key in ticid} # >> initialize
-
-    otypes = read_otype_txt(otypes, prefix+'gcvs.txt', data_dir)
-    otypes = read_otype_txt(otypes, prefix+'asassn.txt', data_dir)
-    otypes = read_otype_txt(otypes, prefix+'simbad.txt', data_dir, simbad=True)
-
-    # >> save to text file
-    out = prefix+'true_labels.txt'
-    with open(out, 'w') as f:
-        for i in range(len(ticid)):
-            # >> merge classes
-            otype = merge_otype(otypes[ticid[i]])
-            otype = '|'.join(otype)
-            f.write(str(int(ticid[i]))+','+otype+'\n')    
-            
 def read_otype_txt(otypes, otype_txt, data_dir, simbad=False, add_chars=['+', '/'],
                    uncertainty_flags=[':', '?', '*']):
 
@@ -3790,57 +3805,57 @@ def read_otype_txt(otypes, otype_txt, data_dir, simbad=False, add_chars=['+', '/
 
 
 
-
-
-def correct_simbad_to_vizier(in_f='./SectorX_simbad.txt',
-                             out_f='./SectorX_simbad_revised.txt',
-                             simbad_gcvs_conversion='./simbad_gcvs_label.txt',
-                             uncertainty_flags=[':', '?', '*']):
-    '''TODO: Clean up args.'''
+# def correct_simbad_to_vizier(in_f='./SectorX_simbad.txt',
+#                              out_f='./SectorX_simbad_revised.txt',
+#                              simbad_gcvs_conversion='./simbad_gcvs_label.txt',
+#                              uncertainty_flags=[':', '?', '*']):
+#     '''TODO: Clean up args.'''
     
-    with open(simbad_gcvs_conversion, 'r') as f:
-        lines = f.readlines()
-    renamed = {}
-    for line in lines:
-        otype, description = line.split(' = ')
+#     with open(simbad_gcvs_conversion, 'r') as f:
+#         lines = f.readlines()
+#     renamed = {}
+#     for line in lines:
+#         otype, description = line.split(' = ')
         
-        # >> remove new line character
-        description = description.replace('\n', '')
+#         # >> remove new line character
+#         description = description.replace('\n', '')
         
-        renamed[otype] = description    
+#         renamed[otype] = description    
     
-    with open(in_f, 'r') as f:
-        lines = f.readlines()
+#     with open(in_f, 'r') as f:
+#         lines = f.readlines()
         
         
-    for line in lines:
-        tic, otype, main = line.split(',')
-        otype = otype.replace('+', '|')
-        otype_list = otype.split('|')
-        otype_list_new = []
+#     for line in lines:
+#         tic, otype, main = line.split(',')
+#         otype = otype.replace('+', '|')
+#         otype_list = otype.split('|')
+#         otype_list_new = []
         
-        for o in otype_list:
+#         for o in otype_list:
             
-            if len(o) > 0:
-                # >> remove uncertainty_flags
-                if o[-1] in uncertainty_flags:
-                    o = o[:-1]
+#             if len(o) > 0:
+#                 # >> remove uncertainty_flags
+#                 if o[-1] in uncertainty_flags:
+#                     o = o[:-1]
                     
-                # >> remove (B)
-                if '(' in o:
-                    o = o[:o.index('(')]
+#                 # >> remove (B)
+#                 if '(' in o:
+#                     o = o[:o.index('(')]
                     
-                if o in list(renamed.keys()):
-                    o = renamed[o]
+#                 if o in list(renamed.keys()):
+#                     o = renamed[o]
                 
-            otype_list_new.append(o)
+#             otype_list_new.append(o)
                 
                 
-        otype = '|'.join(otype_list_new)
+#         otype = '|'.join(otype_list_new)
         
         
-        with open(out_f, 'a') as f:
-            f.write(','.join([tic, otype, main]))
+#         with open(out_f, 'a') as f:
+#             f.write(','.join([tic, otype, main]))
+
+
 
 def quick_simbad(ticidasstring):
     """ only returns if it has a tyc id"""
@@ -3863,7 +3878,9 @@ def get_true_classifications(ticid=[], data_dir='./', sector='all'):
     * sector: either 'all' or int'''
     ticid_true = []
     otypes = []
-    database_dir = data_dir+'databases/'
+    # database_dir = data_dir+'databases/'
+    database_dir = data_dir+'true/'
+    
     
     # >> find all text files in directory
     if sector == 'all':
@@ -3884,14 +3901,26 @@ def get_true_classifications(ticid=[], data_dir='./', sector='all'):
     
     return ticid_true, otypes
 
-def load_otype_true_from_datadir(datapath, sector, ticid):
+def load_otype_true_from_datadir(savepath, sectors, ticid):
     '''Reads *-ticid_to_label.txt and returns:
     * otype : Variability types (following nomenclature by GCVS)'''
     
     print('Loading ground truth object types...')
 
-    ticid_true, otype = get_true_classifications(ticid, datapath,
-                                                 sector=sector)
+    ticid_true = []
+    otype = []
+    # for sector in np.unique(sectors):
+    # !! 
+    for sector in [1]:
+        ticid_sector = ticid[np.nonzero(sectors == sector)]
+
+        ticid_sector, otype_sector = \
+            get_true_classifications(ticid_sector, savepath, sector=sector)
+        ticid_true.extend(ticid_sector)
+        otype.extend(otype_sector)
+
+    ticid_true = np.array(ticid_true)
+    otype = np.array(otype)
 
     rmvtype=['V', 'VAR', '**', '*i', '*iC', '*iA','*iN', 'Em']
     ticid_new, otype_new = get_parent_otypes(ticid_true, otype,

@@ -126,9 +126,11 @@ import random
 
 
 def produce_clustering_visualizations(feats, numtot, numpot, tsne, output_dir,
-                                      totd, potd, prefix='', anim=False, elev=45,
+                                      totd, potd, objid, prefix='', anim=False, elev=45,
                                       crot_analysis=True):
     # prefix = 'perplexity'+str(perplexity)+'_elev'+str(elev)+'_'
+    output_dir = output_dir + 'imgs/'
+    dt.create_dir(output_dir)
 
     # >> color with clustering results
     prefix = 'pred_'
@@ -142,7 +144,22 @@ def produce_clustering_visualizations(feats, numtot, numpot, tsne, output_dir,
 
     # >> specific science case: complex rotators
     if crot_analysis:
-        crot = []
+        prefix='crot_'
+        # >> known complex rotators (sectors 1, 2)
+        # targets      = [38820496, 177309964, 206544316, 234295610, 289840928,
+        #                 425933644, 425937691] # >> sector 1 only
+        targets = [38820496, 177309964, 201789285, 206544316, 224283342,\
+                   234295610, 289840928, 332517282, 425933644, 425937691]
+        numcot = [] # >> numerized complex rotator ensemble object type
+        cotd = {0: 'NONE', 1:'CROT'}
+        for ticid in objid:
+            if int(ticid) in targets:
+                numcot.append(1)
+            else:
+                numcot.append(0)
+        plot_tsne(feats, numcot, X=tsne, output_dir=output_dir,
+                  prefix=prefix, animate=anim, elev=elev, otypedict=cotd,
+                  class_marker='x', class_ms=20, debug=True)
 
     return
 
@@ -2313,7 +2330,8 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
     
     
 def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
-              prefix='', animate=False, elev=10, otypedict=None, alpha=0.5):
+              prefix='', animate=False, elev=10, otypedict=None, alpha=0.5,
+              class_marker='.', class_ms=5, debug=False):
     if type(X) == type(None):
         from sklearn.manifold import TSNE
         X = TSNE(n_components=n_components).fit_transform(bottleneck)
@@ -2341,16 +2359,23 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
         if otypedict[i] == 'NONE':
             color = 'black'
             al = 0.01
+            marker='.'
+            ms = 5
         elif i < len(colors) - 1:
             color = colors[i]
             al = alpha
+            marker = class_marker
+            ms = class_ms
+            if debug:pdb.set_trace()
         else:
             color='black'
+            marker = '.'
+            ms = 5
 
         # >> plot all datapoints
         if X.shape[1] == 2:
-            ax.plot(X[class_inds][:,0], X[class_inds][:,1], '.', color=color,
-                    alpha=al)
+            ax.plot(X[class_inds][:,0], X[class_inds][:,1], marker, color=color,
+                    alpha=al, ms=ms)
             ax.set_xlabel('t-SNE Component 1')
             ax.set_ylabel('t-SNE Component 2')
         else:
@@ -2389,7 +2414,7 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
                 xv, yv, zv = [cntpt[0], xp], [cntpt[1], yp], [cntpt[2], zp]
                 ax.plot(xv, yv, zv, '-', color=color)
 
-    plt.savefig(output_dir + prefix + 't-sne.png')
+    plt.savefig(output_dir + prefix + 't-sne.png', dpi=300)
     print('Saved '+output_dir+prefix+'t-sne.png')
 
     if animate:

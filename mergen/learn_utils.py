@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 """
 Created on Thu Feb 25 18:50:41 2021
@@ -170,7 +169,7 @@ def run_tsne(features, n_components=2, perplexity=30, early_exaggeration=12,
     if save:
         hdr=fits.Header()
         hdu=fits.PrimaryHDU(X, header=hdr)
-        hdu.writeto(savepath+'tsne.fits')
+        hdu.writeto(savepath+'tsne.fits', overwrite=True)
 
     return X
     
@@ -179,7 +178,8 @@ def load_tsne_from_fits(ensbpath):
         X = hdul[0].data
     return X
 
-def label_clusters(ensbpath, sector, ticid, clstr, totype, numtot, totd):
+def label_clusters(ensbpath, sectors, ticid, clstr, totype, numtot, totd):
+
     # >> create confusion matrix
     cm  = confusion_matrix(clstr, numtot)
 
@@ -205,13 +205,15 @@ def label_clusters(ensbpath, sector, ticid, clstr, totype, numtot, totd):
 
     # >> create list of predicted otypes (potype)
     potype = []
-    fname = ensbpath+'Sector'+str(sector)+'-ticid_to_label.txt'
+    # fname = ensbpath+'Sector'+str(sector)+'-ticid_to_label.txt'
+    fname = ensbpath+'s-'+'-'.join(np.unique(sectors).astype('str'))+\
+            '-ticid_to_label.txt'
     with open(fname, 'w') as f:
-        f.write('TICID,OTYPE\n')
+        f.write('TICID,OTYPE,SECTOR\n')
         for i in range(len(ticid)):
-            otype = potd[clstr[i]]
+            otype = potd[str(clstr[i])]
             potype.append(otype)
-            f.write(str(ticid[i])+','+otype+'\n')
+            f.write(str(ticid[i])+','+otype+','+str(sectors[i])+'\n')
     print('Saved '+fname)
 
     return potd, potype
@@ -557,7 +559,8 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
                     if save:
                         hdr=fits.Header()
                         hdu=fits.PrimaryHDU(labels, header=hdr)
-                        hdu.writeto(output_dir + 'HDBSCAN_res'+str(param_num)+'.fits')
+                        hdu.writeto(output_dir + 'HDBSCAN_res'+str(param_num)+'.fits',
+                                    overwrite=True)
                     
                     print(np.unique(labels, return_counts=True))
                     classes_1, counts_1 = np.unique(labels, return_counts=True)
@@ -790,41 +793,41 @@ def optimize_confusion_matrix(ticid_pred, y_pred, database_dir='./',
             accuracy.append(acc)
             
 
-def DAE_preprocessing(x, train_test_ratio=1, norm_type=None, ax=0):
-    '''Preprocesses data in preparation for
-    training a deep autoencoder.
-    Parameters:
-        * p : parameter dictionary
-        * ticid : list of TICIDs, shape=(num light curves)
-        * target_info : meta data (sector, cam, ccd, data_type, cadence) for each light
-                        curve, shape=(num light curves, 5)
-        * train_test_ratio : partition ratio. If 1, then no partitioning.
-    '''
+# def DAE_preprocessing(x, train_test_ratio=1, norm_type=None, ax=0):
+#     '''Preprocesses data in preparation for
+#     training a deep autoencoder.
+#     Parameters:
+#         * p : parameter dictionary
+#         * ticid : list of TICIDs, shape=(num light curves)
+#         * target_info : meta data (sector, cam, ccd, data_type, cadence) for each light
+#                         curve, shape=(num light curves, 5)
+#         * train_test_ratio : partition ratio. If 1, then no partitioning.
+#     '''
 
 
-    if train_test_ratio < 1:
-        print('Partitioning data...')
-        x_train, x_test, y_train, y_test, flux_train, flux_test,\
-        ticid_train, ticid_test, target_info_train, target_info_test, time =\
-            split_data_features(flux, features, time, ticid, target_info,
-                                train_test_ratio=train_test_ratio)
-    else:
-        x_train = x
+#     if train_test_ratio < 1:
+#         print('Partitioning data...')
+#         x_train, x_test, y_train, y_test, flux_train, flux_test,\
+#         ticid_train, ticid_test, target_info_train, target_info_test, time =\
+#             split_data_features(flux, features, time, ticid, target_info,
+#                                 train_test_ratio=train_test_ratio)
+#     else:
+#         x_train = x
 
-    if type(norm_type) == type(None):
-        print('No normalization performed...')
-    elif norm_type == 'standardization':
-        print('Standardizing feature vectors...')
-        x_train = dt.standardize(x_train, ax=ax)
-        if train_test_ratio < 1: x_test = dt.standardize(x_test, ax=ax)
+#     if type(norm_type) == type(None):
+#         print('No normalization performed...')
+#     elif norm_type == 'standardization':
+#         print('Standardizing feature vectors...')
+#         x_train = dt.standardize(x_train, ax=ax)
+#         if train_test_ratio < 1: x_test = dt.standardize(x_test, ax=ax)
 
 
-    if train_test_ratio < 1:
-        return x_train, x_test, flux_train, flux_test, \
-            ticid_train, ticid_test, target_info_train, target_info_test, freq, time
+#     if train_test_ratio < 1:
+#         return x_train, x_test, flux_train, flux_test, \
+#             ticid_train, ticid_test, target_info_train, target_info_test, freq, time
 
-    else:
-        return x_train
+#     else:
+#         return x_train
             
 
 def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
@@ -911,11 +914,11 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
         # >> save the RMS and TICIDs to a fits file
         hdr = fits.Header()
         hdu = fits.PrimaryHDU(rms_train, header=hdr)
-        hdu.writeto(output_dir+prefix+'rms_train.fits')
+        hdu.writeto(output_dir+prefix+'rms_train.fits', overwrite=True)
         fits.append(output_dir+prefix+'rms_train.fits', ticid_train)
         hdr = fits.Header()
         hdu = fits.PrimaryHDU(rms_test, header=hdr)
-        hdu.writeto(output_dir+prefix+'rms_test.fits')
+        hdu.writeto(output_dir+prefix+'rms_test.fits', overwrite=True)
         fits.append(output_dir+prefix+'rms_test.fits', ticid_test)
 
     if split:
@@ -1167,9 +1170,13 @@ def load_DAE_bottleneck(savepath, ticid):
     # >> ticid == ticid[sorted_inds][np.argsort(sorted_inds)]
     new_inds = np.argsort(sorted_inds)
     _, comm1, comm2 = np.intersect1d(ticid, ticid_train, return_indices=True)
-    bottleneck_train = bottleneck_train[comm2][new_inds]   
+
+    ticid = ticid_train[comm2]
+    bottleneck_train = bottleneck_train[comm2]
+    # !!
+    sectors = np.ones(np.shape(ticid)).astype('int')
     
-    return bottleneck_train
+    return bottleneck_train, ticid, sectors
 
 def load_reconstructions(output_dir, ticid):
     filo = fits.open(output_dir + 'x_predict_train.fits')
@@ -1285,7 +1292,8 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                 new_features = get_bottleneck(model_DAE, features, p_DAE)
                 features=new_features
                 hdu = fits.PrimaryHDU(features)
-                hdu.writeto(output_dir+prefix+'feature_space_DAE.fits')
+                hdu.writeto(output_dir+prefix+'feature_space_DAE.fits',
+                            overwrite=True)
                 pt.epoch_plots(history_DAE, p_DAE, output_dir)
         elif VAE:
             suffix = '_VAE'
@@ -1298,7 +1306,8 @@ def post_process(x, x_train, x_test, ticid_train, ticid_test, target_info_train,
                 new_features = encoder.predict(features)
                 features = new_features[2]
                 hdu = fits.PrimaryHDU(features)
-                hdu.writeto(output_dir+prefix+'feature_space'+suffix+'.fits')
+                hdu.writeto(output_dir+prefix+'feature_space'+suffix+'.fits',
+                            overwrite=True)
                 pt.epoch_plots(history_DAE, p_DAE, output_dir)
 
         if plot_feat_space:
@@ -1452,7 +1461,7 @@ def save_autoencoder_products(output_dir, prefix, model, history, x_train,
     bottleneck_train = \
         get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
                        out=output_dir+prefix+'bottleneck_train.fits')
-    if type(x_test) == type(None):
+    if type(x_test) != type(None):
         bottleneck_test = \
         get_bottleneck(model, x_test, params, save=True, ticid=ticid_test,
                        out=output_dir+prefix+'bottleneck_test.fits')    
@@ -1461,22 +1470,23 @@ def save_autoencoder_products(output_dir, prefix, model, history, x_train,
     x_predict_train = model.predict(x_train)      
     hdr = fits.Header()
     hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
-    hdu.writeto(output_dir+prefix+'x_predict_train.fits')
+    hdu.writeto(output_dir+prefix+'x_predict_train.fits', overwrite=True)
     fits.append(output_dir+prefix+'x_predict_train.fits', ticid_train)
 
-    if len(x_test) > 0:
+    if type(x_test) != type(None):
         x_predict_test = model.predict(x_test)     
         hdr = fits.Header()
         if concat_ext_feats:
             hdu = fits.PrimaryHDU(x_predict_test[0], header=hdr)
         else:
             hdu = fits.PrimaryHDU(x_predict_test, header=hdr)
-        hdu.writeto(output_dir+prefix+'x_predict.fits')
+        hdu.writeto(output_dir+prefix+'x_predict.fits', overwrite=True)
+
         fits.append(output_dir+prefix+'x_predict.fits', ticid_test)
 
     model_summary_txt(output_dir+prefix, model)         
 
-    if len(x_test) > 0:
+    if type(x_test) != type(None):
         return model, history, bottleneck_train, bottleneck_test,\
             x_predict_train, x_predict_test
     else:
@@ -1642,7 +1652,7 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
             bottleneck=np.empty((0,params['latent_dim']))
             hdr=  fits.Header()
             hdu = fits.PrimaryHDU(bottleneck, header=hdr)
-            hdu.writeto(output_dir+prefix+'bottleneck_test.fits')
+            hdu.writeto(output_dir+prefix+'bottleneck_test.fits', overwrite=True)
             fits.append(output_dir+prefix+'bottleneck_test.fits', ticid_test)
             
         res.append(bottleneck_train)
@@ -1656,7 +1666,7 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                 hdu = fits.PrimaryHDU(x_predict[0], header=hdr)
             else:
                 hdu = fits.PrimaryHDU(x_predict, header=hdr)
-            hdu.writeto(output_dir+prefix+'x_predict.fits')
+            hdu.writeto(output_dir+prefix+'x_predict.fits', overwrite=True)
             fits.append(output_dir+prefix+'x_predict.fits', ticid_test)
             model_summary_txt(output_dir+prefix, model)
         else:
@@ -1669,7 +1679,7 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
             hdu = fits.PrimaryHDU(x_predict_train[0], header=hdr)
         else:
             hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
-        hdu.writeto(output_dir+prefix+'x_predict_train.fits')
+        hdu.writeto(output_dir+prefix+'x_predict_train.fits', overwrite=True)
         fits.append(output_dir+prefix+'x_predict_train.fits', ticid_train)
         model_summary_txt(output_dir+prefix, model)         
         res.append(x_predict_train)
@@ -2107,7 +2117,7 @@ def run_cvae(x_train, y_train, x_test, y_test, params, save_model=True,
             bottleneck=np.empty((0,params['latent_dim']))
             hdr=  fits.Header()
             hdu = fits.PrimaryHDU(bottleneck, header=hdr)
-            hdu.writeto(output_dir+prefix+'bottleneck_test.fits')
+            hdu.writeto(output_dir+prefix+'bottleneck_test.fits', overwrite=True)
             fits.append(output_dir+prefix+'bottleneck_test.fits', ticid_test)
             
         res.append(bottleneck_train)
@@ -2122,7 +2132,7 @@ def run_cvae(x_train, y_train, x_test, y_test, params, save_model=True,
                 hdu = fits.PrimaryHDU(x_predict[0], header=hdr)
             else:
                 hdu = fits.PrimaryHDU(x_predict, header=hdr)
-            hdu.writeto(output_dir+prefix+'x_predict.fits')
+            hdu.writeto(output_dir+prefix+'x_predict.fits', overwrite=True)
             fits.append(output_dir+prefix+'x_predict.fits', ticid_test)
             model_summary_txt(output_dir+prefix, model)
         else:
@@ -2135,7 +2145,7 @@ def run_cvae(x_train, y_train, x_test, y_test, params, save_model=True,
             hdu = fits.PrimaryHDU(x_predict_train[0], header=hdr)
         else:
             hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
-        hdu.writeto(output_dir+prefix+'x_predict_train.fits')
+        hdu.writeto(output_dir+prefix+'x_predict_train.fits', overwrite=True)
         fits.append(output_dir+prefix+'x_predict_train.fits', ticid_train)
         model_summary_txt(output_dir+prefix, model)         
         res.append(x_predict_train)
@@ -2864,7 +2874,7 @@ def iterative_cae(flux_train, flux_test, x, p, ticid_train,
         for i in [0, 2]: #range(iterations+1):
             fname=output_dir+'iteration'+str(i)+'-ticid_to_label.txt'
             filo = np.loadtxt(fname, dtype='str', delimiter=',')
-            ticid_label = np.append(ticid_label, filo, axis=0)
+            ticid_label = np.append(ticid_label, filo[:,:2], axis=0)
 
 
         prefix='Sector'+str(sectors[0])+'-'
@@ -3362,7 +3372,6 @@ def get_bottleneck(model, x_test, p, save=False, ticid=None, out=None,
                    vae=False):
     if vae:
         bottleneck_layer = vae_encoder.predict(x_test, p)
-        pdb.set_trace()
 
     else:
         bottleneck_layer = model.get_layer('bottleneck').output
@@ -3377,7 +3386,7 @@ def get_bottleneck(model, x_test, p, save=False, ticid=None, out=None,
     if save:
         hdr = fits.Header()
         hdu = fits.PrimaryHDU(bottleneck, header=hdr)
-        hdu.writeto(out)    
+        hdu.writeto(out, overwrite=True)    
         fits.append(out, ticid)          
     
     return bottleneck

@@ -84,6 +84,7 @@ class mergen(object):
         self.metapath = metapath
         self.datatype = datatype # >> SPOC or FFI
         # self.ensbpath = self.savepath+'Ensemble-Sector_'+str(self.sector)+'/'
+        self.ensbpath = self.savepath # !!
         self.mdumpcsv = mdumpcsv
 
         if filelabel is not None:
@@ -116,6 +117,9 @@ class mergen(object):
         if self.ENF:
             self.ENFpath = self.savepath + "ENF/"
             dt.create_dir(self.ENFpath)
+
+    def initiate_meta(self):
+        dt.init_meta_folder(self.metapath)
 
     def run(self):
         # >> load data
@@ -233,7 +237,7 @@ class mergen(object):
 
     def produce_ae_visualizations(self,featgen):
         if featgen == "DAE":
-            pt.produce_ae_visualizations(self.freq, self.pgram, self.rcon,
+            pt.produce_ae_visualizations(self.freq[0], self.pgram, self.rcon,
                                          self.DAEpath, self.objid, self.target_info,
                                          psd=True)
 
@@ -268,7 +272,7 @@ class mergen(object):
             * potd : predicted object type dictionary
             * potype : array of predicted object types, shape=(len(objid),)"""
         self.potd, self.potype = \
-            lt.label_clusters(self.ensbpath+featgen+'/', self.sector,
+            lt.label_clusters(self.ensbpath+featgen+'/', self.sectors,
                               self.objid, self.clstr, self.totype, self.numtot,
                               self.totd)
 
@@ -278,7 +282,7 @@ class mergen(object):
         pt.produce_clustering_visualizations(self.feats, self.numtot,
                                              self.numpot, self.tsne,
                                              self.ensbpath+featgen+'/',
-                                             self.totd, self.potd)
+                                             self.totd, self.potd, self.objid)
 
 
     def generate_novelty_scores(self, featgen):
@@ -290,8 +294,12 @@ class mergen(object):
         self.rcon = lt.load_reconstructions(self.ensbpath+featgen+'/', self.objid)
 
     def produce_novelty_visualizations(self, featgen):
-        pt.produce_novelty_visualizations(self.nvlty, self.ensbpath+featgen+'/',
-                                          self.time, self.flux, self.objid)
+        if featgen == "CAE":
+            pt.produce_novelty_visualizations(self.nvlty, self.ensbpath+featgen+'/',
+                                              self.time, self.flux, self.objid)
+        elif featgen == "DAE": # !!
+            pt.produce_novelty_visualizations(self.nvlty, self.ensbpath+featgen+'/',
+                                              self.freq[0], self.pgram, self.objid)
         
     def run_feature_analysis(self, featgen):
         self.load_true_otypes()
@@ -320,7 +328,9 @@ class mergen(object):
                 lt.load_bottleneck_from_fits(self.CAEpath, self.objid,
                                              self.runiter, self.numiter)
         elif featgen == "DAE": 
-            self.feats = lt.load_DAE_bottleneck(self.DAEpath, self.objid)
+            self.feats, self.objid, self.sectors = \
+                lt.load_DAE_bottleneck(self.DAEpath, self.objid)
+            # !! should also return sectors
 
     def load_gmm_clusters(self, featgen):
         """ clstr : array of cluster numbers, shape=(len(objid),)"""
@@ -337,8 +347,8 @@ class mergen(object):
 
     def load_true_otypes(self):
         """ totype : true object types"""
-        self.totype = dt.load_otype_true_from_datadir(self.datapath,
-                                                      self.sector,
+        self.totype = dt.load_otype_true_from_datadir(self.savepath,
+                                                      self.sectors,
                                                       self.objid)
 
     def numerize_true_otypes(self):
