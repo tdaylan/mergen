@@ -584,9 +584,16 @@ def standardize(x, ax=1):
     stdevs = np.nanstd(x, axis = ax, keepdims=True) # >> divide by standard dev
     
     # >> avoid dividing by 0.0
-    stdevs[ np.nonzero(stdevs == 0.) ] = 1e-8
+    stdevs[ np.nonzero(stdevs == 0.) ] = 1e-7 #1e-8
     
     x = x / stdevs
+    return x
+
+def normalize_minmax(x, ax=1):
+    mins = np.min(x, axis=ax, keepdims=True)
+    x = x - mins
+    maxs = np.max(x, axis=ax, keepdims=True)
+    x = x / maxs
     return x
 
 # -- Open and write light curve Fits files -------------------------------------

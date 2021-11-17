@@ -890,10 +890,7 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
 
     elif norm_type == 'minmax_normalization':
         print('Normalizing fluxes (changing minimum and range)...')
-        mins = np.min(x, axis = 1, keepdims=True)
-        x = x - mins
-        maxs = np.max(x, axis=1, keepdims=True)
-        x = x / maxs
+        x = dt.normalize_minmax(flux)
 
     else:
         print('Light curves were not normalized!')
@@ -1442,7 +1439,7 @@ def param_summary(history, x_train, x_test, x_predict_train, x_predict, p,
         f.write('\n')
     
 def model_summary_txt(output_dir, model):
-    with open(output_dir + 'model_summary.txt', 'a') as f:
+    with open(output_dir + 'model_summary.txt', 'w') as f:
         model.summary(print_fn=lambda line: f.write(line + '\n'))
 
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -1451,29 +1448,57 @@ def model_summary_txt(output_dir, model):
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def save_autoencoder_products(output_dir, prefix, model, history, x_train,
-                              x_test,  ticid_train, ticid_test, params):
+def save_autoencoder_products(model, params, batch_fnames=None, output_dir='',
+                              prefix='', x_train=None, x_test=None, 
+                              ticid_train=None, ticid_test=None):
 
-    print('Saving model...')
-    model.save(output_dir + prefix + 'model.hdf5') 
+    if type(x_train) == type(None): # >> load x_train in batches
+        for i in range(len(batch_fnames)):
+            print('Loading '+batch_fnames[i])
+            chunk = np.load(batch_fnames[i])
 
-    print('Retrieving bottlneck...')
-    bottleneck_train = \
-        get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
-                       out=output_dir+prefix+'bottleneck_train.fits')
-    if type(x_test) != type(None):
+            n_batch = chunk.shape[0] // params['batch_size'] # !! 'batch'
+            bottleneck_chunk = []
+            x_predict_chunk = []
+            for n in range(n_batch):
+                if n == n_batch-1:
+                    batch = chunk[n*params['batch_size']:]
+                else:
+                    batch = chunk[n*params['batch_size']:(n+1)*params['batch_size']]
+
+                print('Retrieving bottlneck...')
+                bottleneck_chunk.extend(get_bottleneck(model, chunk, params,
+                                                       save=False))
+
+                print('Retrieving reconstructions...')
+                x_predict_chunk.extend(model.predict(batch))
+
+                pdb.set_trace()
+            np.save(output_dir+prefix+'chunk%02d'%i+'_bottleneck_train.npy',
+                    np.array(bottleneck_chunk))
+            np.save(output_dir+prefix+'chunk%02d'%i+'_x_predict_train.npy',
+                    np.array(x_predict_chunk))
+
+        return None
+
+    else: # >> x_train already in memory
+        print('Retrieving bottlneck...')
+        bottleneck_train = \
+            get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
+                           out=output_dir+prefix+'bottleneck_train.fits')
+
+        print('Retrieving reconstructions...')
+        x_predict_train = model.predict(x_train)      
+        hdr = fits.Header()
+        hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
+        hdu.writeto(output_dir+prefix+'x_predict_train.fits', overwrite=True)
+        fits.append(output_dir+prefix+'x_predict_train.fits', ticid_train)
+        return model, history, bottleneck_train, x_predict_train
+
+    if type(x_test) != type(None): # >> if data patitioned 
         bottleneck_test = \
         get_bottleneck(model, x_test, params, save=True, ticid=ticid_test,
                        out=output_dir+prefix+'bottleneck_test.fits')    
-
-    print('Retrieving reconstructions...')
-    x_predict_train = model.predict(x_train)      
-    hdr = fits.Header()
-    hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
-    hdu.writeto(output_dir+prefix+'x_predict_train.fits', overwrite=True)
-    fits.append(output_dir+prefix+'x_predict_train.fits', ticid_train)
-
-    if type(x_test) != type(None):
         x_predict_test = model.predict(x_test)     
         hdr = fits.Header()
         if concat_ext_feats:
@@ -1483,33 +1508,72 @@ def save_autoencoder_products(output_dir, prefix, model, history, x_train,
         hdu.writeto(output_dir+prefix+'x_predict.fits', overwrite=True)
 
         fits.append(output_dir+prefix+'x_predict.fits', ticid_test)
-
-    model_summary_txt(output_dir+prefix, model)         
-
-    if type(x_test) != type(None):
         return model, history, bottleneck_train, bottleneck_test,\
             x_predict_train, x_predict_test
-    else:
-        return model, history, bottleneck_train, x_predict_train
+
 
 
 def read_hyperparameters_from_txt(parampath):
-    readtxt = pd.read_csv(parampath, delimiter='\t')
-    keys = readtxt['Param'].tolist()
-    values = readtxt['Value'].tolist()
 
-    for i in range(len(values)): # >> ensure hyperparameters have correct dtype
-        if values[i][0] == '[': # >> values should be a list
-            values[i] = [int(num) for num in values[i][1:-1].split(',')]
-        else:
-            try: values[i] = int(values[i])
-            except:
-                try: values[i] = float(values[i])
+    with open(parampath, 'r') as f:
+        lines = f.readlines()
+        params = {}
+        for line in lines[1:]:
+            key = line.split(': ')[0]
+            val = line.split(': ')[1][:-1]
+            try:
+                val = float(val)
+                try:
+                    if int(val) == float(val):
+                        val = int(val)
                 except: pass
-
-    params = dict(zip(keys,values)) # >> populate parameter dictionary
+            except: 
+                if val == 'None':
+                    val = None
+                elif val == 'True':
+                    val = True
+                elif val == 'False':
+                    val = False
+            params[key] = val
     return params
 
+def generate_batches(files, batch_size):
+    '''Run with
+    train_files = [train_bundle_loc + "bundle_" + cb.__str__() for cb \
+                   in range(nb_train_bundles)]
+    gen = generate_batches(files=train_files, batch_size=batch_size)
+    history = model.fit_generator(gen, samples_per_epoch=samples_per_epoch,
+                                  nb_epoch=num_epoch,verbose=1,
+                                  class_weight=class_weights)
+    '''
+    counter = 0
+    while True:
+        fname = files[counter]
+        print(fname)
+        counter = (counter + 1) % len(files)
+        X_train = np.load(fname)
+        for cbatch in range(0, X_train.shape[0], batch_size):
+            yield (X_train[cbatch:(cbatch + batch_size),:],
+                   X_train[cbatch:(cbatch + batch_size),:])
+
+
+# class My_Custom_Generator(keras.utils.Sequence) :
+  
+#     def __init__(self, image_filenames, labels, batch_size) :
+#         self.image_filenames = image_filenames
+#         self.labels = labels
+#         self.batch_size = batch_size
+    
+#     def __len__(self) :
+#         return (np.ceil(len(self.image_filenames) / float(self.batch_size))).astype(np.int)
+  
+#     def __getitem__(self, idx) :
+#         batch_x = self.image_filenames[idx * self.batch_size : (idx+1) * self.batch_size]
+#         batch_y = self.labels[idx * self.batch_size : (idx+1) * self.batch_size]
+    
+#         return np.array([
+#                 resize(imread('/content/all_images/' + str(file_name)), (80, 80, 3))
+#                    for file_name in batch_x])/255.0, np.array(batch_y)
 
 # def pretrain(p, output_dir, input_dim=18688, input_psd=True, input_rms=False,
 #              dataset_size=10000, f_mean=2., truncate=True, reshape=False,
@@ -1535,18 +1599,45 @@ class TimeHistory(keras.callbacks.Callback):
         self.times.append(time.time() - self.epoch_time_start)
 
 def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None, 
-                     val=True, split=False, input_features=False,
+                     validation=False, split=False, input_features=False,
                      features=None, input_psd=False, save_model_epoch=False,
                      model_init=None, save_model=True, save_bottleneck=True,
                      predict=True, output_dir='./', prefix='',
                      input_rms=False, rms_train=None, rms_test=None,
                      ticid_train=None, ticid_test=None,
                      train=True, weights_path='./best_model.hdf5',
-                     concat_ext_feats=False):
+                     concat_ext_feats=False,
+                     batch_fnames=None, report_time=True):
     
-    # -- making swish activation function -------------------------------------
-    # get_custom_objects().update({'swish': Activation(swish)})
+    if type(params) == str:
+        with open(params, 'r') as f:
+            lines = f.readlines()
+            params = {}
+            for line in lines[1:]:
+                key = line.split(': ')[0]
+                val = line.split(': ')[1][:-1]
+                try:
+                    val = float(val)
+                    try:
+                        if int(val) == float(val):
+                            val = int(val)
+                    except: pass
+                except: 
+                    if val == 'None':
+                        val = None
+                    elif val == 'True':
+                        val = True
+                    elif val == 'False':
+                        val = False
+                params[key] = val
+    if 'n_features' not in params.keys():
+        params['n_features'] = x_train.shape[1]
     
+    if report_time:
+        from datetime import datetime
+        start = datetime.now()
+        start_tot = datetime.now()
+
     # -- encoding -------------------------------------------------------------
     params['concat_ext_feats']=concat_ext_feats
     if split:
@@ -1560,6 +1651,13 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     else:
         encoded = cae_encoder(x_train, params)
 
+    if report_time:
+        end = datetime.now()
+        dur_sec = (end-start).total_seconds()
+        with open(output_dir+prefix+'model_time.txt', 'w') as f:
+            f.write('Time to add encoder model: '+str(dur_sec)+' (s)\n')
+        start = end
+
     # -- decoding -------------------------------------------------------------
     if split:
         decoded = decoder_split(x_train, encoded.output, params)
@@ -1568,16 +1666,23 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
 
     elif params['cvae']:
         # z_mean, z_log_var, z = encoded.output
-        decoded = cae_decoder(x_train, cae_encoded.output, params)
+        decoded = cae_decoder(x_train, encoded.output, params)
         
     else:
-        decoded = cae_decoder(x_train, cae_encoded.output, params)
+        decoded = cae_decoder(x_train, encoded.output, params)
+
+    if report_time:
+        end = datetime.now()
+        dur_sec = (end-start).total_seconds()
+        with open(output_dir+prefix+'model_time.txt', 'a') as f:
+            f.write('Time to add decoder model: '+str(dur_sec)+' (s)\n')
+        start = end
         
-        
-    model = Model(cae_encoded.input, cae_decoded)
+    model = Model(encoded.input, decoded)
     # model = decoder(x_train, encoded, params)
         
     print(model.summary())
+    model_summary_txt(output_dir, model)
     
     # -- initialize weights ---------------------------------------------------
     if type(model_init) != type(None):
@@ -1597,6 +1702,15 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     print('Compiling model...')
     compile_model(model, params)
 
+    if report_time:
+        end = datetime.now()
+        dur_sec = (end-start).total_seconds()
+        with open(output_dir+prefix+'model_time.txt', 'a') as f:
+            f.write('Time to compile model: '+str(dur_sec)+' (s)\n')
+        dur_sec = (end-start_tot).total_seconds()
+        with open(output_dir+prefix+'model_time.txt', 'a') as f:
+            f.write('Total time to create model: '+str(dur_sec)+' (s)\n')
+
     # -- train model ----------------------------------------------------------
     if train:
         print('Training model...')
@@ -1613,19 +1727,30 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
             callbacks.append(checkpoint)
             callbacks.append(tensorboard_callback)
         
-        if val:
-            history = model.fit(x_train, x_train, epochs=params['epochs'],
-                                batch_size=params['batch_size'], shuffle=True,
-                                validation_data=(x_test, x_test),
-                                callbacks=callbacks)
+        if type (batch_fnames) == type(None):
+            if validation:
+                history = model.fit(x_train, x_train, epochs=params['epochs'],
+                                    batch_size=params['batch_size'], shuffle=True,
+                                    validation_data=(x_test, x_test),
+                                    callbacks=callbacks)
+            else:
+                history = model.fit(x_train, x_train, epochs=params['epochs'],
+                            batch_size=params['batch_size'], shuffle=True,
+                                    callbacks=callbacks)
+
         else:
-            history = model.fit(x_train, x_train, epochs=params['epochs'],
-                        batch_size=params['batch_size'], shuffle=True,
-                                callbacks=callbacks)
-            time = time_callback.times
-            print('Training time: ' + str(time))
-            with open(output_dir+prefix+'training_time.txt', 'w') as f:
-                f.write(str(time[0]))
+            gen = generate_batches(files=batch_fnames,
+                                   batch_size=params['batch_size'])
+            history = model.fit_generator(gen,
+                                          steps_per_epoch=int(len(ticid_train)/params['batch_size']),
+                                          epochs=params['epochs'],
+            callbacks=callbacks)
+
+
+        time = time_callback.times
+        print('Training time: ' + str(time))
+        with open(output_dir+prefix+'training_time.txt', 'w') as f:
+            f.write(str(time[0]))
             
         if save_model:
             model.save(output_dir + prefix + 'model.hdf5')      
@@ -1638,13 +1763,13 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     # -------------------------------------------------------------------------
         
     res = [model, history]
-
+    pt.epoch_plots(history, params, output_dir)
     if save_bottleneck:
         print('Getting bottlneck...')
         bottleneck_train = \
             get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
                            out=output_dir+prefix+'bottleneck_train.fits')
-        if len(x_test) > 0:
+        if validation:
             bottleneck = get_bottleneck(model, x_test, params, save=True,
                                         ticid=ticid_test,
                                         out=output_dir+prefix+'bottleneck_test.fits')    
@@ -1659,7 +1784,8 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         res.append(bottleneck) 
     if predict:
         print('Getting x_predict...')
-        if len(x_test) > 0:
+        if validation:
+        # if len(x_test) > 0:
             x_predict = model.predict(x_test)      
             hdr = fits.Header()
             if concat_ext_feats:
@@ -1692,7 +1818,9 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                 param_summary(history, x_train, x_test, x_predict_train, x_predict,
                               params, output_dir+prefix, 0,'')            
 
+    
     # res = [model, history, bottleneck_train, bottleneck, x_predict, x_predict_train]
+
     return res
 
 def cae_encoder(x_train, params, reshape=False):
@@ -1719,11 +1847,12 @@ def cae_encoder(x_train, params, reshape=False):
     
     if params['concat_ext_feats']:
         input_dim = np.shape(x_train[0])[1]
-        input_dim1 = np.shape(x_train[1])[1]
+        input_dim1 = np.shape(x_train[0])[1]
         input_img1 = Input(shape = (input_dim1,))
         x1 = input_img1
     else:
-        input_dim = np.shape(x_train)[1]
+        # input_dim = np.shape(x_train)[1]
+        input_dim = params['n_features']
     num_iter = int(params['num_conv_layers']/2)
     
     if type(params['num_filters']) == np.int:
@@ -1839,7 +1968,8 @@ def cae_decoder(x_train, bottleneck, params):
         input_dim = np.shape(x_train[0])[1]
         input_dim1 = np.shape(x_train[1])[1]
     else:
-        input_dim = np.shape(x_train)[1]
+        # input_dim = np.shape(x_train)[1]
+        input_dim = params['n_features']
         
     num_iter = int(params['num_conv_layers']/2)
     reduction_factor = params['pool_size'] * params['strides']**params['num_consecutive'][0] 
@@ -1966,21 +2096,30 @@ def cae_decoder(x_train, bottleneck, params):
 
 def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                      parampath=None, batch_norm=True, ticid_train=None,
-                     ticid_test=None, resize=False, output_dir='', prefix=''):
+                     ticid_test=None, resize=False, output_dir='', prefix='',
+                     report_time=True, batch_fnames=None):
     '''The y_train and y_test arguments are place-holders in order to use the
     Talos hyperparameter optimization library.'''
+
+    if report_time:
+        from datetime import datetime
+        start = datetime.now()
+        start_tot = datetime.now()
 
     if type(parampath) != type(None):
         params = read_hyperparameters_from_txt(parampath)
 
     # num_classes = np.shape(y_train)[1]
-    input_dim = np.shape(x_train)[1]
+    # input_dim = np.shape(x_train)[1]
+    input_dim = params['n_features']
     
-    hidden_units = list(range(params['maxdim'],
-                              params['ldim'],
+    hidden_units = list(range(params['max_dim'],
+                              params['latent_dim'],
                               -params['step']))    
-    if hidden_units[-1] != params['ldim']:
-        hidden_units.append(params['ldim'])
+    if hidden_units[-1] != params['latent_dim']:
+        hidden_units.append(params['latent_dim'])
+
+    # -- encoder ---------------------------------------------------------------
 
     if resize:
         input_img = Input(shape = (input_dim,1))
@@ -1989,29 +2128,54 @@ def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         input_img = Input(shape = (input_dim,))
         x = input_img
 
+    if report_time:
+        end = datetime.now()
+        dur_sec = (end-start).total_seconds()
+        with open(output_dir+prefix+'model_time.txt', 'w') as f:
+            f.write('Time to add Input layer: '+str(dur_sec)+'\n')
+        start = end
+
     for i in range(len(hidden_units)):
-        x = Dense(hidden_units[i], activation=params['act'],
-                  kernel_initializer=params['init'])(x)
+        x = Dense(hidden_units[i], activation=params['activation'],
+                  kernel_initializer=params['initializer'])(x)
         if batch_norm: x = BatchNormalization()(x)
+
+        if report_time:
+            end = datetime.now()
+            dur_sec = (end-start).total_seconds()
+            with open(output_dir+prefix+'model_time.txt', 'a') as f:
+                f.write('Time to add encoder Dense'+str(i)+' layer: '+\
+                        str(dur_sec)+'\n')
+            start = end
         
     # -- bottleneck ------------------------------------------------------------
-    x = Dense(params['ldim'], activation=params['act'],
-              kernel_initializer=params['init'], name='bottleneck')(x)
+    x = Dense(params['latent_dim'], activation=params['activation'],
+              kernel_initializer=params['initializer'], name='bottleneck')(x)
 
     # -- decoder ---------------------------------------------------------------
     for i in np.arange(len(hidden_units)-1, -1, -1):
         if batch_norm: x = BatchNormalization()(x)        
-        x = Dense(hidden_units[i], activation=params['act'],
-                  kernel_initializer=params['init'])(x)
+        x = Dense(hidden_units[i], activation=params['activation'],
+                  kernel_initializer=params['initializer'])(x)
+        if report_time:
+            end = datetime.now()
+            dur_sec = (end-start).total_seconds()
+            with open(output_dir+prefix+'model_time.txt', 'a') as f:
+                f.write('Time to add decoder Dense'+str(i)+' layer: '+\
+                        str(dur_sec)+'\n')
+            start = end
 
     if batch_norm: x = BatchNormalization()(x)    
-    x = Dense(input_dim, activation=params['lastact'],
-              kernel_initializer=params['init'])(x)
+    x = Dense(input_dim, activation=params['last_activation'],
+              kernel_initializer=params['initializer'])(x)
     if resize:
         x = Reshape((input_dim, 1))(x)
         
+    # -- build model -----------------------------------------------------------
+
     model = Model(input_img, x)
     model.summary()
+
     compile_model(model, params)
 
     if type(x_test)==type(None):
@@ -2019,18 +2183,40 @@ def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     else:
         validation_data=(x_test,x_test)
 
+    if report_time:
+        end = datetime.now()
+        dur_sec = (end-start).total_seconds()
+        with open(output_dir+prefix+'model_time.txt', 'a') as f:
+            f.write('Time to compile model: '+str(dur_sec)+'\n')
+        dur_sec = (end-start_tot).total_seconds()
+        with open(output_dir+prefix+'model_time.txt', 'a') as f:
+            f.write('Total time to create model: '+str(dur_sec)+'\n')
+
     # -- train model -----------------------------------------------------------
 
-    history = model.fit(x_train, x_train, epochs=params['epochs'],
-                        batch_size=params['batch'], shuffle=True,
-                        validation_data=validation_data)
+    if type(batch_fnames) == type(None):
+        history = model.fit(x_train, x_train, epochs=params['epochs'],
+                            batch_size=params['batch_size'], shuffle=True,
+                            validation_data=validation_data)
+    else:
+            gen = generate_batches(files=batch_fnames,
+                                   batch_size=params['batch_size'])
+            history = model.fit_generator(gen,
+                                          steps_per_epoch=int(len(ticid_train)\
+                                                              /params['batch_size']),
+                                          epochs=params['epochs'])
+
+    # -- save model weights, bottleneck, reconstructions -----------------------
         
-    res = save_autoencoder_products(output_dir, prefix, model, history, x_train,
-                                    x_test, ticid_train, ticid_test, params)
+    print('Saving model...')
+    model.save(output_dir + prefix + 'model.hdf5') 
+    model_summary_txt(output_dir+prefix, model)
+    pt.epoch_plots(history, params, output_dir+prefix)
+
+    res = save_autoencoder_products(model, params, batch_fnames, output_dir,
+                                    prefix, x_train, x_test, ticid_train,
+                                    ticid_test)
     return res
-
-
-
 
 # :: Variational Autoencoder :::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -3331,6 +3517,12 @@ def get_high_freq_mock_data(p=None, dataset_size=10000, train_test_ratio=0.9,
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+def load_model(path):
+    # !! TODO save history dictionary into txt file
+    from tensorflow import keras
+    model = keras.models.load_model(path)
+    return model
+
 def model_modifier(m, bottleneck_ind):
     new_input = Input(shape = (m.layers[0].output.shape[1],))
     x = new_input
@@ -3368,37 +3560,30 @@ def get_activations(model, x_test, input_rms = False, rms_test = False,
             activations = activation_model.predict(x_test[ind].reshape(1,-1))
     return activations
 
-def get_bottleneck(model, x_test, p, save=False, ticid=None, out=None,
-                   vae=False):
+def get_bottleneck(model, x_test, p, save=False, output_dir='', vae=False):
     if vae:
         bottleneck_layer = vae_encoder.predict(x_test, p)
 
     else:
         bottleneck_layer = model.get_layer('bottleneck').output
+
     activation_model = Model(inputs=model.input,
                              outputs=bottleneck_layer)
-    bottleneck = activation_model.predict(x_test)    
-    
-    # if p['fully_conv']:
-    #     bottleneck = np.squeeze(bottleneck, axis=-1)
-    bottleneck = dt.standardize(bottleneck, ax=0)
+    bottleneck = activation_model.predict(x_test)        
     
     if save:
-        hdr = fits.Header()
-        hdu = fits.PrimaryHDU(bottleneck, header=hdr)
-        hdu.writeto(out, overwrite=True)    
-        fits.append(out, ticid)          
-    
-    return bottleneck
+        np.save(output_dir+'bottleneck_train.npy', bottleneck)
+    else:
+        return bottleneck
 
 def compile_model(model, params):
 
-    if params['opt'] == 'adam':
+    if params['optimizer'] == 'adam':
         # opt = optimizers.adam(lr = params['lr'], 
         #                       decay=params['lr']/params['epochs'])
         opt = optimizers.Adam(lr = params['lr'], 
                               decay=params['lr']/params['epochs'])        
-    elif params['opt'] == 'adadelta':
+    elif params['optimizer'] == 'adadelta':
         # opt = optimizers.adadelta(lr = params['lr'])
         opt = optimizers.Adadelta(lr = params['lr'])
         

@@ -1751,62 +1751,26 @@ def diagnostic_plots(history, model, p, output_dir,
         
     # return activations, bottleneck
 
-def epoch_plots(history, p, out_dir, supervised=False, input_psd=False):
+def epoch_plots(history, p, out_dir):
     '''Plot metrics vs. epochs.
     Parameters:
         * history : dictionary, output from model.history
         * model = Keras Model()
         * activations
         * '''
-        
-    if supervised:
-        label_list = [['loss', 'accuracy'], ['precision', 'recall']]
-        key_list = [['loss', 'accuracy'], [list(history.history.keys())[-2],
-                                           list(history.history.keys())[-1]]]
 
-        for i in range(len(key_list)):
-            fig, ax1 = plt.subplots()
-            ax2 = ax1.twinx()
-            ax1.plot(history.history[key_list[i][0]], label=label_list[i][0])
-            ax1.set_ylabel(label_list[i][0])
-            ax2.plot(history.history[key_list[i][1]], '--', label=label_list[i][1])
-            ax2.set_ylabel(label_list[i][1])
-            ax1.set_xlabel('epoch')
-            ax1.set_xticks(np.arange(0, int(p['epochs']),
-                                     max(int(p['epochs']/10),1)))
-            ax1.tick_params('both', labelsize='x-small')
-            ax2.tick_params('both', labelsize='x-small')
-            fig.tight_layout()
-            if i == 0:
-                plt.savefig(out_dir + 'acc_loss.png')
-            else:
-                plt.savefig(out_dir + 'prec_recall.png')
-            plt.close(fig)
-            
-    else:
-        fig, ax1 = plt.subplots()
-        ax1.plot(history.history['loss'], label='loss')
-        ax1.set_ylabel('loss')
-        ax1.set_xlabel('epoch')
-        ax1.set_xticks(np.arange(0, int(p['epochs']),
-                                 max(int(p['epochs']/10),1)))
-        ax1.tick_params('both', labelsize='x-small')
-        fig.tight_layout()
-        plt.savefig(out_dir + 'loss.png')
-        plt.close(fig)
-        
-        if input_psd:
-            fig, ax1 = plt.subplots()
-            ax1.plot(history.history[list(history.history.keys())[-1]],
-                     label='PSD loss')
-            ax1.set_ylabel('loss')
-            ax1.set_xlabel('epoch')
-            ax1.set_xticks(np.arange(0, int(p['epochs']),
-                                     max(int(p['epochs']/10),1)))
-            ax1.tick_params('both', labelsize='x-small')
-            fig.tight_layout()
-            plt.savefig(out_dir + 'loss-PSD.png')
-            plt.close(fig)
+    fig, ax1 = plt.subplots()
+    ax1.plot(history.history['loss'], label='loss')
+    ax1.set_ylabel('loss')
+    ax1.set_xlabel('epoch')
+    ax1.set_xticks(np.arange(0, int(p['epochs']),
+                             max(int(p['epochs']/10),1)))
+    ax1.tick_params('both', labelsize='x-small')
+    fig.tight_layout()
+    plt.savefig(out_dir + 'loss.png')
+    plt.close(fig)
+
+    np.savetxt(out_dir+'loss.txt', history.history['loss'])
 
 # == visualizations for unsupervised pipeline =================================
 
