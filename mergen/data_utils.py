@@ -3752,6 +3752,7 @@ def make_remove_class_list(simbad=False, rmv_flagged=True):
 
     if simbad:
         rmv.append('UV')
+        rmv.append('X')
 
     if rmv_flagged:
         flagged = make_flagged_class_list()
@@ -3908,35 +3909,42 @@ def get_true_classifications(ticid=[], data_dir='./', sector='all'):
     
     return ticid_true, otypes
 
-def load_otype_true_from_datadir(savepath, sectors, ticid):
-    '''Reads *-ticid_to_label.txt and returns:
+def load_otype_true_from_datadir(metapath, ticid):
+    '''Reads *-true_labels.txt and returns:
     * otype : Variability types (following nomenclature by GCVS)'''
     
     print('Loading ground truth object types...')
 
     ticid_true = []
     otype = []
-    # for sector in np.unique(sectors):
-    # !! 
-    for sector in [1]:
-        ticid_sector = ticid[np.nonzero(sectors == sector)]
 
-        ticid_sector, otype_sector = \
-            get_true_classifications(ticid_sector, savepath, sector=sector)
+    for fname in sorted(os.listdir(metapath+'spoc/true/')):
+        filo = pd.read_csv(metapath+'spoc/true/'+fname, delimiter='\s+,',
+                           skiprows=1)
+        ticid_sector = filo['TICID'].to_numpy().astype('int')
+        otype_sector = filo['TYPE'].to_numpy().astype('str')
+
         ticid_true.extend(ticid_sector)
         otype.extend(otype_sector)
 
     ticid_true = np.array(ticid_true)
     otype = np.array(otype)
-
-    rmvtype=['V', 'VAR', '**', '*i', '*iC', '*iA','*iN', 'Em']
-    ticid_new, otype_new = get_parent_otypes(ticid_true, otype,
-                                             remove_classes=rmvtype)
+    otype_new = []
+    for tic in ticid:
+        ind = np.nonzero(ticid_true)[0][0]
+        if otype[ind] == 'nan':
+            otype_new.append('NONE')
+        else:
+            otype_new.append(otype[ind])
         
-    orderind = order_array(ticid, ticid_new)
-    otype = otype_new[orderind]
 
-    return otype
+    # ticid_true = np.array(ticid_true)
+    # otype = np.array(otype)
+        
+    # orderind = order_array(ticid, ticid_true)
+    # otype = otype_new[orderind]
+
+    return np.array(otype_new)
 
 def load_otype_pred_from_txt(ensbpath, sector, ticid):
     '''Reads *-ticid_to_label.txt and returns:

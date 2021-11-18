@@ -109,8 +109,9 @@ class mergen(object):
     def initiate_folder(self):
         """Create directories for each of the desired feature generation
         methods."""
-        self.featpath = self.savepath+self.featgen+"/"
-        dt.create_dir(self.featpath)
+        if type(self.featgen) != type(None):
+            self.savepath = self.savepath+self.featgen+"/"
+        dt.create_dir(self.savepath)
 
     def initiate_meta(self):
         dt.init_meta_folder(self.metapath)
@@ -177,13 +178,13 @@ class mergen(object):
             lt.autoencoder_preprocessing(self.flux, self.time, self.parampath,
                                          ticid=self.objid,
                                          data_dir=self.datapath,
-                                         output_dir=self.featpath)
+                                         output_dir=self.savepath)
         if self.featgen == "DAE": # !!
             self.x_train, self.flux, self.objid, self.target_info, self.freq, self.time=\
             lt.DAE_preprocessing(self.flux, self.time, self.parampath,
                                  self.objid, self.target_info,
                                  data_dir=self.datapath, sector=self.sector,
-                                 output_dir=self.featpath)
+                                 output_dir=self.savepath)
 
     
     # ==========================================================================
@@ -211,9 +212,9 @@ class mergen(object):
         """Trains deep autoencoder to extract representative features from
 
         periodograms."""
-        self.model, self.hist, self.feats, self.rcon = \
+        self.model, self.hist, self.feats = \
         lt.deep_autoencoder(self.x_train, self.x_train, parampath=self.parampath,
-                            ticid_train=self.objid, output_dir=self.featpath,
+                            ticid_train=self.objid, output_dir=self.savepath,
                             batch_fnames=self.batch_fnames)
         
 
@@ -229,24 +230,24 @@ class mergen(object):
         self.model, self.hist, self.feats, self.feats_test, self.rcon_test, \
         self.rcon = lt.conv_autoencoder(x_train=self.x_train, y_train=self.x_train, 
                                         params=self.parampath,
-                                        output_dir=self.featpath,
+                                        output_dir=self.savepath,
 
                                         ticid_train=self.objid,
                                         batch_fnames=self.batch_fnames)
         # lt.conv_autoencoder(x_train=self.x_train, y_train=self.x_train, 
         #                                 params=self.parampath,
-        #                                 output_dir=self.featpath,
+        #                                 output_dir=self.savepath,
         #                                 ticid_train=self.objid)
     def produce_ae_visualizations(self):
         if self.featgen == "DAE":
             pt.produce_ae_visualizations(self.freq[0], self.x_train, self.rcon,
-                                         self.featpath, self.objid, self.target_info,
+                                         self.savepath, self.objid, self.target_info,
 
                                          psd=True)
 
         if self.featgen == "CAE":
             pt.produce_ae_visualizations(self.time, self.x_train, self.rcon,
-                                         self.featpath, self.objid, self.target_info,
+                                         self.savepath, self.objid, self.target_info,
                                          psd=False)
 
     # ==========================================================================
@@ -310,12 +311,12 @@ class mergen(object):
     def run_feature_analysis(self):
         self.load_true_otypes()
         self.numerize_true_otypes()
-        self.generate_clusters(self.featgen)
-        self.generate_predicted_otypes(self.featgen)
+        self.generate_clusters()
+        self.generate_predicted_otypes()
         self.numerize_pred_otypes()
         
-        self.generate_tsne(self.featgen)
-        self.generate_novelty_scores(self.featgen)
+        self.generate_tsne()
+        self.generate_novelty_scores()
         
     def run_vis(self):
         self.produce_clustering_visualizations(self.featgen)
@@ -331,11 +332,11 @@ class mergen(object):
             self.feats = dt.load_ENF_feature_metafile(self.ENFpath)
         elif self.featgen == "CAE": 
             self.feats = \
-                lt.load_bottleneck_from_fits(self.featpath, self.objid,
+                lt.load_bottleneck_from_fits(self.savepath, self.objid,
                                              self.runiter, self.numiter)
         elif self.featgen == "DAE": 
-            self.feats, self.objid, self.sector = \
-                lt.load_DAE_bottleneck(self.featpath, self.objid)
+            self.feats = \
+                lt.load_DAE_bottleneck(self.savepath)
 
     def load_gmm_clusters(self):
         """ clstr : array of cluster numbers, shape=(len(objid),)"""
@@ -353,8 +354,7 @@ class mergen(object):
 
     def load_true_otypes(self):
         """ totype : true object types"""
-        self.totype = dt.load_otype_true_from_datadir(self.savepath,
-                                                      self.sector,
+        self.totype = dt.load_otype_true_from_datadir(self.metapath,
                                                       self.objid)
 
     def numerize_true_otypes(self):
@@ -388,16 +388,16 @@ class mergen(object):
         self.tsne = lt.load_tsne_from_fits(self.ensbpath+self.featgen+'/')
             
     def load(self):
-        self.load_features(self.featgen)
-        self.load_reconstructions(self.featgen)
+        self.load_features()
+        # self.load_reconstructions()
         
         self.load_true_otypes()
         self.numerize_true_otypes()
 
-        self.load_nvlty(self.featgen)
-        self.load_gmm_clusters(self.featgen)
+        self.load_nvlty()
+        self.load_gmm_clusters()
 
-        self.load_pred_otypes(self.featgen)
+        self.load_pred_otypes()
         self.numerize_pred_otypes()
         
-        self.load_tsne(self.featgen)
+        self.load_tsne()

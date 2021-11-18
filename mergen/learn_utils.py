@@ -1147,33 +1147,15 @@ def load_bottleneck_from_fits(bottleneck_dir, ticid, runIter=False, numIter=1):
 
     return learned_feature_vector
         
-def load_DAE_bottleneck(savepath, ticid):
+def load_DAE_bottleneck(savepath,):
     print("Loading DAE-learned features...")
-    with fits.open(savepath+'bottleneck_train.fits') as hdul:
-        bottleneck_train = hdul[0].data
-        ticid_train = hdul[1].data
-        
-    fname = savepath+'bottleneck_test.fits'
-    if os.path.exists(fname):
-        with fits.open(fname) as hdul:
-            bottleneck_test = hdul[0].data
-            ticid_test = hdul[1].data
-        bottleneck_train = np.concatenate([bottleneck_train,
-                                           bottleneck_test], axis=0)
-        ticid_train = np.concatenate([ticid_train, ticid_test])
-
-    sorted_inds = np.argsort(ticid)
-    # >> intersect1d returns sorted arrays, so
-    # >> ticid == ticid[sorted_inds][np.argsort(sorted_inds)]
-    new_inds = np.argsort(sorted_inds)
-    _, comm1, comm2 = np.intersect1d(ticid, ticid_train, return_indices=True)
-
-    ticid = ticid_train[comm2]
-    bottleneck_train = bottleneck_train[comm2]
-    # !!
-    sectors = np.ones(np.shape(ticid)).astype('int')
-    
-    return bottleneck_train, ticid, sectors
+    fnames = [f for f in os.listdir(savepath) if '_bottleneck_train.npy' in f]
+    fnames.sort()
+    bottleneck_train = []
+    for fname in fnames:
+        print('Loading '+fname)
+        bottleneck_train.extend(np.load(savepath+fname))    
+    return np.array(bottleneck_train)
 
 def load_reconstructions(output_dir, ticid):
     filo = fits.open(output_dir + 'x_predict_train.fits')
@@ -1453,6 +1435,7 @@ def save_autoencoder_products(model, params, batch_fnames=None, output_dir='',
                               ticid_train=None, ticid_test=None):
 
     if type(x_train) == type(None): # >> load x_train in batches
+        bottleneck_train = []
         for i in range(len(batch_fnames)):
             print('Loading '+batch_fnames[i])
             chunk = np.load(batch_fnames[i])
@@ -1461,25 +1444,30 @@ def save_autoencoder_products(model, params, batch_fnames=None, output_dir='',
             bottleneck_chunk = []
             x_predict_chunk = []
             for n in range(n_batch):
+                start=datetime.now()
+
                 if n == n_batch-1:
                     batch = chunk[n*params['batch_size']:]
                 else:
                     batch = chunk[n*params['batch_size']:(n+1)*params['batch_size']]
 
                 print('Retrieving bottlneck...')
-                bottleneck_chunk.extend(get_bottleneck(model, chunk, params,
+                bottleneck_chunk.extend(get_bottleneck(model, batch, params,
                                                        save=False))
 
                 print('Retrieving reconstructions...')
                 x_predict_chunk.extend(model.predict(batch))
 
-                pdb.set_trace()
+                end = datetime.now()
+                print((end-start).total_seconds())
+
             np.save(output_dir+prefix+'chunk%02d'%i+'_bottleneck_train.npy',
                     np.array(bottleneck_chunk))
             np.save(output_dir+prefix+'chunk%02d'%i+'_x_predict_train.npy',
                     np.array(x_predict_chunk))
+            bottleneck_train.extend(bottleneck_chunk)
 
-        return None
+        return np.array(bottleneck_train)
 
     else: # >> x_train already in memory
         print('Retrieving bottlneck...')
@@ -2213,10 +2201,10 @@ def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     model_summary_txt(output_dir+prefix, model)
     pt.epoch_plots(history, params, output_dir+prefix)
 
-    res = save_autoencoder_products(model, params, batch_fnames, output_dir,
-                                    prefix, x_train, x_test, ticid_train,
-                                    ticid_test)
-    return res
+    feats = save_autoencoder_products(model, params, batch_fnames, output_dir,
+                                      prefix, x_train, x_test, ticid_train,
+                                      ticid_test)
+    return model, history, feats
 
 # :: Variational Autoencoder :::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -3713,8 +3701,53 @@ def mlp(x_train, y_train, x_test, y_test, params, resize=True):
         
     return history, model
 
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+# def load_DAE_bottleneck(savepath, ticid):
+#     print("Loading DAE-learned features...")
+#     fnames = [f for f in os.listdir(savepath) if '_bottleneck_train.npy' in f]
+    
+#     with fits.open(savepath+'bottleneck_train.fits') as hdul:
+#         bottleneck_train = hdul[0].data
+#         ticid_train = hdul[1].data
+        
+#     fname = savepath+'bottleneck_test.fits'
+#     if os.path.exists(fname):
+#         with fits.open(fname) as hdul:
+#             bottleneck_test = hdul[0].data
+#             ticid_test = hdul[1].data
+#         bottleneck_train = np.concatenate([bottleneck_train,
+#                                            bottleneck_test], axis=0)
+#         ticid_train = np.concatenate([ticid_train, ticid_test])
 
+#     sorted_inds = np.argsort(ticid)
+#     # >> intersect1d returns sorted arrays, so
+#     # >> ticid == ticid[sorted_inds][np.argsort(sorted_inds)]
+#     new_inds = np.argsort(sorted_inds)
+#     _, comm1, comm2 = np.intersect1d(ticid, ticid_train, return_indices=True)
+
+#     ticid = ticid_train[comm2]
+#     bottleneck_train = bottleneck_train[comm2]
+#     # !!
+#     sectors = np.ones(np.shape(ticid)).astype('int')
+    
+#     return bottleneck_train, ticid, sectors
+
+# def load_reconstructions(output_dir, ticid):
+#     filo = fits.open(output_dir + 'x_predict_train.fits')
+#     rcon = filo[0].data
+#     ticid_filo = filo[1].data
+
+#     sorted_inds = np.argsort(ticid)
+#     new_inds = np.argsort(sorted_inds)
+#     _, comm1, comm2 = np.intersect1d(ticid, ticid_filo, return_indices=True)
+#     rcon = rcon[comm2][new_inds]
+
+#     return rcon
 
 
             
