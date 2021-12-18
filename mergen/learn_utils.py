@@ -178,14 +178,16 @@ def load_tsne_from_fits(ensbpath):
         X = hdul[0].data
     return X
 
-def label_clusters(ensbpath, sectors, ticid, clstr, totype, numtot, totd):
+def label_clusters(ensbpath, sectors, ticid, clstr, totype, numtot, otdict):
 
-    # >> create confusion matrix
-    cm  = confusion_matrix(clstr, numtot)
+    # >> classified inds
+    inds = np.nonzero(totype != 'NONE')
+    cm  = confusion_matrix(clstr[inds], numtot[inds])
 
     # >> make the matrix square so that we can apply linear_sum_assignment
-    unqpot = np.unique(clstr)               # >> unique predicted otypes
-    unqtot = np.array(list(totd.values()))  # >> unique true otypes
+    unqpot = np.unique(clstr[inds])         # >> unique predicted otypes
+    unqtot = np.array(list(otdict.values()))  # >> unique true otypes
+    unqtot = np.delete(unqtot, np.nonzero(unqtot=='NONE')[0][0])
     while len(unqpot) < len(cm):
         unqpot = np.append(unqpot, 'NONE')     
     while len(unqtot) < len(cm):
@@ -201,7 +203,10 @@ def label_clusters(ensbpath, sectors, ticid, clstr, totype, numtot, totd):
     for i in range(len(unqpot)):
         # >> check if there is a real label assigned
         if unqpot[i] != 'NONE':
-            potd[unqpot[i]] = unqtot[i]
+            potd[int(unqpot[i])] = unqtot[i]
+    for i in np.unique(clstr):
+        if i not in list(potd.keys()):
+            potd[i] = 'NONE'
 
     # >> create list of predicted otypes (potype)
     potype = []
@@ -211,12 +216,12 @@ def label_clusters(ensbpath, sectors, ticid, clstr, totype, numtot, totd):
     with open(fname, 'w') as f:
         f.write('TICID,OTYPE,SECTOR\n')
         for i in range(len(ticid)):
-            otype = potd[str(clstr[i])]
+            otype = potd[clstr[i]]
             potype.append(otype)
             f.write(str(ticid[i])+','+otype+','+str(sectors[i])+'\n')
     print('Saved '+fname)
 
-    return potd, potype
+    return potype
 
 
 ##### PARAM SCANS #####
@@ -452,15 +457,93 @@ def load_paramscan_txt(path):
     
     return cleaned_params, number_classes, metric_scores
 
+def gmm_param_search(features, output_dir='./', n_components=[50, 100, 150],
+                     tsne=None):
+    
+    from datetime import datetime
+
+    out = output_dir+'gmm_param_search.txt'
+    with open(out, 'w') as f:
+        f.write('n_components,comp_time,Silhouette,Calinski-Harabasz,'+
+                'Davies-Bouldin\n')
+    print('Touch '+out)
+    scores = []
+    for i in range(len(n_components)): 
+        start = datetime.now() # >> start timer
+
+        gmm = GaussianMixture(n_components=n_components[i])
+        labels = gmm.fit_predict(features) # >> assigns clusters
+
+        end = datetime.now() # >> end timer
+        dur_sec = (end-start).total_seconds()
+
+        # >> compute silhouette score
+        silhouette = sklearn.metrics.silhouette_score(features, labels)
+
+        # >> compute calinski harabasz score
+        ch_score = sklearn.metrics.calinski_harabasz_score(features, labels)
+
+        # >> compute davies-bouldin score
+        db_score = sklearn.metrics.davies_bouldin_score(features, labels)
+
+        scores.append([silhouette, ch_score, db_score])
+
+        with open(out, 'a') as f:
+            f.write('{},{},{},{},{}\n'.format(n_components[i], dur_sec, silhouette,
+                                              ch_score, db_score))
+
+
+        if type(tsne) != type(None):
+            pt.plot_tsne(features, labels, X=tsne, output_dir=output_dir,
+                         prefix='gmm-ncomp'+str(n_components[i])+'-')
+
+    print('Wrote '+out)
+
+    scores = np.array(scores)
+    fig, ax = plt.subplots(2,2)
+    ax[0,0].plot(n_components, scores[:,0], '.')
+    ax[0,0].set_ylabel('Silhouette') # >> higher = better
+    ax[0,0].set_xlabel('Number of Components')
+    ind = np.argmax(scores[:,0])
+    ax[0,0].plot([n_components[ind]], [scores[:,0][ind]], 'xr', label='best')
+    ax[0,0].legend()
+
+    ax[1,0].plot(n_components, scores[:,1], '.')
+    ax[1,0].set_ylabel('Calinski-Harabasz') # >> higher = better
+    ax[1,0].set_xlabel('Number of Components')
+    ind = np.argmax(scores[:,1])
+    ax[1,0].plot([n_components[ind]], [scores[:,1][ind]], 'xr', label='best')
+    ax[1,0].legend()
+
+    ax[0,1].plot(n_components, scores[:,2], '.')
+    ax[0,1].set_ylabel('Davies-Bouldin') # >> lower = better
+    ax[0,1].set_xlabel('Number of Components')
+    ind = np.argmin(scores[:,2])
+    ax[0,1].plot([n_components[ind]], [scores[:,2][ind]], 'xr', label='best')
+    ax[0,1].legend()
+
+    ax[1,1].axis('off')
+        
+    plt.tight_layout()
+    plt.savefig(output_dir+'gmm_performance.png')
+    plt.close()
+    print('Wrote '+output_dir+'gmm_performance.png')
+
+    return n_components[np.argmax(scores[:,0])]
+
+
 def quick_hdbscan_param_search(features, min_samples=[2,3,4,5,6,7,8,15,50],
-                               min_cluster_size=[2,3,5,15,50,100],
-                               metric=['all'], p0=[1,2,3,4], output_dir='./'):
+                               min_cluster_size=[50,100,500,1000],
+                               metric=['all'], p0=[1,2,3,4], output_dir='./',
+                               tsne=None):
     
     import hdbscan
-    with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
-        f.write('{} {} {} {} {} {} {}\n'.format("min_cluster_size", "min_samples",
-                                       "metric", "p", 'num_classes', 
-                                       'num_noise', 'other_classes'))    
+    from datetime import datetime
+
+    with open(output_dir + 'hdbscan_param_search.txt', 'w') as f:
+        f.write('count,num_clusters,comp_time,Silhouette,Calinski-Harabasz,'+\
+                'Davies-Bouldin,min_cluster_size,min_samples,metric,p,'+\
+                'num_noise\n')
     if metric[0] == 'all':
         metric = list(hdbscan.dist_metrics.METRIC_MAPPING.keys())
         metric.remove('seuclidean')
@@ -471,6 +554,9 @@ def quick_hdbscan_param_search(features, min_samples=[2,3,4,5,6,7,8,15,50],
         metric.remove('arccos')
         metric.remove('pyfunc')        
         
+    count = 0
+    scores = []
+
     for i in range(len(min_cluster_size)):
         for j in range(len(metric)):
             if metric[j] == 'minkowski':
@@ -479,18 +565,46 @@ def quick_hdbscan_param_search(features, min_samples=[2,3,4,5,6,7,8,15,50],
                 p = [None]
             for n in range(len(p)):
                 for k in range(len(min_samples)):    
-                    clusterer = hdbscan.HDBSCAN(min_cluster_size=int(min_cluster_size[i]),
-                                                metric=metric[j], min_samples=min_samples[k],
+                    start = datetime.now() # >> start timer
+                    clusterer = hdbscan.HDBSCAN(min_cluster_size=\
+                                                int(min_cluster_size[i]),
+                                                metric=metric[j],
+                                                min_samples=min_samples[k],
                                                 p=p[n], algorithm='best')
                     clusterer.fit(features)
-                    classes, counts = np.unique(clusterer.labels_, return_counts=True)
+                    labels = clusterer.labels_
+
+                    end = datetime.now() # >> end timer
+                    dur_sec = (end-start).total_seconds()
+
+                    classes, counts = np.unique(clusterer.labels_,
+                                                return_counts=True)
                     
+                    # >> compute silhouette score
+                    silhouette = sklearn.metrics.silhouette_score(features,
+                                                                  labels)
+                    # >> compute calinski harabasz score
+                    ch_score = sklearn.metrics.calinski_harabasz_score(features,
+                                                                       labels)
+                    # >> compute davies-bouldin score
+                    db_score = sklearn.metrics.davies_bouldin_score(features,
+                                                                    labels)
+                    scores.append([silhouette, ch_score, db_score])
+                    line = [str(count),str(len(np.unique(classes)-1)),
+                            str(dur_sec),str(silhouette),str(ch_score),
+                            str(db_score),str(min_cluster_size[i]),
+                            str(min_samples[k]),str(metric[j]),str(p[n]),
+                            str(counts[0])]
                     with open(output_dir + 'hdbscan_param_search.txt', 'a') as f:
-                        f.write('{} {} {} {} {} {} {} {}\n'.format(min_cluster_size[i],
-                                                       min_samples[k],
-                                                       metric[j], p[n],
-                                                       len(np.unique(classes))-1, 
-                                                       counts[0], classes, counts))
+                        f.write(','.join(line))
+
+                    if type(tsne) != type(None):
+                        pt.plot_tsne(features, clusterer.labels_, X=tsne,
+                                     output_dir=output_dir,
+                                     prefix='hdbscan-'+str(count)+'-')
+
+                    count += 1
+    
 
 def hdbscan_param_search(features, time, flux, ticid, target_info,
                             min_cluster_size=list(np.arange(5,30,2)),
@@ -1180,15 +1294,22 @@ def load_gmm_from_txt(output_dir, ticid, runIter=False, numIter=1,
         prefix = ''
         suffix = '.txt'
     txt = np.loadtxt(output_dir+prefix+'gmm_labels'+suffix)
-    ticid_cluster = txt[0]
+    ticid_cluster = txt[0].astype('int')
     clusters = txt[1]
 
-    sorted_inds = np.argsort(ticid)
-    # >> intersect1d returns sorted arrays, so
-    # >> ticid == ticid[sorted_inds][np.argsort(sorted_inds)]
-    new_inds = np.argsort(sorted_inds)
-    _, comm1, comm2 = np.intersect1d(ticid, ticid_cluster, return_indices=True)
-    clusters = clusters[comm2][new_inds]
+    # sorted_inds = np.argsort(ticid)
+    # # >> intersect1d returns sorted arrays, so
+    # # >> ticid == ticid[sorted_inds][np.argsort(sorted_inds)]
+    # new_inds = np.argsort(sorted_inds)
+    # _, comm1, comm2 = np.intersect1d(ticid, ticid_cluster, return_indices=True)
+    # clusters = clusters[comm2][new_inds]
+
+    match = []
+    for i in range(len(ticid)):
+        match.append(ticid_cluster[i] == ticid[i])
+    if len(ticid) != np.count_nonzero(np.array(match)):
+        print('!!! Missing '+str(len(ticid)-np.count_nonzero(np.array(match)))+\
+             ' TICIDs')
 
     return clusters.astype('int')
 

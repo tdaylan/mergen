@@ -3909,34 +3909,59 @@ def get_true_classifications(ticid=[], data_dir='./', sector='all'):
     
     return ticid_true, otypes
 
-def load_otype_true_from_datadir(metapath, ticid):
+def load_otype_true_from_datadir(metapath, ticid, sector, savepath):
     '''Reads *-true_labels.txt and returns:
     * otype : Variability types (following nomenclature by GCVS)'''
     
     print('Loading ground truth object types...')
 
     ticid_true = []
-    otype = []
+    sector_true = []
+    otype_true = []
 
+    # >> read sector files from metapath/spoc/true/
     for fname in sorted(os.listdir(metapath+'spoc/true/')):
-        filo = pd.read_csv(metapath+'spoc/true/'+fname, delimiter='\s+,',
-                           skiprows=1)
-        ticid_sector = filo['TICID'].to_numpy().astype('int')
-        otype_sector = filo['TYPE'].to_numpy().astype('str')
+        filo = np.loadtxt(metapath+'spoc/true/'+fname, delimiter=',',
+                          dtype='str', skiprows=2)
+        ticid_sector = filo[:,0].astype('int')
+        otype_sector = filo[:,1]
+        # filo = pd.read_csv(metapath+'spoc/true/'+fname, delimiter='\s+,',
+        #                    skiprows=1)
+        # ticid_sector = filo['TICID'].to_numpy().astype('int')
+        # otype_sector = filo['TYPE'].to_numpy().astype('str')
 
-        ticid_true.extend(ticid_sector)
-        otype.extend(otype_sector)
-
-    ticid_true = np.array(ticid_true)
-    otype = np.array(otype)
-    otype_new = []
-    for tic in ticid:
-        ind = np.nonzero(ticid_true)[0][0]
-        if otype[ind] == 'nan':
-            otype_new.append('NONE')
-        else:
-            otype_new.append(otype[ind])
+        s = int(float(fname[7:9]))
         
+        ticid_true.extend(ticid_sector)
+        sector_true.extend(np.ones(ticid_sector.shape)*s)
+        otype_true.extend(otype_sector)
+
+    # ticid_true = np.array(ticid_true)
+    ticid_true = np.array(ticid_true)
+    sector_true = np.array(sector_true)
+
+    # >> 
+    totype = []
+    for i in range(len(ticid)):
+        ind = np.nonzero((sector_true == sector[i])*(ticid_true == ticid[i]))
+        if len(ind[0]) == 0:
+            totype.append('')
+        else:
+            if otype_true[ind[0][0]] == '':
+                totype.append('NONE')
+            else:
+                totype.append(otype_true[ind[0][0]])
+    totype = np.array(totype)
+
+    # otype = np.array(otype)
+    # otype_new = []
+    # for tic in ticid_true:
+    #     ind = np.nonzero(ticid_true == tic)[0][0]
+    #     if otype[ind] == 'nan' or otype[ind] == '':
+    #         otype_new.append('NONE')
+    #     else:
+    #         otype_new.append(otype[ind])
+
 
     # ticid_true = np.array(ticid_true)
     # otype = np.array(otype)
@@ -3944,7 +3969,12 @@ def load_otype_true_from_datadir(metapath, ticid):
     # orderind = order_array(ticid, ticid_true)
     # otype = otype_new[orderind]
 
-    return np.array(otype_new)
+    # return np.array(otype_new)
+
+    np.savetxt(savepath+'totype.txt', np.array([ticid, sector, totype]).T,
+               fmt='%s', delimiter=',', header='OBJID,SECTOR,OTYPE')
+
+    return totype
 
 def load_otype_pred_from_txt(ensbpath, sector, ticid):
     '''Reads *-ticid_to_label.txt and returns:
@@ -3967,6 +3997,10 @@ def load_otype_pred_from_txt(ensbpath, sector, ticid):
         sdiff = np.setdiff1d(intsc, ticid)
         print('!! Variability classifications were not found for '+str(sdiff)+\
               ' TICIDs.')
+
+
+
+
 
     otype = otype[srtinds][orgunsrti] # >> order otype correctly
 
@@ -4071,6 +4105,7 @@ def get_gcvs_classifications(database_dir='./databases/',
     fnames = fm.filter(os.listdir(database_dir), '*_GCVS.txt')
     
     for fname in fnames:
+
         data = np.loadtxt(database_dir+fname, delimiter=',', dtype='str')
         ticid_sector, otype = data[:,0], data[:,1]
         inds = np.nonzero(otype != '')
@@ -4090,6 +4125,7 @@ def get_gcvs_classifications(database_dir='./databases/',
         ticid.extend(ticid_sector)
         labels.extend(otype)
                     
+
     # >> check for any repeats
     return np.array(ticid), np.array(labels)
 
@@ -4103,6 +4139,7 @@ def dbscan_param_search(bottleneck, time, flux, ticid, target_info,
                         algorithm = ['auto', 'ball_tree', 'kd_tree',
                                      'brute'],
                         leaf_size = [30, 40, 50],
+
                         p = [1,2,3,4],
                         output_dir='./', DEBUG=False, single_file=False,
                         simbad_database_txt='./simbad_database.txt',

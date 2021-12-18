@@ -42,7 +42,7 @@ class mergen(object):
     def __init__(self, datapath, savepath, datatype, sector=None,
                  featgen=None,  metapath=None,
                  mdumpcsv=None, filelabel=None, runiter=False, numiter=1,
-                 numclstr=100, parampath=None):
+                 numclstr=None, parampath=None, clstrmeth=None):
         """Creates mergen object from which most common routines can easily be
         run
         Parameters:
@@ -68,9 +68,6 @@ class mergen(object):
             * runiter : bool, if True, runs iterative CAE scheme
             * numiter : int, number of iterations in the iterative CAE scheme
             * numclstr : int, number of clusters assumed by the GMM clustering
-
-
-
                          algorithm
             * parampath : string, path to txt file containing autoencoder
                         parameters
@@ -80,6 +77,7 @@ class mergen(object):
         
         self.sector   = sector
         self.numclstr = numclstr
+        self.clstrmeth = clstrmeth
 
         self.datapath = datapath
         self.savepath = savepath
@@ -261,9 +259,19 @@ class mergen(object):
         Returns:
             * clstr : array of cluster numbers, shape=(len(objid),)"""
         print('Performing clustering analysis in feature space...')
-        self.clstr = lt.run_gmm(self.objid, self.feats, numclstr=self.numclstr,
-                                savepath=self.ensbpath+self.featgen+'/',
-                                runiter=self.runiter, numiter=self.numiter)
+        if self.clstrmeth == 'gmm':
+            if type(self.numclstr) == type(None):
+                self.numclstr = lt.gmm_param_search(self.feats, self.savepath,
+                                                    tsne=self.tsne)
+
+            self.clstr = lt.run_gmm(self.objid, self.feats,
+                                    numclstr=self.numclstr,
+                                    savepath=self.savepath,
+                                    runiter=self.runiter, numiter=self.numiter)
+
+        elif self.clstrmeth == 'hdbscan':
+            lt.quick_hdbscan_param_search(self.feats, output_dir=self.savepath,
+                                          tsne=self.tsne)
 
     def generate_tsne(self):
         """Reduces dimensionality of feature space for visualization."""
@@ -271,15 +279,13 @@ class mergen(object):
                                 savepath=self.ensbpath+self.featgen+'/')
 
     def generate_predicted_otypes(self):
-        """Predicts object types using known classifications in SIMBAD, ASAS-SN,
-        and GCVS.
+        """Predicts object types using known classifications.
         Returns:
-            * potd : predicted object type dictionary
             * potype : array of predicted object types, shape=(len(objid),)"""
-        self.potd, self.potype = \
+        self.potype = \
             lt.label_clusters(self.ensbpath+self.featgen+'/', self.sector,
                               self.objid, self.clstr, self.totype, self.numtot,
-                              self.totd)
+                              self.otdict)
 
     def produce_clustering_visualizations(self):
         '''Produces t-SNEs, confusion matrices, distribution plots, ensemble
@@ -287,7 +293,9 @@ class mergen(object):
         pt.produce_clustering_visualizations(self.feats, self.numtot,
                                              self.numpot, self.tsne,
                                              self.ensbpath+self.featgen+'/',
-                                             self.totd, self.potd, self.objid)
+                                             self.otdict, self.objid,
+                                             self.sector, self.datapath,
+                                             self.metapath)
 
     def generate_novelty_scores(self):
         """Returns: * nvlty : novelty scores, shape=(len(objid),)"""
@@ -299,28 +307,25 @@ class mergen(object):
                                             self.objid)
 
     def produce_novelty_visualizations(self):
-        if self.featgen == "CAE":
-            pt.produce_novelty_visualizations(self.nvlty,
-                                              self.ensbpath+self.featgen+'/',
-                                              self.time, self.flux, self.objid)
-        elif self.featgen == "DAE": # !!
-            pt.produce_novelty_visualizations(self.nvlty,
-                                              self.ensbpath+self.featgen+'/',
-                                              self.freq, self.x_train, self.objid)
+        pt.produce_novelty_visualizations(self.nvlty, self.savepath, self.objid,
+                                          self.sector, self.feats,
+                                          self.datapath, mdumpcsv=self.mdumpcsv,
+                                          tsne=self.tsne,
+                                          datatype=self.datatype)
         
     def run_feature_analysis(self):
         self.load_true_otypes()
-        self.numerize_true_otypes()
+        self.generate_tsne()
+
         self.generate_clusters()
         self.generate_predicted_otypes()
-        self.numerize_pred_otypes()
+        self.numerize_otypes()
         
-        self.generate_tsne()
         self.generate_novelty_scores()
         
     def run_vis(self):
-        self.produce_clustering_visualizations(self.featgen)
-        self.produce_novelty_visualizations(self.featgen)
+        self.produce_clustering_visualizations()
+        self.produce_novelty_visualizations()
 
     # ==========================================================================
     # == Loading Mergen Products ===============================================
@@ -354,35 +359,34 @@ class mergen(object):
 
     def load_true_otypes(self):
         """ totype : true object types"""
-        self.totype = dt.load_otype_true_from_datadir(self.metapath,
-                                                      self.objid)
-
-    def numerize_true_otypes(self):
-        """
-        * unqtot : unique true object types
-        * totd   : true object type dictionary, e.g. {0: 'RR-Lyrae', 1:...}
-        * numtot : numerized true object types, shape=(len(objid),)
-        """
+        if os.path.exists(self.savepath+'totype.txt'):
+            self.totype = np.loadtxt(self.savepath+'totype.txt', skiprows=1,
+                                   dtype='str', delimiter=',')[:,2]
+        else:
+            self.totype = dt.load_otype_true_from_datadir(self.metapath,
+                                                          self.objid,
+                                                          self.sector,
+                                                          self.savepath)
         unqtot = np.unique(self.totype)
-        self.totd = {i: unqtot[i] for i in range(len(unqtot))}
+        self.otdict = {i: unqtot[i] for i in range(len(unqtot))}
         self.numtot = np.array([np.nonzero(unqtot == ot)[0][0] for \
                                 ot in self.totype])
+
+    def numerize_otypes(self):
+        """
+        * unqtot : unique true object types
+        * otdict : cluster num to object type dictionary, e.g. {0: 'RR-Lyrae', 1:...}
+        * numtot : numerized true object types, shape=(len(objid),)
+        * numpot : numerized predicted object types, shape=(len(objid),)
+        """
+        unqtot = np.unique(self.totype)
+        self.numpot = np.array([np.nonzero(unqtot == ot)[0][0] for \
+                                ot in self.potype])
 
     def load_pred_otypes(self):
         """ potype : predicted object types"""
         self.potype = dt.load_otype_pred_from_txt(self.ensbpath+self.featgen+'/',
                                                   self.sector, self.objid)
-
-    def numerize_pred_otypes(self):
-        """
-        * unqpot : unique predicted object types
-        * potd   : predicted object type dictionary, e.g. {0: 'RR-Lyrae', 1:...}
-        * numpot : numerized predicted object types, shape=(len(objid),)
-        """
-        unqpot = np.unique(self.potype)
-        self.potd = {i: unqpot[i] for i in range(len(unqpot))}
-        self.numpot = np.array([np.nonzero(unqpot == ot)[0][0] for \
-                                ot in self.potype])
 
     def load_tsne(self):
         self.tsne = lt.load_tsne_from_fits(self.ensbpath+self.featgen+'/')
@@ -392,12 +396,11 @@ class mergen(object):
         # self.load_reconstructions()
         
         self.load_true_otypes()
-        self.numerize_true_otypes()
 
         self.load_nvlty()
         self.load_gmm_clusters()
 
         self.load_pred_otypes()
-        self.numerize_pred_otypes()
+        self.numerize_otypes()
         
         self.load_tsne()

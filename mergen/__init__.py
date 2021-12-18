@@ -43,6 +43,7 @@ from astroquery.mast import Observations
 import sklearn
 from sklearn.cluster import KMeans
 from sklearn.cluster import DBSCAN
+from sklearn.mixture import GaussianMixture
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import Normalizer
 from sklearn import metrics
