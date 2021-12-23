@@ -166,7 +166,7 @@ class mergen(object):
 
     def clean_data(self):
         """Masks out data points with nonzero QUALITY flags."""
-        dt.qual_mask(self.datapath)
+        dt.qual_mask(self)
 
     def preprocess_data(self):
         if self.featgen == "ENF":
@@ -211,7 +211,8 @@ class mergen(object):
 
         periodograms."""
         self.model, self.hist, self.feats = \
-        lt.deep_autoencoder(self.x_train, self.x_train, parampath=self.parampath,
+        lt.deep_autoencoder(self.x_train, self.x_train,
+                            parampath=self.parampath,
                             ticid_train=self.objid, output_dir=self.savepath,
                             batch_fnames=self.batch_fnames)
         
@@ -225,10 +226,12 @@ class mergen(object):
             * hist : Keras history dictionary
             * feats : CAE-derived features
             * rcon : reconstructions of the input light curves"""        
+        dt.create_dir(self.savepath+'model/')
         self.model, self.hist, self.feats, self.feats_test, self.rcon_test, \
-        self.rcon = lt.conv_autoencoder(x_train=self.x_train, y_train=self.x_train, 
+        self.rcon = lt.conv_autoencoder(x_train=self.x_train,
+                                        y_train=self.x_train, 
                                         params=self.parampath,
-                                        output_dir=self.savepath,
+                                        output_dir=self.savepath+'model/',
 
                                         ticid_train=self.objid,
                                         batch_fnames=self.batch_fnames)

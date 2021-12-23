@@ -21,6 +21,7 @@ DATA DOWNLOADING (SPOC)
 * data_access_sector_by_bulk
 * bulk_download_helper
 * get_lc_file_and_data
+* check_target_list
 
 DATA LOADING (FFI)
 * load_lygos_csv
@@ -521,6 +522,43 @@ def get_lc_file_and_data(yourpath, target):
     
     return time1, i1, ticid
 
+def check_target_list(mg):
+    '''Reads full target lists for each sector, and checks if there is a raw
+    light curve downloaded in mg.datapath/raws/. If targets are missing,
+    will downlaod them into mg.datapath/raws/.
+    '''
+
+    sectors = [int(i[7:]) for i in os.listdir(mg.datapath+'raws/')]
+    sectors.sort()
+
+    for sector in sectors:
+        fname = mg.metapath+'spoc/targ/2m/all_targets_S%03d'%sector+'_v1.txt'
+        all_ticid = np.loadtxt(fname)[:,0]
+
+        sector_dir = mg.datapath+'raws/sector-%02d'%sector+'/'
+        lcur_ticid = [int(i.split('-')[2]) for i in os.listdir(sector_dir)]
+
+        missing_ticid = np.setdiff1d(all_ticid, lcur_ticid)
+        if len(missing_ticid) == 0:
+            print('All targets for Sector '+str(sector)+\
+                  ' in '+mg.datapath+'raws/')
+        else:
+            print(str(len(missing_ticid))+' targets missing for Sector '+\
+                  str(sector))
+
+            for ticid in missing_ticid:
+                obs_table = Observations.query_criteria(obs_collection='TESS',
+                                                        dataproduct_type='timeseries',
+                                                        target_name=ticid,
+                                                        sequence_number=sector)
+                if len(obs_table) != 0:
+                    dataURL = obs_table['dataURL'][0]
+                    fname = dataURL.split('/')[-1]
+                    mastURL = 'https://mast.stsci.edu/api/v0.1/Download/file/?uri='
+                    print('Downloading '+fname)
+                    os.system('curl -C - -L -o '+fname+' '+mastURL+dataURL)
+                
+
 # -- DATA LOADING (FFI) --------------------------------------------------------
 
 def load_lygos_csv(file):
@@ -601,25 +639,37 @@ def normalize_minmax(x, ax=1):
 def open_fits(lcdir='', objid=None, fname=None):
     """Loads preprocessed light curves from Fits file. Must either supply
     objid or fname."""
+
+    import gc
+
     if type(fname) == type(None):
         fname = str(int(objid))+'.fits'
     fname = lcdir + fname
 
-    # try:
-    #     data  = fits.getdata(fname, 1)
-    #     meta = fits.getheader(fname, 0)
-    #     return [data, meta]
-    # except:
-    #     print('Failed to open the following FITS file:')
-    #     print(lcdir+fname)
-    #     return [None, None]
-
     try:
-        with fits.open(fname) as hdul:
+        with fits.open(fname, memmap=False) as hdul:
             data = hdul[1].data
             meta = hdul[0].header
+        # hdul = fits.open(fname)
+        # data = hdul[1].data
+        # meta = hdul[0].header
+        # fits.close(fname)
+        # gc.collect()
         return [data, meta]
     except:
+        # gc.collect()
+        # try: # >> try a second time after gc.collect()
+        #     with fits.open(fname, memmap=False) as hdul:
+        #         data = hdul[1].data
+        #         meta = hdul[0].header
+        #     # hdul = fits.open(fname)
+        #     # data = hdul[1].data
+        #     # meta = hdul[0].header
+        #     # fits.close(fname)
+        #     # gc.collect()
+        #     return [data, meta]
+
+        # except:
         print('Failed to open the following FITS file:')
         print(lcdir+fname)
         return [None, None]
@@ -697,21 +747,23 @@ def write_fits(savepath, meta, data, data_names, table_meta=[],
 
 # -- Quality flag mask ---------------------------------------------------------
 
-def qual_mask(datapath, verbose=True, v_int=200):
+def qual_mask(mg, verbose=True, v_int=200):
     '''
     Reads and masks flagged data points in all PDCSAP_FLUX light curves of a 
     specified sector.
-    * datapath : string, directory with light curve data (includes subdirectory
-                 raws/)
     '''
 
-    sectors = os.listdir(datapath+'raws/')
+    sectors = os.listdir(mg.datapath+'raws/')
     sectors.sort()
 
     for sector in sectors:
 
-        raws_sector_path = datapath+'raws/'+sector+'/'
-        mask_sector_path = datapath+'mask/'+sector+'/'
+        fname = mg.metapath+'spoc/targ/2m/all_targets_S%03d'\
+                %int(sector.split('-')[-1])+'_v1.txt'
+        sector_ticid = np.loadtxt(fname)[:,0]
+
+        raws_sector_path = mg.datapath+'raws/'+sector+'/'
+        mask_sector_path = mg.datapath+'mask/'+sector+'/'
         create_dir(mask_sector_path)
         lcfile_list = os.listdir(raws_sector_path)
 
@@ -722,8 +774,10 @@ def qual_mask(datapath, verbose=True, v_int=200):
                 verbose=True
             else:
                 verbose=False
-            qual_mask_lc(raws_sector_path+lcfile_list[i], mask_sector_path,
-                         verbose=verbose, verbose_msg=verbose_msg)
+            ticid = int(lcfile_list[i].split('-')[2])
+            if ticid in sector_ticid:
+                qual_mask_lc(raws_sector_path+lcfile_list[i], mask_sector_path,
+                             verbose=verbose, verbose_msg=verbose_msg)
 
 def qual_mask_lc(lcfile, savepath, verbose=True, verbose_msg=''):
     '''

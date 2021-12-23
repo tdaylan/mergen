@@ -1806,6 +1806,29 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         for i in range(len(dense_inds1)):
             model.layers[conv_inds2[i]].set_weights(model1.layers[conv_inds1[i]].get_weights())
         
+
+    # # !! tmp
+    # input_dim = params['n_features']
+    # input_img = Input(shape = (input_dim,))
+    # x = Reshape((input_dim, 1))(input_img)
+    # x = MaxPooling1D(params['pool_size'], padding='same')(x)
+    # x = MaxPooling1D(params['pool_size'], padding='same')(x)
+    # x = Conv1D(16, 5, padding='same')(x)
+    # x = MaxPooling1D(params['pool_size'], padding='same')(x)
+    # x = Flatten()(x)
+    # x = Dense(params['latent_dim'])(x)
+    # x = Dense(200000)(x)
+    # x = Reshape((12500, 16))(x)
+    # x = UpSampling1D(params['pool_size'])(x)
+    # x = Conv1D(1, 5, padding='same')(x)
+    # x = UpSampling1D(params['pool_size'])(x)
+    # x = UpSampling1D(params['pool_size'])(x)
+    # x = Activation(params['last_activation'])(x)
+    # decoded = Reshape((input_dim,))(x)
+    # model = Model(input_img, decoded)
+    # model.summary()
+    # # !! tmp
+
     
     # -- compile model --------------------------------------------------------
     print('Compiling model...')
@@ -1850,10 +1873,13 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         else:
             gen = generate_batches(files=batch_fnames,
                                    batch_size=params['batch_size'])
-            history = model.fit_generator(gen,
-                                          steps_per_epoch=int(len(ticid_train)/params['batch_size']),
-                                          epochs=params['epochs'],
-            callbacks=callbacks)
+            history = model.fit(gen, epochs=params['epochs'],
+                        batch_size=params['batch_size'], shuffle=True,
+                                callbacks=callbacks)
+            # history = model.fit_generator(gen,
+            #                               steps_per_epoch=int(len(ticid_train)/params['batch_size']),
+            #                               epochs=params['epochs'],
+            # callbacks=callbacks)
 
 
         time = time_callback.times
@@ -1954,14 +1980,7 @@ def cae_encoder(x_train, params, reshape=False):
         * initializer: 'random_normal', 'random_uniform', ...
     '''
     
-    if params['concat_ext_feats']:
-        input_dim = np.shape(x_train[0])[1]
-        input_dim1 = np.shape(x_train[0])[1]
-        input_img1 = Input(shape = (input_dim1,))
-        x1 = input_img1
-    else:
-        # input_dim = np.shape(x_train)[1]
-        input_dim = params['n_features']
+    input_dim = params['n_features']
     num_iter = int(params['num_conv_layers']/2)
     
     if type(params['num_filters']) == np.int:
@@ -2002,29 +2021,6 @@ def cae_encoder(x_train, params, reshape=False):
                          activity_regularizer=params['activity_regularizer'],
                          name='bottleneck')(x)
         
-    elif params['concat_ext_feats']:
-        for i in range(len(params['units'])):
-            x1 = Dense(params['units'][i], activation=params['activation'],
-                        kernel_initializer=params['initializer'],
-                        kernel_regularizer=params['kernel_regularizer'],
-                        bias_regularizer=params['bias_regularizer'],
-                        activity_regularizer=params['activity_regularizer'])(x1)
-            
-        x = Flatten()(x)      
-        x = Dense(params['latent_dim'], activation=params['activation'],
-                  kernel_initializer=params['initializer'],
-                  kernel_regularizer=params['kernel_regularizer'],
-                  bias_regularizer=params['bias_regularizer'],
-                  activity_regularizer=params['activity_regularizer'])(x)
-        x = concatenate([x, x1])
-        encoded = Dense(params['latent_dim']+params['units'][-1],
-                  activation=params['activation'],
-                  kernel_initializer=params['initializer'],
-                  kernel_regularizer=params['kernel_regularizer'],
-                  bias_regularizer=params['bias_regularizer'],
-                        activity_regularizer=params['activity_regularizer'],
-                        name='bottleneck')(x)     
-        
         
     elif params['cvae']:
         x = Flatten()(x)
@@ -2060,25 +2056,15 @@ def cae_encoder(x_train, params, reshape=False):
     
     if params['cvae']:
         encoder = Model(input_img, [z_mean, z_log_var, z])
-        
     else:
-        if params['concat_ext_feats']:
-            encoder = Model([input_img, input_img1], encoded)
-        else:
-            encoder = Model(input_img, encoded)
-
+        encoder = Model(input_img, encoded)
     return encoder
 
 
 def cae_decoder(x_train, bottleneck, params):
     import tensorflow as tf
     
-    if params['concat_ext_feats']:
-        input_dim = np.shape(x_train[0])[1]
-        input_dim1 = np.shape(x_train[1])[1]
-    else:
-        # input_dim = np.shape(x_train)[1]
-        input_dim = params['n_features']
+    input_dim = params['n_features']
         
     num_iter = int(params['num_conv_layers']/2)
     reduction_factor = params['pool_size'] * params['strides']**params['num_consecutive'][0] 
@@ -2095,13 +2081,6 @@ def cae_decoder(x_train, bottleneck, params):
     else:
         if params['cvae']:
             z_mean, z_log_var, x = bottleneck
-        elif params['concat_ext_feats']:
-            x = bottleneck
-            x1 = Dense(params['units'][-1],
-                      kernel_initializer=params['initializer'],
-                      kernel_regularizer=params['kernel_regularizer'],
-                      bias_regularizer=params['bias_regularizer'],
-                      activity_regularizer=params['activity_regularizer'])(bottleneck)            
         else:
             x = bottleneck          
         
@@ -2152,22 +2131,6 @@ def cae_decoder(x_train, bottleneck, params):
                 decoded = Activation(params['last_activation'])(x)
                 decoded = Reshape((input_dim,))(decoded)
                     
-                if params['concat_ext_feats']:
-                    for i in range(len(params['units'])):
-                        x1 = Dense(params['units'][-1*i-1],
-                                    activation=params['activation'],
-                                    kernel_initializer=params['initializer'],
-                                    kernel_regularizer=params['kernel_regularizer'],
-                                    bias_regularizer=params['bias_regularizer'],
-                                    activity_regularizer=params['activity_regularizer'])(x1)
-                        
-                    x1 = Dense(input_dim1,
-                                activation=params['activation'],
-                                kernel_initializer=params['initializer'],
-                                kernel_regularizer=params['kernel_regularizer'],
-                                bias_regularizer=params['bias_regularizer'],
-                                activity_regularizer=params['activity_regularizer'])(x1)                        
-                    decoded = [decoded, x1]
                     
             else:
                 
@@ -2423,10 +2386,7 @@ def run_cvae(x_train, y_train, x_test, y_test, params, save_model=True,
         if len(x_test) > 0:
             x_predict = model.predict(x_test)      
             hdr = fits.Header()
-            if concat_ext_feats:
-                hdu = fits.PrimaryHDU(x_predict[0], header=hdr)
-            else:
-                hdu = fits.PrimaryHDU(x_predict, header=hdr)
+            hdu = fits.PrimaryHDU(x_predict, header=hdr)
             hdu.writeto(output_dir+prefix+'x_predict.fits', overwrite=True)
             fits.append(output_dir+prefix+'x_predict.fits', ticid_test)
             model_summary_txt(output_dir+prefix, model)
@@ -2436,10 +2396,7 @@ def run_cvae(x_train, y_train, x_test, y_test, params, save_model=True,
 
         x_predict_train = model.predict(x_train)      
         hdr = fits.Header()
-        if concat_ext_feats:
-            hdu = fits.PrimaryHDU(x_predict_train[0], header=hdr)
-        else:
-            hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
+        hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
         hdu.writeto(output_dir+prefix+'x_predict_train.fits', overwrite=True)
         fits.append(output_dir+prefix+'x_predict_train.fits', ticid_train)
         model_summary_txt(output_dir+prefix, model)         
