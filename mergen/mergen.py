@@ -213,7 +213,7 @@ class mergen(object):
         self.model, self.hist, self.feats = \
         lt.deep_autoencoder(self.x_train, self.x_train,
                             parampath=self.parampath,
-                            ticid_train=self.objid, output_dir=self.savepath,
+                            ticid_train=self.objid, output_dir=self.savepath+'model/',
                             batch_fnames=self.batch_fnames)
         
 

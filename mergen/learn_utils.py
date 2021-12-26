@@ -1555,6 +1555,8 @@ def save_autoencoder_products(model, params, batch_fnames=None, output_dir='',
                               prefix='', x_train=None, x_test=None, 
                               ticid_train=None, ticid_test=None):
 
+    from datetime import datetime
+
     if type(x_train) == type(None): # >> load x_train in batches
         bottleneck_train = []
         for i in range(len(batch_fnames)):
@@ -1646,7 +1648,19 @@ def read_hyperparameters_from_txt(parampath):
             params[key] = val
     return params
 
-def generate_batches(files, batch_size):
+def truncate(params):
+    if 'pool_size' in params.keys(): # >> CNN
+        reduction_factor = np.max(params['pool_size'])*\
+                           np.max(params['strides'])**\
+                           np.max(params['num_consecutive']) 
+        num_iter = np.max(params['num_conv_layers'])/2
+        tot_reduction_factor = reduction_factor**num_iter
+        new_length = int(params['n_features'] / tot_reduction_factor)*\
+                     int(tot_reduction_factor)
+    else: new_length = params['n_features']
+    return new_length
+
+def generate_batches(files, params):
     '''Run with
     train_files = [train_bundle_loc + "bundle_" + cb.__str__() for cb \
                    in range(nb_train_bundles)]
@@ -1655,16 +1669,19 @@ def generate_batches(files, batch_size):
                                   nb_epoch=num_epoch,verbose=1,
                                   class_weight=class_weights)
     '''
+
+
     counter = 0
+    new_length = truncate(params)
     while True:
         fname = files[counter]
         print(fname)
         counter = (counter + 1) % len(files)
         X_train = np.load(fname)
-        for cbatch in range(0, X_train.shape[0], batch_size):
-            yield (X_train[cbatch:(cbatch + batch_size),:],
-                   X_train[cbatch:(cbatch + batch_size),:])
-
+        for cbatch in range(0, X_train.shape[0], params['batch_size']):
+            # pdb.set_trace()
+            yield (X_train[cbatch:(cbatch + params['batch_size']),:new_length],
+                   X_train[cbatch:(cbatch + params['batch_size']),:new_length])
 
 # class My_Custom_Generator(keras.utils.Sequence) :
   
@@ -1739,8 +1756,12 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                     elif val == 'False':
                         val = False
                 params[key] = val
-    if 'n_features' not in params.keys():
+    if 'n_features' not in params.keys() and type(batch_fnames) == type(None):
         params['n_features'] = x_train.shape[1]
+    else:
+        x_train = np.load(batch_fnames[0])
+        params['n_features'] = x_train.shape[1]
+        x_train = None
     
     if report_time:
         from datetime import datetime
@@ -1748,17 +1769,7 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         start_tot = datetime.now()
 
     # -- encoding -------------------------------------------------------------
-    params['concat_ext_feats']=concat_ext_feats
-    if split:
-        encoded = encoder_split(x_train, params) # >> shared weights        
-        
-    elif input_psd:
-        concat_ext_feats = True
-        # encoded = encoder_split_diff_weights(x_train, params)
-        encoded = encoder(x_train, params)   
-        
-    else:
-        encoded = cae_encoder(x_train, params)
+    encoded = cae_encoder(x_train, params)
 
     if report_time:
         end = datetime.now()
@@ -1768,17 +1779,7 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         start = end
 
     # -- decoding -------------------------------------------------------------
-    if split:
-        decoded = decoder_split(x_train, encoded.output, params)
-    # elif input_psd:
-    #     decoded = decoder_split_diff_weights(x_train, encoded.output, params)
-
-    elif params['cvae']:
-        # z_mean, z_log_var, z = encoded.output
-        decoded = cae_decoder(x_train, encoded.output, params)
-        
-    else:
-        decoded = cae_decoder(x_train, encoded.output, params)
+    decoded = cae_decoder(x_train, encoded.output, params)
 
     if report_time:
         end = datetime.now()
@@ -1788,8 +1789,6 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         start = end
         
     model = Model(encoded.input, decoded)
-    # model = decoder(x_train, encoded, params)
-        
     print(model.summary())
     model_summary_txt(output_dir, model)
     
@@ -1828,7 +1827,6 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     # model = Model(input_img, decoded)
     # model.summary()
     # # !! tmp
-
     
     # -- compile model --------------------------------------------------------
     print('Compiling model...')
@@ -1859,7 +1857,7 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
             callbacks.append(checkpoint)
             callbacks.append(tensorboard_callback)
         
-        if type (batch_fnames) == type(None):
+        if type(batch_fnames) == type(None):
             if validation:
                 history = model.fit(x_train, x_train, epochs=params['epochs'],
                                     batch_size=params['batch_size'], shuffle=True,
@@ -1871,17 +1869,10 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                                     callbacks=callbacks)
 
         else:
-            gen = generate_batches(files=batch_fnames,
-                                   batch_size=params['batch_size'])
+            gen = generate_batches(batch_fnames, params)
             history = model.fit(gen, epochs=params['epochs'],
-                        batch_size=params['batch_size'], shuffle=True,
+                                batch_size=params['batch_size'], shuffle=True,
                                 callbacks=callbacks)
-            # history = model.fit_generator(gen,
-            #                               steps_per_epoch=int(len(ticid_train)/params['batch_size']),
-            #                               epochs=params['epochs'],
-            # callbacks=callbacks)
-
-
         time = time_callback.times
         print('Training time: ' + str(time))
         with open(output_dir+prefix+'training_time.txt', 'w') as f:
@@ -1894,69 +1885,81 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         print('Loading weights...')
         model.load_weights(weights_path)
         history=None
+    
+    # -- save model weights, bottleneck, reconstructions -----------------------
         
-    # -------------------------------------------------------------------------
-        
-    res = [model, history]
-    pt.epoch_plots(history, params, output_dir)
-    if save_bottleneck:
-        print('Getting bottlneck...')
-        bottleneck_train = \
-            get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
-                           out=output_dir+prefix+'bottleneck_train.fits')
-        if validation:
-            bottleneck = get_bottleneck(model, x_test, params, save=True,
-                                        ticid=ticid_test,
-                                        out=output_dir+prefix+'bottleneck_test.fits')    
-        else:
-            bottleneck=np.empty((0,params['latent_dim']))
-            hdr=  fits.Header()
-            hdu = fits.PrimaryHDU(bottleneck, header=hdr)
-            hdu.writeto(output_dir+prefix+'bottleneck_test.fits', overwrite=True)
-            fits.append(output_dir+prefix+'bottleneck_test.fits', ticid_test)
+    print('Saving model...')
+    model.save(output_dir + prefix + 'model.hdf5') 
+    model_summary_txt(output_dir+prefix, model)
+    pt.epoch_plots(history, params, output_dir+prefix)
+
+    feats = save_autoencoder_products(model, params, batch_fnames, output_dir,
+                                      prefix, x_train, x_test, ticid_train,
+                                      ticid_test)
+    return model, history, feats
+    
+    # --------------------------------------------------------------------------
+
+    # res = [model, history]
+    # pt.epoch_plots(history, params, output_dir)
+    # if save_bottleneck:
+    #     print('Getting bottlneck...')
+    #     bottleneck_train = \
+    #         get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
+    #                        out=output_dir+prefix+'bottleneck_train.fits')
+    #     if validation:
+    #         bottleneck = get_bottleneck(model, x_test, params, save=True,
+    #                                     ticid=ticid_test,
+    #                                     out=output_dir+prefix+'bottleneck_test.fits')    
+    #     else:
+    #         bottleneck=np.empty((0,params['latent_dim']))
+    #         hdr=  fits.Header()
+    #         hdu = fits.PrimaryHDU(bottleneck, header=hdr)
+    #         hdu.writeto(output_dir+prefix+'bottleneck_test.fits', overwrite=True)
+    #         fits.append(output_dir+prefix+'bottleneck_test.fits', ticid_test)
             
-        res.append(bottleneck_train)
-        res.append(bottleneck) 
-    if predict:
-        print('Getting x_predict...')
-        if validation:
-        # if len(x_test) > 0:
-            x_predict = model.predict(x_test)      
-            hdr = fits.Header()
-            if concat_ext_feats:
-                hdu = fits.PrimaryHDU(x_predict[0], header=hdr)
-            else:
-                hdu = fits.PrimaryHDU(x_predict, header=hdr)
-            hdu.writeto(output_dir+prefix+'x_predict.fits', overwrite=True)
-            fits.append(output_dir+prefix+'x_predict.fits', ticid_test)
-            model_summary_txt(output_dir+prefix, model)
-        else:
-            x_predict = None
-        res.append(x_predict)
+    #     res.append(bottleneck_train)
+    #     res.append(bottleneck) 
+    # if predict:
+    #     print('Getting x_predict...')
+    #     if validation:
+    #     # if len(x_test) > 0:
+    #         x_predict = model.predict(x_test)      
+    #         hdr = fits.Header()
+    #         if concat_ext_feats:
+    #             hdu = fits.PrimaryHDU(x_predict[0], header=hdr)
+    #         else:
+    #             hdu = fits.PrimaryHDU(x_predict, header=hdr)
+    #         hdu.writeto(output_dir+prefix+'x_predict.fits', overwrite=True)
+    #         fits.append(output_dir+prefix+'x_predict.fits', ticid_test)
+    #         model_summary_txt(output_dir+prefix, model)
+    #     else:
+    #         x_predict = None
+    #     res.append(x_predict)
 
-        x_predict_train = model.predict(x_train)      
-        hdr = fits.Header()
-        if concat_ext_feats:
-            hdu = fits.PrimaryHDU(x_predict_train[0], header=hdr)
-        else:
-            hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
-        hdu.writeto(output_dir+prefix+'x_predict_train.fits', overwrite=True)
-        fits.append(output_dir+prefix+'x_predict_train.fits', ticid_train)
-        model_summary_txt(output_dir+prefix, model)         
-        res.append(x_predict_train)
+    #     x_predict_train = model.predict(x_train)      
+    #     hdr = fits.Header()
+    #     if concat_ext_feats:
+    #         hdu = fits.PrimaryHDU(x_predict_train[0], header=hdr)
+    #     else:
+    #         hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
+    #     hdu.writeto(output_dir+prefix+'x_predict_train.fits', overwrite=True)
+    #     fits.append(output_dir+prefix+'x_predict_train.fits', ticid_train)
+    #     model_summary_txt(output_dir+prefix, model)         
+    #     res.append(x_predict_train)
     
-        if train:
-            if concat_ext_feats:
-                param_summary(history, x_train[0], x_test[0], x_predict_train[0],
-                              x_predict[0], params, output_dir+prefix, 0,'')
-            else:
-                param_summary(history, x_train, x_test, x_predict_train, x_predict,
-                              params, output_dir+prefix, 0,'')            
+    #     if train:
+    #         if concat_ext_feats:
+    #             param_summary(history, x_train[0], x_test[0], x_predict_train[0],
+    #                           x_predict[0], params, output_dir+prefix, 0,'')
+    #         else:
+    #             param_summary(history, x_train, x_test, x_predict_train, x_predict,
+    #                           params, output_dir+prefix, 0,'')            
 
     
-    # res = [model, history, bottleneck_train, bottleneck, x_predict, x_predict_train]
+    # # res = [model, history, bottleneck_train, bottleneck, x_predict, x_predict_train]
 
-    return res
+    # return res
 
 def cae_encoder(x_train, params, reshape=False):
     '''x_train is an array with shape (num light curves, num data points, 1).
@@ -1980,14 +1983,15 @@ def cae_encoder(x_train, params, reshape=False):
         * initializer: 'random_normal', 'random_uniform', ...
     '''
     
-    input_dim = params['n_features']
+    # input_dim = params['n_features']
+    input_dim = truncate(params)
     num_iter = int(params['num_conv_layers']/2)
     
     if type(params['num_filters']) == np.int:
         params['num_filters'] = list(np.repeat(params['num_filters'], num_iter))
     if type(params['num_consecutive']) == np.int:
         params['num_consecutive'] = list(np.repeat(params['num_consecutive'], num_iter))
-    
+
     input_img = Input(shape = (input_dim,))
     x = Reshape((input_dim, 1))(input_img)
     
@@ -2000,8 +2004,7 @@ def cae_encoder(x_train, params, reshape=False):
                     strides=params['strides'],
                     kernel_regularizer=params['kernel_regularizer'],
                     bias_regularizer=params['bias_regularizer'],
-                    activity_regularizer=params['activity_regularizer'])(x)             
-
+                    activity_regularizer=params['activity_regularizer'])(x)
             
             if params['batch_norm']:
                 x = BatchNormalization()(x)     
@@ -2010,19 +2013,8 @@ def cae_encoder(x_train, params, reshape=False):
             
         x = MaxPooling1D(params['pool_size'], padding='same')(x)
         x = Dropout(params['dropout'])(x)
-
-    if params['fully_conv']:
-        encoded = Conv1D(1, int(params['kernel_size']),
-                activation=params['activation'], padding='same',
-                kernel_initializer=params['initializer'],
-                strides=params['strides'],
-                kernel_regularizer=params['kernel_regularizer'],
-                bias_regularizer=params['bias_regularizer'],
-                         activity_regularizer=params['activity_regularizer'],
-                         name='bottleneck')(x)
         
-        
-    elif params['cvae']:
+    if params['cvae']:
         x = Flatten()(x)
         z_mean = Dense(params['latent_dim'], activation=params['activation'],
                         kernel_initializer=params['initializer'],
@@ -2064,8 +2056,9 @@ def cae_encoder(x_train, params, reshape=False):
 def cae_decoder(x_train, bottleneck, params):
     import tensorflow as tf
     
-    input_dim = params['n_features']
-        
+    # input_dim = params['n_features']
+    input_dim = truncate(params)
+
     num_iter = int(params['num_conv_layers']/2)
     reduction_factor = params['pool_size'] * params['strides']**params['num_consecutive'][0] 
     tot_reduction_factor = reduction_factor**num_iter
@@ -2076,24 +2069,16 @@ def cae_decoder(x_train, bottleneck, params):
         params['num_consecutive'] = list(np.repeat(params['num_consecutive'], num_iter))
         
 
-    if params['fully_conv']:
-        x = bottleneck    
-    else:
-        if params['cvae']:
-            z_mean, z_log_var, x = bottleneck
-        else:
-            x = bottleneck          
-        
-        
-        # reduction_factor = params['pool_size'] * params['strides']
-        
-        x = Dense(int(input_dim*params['num_filters'][-1]/tot_reduction_factor),
-                  kernel_initializer=params['initializer'],
-                  kernel_regularizer=params['kernel_regularizer'],
-                  bias_regularizer=params['bias_regularizer'],
-                  activity_regularizer=params['activity_regularizer'])(x) 
-        x = Reshape((int(input_dim/tot_reduction_factor),
-                      params['num_filters'][-1]))(x)
+    x = bottleneck
+    # reduction_factor = params['pool_size'] * params['strides']
+
+    x = Dense(int(input_dim*params['num_filters'][-1]/tot_reduction_factor),
+              kernel_initializer=params['initializer'],
+              kernel_regularizer=params['kernel_regularizer'],
+              bias_regularizer=params['bias_regularizer'],
+              activity_regularizer=params['activity_regularizer'])(x) 
+    x = Reshape((int(input_dim/tot_reduction_factor),
+                  params['num_filters'][-1]))(x)
 
 
     for i in range(num_iter):
@@ -2101,8 +2086,7 @@ def cae_decoder(x_train, bottleneck, params):
             x = Dropout(params['dropout'])(x)
             
         x = UpSampling1D(params['pool_size'])(x)
-        
-        
+
         for j in range(params['num_consecutive'][-1*i - 1]):
             
             # >> last layer
@@ -2131,8 +2115,7 @@ def cae_decoder(x_train, bottleneck, params):
                 decoded = Activation(params['last_activation'])(x)
                 decoded = Reshape((input_dim,))(decoded)
                     
-                    
-            else:
+            else: # >> intermediate layer
                 
                 if params['strides'] == 1:
                     x = Conv1D(params['num_filters'][-1*i - 1],
@@ -2153,15 +2136,6 @@ def cae_decoder(x_train, bottleneck, params):
                 x = BatchNormalization()(x)
                 x = Activation(params['activation'])(x)
 
-    if params['fully_conv']:
-        decoded = Conv1DTranspose(x, 1, int(params['kernel_size']),
-                    activation=params['activation'], padding='same',
-                    strides=params['strides'],
-                    kernel_initializer=params['initializer'],
-                    kernel_regularizer=params['kernel_regularizer'],
-                    bias_regularizer=params['bias_regularizer'],
-              activity_regularizer=params['activity_regularizer'])       
-        decoded = Reshape((input_dim,))(decoded)          
     return decoded
 
 # :: Deep fully-connected autoencoder ::::::::::::::::::::::::::::::::::::::::::
@@ -2183,6 +2157,25 @@ def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
 
     # num_classes = np.shape(y_train)[1]
     # input_dim = np.shape(x_train)[1]
+    if 'n_features' not in params.keys():
+        if type(batch_fnames) == type(None):
+            params['n_features'] = x_train.shape[1]
+        else:
+            x_train = np.load(batch_fnames[0])
+            params['n_features'] = x_train.shape[1]
+            x_train = None
+    if 'n_samples' not in params.keys():
+        if type(batch_fnames) == type(None):
+            params['n_samples'] = x_train.shape[0]
+        else:
+            n_samples = 0
+            for i in range(len(batch_fnames)):
+                x_train = np.load(batch_fnames[i])
+                n_samples += x_train.shape[0]
+            x_train = None
+            params['n_samples'] = n_samples
+            
+
     input_dim = params['n_features']
     
     hidden_units = list(range(params['max_dim'],
@@ -2271,16 +2264,17 @@ def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                             batch_size=params['batch_size'], shuffle=True,
                             validation_data=validation_data)
     else:
-            gen = generate_batches(files=batch_fnames,
-                                   batch_size=params['batch_size'])
-            history = model.fit_generator(gen,
-                                          steps_per_epoch=int(len(ticid_train)\
-                                                              /params['batch_size']),
-                                          epochs=params['epochs'])
+        gen = generate_batches(batch_fnames, params)
+        history = model.fit(gen, epochs=params['epochs'],
+                            batch_size=params['batch_size'], shuffle=True,
+                            validation_data=validation_data,
+                            steps_per_epoch=params['n_samples']\
+                            //params['batch_size'])
 
     # -- save model weights, bottleneck, reconstructions -----------------------
         
     print('Saving model...')
+    dt.create_dir(output_dir+prefix)
     model.save(output_dir + prefix + 'model.hdf5') 
     model_summary_txt(output_dir+prefix, model)
     pt.epoch_plots(history, params, output_dir+prefix)
@@ -2883,6 +2877,7 @@ def split_cae(x, flux_train, flux_test, p, target_info_train, target_info_test,
                                 load_bottleneck=True)
 
     # -- novelty detection & classification ------------------------------------
+
 
     if plot:
         if len(x_test) > 0:
