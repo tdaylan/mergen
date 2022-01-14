@@ -40,7 +40,7 @@ class mergen(object):
     # ==========================================================================
 
     def __init__(self, datapath, savepath, datatype, sector=None,
-                 featgen=None,  metapath=None,
+                 featgen=None,  metapath=None, timescale=None,
                  mdumpcsv=None, filelabel=None, runiter=False, numiter=1,
                  numclstr=None, parampath=None, clstrmeth=None):
         """Creates mergen object from which most common routines can easily be
@@ -108,8 +108,8 @@ class mergen(object):
         """Create directories for each of the desired feature generation
         methods."""
         if type(self.featgen) != type(None):
-            self.savepath = self.savepath+self.featgen+"/"
-        dt.create_dir(self.savepath)
+            self.featpath = self.savepath+self.featgen+"/"
+        dt.create_dir(self.featpath)
 
     def initiate_meta(self):
         dt.init_meta_folder(self.metapath)
@@ -176,13 +176,13 @@ class mergen(object):
             lt.autoencoder_preprocessing(self.flux, self.time, self.parampath,
                                          ticid=self.objid,
                                          data_dir=self.datapath,
-                                         output_dir=self.savepath)
+                                         output_dir=self.featpath)
         if self.featgen == "DAE": # !!
             self.x_train, self.flux, self.objid, self.target_info, self.freq, self.time=\
             lt.DAE_preprocessing(self.flux, self.time, self.parampath,
                                  self.objid, self.target_info,
                                  data_dir=self.datapath, sector=self.sector,
-                                 output_dir=self.savepath)
+                                 output_dir=self.featpath)
 
     
     # ==========================================================================
@@ -190,6 +190,7 @@ class mergen(object):
     # ==========================================================================
 
     def generate_features(self):
+        dt.create_dir(self.featpath+'model/')
         if self.featgen == "ENF":
             self.generate_engineered()
         elif self.featgen == "DAE":
@@ -213,7 +214,8 @@ class mergen(object):
         self.model, self.hist, self.feats = \
         lt.deep_autoencoder(self.x_train, self.x_train,
                             parampath=self.parampath,
-                            ticid_train=self.objid, output_dir=self.savepath+'model/',
+                            ticid_train=self.objid,
+                            output_dir=self.featpath+'model/',
                             batch_fnames=self.batch_fnames)
         
 
@@ -226,12 +228,11 @@ class mergen(object):
             * hist : Keras history dictionary
             * feats : CAE-derived features
             * rcon : reconstructions of the input light curves"""        
-        dt.create_dir(self.savepath+'model/')
         self.model, self.hist, self.feats, self.feats_test, self.rcon_test, \
         self.rcon = lt.conv_autoencoder(x_train=self.x_train,
                                         y_train=self.x_train, 
                                         params=self.parampath,
-                                        output_dir=self.savepath+'model/',
+                                        output_dir=self.featpath+'model/',
 
                                         ticid_train=self.objid,
                                         batch_fnames=self.batch_fnames)
@@ -242,13 +243,14 @@ class mergen(object):
     def produce_ae_visualizations(self):
         if self.featgen == "DAE":
             pt.produce_ae_visualizations(self.freq[0], self.x_train, self.rcon,
-                                         self.savepath, self.objid, self.target_info,
-
+                                         self.featpath, self.objid,
+                                         self.target_info,
                                          psd=True)
 
         if self.featgen == "CAE":
             pt.produce_ae_visualizations(self.time, self.x_train, self.rcon,
-                                         self.savepath, self.objid, self.target_info,
+                                         self.featpath, self.objid,
+                                         self.target_info,
                                          psd=False)
 
     # ==========================================================================
@@ -264,22 +266,21 @@ class mergen(object):
         print('Performing clustering analysis in feature space...')
         if self.clstrmeth == 'gmm':
             if type(self.numclstr) == type(None):
-                self.numclstr = lt.gmm_param_search(self.feats, self.savepath,
+                self.numclstr = lt.gmm_param_search(self.feats, self.featpath,
                                                     tsne=self.tsne)
 
             self.clstr = lt.run_gmm(self.objid, self.feats,
                                     numclstr=self.numclstr,
-                                    savepath=self.savepath,
+                                    savepath=self.featpath,
                                     runiter=self.runiter, numiter=self.numiter)
 
         elif self.clstrmeth == 'hdbscan':
-            lt.quick_hdbscan_param_search(self.feats, output_dir=self.savepath,
+            lt.quick_hdbscan_param_search(self.feats, output_dir=self.featpath,
                                           tsne=self.tsne)
 
     def generate_tsne(self):
         """Reduces dimensionality of feature space for visualization."""
-        self.tsne = lt.run_tsne(self.feats,
-                                savepath=self.ensbpath+self.featgen+'/')
+        self.tsne = lt.run_tsne(self.feats, savepath=self.featpath+'model/')
 
     def generate_predicted_otypes(self):
         """Predicts object types using known classifications.
@@ -310,7 +311,7 @@ class mergen(object):
                                             self.objid)
 
     def produce_novelty_visualizations(self):
-        pt.produce_novelty_visualizations(self.nvlty, self.savepath, self.objid,
+        pt.produce_novelty_visualizations(self.nvlty, self.featpath, self.objid,
                                           self.sector, self.feats,
                                           self.datapath, mdumpcsv=self.mdumpcsv,
                                           tsne=self.tsne,
@@ -340,11 +341,11 @@ class mergen(object):
             self.feats = dt.load_ENF_feature_metafile(self.ENFpath)
         elif self.featgen == "CAE": 
             self.feats = \
-                lt.load_bottleneck_from_fits(self.savepath, self.objid,
+                lt.load_bottleneck_from_fits(self.featpath, self.objid,
                                              self.runiter, self.numiter)
         elif self.featgen == "DAE": 
             self.feats = \
-                lt.load_DAE_bottleneck(self.savepath)
+                lt.load_DAE_bottleneck(self.featpath)
 
     def load_gmm_clusters(self):
         """ clstr : array of cluster numbers, shape=(len(objid),)"""
@@ -392,7 +393,7 @@ class mergen(object):
                                                   self.sector, self.objid)
 
     def load_tsne(self):
-        self.tsne = lt.load_tsne_from_fits(self.ensbpath+self.featgen+'/')
+        self.tsne = lt.load_tsne_from_fits(self.featpath+'model/')
             
     def load(self):
         self.load_features()

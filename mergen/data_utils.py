@@ -600,10 +600,15 @@ def load_all_lygos(datapath):
 
 # -- DATA CLEANING -------------------------------------------------------------
 
-def normalize(flux, axis=1):
+def normalize(flux, axis=1, method='median'):
     '''Dividing by median.'''
-    medians = np.median(flux, axis = axis, keepdims=True)
-    flux = flux / medians
+    if method == 'median':
+        medians = np.nanmedian(flux, axis = axis, keepdims=True)
+        flux = flux / medians
+    elif method == 'standardize':
+        flux = standardize(flux, ax=axis)
+    elif method == 'minmax':
+        flux = normalize_minmax(flux, ax=axis)
     return flux
 
 def mean_norm(flux, axis=1): 
@@ -618,6 +623,7 @@ def rms(x, axis=1):
 
 def standardize(x, ax=1):
     means = np.nanmean(x, axis = ax, keepdims=True) # >> subtract mean
+    pdb.set_trace()
     x = x - means
     stdevs = np.nanstd(x, axis = ax, keepdims=True) # >> divide by standard dev
     
@@ -627,11 +633,18 @@ def standardize(x, ax=1):
     x = x / stdevs
     return x
 
-def normalize_minmax(x, ax=1):
+def normalize_minmax(x, ax=1, new_min=0., new_max=1.):
+    '''https://www.geeksforgeeks.org/data-normalization-in-data-mining/'''
     mins = np.min(x, axis=ax, keepdims=True)
-    x = x - mins
     maxs = np.max(x, axis=ax, keepdims=True)
-    x = x / maxs
+
+    x = ((x - mins)/(maxs-mins))*(new_max-new_min)+new_min
+
+    return x
+
+def normalize_robust(x):
+    from sklearn.preprocessing import RobustScaler
+    x = RobustScaler.fit_transform(x)
     return x
 
 # -- Open and write light curve Fits files -------------------------------------
@@ -2085,12 +2098,12 @@ def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 #normalizing each light curve
-def normalize(flux, axis=1):
-    '''Dividing by median.
-    !!Current method blows points out of proportion if the median is too close to 0?'''
-    medians = np.nanmedian(flux, axis = axis, keepdims=True)
-    flux = flux / medians
-    return flux
+# def normalize(flux, axis=1):
+#     '''Dividing by median.
+#     !!Current method blows points out of proportion if the median is too close to 0?'''
+#     medians = np.nanmedian(flux, axis = axis, keepdims=True)
+#     flux = flux / medians
+#     return flux
 
 def mean_norm(flux, axis=1): 
     """ normalizes by dividing by mean - necessary for TLS running 

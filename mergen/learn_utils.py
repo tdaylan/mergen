@@ -171,6 +171,13 @@ def run_tsne(features, n_components=2, perplexity=30, early_exaggeration=12,
         hdu=fits.PrimaryHDU(X, header=hdr)
         hdu.writeto(savepath+'tsne.fits', overwrite=True)
 
+        fig, ax = plt.subplots()
+        ax.plot(X[:,0], X[:,1], '.k', alpha=0.5, ms=2)
+        ax.set_xlabel('t-SNE Component 1')
+        ax.set_ylabel('t-SNE Component 2')
+        fig.tight_layout()
+        plt.savefig(savepath+'tsne.png', dpi=300)
+
     return X
     
 def load_tsne_from_fits(ensbpath):
@@ -457,7 +464,8 @@ def load_paramscan_txt(path):
     
     return cleaned_params, number_classes, metric_scores
 
-def gmm_param_search(features, output_dir='./', n_components=[50, 100, 150],
+def gmm_param_search(features, output_dir='./',
+                     n_components=list(range(50, 500, 50)),
                      tsne=None):
     
     from datetime import datetime
@@ -1263,12 +1271,13 @@ def load_bottleneck_from_fits(bottleneck_dir, ticid, runIter=False, numIter=1):
         
 def load_DAE_bottleneck(savepath,):
     print("Loading DAE-learned features...")
-    fnames = [f for f in os.listdir(savepath) if '_bottleneck_train.npy' in f]
+    fnames = [f for f in os.listdir(savepath+'model/') \
+              if '_bottleneck_train.npy' in f]
     fnames.sort()
     bottleneck_train = []
     for fname in fnames:
         print('Loading '+fname)
-        bottleneck_train.extend(np.load(savepath+fname))    
+        bottleneck_train.extend(np.load(savepath+'model/'+fname))    
     return np.array(bottleneck_train)
 
 def load_reconstructions(output_dir, ticid):
@@ -1551,11 +1560,18 @@ def model_summary_txt(output_dir, model):
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def save_autoencoder_products(model, params, batch_fnames=None, output_dir='',
+def save_autoencoder_products(model=None, params=None, batch_fnames=None,
+                              output_dir='', parampath=None,
                               prefix='', x_train=None, x_test=None, 
                               ticid_train=None, ticid_test=None):
 
     from datetime import datetime
+
+    if type(params) == type(None):
+        params = read_hyperparameters_from_txt(parampath)
+
+    if type(model) == type(None):
+        model = load_model(output_dir+'model.hdf5')
 
     if type(x_train) == type(None): # >> load x_train in batches
         bottleneck_train = []
@@ -1584,9 +1600,9 @@ def save_autoencoder_products(model, params, batch_fnames=None, output_dir='',
                 end = datetime.now()
                 print((end-start).total_seconds())
 
-            np.save(output_dir+prefix+'chunk%02d'%i+'_bottleneck_train.npy',
+            np.save(output_dir+'chunk%02d'%i+'_bottleneck_train.npy',
                     np.array(bottleneck_chunk))
-            np.save(output_dir+prefix+'chunk%02d'%i+'_x_predict_train.npy',
+            np.save(output_dir+'chunk%02d'%i+'_x_predict_train.npy',
                     np.array(x_predict_chunk))
             bottleneck_train.extend(bottleneck_chunk)
 
@@ -1660,7 +1676,7 @@ def truncate(params):
     else: new_length = params['n_features']
     return new_length
 
-def generate_batches(files, params):
+def generate_batches(files, params, trunc_start=True):
     '''Run with
     train_files = [train_bundle_loc + "bundle_" + cb.__str__() for cb \
                    in range(nb_train_bundles)]
@@ -1680,8 +1696,16 @@ def generate_batches(files, params):
         X_train = np.load(fname)
         for cbatch in range(0, X_train.shape[0], params['batch_size']):
             # pdb.set_trace()
-            yield (X_train[cbatch:(cbatch + params['batch_size']),:new_length],
-                   X_train[cbatch:(cbatch + params['batch_size']),:new_length])
+            if trunc_start:
+                yield (X_train[cbatch:(cbatch + params['batch_size']),
+                               -new_length:],
+                       X_train[cbatch:(cbatch + params['batch_size']),
+                               -new_length:])
+            else:
+                yield (X_train[cbatch:(cbatch + params['batch_size']),
+                               :new_length],
+                       X_train[cbatch:(cbatch + params['batch_size']),
+                               :new_length])
 
 # class My_Custom_Generator(keras.utils.Sequence) :
   

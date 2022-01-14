@@ -1468,8 +1468,11 @@ def two_years_ensemble_summary(output_dir, data_dir='/nfs/blender/data/tdaylan/d
     ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors, prefix,
                            derive_assignments=False, merge_classes=True)
 
-def ensemble_summary_plots(ticid, labels, output_dir, data_dir, sectors,
-                           prefix='', merge_classes=True):
+def ensemble_summary_plots(objid, numtot, numpot, otdict, datapath, output_dir,
+                           metapath):
+
+    pdb.set_trace()
+
     # >> before making a confusion matrix, assign each science label a number
     underlying_classes  = np.unique(labels)
     assignments = []
