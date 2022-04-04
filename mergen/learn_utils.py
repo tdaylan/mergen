@@ -26,10 +26,10 @@ Deep learning functions
 * post_process
 * param_summary
 * model_summary_txt
+* hyperparam_optimizer
 
 Autoencoder
-* pretrain
-* convolutional_autoencoder
+* conv_autoencoder
   * cae_encoder
   * cae_decoder
 * deep_autoencoder
@@ -952,7 +952,7 @@ def optimize_confusion_matrix(ticid_pred, y_pred, database_dir='./',
 #         return x_train
             
 
-def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
+def autoencoder_preprocessing(flux, time, ticid=None, target_info=None,
                               sector=1, mock_data=False,
                               validation_targets=[219107776],
                               DAE=False, features=False,
@@ -983,6 +983,8 @@ def autoencoder_preprocessing(flux, time, p, ticid=None, target_info=None,
                         minmax_normalization, none
           * input_rms : calculate RMS before normalizing
     '''
+
+    p = output_dir+'hyperparam.txt' # !!
 
     # -- shuffle array ---------------------------------------------------------
     print('Shuffling data...')
@@ -1554,6 +1556,108 @@ def model_summary_txt(output_dir, model):
     with open(output_dir + 'model_summary.txt', 'w') as f:
         model.summary(print_fn=lambda line: f.write(line + '\n'))
 
+def hyperparam_optimizer(output_dir, model, x_train=None, batch_fnames=None,
+                         n_iter_lr=30, n_iter_hp=500, train_frac=0.1,
+                         thresh_trunc=0.1):
+
+    from datetime import datetime
+
+    if model == 'CAE':
+        model = conv_autoencoder
+        params = {'kernel_size': [3, 5, 7, 9],
+                  'latent_dim': [20, 25, 35, 40, 45, 50],
+                  'strides': [1,2],
+                  'dropout': [0.1, 0.2, 0.3, 0.4, 0.5],
+                  'num_filters': [16, 32, 64, 128, 256],
+                  'num_conv_layers': [4,6,8,10],
+                  'activation': [tf.keras.activations.selu, 'relu', 'elu'],
+                  'optimizer': ['adam', 'adadelta'],
+                  'initializer': ['random_normal', 'random_uniform'],
+                  'num_consecutive': [1, 2, 3],
+                  'pool_size': [1, 2],
+                  'pool_strides': [1, 2],
+                  'lr': list(np.logspace(-5, -1, 10)),
+                  'num_filters_incr': [True, False],
+                  # >> constants
+                  'epochs': [10],
+                  'loss': ['mean_squared_error'],
+                  'last_activation': ['linear'],
+                  'kernel_regularizer': [None],
+                  'bias_regularizer': [None],
+                  'activity_regularizer': [None],
+                  'batch_norm': [True],
+                  'batch_size': [32],
+                  'cvae': [False],
+                  'fully_conv': [False]}
+    elif model == 'DAE':
+        model = deep_autoencoder
+    # -- randomly select 10% of available data ---------------------------------
+    # >> get n_features
+    X = np.load(batch_fnames[0])
+    params['n_features'] = X.shape[1]
+
+    x_train = []
+    for fname in batch_fnames:
+        X = np.load(fname)
+        x_train.append(X[np.random.choice(np.arange(len(X)),
+                                          int(train_frac*len(X)))])
+    del X
+    x_train = np.concatenate(x_train, axis=0)
+
+    # -- hyperparameter tests --------------------------------------------------
+    # params['lr'] = np.logspace(-5, -1, 10)
+    with open(output_dir+'hyperparam_opt.txt', 'a') as f:
+        f.write('Loss,Time,'+','.join(params.keys())+'\n')
+
+    lens = []
+
+    n_iter = 0
+    while n_iter < n_iter_lr:
+
+        start = datetime.now()         
+
+        # vals = []
+        # for val in params.values():
+        #     if type(val) == type([]):
+        #         vals.append(val[int(len(val)/2)])
+        #     else:
+        #         vals.append(val)
+        
+        # p = dict(zip(params.keys(), vals))
+        # p['lr'] = np.random.choice(params['lr'])
+
+        vals = []
+        for val in params.values():
+            if type(val) == type([]):
+                vals.append(np.random.choice(val))
+            else:
+                vals.append(val)
+
+        p = dict(zip(params.keys(), vals))
+
+        new_length = truncate(p)
+        lens.append(new_length)
+
+        if new_length < (1-thresh_trunc)*params['n_features']: 
+            pass # >> throws out too much data
+        else:
+            x_train = x_train[:,-new_length:] # >> remove lowest frequencies
+            model, hist = \
+                    conv_autoencoder(x_train=x_train, y_train=x_train, params=p,
+                                     save=False)
+            loss = hist.history['loss'][-1]
+            end = datetime.now()
+            dur = np.round((end-start).total_seconds()/60, 2)
+
+            if type(p['num_filters']) == type([]):
+                p['num_filters'] = p['num_filters'][0]
+                p['num_consecutive'] = p['num_consecutive'][0]
+
+            with open(output_dir+'hyperparam_opt.txt', 'a') as f:
+                f.write(str(loss)+','+str(dur)+','+\
+                        ','.join([str(val) for val in p.values()])+'\n')
+        n_iter += 1
+
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # :: Autoencoders ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -1748,18 +1852,25 @@ class TimeHistory(keras.callbacks.Callback):
     def on_epoch_end(self, batch, logs={}):
         self.times.append(time.time() - self.epoch_time_start)
 
+def decay_schedule(epoch, lr):
+    # decay by 0.1 every 5 epochs; use `% 1` to decay after each epoch
+    if (epoch % 5 == 0) and (epoch != 0):
+        lr = lr * 0.1
+    return lr
+
 def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None, 
-                     validation=False, split=False, input_features=False,
-                     features=None, input_psd=False, save_model_epoch=False,
+                     validation=False, save=False, save_model_epoch=False,
                      model_init=None, save_model=True, save_bottleneck=True,
                      predict=True, output_dir='./', prefix='',
-                     input_rms=False, rms_train=None, rms_test=None,
                      ticid_train=None, ticid_test=None,
-                     train=True, weights_path='./best_model.hdf5',
-                     concat_ext_feats=False,
+                     train=True, weights_path=None,
                      batch_fnames=None, report_time=True):
     
-    if type(params) == str:
+    from keras.callbacks import LearningRateScheduler
+
+    if type(params) == type(None):
+        params = output_dir + 'hyperparam.txt'
+
         with open(params, 'r') as f:
             lines = f.readlines()
             params = {}
@@ -1780,7 +1891,9 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                     elif val == 'False':
                         val = False
                 params[key] = val
-    if 'n_features' not in params.keys() and type(batch_fnames) == type(None):
+
+    # -- get shape of input data -----------------------------------------------
+    if type(batch_fnames) == type(None):
         params['n_features'] = x_train.shape[1]
     else:
         x_train = np.load(batch_fnames[0])
@@ -1839,18 +1952,20 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     # x = Conv1D(16, 5, padding='same')(x)
     # x = MaxPooling1D(params['pool_size'], padding='same')(x)
     # x = Flatten()(x)
+    # fdim = x.shape[-1]
     # x = Dense(params['latent_dim'])(x)
-    # x = Dense(200000)(x)
-    # x = Reshape((12500, 16))(x)
+    # x = Dense(fdim)(x)
+    # x = Reshape((int(fdim/16), 16))(x)
     # x = UpSampling1D(params['pool_size'])(x)
     # x = Conv1D(1, 5, padding='same')(x)
     # x = UpSampling1D(params['pool_size'])(x)
+    # x = Dense(int(params['n_features']/2))(x)
     # x = UpSampling1D(params['pool_size'])(x)
     # x = Activation(params['last_activation'])(x)
     # decoded = Reshape((input_dim,))(x)
     # model = Model(input_img, decoded)
     # model.summary()
-    # # !! tmp
+    # !! tmp
     
     # -- compile model --------------------------------------------------------
     print('Compiling model...')
@@ -1870,7 +1985,9 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         print('Training model...')
         # tf.keras.backend.clear_session()
         time_callback = TimeHistory()
-        callbacks=[time_callback]
+        # lr_scheduler = LearningRateScheduler(decay_schedule)
+
+        callbacks=[time_callback, lr_scheduler]
         if save_model_epoch:
             tensorboard_callback = keras.callbacks.TensorBoard(histogram_freq=0)
 
@@ -1913,78 +2030,18 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     # -- save model weights, bottleneck, reconstructions -----------------------
         
     print('Saving model...')
-    model.save(output_dir + prefix + 'model.hdf5') 
-    model_summary_txt(output_dir+prefix, model)
-    pt.epoch_plots(history, params, output_dir+prefix)
+    if save:
+        model.save(output_dir + prefix + 'model.hdf5') 
+        model_summary_txt(output_dir+prefix, model)
+        pt.epoch_plots(history, params, output_dir+prefix)
 
-    feats = save_autoencoder_products(model, params, batch_fnames, output_dir,
-                                      prefix, x_train, x_test, ticid_train,
-                                      ticid_test)
-    return model, history, feats
+        feats = save_autoencoder_products(model, params, batch_fnames, output_dir,
+                                          prefix, x_train, x_test, ticid_train,
+                                          ticid_test)
+        return model, history, feats
+    else:
+        return model, history
     
-    # --------------------------------------------------------------------------
-
-    # res = [model, history]
-    # pt.epoch_plots(history, params, output_dir)
-    # if save_bottleneck:
-    #     print('Getting bottlneck...')
-    #     bottleneck_train = \
-    #         get_bottleneck(model, x_train, params, save=True, ticid=ticid_train,
-    #                        out=output_dir+prefix+'bottleneck_train.fits')
-    #     if validation:
-    #         bottleneck = get_bottleneck(model, x_test, params, save=True,
-    #                                     ticid=ticid_test,
-    #                                     out=output_dir+prefix+'bottleneck_test.fits')    
-    #     else:
-    #         bottleneck=np.empty((0,params['latent_dim']))
-    #         hdr=  fits.Header()
-    #         hdu = fits.PrimaryHDU(bottleneck, header=hdr)
-    #         hdu.writeto(output_dir+prefix+'bottleneck_test.fits', overwrite=True)
-    #         fits.append(output_dir+prefix+'bottleneck_test.fits', ticid_test)
-            
-    #     res.append(bottleneck_train)
-    #     res.append(bottleneck) 
-    # if predict:
-    #     print('Getting x_predict...')
-    #     if validation:
-    #     # if len(x_test) > 0:
-    #         x_predict = model.predict(x_test)      
-    #         hdr = fits.Header()
-    #         if concat_ext_feats:
-    #             hdu = fits.PrimaryHDU(x_predict[0], header=hdr)
-    #         else:
-    #             hdu = fits.PrimaryHDU(x_predict, header=hdr)
-    #         hdu.writeto(output_dir+prefix+'x_predict.fits', overwrite=True)
-    #         fits.append(output_dir+prefix+'x_predict.fits', ticid_test)
-    #         model_summary_txt(output_dir+prefix, model)
-    #     else:
-    #         x_predict = None
-    #     res.append(x_predict)
-
-    #     x_predict_train = model.predict(x_train)      
-    #     hdr = fits.Header()
-    #     if concat_ext_feats:
-    #         hdu = fits.PrimaryHDU(x_predict_train[0], header=hdr)
-    #     else:
-    #         hdu = fits.PrimaryHDU(x_predict_train, header=hdr)
-    #     hdu.writeto(output_dir+prefix+'x_predict_train.fits', overwrite=True)
-    #     fits.append(output_dir+prefix+'x_predict_train.fits', ticid_train)
-    #     model_summary_txt(output_dir+prefix, model)         
-    #     res.append(x_predict_train)
-    
-    #     if train:
-    #         if concat_ext_feats:
-    #             param_summary(history, x_train[0], x_test[0], x_predict_train[0],
-    #                           x_predict[0], params, output_dir+prefix, 0,'')
-    #         else:
-    #             param_summary(history, x_train, x_test, x_predict_train, x_predict,
-    #                           params, output_dir+prefix, 0,'')            
-
-    
-    # # res = [model, history, bottleneck_train, bottleneck, x_predict, x_predict_train]
-
-    # return res
-
 def cae_encoder(x_train, params, reshape=False):
     '''x_train is an array with shape (num light curves, num data points, 1).
     params is a dictionary with keys:
@@ -2010,10 +2067,18 @@ def cae_encoder(x_train, params, reshape=False):
     # input_dim = params['n_features']
     input_dim = truncate(params)
     num_iter = int(params['num_conv_layers']/2)
-    
-    if type(params['num_filters']) == np.int:
-        params['num_filters'] = list(np.repeat(params['num_filters'], num_iter))
-    if type(params['num_consecutive']) == np.int:
+
+    if type(params['num_filters']) != type([]):
+        if params['num_filters_incr']:
+            new_list = [params['num_filters']]
+            for i in range(1,num_iter):
+                new_list.append(new_list[-1]*2)
+            params['num_filters'] = new_list
+        else:
+            params['num_filters'] = \
+                np.repeat(params['num_filters'], num_iter)
+
+    if type(params['num_consecutive']) != type([]):
         params['num_consecutive'] = list(np.repeat(params['num_consecutive'], num_iter))
 
     input_img = Input(shape = (input_dim,))
@@ -2025,7 +2090,7 @@ def cae_encoder(x_train, params, reshape=False):
             x = Conv1D(params['num_filters'][i], int(params['kernel_size']),
                     padding='same',
                     kernel_initializer=params['initializer'],
-                    strides=params['strides'],
+                    strides=int(params['strides']),
                     kernel_regularizer=params['kernel_regularizer'],
                     bias_regularizer=params['bias_regularizer'],
                     activity_regularizer=params['activity_regularizer'])(x)
@@ -2035,17 +2100,17 @@ def cae_encoder(x_train, params, reshape=False):
             
             x = Activation(params['activation'])(x)
             
-        x = MaxPooling1D(params['pool_size'], padding='same')(x)
+        x = MaxPooling1D(int(params['pool_size']), padding='same')(x)
         x = Dropout(params['dropout'])(x)
         
     if params['cvae']:
         x = Flatten()(x)
-        z_mean = Dense(params['latent_dim'], activation=params['activation'],
+        z_mean = Dense(int(params['latent_dim']), activation=params['activation'],
                         kernel_initializer=params['initializer'],
                         kernel_regularizer=params['kernel_regularizer'],
                         bias_regularizer=params['bias_regularizer'],
                         activity_regularizer=params['activity_regularizer'])(x)
-        z_log_var = Dense(params['latent_dim'], activation=params['activation'],
+        z_log_var = Dense(int(params['latent_dim']), activation=params['activation'],
                           kernel_initializer=params['initializer'],
                           kernel_regularizer=params['kernel_regularizer'],
                           bias_regularizer=params['bias_regularizer'],
@@ -2063,7 +2128,7 @@ def cae_encoder(x_train, params, reshape=False):
         # x = Dense(64, activation=params['activation'],
         #                 kernel_initializer=params['initializer'])(x)
     
-        encoded = Dense(params['latent_dim'], activation=params['activation'],
+        encoded = Dense(int(params['latent_dim']), activation=params['activation'],
                         kernel_initializer=params['initializer'],
                         kernel_regularizer=params['kernel_regularizer'],
                         bias_regularizer=params['bias_regularizer'],
@@ -2086,10 +2151,17 @@ def cae_decoder(x_train, bottleneck, params):
     num_iter = int(params['num_conv_layers']/2)
     reduction_factor = params['pool_size'] * params['strides']**params['num_consecutive'][0] 
     tot_reduction_factor = reduction_factor**num_iter
-    
-    if type(params['num_filters']) == np.int:
-        params['num_filters'] = list(np.repeat(params['num_filters'], num_iter))    
-    if type(params['num_consecutive']) == np.int:
+
+    if type(params['num_filters']) != type([]):
+        if params['num_filters_incr']:
+            new_list = [params['num_filters']]
+            for i in range(1,num_iter):
+                new_list.append(new_list[-1]*2)
+            params['num_filters'] = new_list
+        else:
+            params['num_filters'] = \
+                np.repeat(params['num_filters'], num_iter)
+    if type(params['num_consecutive']) != type([]):
         params['num_consecutive'] = list(np.repeat(params['num_consecutive'], num_iter))
         
 
@@ -2119,7 +2191,7 @@ def cae_decoder(x_train, bottleneck, params):
                 
                 if params['strides'] == 1: # >> faster than Conv1Dtranspose
                     x = Conv1D(1, int(params['kernel_size']),
-                                      padding='same', strides=params['strides'],
+                                      padding='same', strides=int(params['strides']),
                                       kernel_initializer=params['initializer'],
                                       kernel_regularizer=params['kernel_regularizer'],
                                       bias_regularizer=params['bias_regularizer'],
@@ -2129,7 +2201,7 @@ def cae_decoder(x_train, bottleneck, params):
                 else:
                     x = Conv1DTranspose(x, 1, int(params['kernel_size']),
                                 padding='same',
-                                strides=params['strides'],
+                                strides=int(params['strides']),
                                 kernel_initializer=params['initializer'],
                                 kernel_regularizer=params['kernel_regularizer'],
                                 bias_regularizer=params['bias_regularizer'],
@@ -2144,7 +2216,7 @@ def cae_decoder(x_train, bottleneck, params):
                 if params['strides'] == 1:
                     x = Conv1D(params['num_filters'][-1*i - 1],
                                 int(params['kernel_size']),padding='same',
-                                strides=params['strides'],
+                                strides=int(params['strides']),
                                 kernel_initializer=params['initializer'],
                                 kernel_regularizer=params['kernel_regularizer'],
                                 bias_regularizer=params['bias_regularizer'],
@@ -2152,7 +2224,7 @@ def cae_decoder(x_train, bottleneck, params):
                 else:
                     x = Conv1DTranspose(x, params['num_filters'][-1*i - 1],
                                 int(params['kernel_size']), padding='same',
-                                strides=params['strides'],
+                                strides=int(params['strides']),
                                 kernel_initializer=params['initializer'],
                                 kernel_regularizer=params['kernel_regularizer'],
                                 bias_regularizer=params['bias_regularizer'],
@@ -2176,7 +2248,8 @@ def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         start = datetime.now()
         start_tot = datetime.now()
 
-    if type(parampath) != type(None):
+    if type(params) != type(None):
+        parampath = output_dir+'hyperparam.txt'
         params = read_hyperparameters_from_txt(parampath)
 
     # num_classes = np.shape(y_train)[1]
@@ -2452,12 +2525,12 @@ def conv_variational_autoencoder(x_train, y_train, x_test, y_test, params):
         if params['batch_norm']: x = BatchNormalization()(x)
 
         x = Activation(params['activation'])(x)            
-        x = MaxPooling1D(params['pool_size'], padding='same')(x)
+        x = MaxPooling1D(int(params['pool_size']), padding='same')(x)
         x = Dropout(params['dropout'])(x)
 
     x = Flatten()(x)
 
-    x = Dense(params['latent_dim'], activation=params['activation'],
+    x = Dense(int(params['latent_dim']), activation=params['activation'],
               kernel_initializer=params['initializer'])(x)
     z_mean = Dense(params['latent_dim'])(x)
     z_log_sigma = Dense(params['latent_dim'])(x)

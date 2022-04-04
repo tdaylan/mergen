@@ -1005,7 +1005,7 @@ def plot_nvlty_lc(savepath, datapath, lof, objid, sector, feats, n=5, n_tot=50,
 
     # >> make frequency grid
     freq = np.linspace(min_freq, max_freq, n_freq)
-   
+
     # >> get momentum dump times
     print('Loading momentum dump times')
     with open(mdumpcsv, 'r') as f:
@@ -1028,7 +1028,7 @@ def plot_nvlty_lc(savepath, datapath, lof, objid, sector, feats, n=5, n_tot=50,
                 else: ind = random_inds[j*n + k]
                 
                 # >> load light curve
-                lchdu_mask = fits.open(datapath+'mask/sector-%02d'%sector[ind]+\
+                lchdu_mask = fits.open(datapath+'clip/sector-%02d'%sector[ind]+\
                                        '/'+str(int(objid[ind]))+'.fits')
                 time = lchdu_mask[1].data['TIME']
                 flux = lchdu_mask[1].data['FLUX']
@@ -1070,7 +1070,7 @@ def plot_nvlty_lc(savepath, datapath, lof, objid, sector, feats, n=5, n_tot=50,
                 ax[k,1].set_yscale('log')
                     
             # >> label axes
-            ax[n-1,0].set_xlabel('time [BJD - 2457000]')
+            ax[n-1,0].set_xlabel('Time [BJD - 2457000]')
             ax[n-1,1].set_xlabel('Frequency [days^-1]')
             
             # >> save figures
@@ -2467,6 +2467,18 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
     
     return df, best_param_ind, p                
         
+def plot_corr_matrix(data, savepath, cols=None, annot_kws=None):
+    import seaborn as sn
+    df = pd.DataFrame(data, columns=cols)
+    corrMatrix = df.corr()
+    plt.figure(figsize=(18,12))
+    sn.heatmap(corrMatrix, annot=True, annot_kws=annot_kws)
+    plt.tight_layout()
+    plt.savefig(savepath+'corr_matrix.png')
+    print('Saved '+savepath+'corr_matrix.png')
+
+    
+
 def plot_filter_vis(model, feat=0, layer_num=1,
                     output_dir='', prefix=''):
     from tf_keras_vis.activation_maximization import ActivationMaximization
@@ -3873,33 +3885,93 @@ def plot_light_curves(targets, sector, output_dir='', prefix='', figsize=(8,8)):
     fig.tight_layout()
     fig.savefig(output_dir+prefix+'lightcurves.png', dpi=300)    
              
-def plot_lc(time, flux, lcfile, output_dir='./', mdumpcsv=None, plot_mdump=False,
-            prefix='', suffix='', verbose=True, title=''):
+def plot_lc(ticid, sector, output_dir='./',
+            datapath='/scratch/data/tess/lcur/spoc/',
+            mdumpcsv='/scratch/data/tess/meta/Table_of_momentum_dumps.csv',
+            plot_mdump=True, plot_lspgram=True,
+            max_freq=1/(8/1440.), min_freq=1/27., n_freq=50000,
+            prefix='', suffix='', verbose=True):
+                
+    ticid=int(ticid)
+    # >> load light curve
+    lchdu = fits.open(datapath+'clip/sector-%02d'%sector+\
+                           '/'+str(ticid)+'.fits')
+    time = lchdu[1].data['TIME']
+    flux = lchdu[1].data['FLUX']
+    meta = lchdu[0].header
 
-    # >> get metadata
-    lchdu = fits.open(lcfile)
-    ticid = lchdu[0].header['TICID']
+    # >> make title for plot
+    target_info = [sector, meta['CAMERA'],
+                   meta['CCD'], 'SPOC', '2-min']
+    meta = dict(meta)
+    for key in meta.keys():
+        if type(meta[key]) == type(None):
+            meta[key] = np.nan
+
+    target_desc = ['TIC', 'Sector', 'Cam', 'CCD', 'DTYPE', 'Cadence\n',
+                   'RA', 'DEC', 'Teff', 'rad', 'logG', 'Tmag']
+    target_prop = [str(ticid), str(sector), str(meta['CAMERA']),
+                   str(meta['CCD']), 'SPOC', '2-min',
+                   '%.6g'%meta['RA_OBJ'], '%.6g'%meta['DEC_OBJ'], 
+                   str(meta['TEFF']), '%.2g'%meta['RADIUS'], 
+                   '%.2g'%meta['LOGG'], '%.3g'%meta['TESSMAG']]
+    title = ''
+    for i in range(len(target_desc)):
+        title += target_desc[i]+' '+target_prop[i]+', '
+
+
+    # >> make frequency grid
+    if plot_lspgram:
+        freq = np.linspace(min_freq, max_freq, n_freq)
+
 
     # -- momentum dumps ------------------------------------------------------
+    # >> get momentum dump times
+    print('Loading momentum dump times')
     with open(mdumpcsv, 'r') as f:
         lines = f.readlines()
         mom_dumps = [ float(line.split()[3][:-1]) for line in lines[6:] ]
-        inds = np.nonzero((mom_dumps >= np.min(time)) * \
-                          (mom_dumps <= np.max(time)))
-        mom_dumps = np.array(mom_dumps)[inds]    
+        inds = np.nonzero((mom_dumps >= np.nanmin(time)) * \
+                          (mom_dumps <= np.nanmax(time)))
+        mom_dumps_targ = np.array(mom_dumps)[inds]
     
     # -- plot -----------------------------------------------------------------
-    fig, ax = plt.subplots(figsize=(8,3))
-    if plot_mdump:
-        for t in mom_dumps:
-            ax.axvline(t, color='g', linestyle='--')
+
+    if plot_lspgram:
+        figsize=(15, 5)
+        fig, ax = plt.subplots(1, 2, figsize=figsize)
+        ax0 = ax[0]
         
-    ax.plot(time, flux, '.k', ms=0.5)
+    else:
+        figsize=(9,4)
+        fig, ax0 = plt.subplots(figsize=figsize)
+    if plot_mdump:
+        for t in mom_dumps_targ:
+            ax0.axvline(t, color='g', linestyle='--')
+        
+
+    ax0.plot(time, flux, '.k', ms=0.5)
     # ax.set_title(str('TIC {} '.format(int(ticid))+str(title)))
-    ax.set_title('TIC '+str(int(ticid))+' '+title)
-    format_axes(ax)
+    # ax0.set_title(title, fontsize='x-small')
+    fig.suptitle(title, fontsize='small')
+    # format_axes(ax0)
     # ticid_label(ax, ticid[ind], target_info[ind][0], title=True)      
-    
+    ax0.set_xlabel('Time [BJD-2457000]')
+    ax0.set_ylabel('Relative flux')
+
+    if plot_lspgram:
+        # >> compute LS periodogram
+        num_inds = np.nonzero(~np.isnan(flux))
+        power = LombScargle(time[num_inds], flux[num_inds]).power(freq)
+        ax[1].plot(freq, power, '-k', linewidth=0.5)
+        ax[1].set_ylabel('Power')
+        # ax[k,2].set_xscale('log')
+        ax[1].set_yscale('log')
+        ax[1].set_xlabel('Frequency [1/days]')
+        # format_axes(ax[1], xlabel=False, ylabel=False)
+        # ax[1].set_aspect(3./8., adjustable='box')
+
+
     fig.tight_layout()
     fname = output_dir + prefix + 'TIC' + str(ticid) + suffix + '.png'
     fig.savefig(fname, dpi=300)

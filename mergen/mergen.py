@@ -42,7 +42,7 @@ class mergen(object):
     def __init__(self, datapath, savepath, datatype, sector=None,
                  featgen=None,  metapath=None, timescale=None,
                  mdumpcsv=None, filelabel=None, runiter=False, numiter=1,
-                 numclstr=None, parampath=None, clstrmeth=None):
+                 numclstr=None, clstrmeth=None, name=None):
         """Creates mergen object from which most common routines can easily be
         run
         Parameters:
@@ -69,8 +69,6 @@ class mergen(object):
             * numiter : int, number of iterations in the iterative CAE scheme
             * numclstr : int, number of clusters assumed by the GMM clustering
                          algorithm
-            * parampath : string, path to txt file containing autoencoder
-                        parameters
         """
         
         self.featgen = featgen
@@ -86,16 +84,12 @@ class mergen(object):
         # self.ensbpath = self.savepath+'Ensemble-Sector_'+str(self.sector)+'/'
         self.ensbpath = self.savepath # !!
         self.mdumpcsv = mdumpcsv
+        self.name = name
 
         if filelabel is not None:
             self.filelabel = filelabel
         else:
             self.filelabel = "mergen"
-
-        if parampath is not None:
-            self.parampath = parampath
-        else:
-            self.parampath = savepath + 'caehyperparams.txt'
 
         # >> iterative scheme
         self.runiter = runiter
@@ -108,7 +102,10 @@ class mergen(object):
         """Create directories for each of the desired feature generation
         methods."""
         if type(self.featgen) != type(None):
-            self.featpath = self.savepath+self.featgen+"/"
+            if type(self.name) != type(None):
+                self.featpath = self.savepath+self.featgen+"-"+self.name+"/"
+            else:
+                self.featpath = self.savepath+self.featgen+"/"
         dt.create_dir(self.featpath)
 
     def initiate_meta(self):
@@ -171,23 +168,23 @@ class mergen(object):
     def preprocess_data(self):
         if self.featgen == "ENF":
             self.flux = dt.normalize(self.flux)
-        if self.featgen == "CAE": # >> returns training and testing sets
+        else:
             self.x_train, self.x_test = \
-            lt.autoencoder_preprocessing(self.flux, self.time, self.parampath,
+            lt.autoencoder_preprocessing(self.flux, self.time, 
                                          ticid=self.objid,
                                          data_dir=self.datapath,
                                          output_dir=self.featpath)
-        if self.featgen == "DAE": # !!
-            self.x_train, self.flux, self.objid, self.target_info, self.freq, self.time=\
-            lt.DAE_preprocessing(self.flux, self.time, self.parampath,
-                                 self.objid, self.target_info,
-                                 data_dir=self.datapath, sector=self.sector,
-                                 output_dir=self.featpath)
-
     
     # ==========================================================================
     # == Feature Generation ====================================================
     # ==========================================================================
+
+    def optimize_params(self):
+        dt.create_dir(self.featpath+'model/')
+        dt.create_dir(self.featpath+'model/opt/')
+        lt.hyperparam_optimizer(self.featpath+'model/opt/', self.featgen,
+                                x_train=self.x_train,
+                                batch_fnames=self.batch_fnames)
 
     def generate_features(self):
         dt.create_dir(self.featpath+'model/')
@@ -213,7 +210,6 @@ class mergen(object):
         periodograms."""
         self.model, self.hist, self.feats = \
         lt.deep_autoencoder(self.x_train, self.x_train,
-                            parampath=self.parampath,
                             ticid_train=self.objid,
                             output_dir=self.featpath+'model/',
                             batch_fnames=self.batch_fnames)
@@ -223,23 +219,16 @@ class mergen(object):
         """Train convolutional autoencoder to extract representative
         features from lightcurves.
         Returns: 
-            *
- model : Keras Model object
+            *  model : Keras Model object
             * hist : Keras history dictionary
             * feats : CAE-derived features
             * rcon : reconstructions of the input light curves"""        
-        self.model, self.hist, self.feats, self.feats_test, self.rcon_test, \
-        self.rcon = lt.conv_autoencoder(x_train=self.x_train,
-                                        y_train=self.x_train, 
-                                        params=self.parampath,
-                                        output_dir=self.featpath+'model/',
-
+        self.model, self.hist, self.feats = \
+                lt.conv_autoencoder(x_train=self.x_train, y_train=self.x_train, 
+                                        output_dir=featpath+'model/',
                                         ticid_train=self.objid,
                                         batch_fnames=self.batch_fnames)
-        # lt.conv_autoencoder(x_train=self.x_train, y_train=self.x_train, 
-        #                                 params=self.parampath,
-        #                                 output_dir=self.savepath,
-        #                                 ticid_train=self.objid)
+
     def produce_ae_visualizations(self):
         if self.featgen == "DAE":
             pt.produce_ae_visualizations(self.freq[0], self.x_train, self.rcon,
