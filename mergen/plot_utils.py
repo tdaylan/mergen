@@ -140,25 +140,7 @@ import os
 import shutil
 from scipy.stats import moment, sigmaclip
 
-import astropy
-from astropy.io import fits
-import scipy.signal as signal
-from astropy.stats import SigmaClip
-from astropy.utils import exceptions
-
-from sklearn.neighbors import LocalOutlierFactor
-from sklearn.decomposition import PCA
-from sklearn.metrics import confusion_matrix
-from scipy.optimize import linear_sum_assignment
-import seaborn as sn
-
-import astroquery
-from astroquery.simbad import Simbad
-from astroquery.mast import Catalogs
-from astroquery.mast import Observations
-from astroquery import exceptions
-from astroquery.exceptions import RemoteServiceError
-from astroquery.mast import Tesscut
+# import seaborn as sn
 
 # import data_functions as df
 from . import data_utils as dt
@@ -170,14 +152,14 @@ def produce_feature_visualizations():
 def produce_clustering_visualizations(feats, numtot, numpot, tsne, output_dir,
                                       otdict, objid, sector, datapath, metapath,
                                       prefix='', anim=False, elev=45,
-                                      crot_analysis=True):
+                                      crot_analysis=False):
     # prefix = 'perplexity'+str(perplexity)+'_elev'+str(elev)+'_'
     output_dir = output_dir + 'imgs/'
     dt.create_dir(output_dir)
 
-    ensemble_summary_plots(objid, numtot, numpot, otdict, sector,
-                           datapath, output_dir, prefix, metapath)
-    pdb.set_trace()
+    # ensemble_summary_plots(objid, numtot, numpot, otdict, sector,
+    #                        datapath, output_dir, prefix, metapath)
+    # pdb.set_trace()
 
     # >> color with clustering results
     prefix = 'pred_'

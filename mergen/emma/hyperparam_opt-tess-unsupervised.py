@@ -170,8 +170,7 @@ p_opt = {'kernel_size': [3,5],
      'encoder_skip':[False], 'decoder_skip': [False],
      'full_feed_forward_highway': [False], 'cvae': [False],
      'share_pool_inds': [False],
-      'pool_size': [1, 2], 'batch_norm': [True]}    
-
+      'pool_size': [1, 2], 'batch_norm': [True]}
 
 # else:    
 p = {'kernel_size': 5,

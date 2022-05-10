@@ -22,6 +22,7 @@ rcParams["lines.markersize"] = 2
 import scipy.signal as signal
 from scipy.signal import argrelextrema
 from scipy.stats import moment, sigmaclip
+from scipy.optimize import linear_sum_assignment
 
 #astropy
 import astropy
@@ -33,11 +34,14 @@ from astroquery import exceptions
 from astroquery.exceptions import RemoteServiceError
 #from astropy.utils.exceptions import AstropyWarning, RemoteServiceError
 
-#astropquery
+#astroquery
 import astroquery
 from astroquery.simbad import Simbad
 from astroquery.mast import Catalogs
 from astroquery.mast import Observations
+from astroquery import exceptions
+from astroquery.exceptions import RemoteServiceError
+from astroquery.mast import Tesscut
 
 #sklearn - possibly only import where needed
 import sklearn
@@ -52,12 +56,7 @@ from sklearn.neighbors import LocalOutlierFactor
 
 #tensorflow
 import tensorflow as tf
-from tf_keras_vis.saliency import Saliency
 
-#not sure these need to import here?
-#import data_functions as df
-#import plotting_functions as pf
-#import ffi_hyperleda as fh
-
+# from tf_keras_vis.saliency import Saliency
 # import ephesus.ephesus.util as ephesus
-import ephesus.util as ephesus
+

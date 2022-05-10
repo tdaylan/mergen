@@ -225,7 +225,9 @@ def label_clusters(ensbpath, sectors, ticid, clstr, totype, numtot, otdict):
         for i in range(len(ticid)):
             otype = potd[clstr[i]]
             potype.append(otype)
-            f.write(str(ticid[i])+','+otype+','+str(sectors[i])+'\n')
+            # !! tmp
+            # f.write(str(ticid[i])+','+otype+','+str(sectors[i])+'\n')
+            f.write(str(ticid[i])+','+otype+',0\n')
     print('Saved '+fname)
 
     return potype
@@ -1316,7 +1318,8 @@ def load_gmm_from_txt(output_dir, ticid, runIter=False, numIter=1,
     # clusters = clusters[comm2][new_inds]
 
     match = []
-    for i in range(len(ticid)):
+    # for i in range(len(ticid)):
+    for i in range(len(ticid_cluster)):
         match.append(ticid_cluster[i] == ticid[i])
     if len(ticid) != np.count_nonzero(np.array(match)):
         print('!!! Missing '+str(len(ticid)-np.count_nonzero(np.array(match)))+\
@@ -1557,7 +1560,7 @@ def model_summary_txt(output_dir, model):
         model.summary(print_fn=lambda line: f.write(line + '\n'))
 
 def hyperparam_optimizer(output_dir, model, x_train=None, batch_fnames=None,
-                         n_iter_lr=30, n_iter_hp=500, train_frac=0.1,
+                         n_iter_lr=30, n_iter_hp=500, train_frac=0.05,
                          thresh_trunc=0.1):
 
     from datetime import datetime
@@ -1641,9 +1644,10 @@ def hyperparam_optimizer(output_dir, model, x_train=None, batch_fnames=None,
         if new_length < (1-thresh_trunc)*params['n_features']: 
             pass # >> throws out too much data
         else:
-            x_train = x_train[:,-new_length:] # >> remove lowest frequencies
+            x_train_trunc = x_train[:,-new_length:] # >> remove lowest frequencies
+            pdb.set_trace()
             model, hist = \
-                    conv_autoencoder(x_train=x_train, y_train=x_train, params=p,
+                    conv_autoencoder(x_train=x_train_trunc, y_train=x_train_trunc, params=p,
                                      save=False)
             loss = hist.history['loss'][-1]
             end = datetime.now()

@@ -149,7 +149,6 @@ from sklearn.cluster import DBSCAN
 from sklearn.metrics import silhouette_score, calinski_harabasz_score
 from sklearn.metrics import davies_bouldin_score   
 # import batman
-from transitleastsquares import transitleastsquares
 
 # import model as ml
 from . import learn_utils as lt
@@ -4010,7 +4009,8 @@ def load_otype_true_from_datadir(metapath, ticid, sector, savepath):
     # >> 
     totype = []
     for i in range(len(ticid)):
-        ind = np.nonzero((sector_true == sector[i])*(ticid_true == ticid[i]))
+        # ind = np.nonzero((sector_true == sector[i])*(ticid_true == ticid[i]))
+        ind = np.nonzero(ticid_true == ticid[i])
         if len(ind[0]) == 0:
             totype.append('')
         else:

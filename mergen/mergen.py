@@ -14,9 +14,10 @@ currently spotty!
 The Mergen methods are organized into five main sections:
 1) Initialization
 2) Data and Preprocessing
-3) Feature Generation
-4) Clustering and Outlier Analysis
-5) Loading Mergen Products
+3) Generating Features
+4) Concatenating Features
+5) Clustering and Outlier Analysis
+6) Loading Mergen Products
 
 To Do List:
 * Set up pipeline function (kind of a run-all thing)
@@ -225,9 +226,9 @@ class mergen(object):
             * rcon : reconstructions of the input light curves"""        
         self.model, self.hist, self.feats = \
                 lt.conv_autoencoder(x_train=self.x_train, y_train=self.x_train, 
-                                        output_dir=featpath+'model/',
-                                        ticid_train=self.objid,
-                                        batch_fnames=self.batch_fnames)
+                                    output_dir=featpath+'model/',
+                                    ticid_train=self.objid,
+                                    batch_fnames=self.batch_fnames)
 
     def produce_ae_visualizations(self):
         if self.featgen == "DAE":
@@ -264,8 +265,7 @@ class mergen(object):
                                     runiter=self.runiter, numiter=self.numiter)
 
         elif self.clstrmeth == 'hdbscan':
-            lt.quick_hdbscan_param_search(self.feats, output_dir=self.featpath,
-                                          tsne=self.tsne)
+            lt.quick_hdbscan_param_search(self.feats, output_dir=self.featpath)
 
     def generate_tsne(self):
         """Reduces dimensionality of feature space for visualization."""
@@ -352,14 +352,14 @@ class mergen(object):
 
     def load_true_otypes(self):
         """ totype : true object types"""
-        if os.path.exists(self.savepath+'totype.txt'):
-            self.totype = np.loadtxt(self.savepath+'totype.txt', skiprows=1,
-                                   dtype='str', delimiter=',')[:,2]
-        else:
-            self.totype = dt.load_otype_true_from_datadir(self.metapath,
-                                                          self.objid,
-                                                          self.sector,
-                                                          self.savepath)
+        # if os.path.exists(self.savepath+'totype.txt'):
+        #     self.totype = np.loadtxt(self.savepath+'totype.txt', skiprows=1,
+        #                            dtype='str', delimiter=',')[:,2]
+        # else:
+        self.totype = dt.load_otype_true_from_datadir(self.metapath,
+                                                      self.objid,
+                                                      self.sector,
+                                                      self.savepath)
         unqtot = np.unique(self.totype)
         self.otdict = {i: unqtot[i] for i in range(len(unqtot))}
         self.numtot = np.array([np.nonzero(unqtot == ot)[0][0] for \
