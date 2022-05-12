@@ -1656,6 +1656,7 @@ def ensemble_budget(ticid_pred, y_pred, cm, assignments, y_true_labels,
 
 def plot_confusion_matrix(cm, rows, columns, output_dir='./', prefix='',
                           figsize=(30,30)):
+    import pandas as pd
     print('Plotting confusion matrix...')
     df_cm = pd.DataFrame(cm, index=rows, columns=columns)
     fig, ax = plt.subplots(figsize=figsize)
@@ -2451,6 +2452,7 @@ def hyperparam_opt_diagnosis(analyze_object, output_dir, supervised=False):
         
 def plot_corr_matrix(data, savepath, cols=None, annot_kws=None):
     import seaborn as sn
+    import pandas as pd
     df = pd.DataFrame(data, columns=cols)
     corrMatrix = df.corr()
     plt.figure(figsize=(18,12))

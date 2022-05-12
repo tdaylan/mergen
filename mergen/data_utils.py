@@ -2893,6 +2893,7 @@ def get_tess_features(ticid, cols=['Teff', 'rad', 'mass', 'GAIAmag', 'd',\
     return target, feats
 
 def get_tess_feature_all(data_dir=''):
+    import pandas as pd
     # >> get column names
     columns = np.loadtxt(data_dir+'exo_CTL_08.01xTIC_v8.1_header.csv',
                          dtype='str', delimiter=',')
@@ -3092,6 +3093,7 @@ def get_TIC_catalog_sector(data_dir='data/'):
 
 
 def get_TIC_check_success(data_dir):
+    import pandas as pd
     for sector in range(1,27):
         print('Sector '+str(sector))
         fname = data_dir+'Sector'+str(sector)+'/all_targets_S%03d'%sector+\
@@ -3114,6 +3116,7 @@ def get_TIC_check_success(data_dir):
 
 def get_TIC_catalog_sector_v2(data_dir='data/'):
     '''Will read TICv8 CSV files and return a pandas dataframe as another csv.'''
+    import pandas as pd
 
     # >> get column descriptions
     columns = np.loadtxt(data_dir+'tic_column_description.txt',
@@ -3343,6 +3346,7 @@ def query_gcvs(data_dir='./', sector='all', tol=0.1, diag_plot=True):
     * sector: 'all' or int, currently only handles short-cadence
     * tol: maximum separation of TIC target and GCVS target (in arcsec)
     '''
+    import pandas as pd
     data = pd.read_csv(data_dir+'gcvs_database.csv')
     print('Loaded gcvs_database.csv')
     data_coords = coord.SkyCoord(data['RAJ2000'], data['DEJ2000'],

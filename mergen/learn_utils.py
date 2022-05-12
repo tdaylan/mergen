@@ -1188,6 +1188,7 @@ def bottleneck_preprocessing(sector, flux, ticid, target_info,
         
         
     if use_tess_features:
+        import pandas as pd
         tess_features = pd.read_csv(data_dir+'Sector'+str(sector)+\
                                   '/Sector'+str(sector)+'tic_cat_all.csv')
         ticid_tess = tess_features['ID'].to_numpy()
