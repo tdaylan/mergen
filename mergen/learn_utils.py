@@ -1576,7 +1576,7 @@ def hyperparam_optimizer(output_dir, model, x_train=None, batch_fnames=None,
                   'num_conv_layers': [4,6,8,10],
                   'activation': [tf.keras.activations.selu, 'relu', 'elu'],
                   'optimizer': ['adam', 'adadelta'],
-                  'initializer': ['random_normal', 'random_uniform'],
+                  'initializer': ['random_normal', 'random_uniform', 'zeros'],
                   'num_consecutive': [1, 2, 3],
                   'pool_size': [1, 2],
                   'pool_strides': [1, 2],
@@ -1927,16 +1927,10 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
 
     # -- decoding -------------------------------------------------------------
     if params['cvae']:
-        decoded = cae_encoder(x_train, encoded.output[2], params)
-        reconstruction_loss = tf.keras.losses.mean_squared_error(model.input,
-                                                                 model.output)
-        reconstruction_loss *= input_dim
-        kl_loss = 1 + encoded.output[1] - K.square(encoded_output[0]) - \
-            K.exp(encoded.output[1])
-        kl_loss = K.sum(kl_loss, axis=-1)
-        kl_loss *= -0.5
-        vae_loss = K.mean(reconstruction_loss + kl_loss)
-        params['loss'] = vae_loss
+        # https://blog.keras.io/building-autoencoders-in-keras.html
+        z_mean, z_log_sigma, z_latent = encoded.output
+        decoded = cae_decoder(x_train, z_latent, params)
+        # decoder = Model(z_latent, decoded)
     else:
         decoded = cae_decoder(x_train, encoded.output, params)
 
@@ -1949,6 +1943,15 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         start = end
         
     model = Model(encoded.input, decoded)
+
+    if params['cvae']:
+        reconstruction_loss = \
+            tf.keras.losses.binary_crossentropy(encoded.input, decoded)
+        reconstruction_loss *= params['n_features']
+        kl_loss = 1 + z_log_sigma - K.square(z_mean) - K.exp(z_log_sigma)
+        kl_loss = K.sum(kl_loss, axis=-1)
+        kl_loss *= 0.5
+        model.add_loss(K.mean(reconstruction_loss + K.abs(kl_loss)))
     print(model.summary())
     model_summary_txt(output_dir, model)
     
@@ -1985,7 +1988,8 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         time_callback = TimeHistory()
         lr_scheduler = LearningRateScheduler(decay_schedule)
 
-        callbacks=[time_callback, lr_scheduler]
+        callbacks=[time_callback, lr_scheduler,
+                   tf.keras.callbacks.EarlyStopping()]
         if save_model_epoch:
             tensorboard_callback = tf.keras.callbacks.TensorBoard(histogram_freq=0)
 
@@ -2113,7 +2117,7 @@ def cae_encoder(x_train, params, reshape=False):
                           activity_regularizer=params['activity_regularizer'])(x)   
         z = Lambda(sampling, output_shape=(params['latent_dim'],),
                    name='bottleneck')([z_mean, z_log_var, params])         
-        
+        encoder = Model(input_img, [z_mean, z_log_var, z])        
     else:
         x = Flatten()(x)
         
@@ -2129,11 +2133,7 @@ def cae_encoder(x_train, params, reshape=False):
                         kernel_regularizer=params['kernel_regularizer'],
                         bias_regularizer=params['bias_regularizer'],
                         activity_regularizer=params['activity_regularizer'],
-                        name='bottleneck')(x)
-    
-    if params['cvae']:
-        encoder = Model(input_img, [z_mean, z_log_var, z])
-    else:
+                        name='bottleneck')(x)    
         encoder = Model(input_img, encoded)
     return encoder
 
@@ -2636,6 +2636,7 @@ def conv_variational_autoencoder(x_train, y_train, x_test, y_test, params):
 
 
 def sampling(args):
+    '''https://blog.keras.io/building-autoencoders-in-keras.html'''
     z_mean, z_log_sigma, params = args
     epsilon = K.random_normal(shape=(K.shape(z_mean)[0], params['latent_dim']),
                               mean=0., stddev=0.1)
@@ -3740,8 +3741,11 @@ def compile_model(model, params):
     elif params['optimizer'] == 'adadelta':
         # opt = optimizers.adadelta(lr = params['lr'])
         opt = optimizers.Adadelta(lr = params['lr'])
-        
-    model.compile(optimizer=opt, loss=params['loss'])
+
+    if params['cvae']:
+        model.compile(optimizer=opt)
+    else:
+        model.compile(optimizer=opt, loss=params['loss'])
 
 
 def Conv1DTranspose(input_tensor, filters, kernel_size, strides=2, padding='same',
