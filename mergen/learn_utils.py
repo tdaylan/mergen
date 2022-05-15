@@ -71,24 +71,24 @@ To Do List:
     - Move imports to init
 """
 
-import sklearn
+# # import sklearn
 import numpy as np
-from sklearn.manifold import TSNE
-import os
+# # from sklearn.manifold import TSNE
+# import os
 import pdb
-import matplotlib.pyplot as plt
-import numpy as np
-# import plotting_functions as pf
+# # import matplotlib.pyplot as plt
+# import numpy as np
+# # import plotting_functions as pf
 from . import plot_utils as pt
-# import data_functions as df
+# # import data_functions as df
 from . import data_utils as dt
-from astropy.io import fits
-from astropy.timeseries import LombScargle
-import random
+# from astropy.io import fits
+# from astropy.timeseries import LombScargle
+# import random
 import time
-from sklearn.cluster import KMeans    
-import fnmatch as fm
-import pandas as pd
+# # from sklearn.cluster import KMeans    
+# import fnmatch as fm
+# # import pandas as pd
 
 import tensorflow as tf
 import tensorflow.keras.backend as K
@@ -99,9 +99,9 @@ from tensorflow.keras import optimizers
 from tensorflow.keras import metrics
 from tensorflow.keras.models import load_model
 
-from sklearn.mixture import GaussianMixture
-from sklearn.metrics import confusion_matrix
-from scipy.optimize import linear_sum_assignment
+# from sklearn.mixture import GaussianMixture
+# from sklearn.metrics import confusion_matrix
+# from scipy.optimize import linear_sum_assignment
 
 #import talos
 
@@ -1274,8 +1274,8 @@ def load_bottleneck_from_fits(bottleneck_dir, ticid, runIter=False, numIter=1):
 
     return learned_feature_vector
         
-def load_DAE_bottleneck(savepath,):
-    print("Loading DAE-learned features...")
+def load_bottleneck(savepath):
+    print("Loading AE-learned features...")
     fnames = [f for f in os.listdir(savepath+'model/') \
               if '_bottleneck_train.npy' in f]
     fnames.sort()
@@ -1582,6 +1582,7 @@ def hyperparam_optimizer(output_dir, model, x_train=None, batch_fnames=None,
                   'pool_strides': [1, 2],
                   'lr': list(np.logspace(-5, -1, 10)),
                   'num_filters_incr': [True, False],
+                  'cvae': [True], # !!
                   # >> constants
                   'epochs': [10],
                   'loss': ['mean_squared_error'],
@@ -1591,7 +1592,6 @@ def hyperparam_optimizer(output_dir, model, x_train=None, batch_fnames=None,
                   'activity_regularizer': [None],
                   'batch_norm': [True],
                   'batch_size': [32],
-                  'cvae': [False],
                   'fully_conv': [False]}
     elif model == 'DAE':
         model = deep_autoencoder
@@ -1646,10 +1646,9 @@ def hyperparam_optimizer(output_dir, model, x_train=None, batch_fnames=None,
             pass # >> throws out too much data
         else:
             x_train_trunc = x_train[:,-new_length:] # >> remove lowest frequencies
-            pdb.set_trace()
             model, hist = \
-                    conv_autoencoder(x_train=x_train_trunc, y_train=x_train_trunc, params=p,
-                                     save=False)
+                    conv_autoencoder(x_train=x_train_trunc, y_train=x_train_trunc,
+                                     params=p, save=False)
             loss = hist.history['loss'][-1]
             end = datetime.now()
             dur = np.round((end-start).total_seconds()/60, 2)
@@ -1688,6 +1687,10 @@ def save_autoencoder_products(model=None, params=None, batch_fnames=None,
             print('Loading '+batch_fnames[i])
             chunk = np.load(batch_fnames[i])
 
+            new_length = truncate(params)
+            chunk = chunk[:,-new_length:]
+
+            
             n_batch = chunk.shape[0] // params['batch_size'] # !! 'batch'
             bottleneck_chunk = []
             x_predict_chunk = []
@@ -1845,7 +1848,7 @@ def generate_batches(files, params, trunc_start=True):
 #                                 truncate=truncate, reshape=reshape,
 #                                 hyperparam_opt=hyperparam_opt)    
 
-class TimeHistory(keras.callbacks.Callback):
+class TimeHistory(tf.keras.callbacks.Callback):
     '''https://stackoverflow.com/questions/43178668/record-the-computation-time-
     for-each-epoch-in-keras-during-model-fit'''
     def on_train_begin(self, logs={}):
@@ -1870,12 +1873,9 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                      ticid_train=None, ticid_test=None,
                      train=True, weights_path=None,
                      batch_fnames=None, report_time=True):
-    
-    from keras.callbacks import LearningRateScheduler
+    from tensorflow.keras.callbacks import LearningRateScheduler
 
-    if type(params) == type(None):
-        params = output_dir + 'hyperparam.txt'
-
+    if type(params) == type(str()):
         with open(params, 'r') as f:
             lines = f.readlines()
             params = {}
@@ -1896,15 +1896,20 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                     elif val == 'False':
                         val = False
                 params[key] = val
-
+                
     # -- get shape of input data -----------------------------------------------
     if type(batch_fnames) == type(None):
         params['n_features'] = x_train.shape[1]
+        params['n_samples'] = x_train.shape[0]
     else:
         x_train = np.load(batch_fnames[0])
         params['n_features'] = x_train.shape[1]
+        params['n_samples'] = x_train.shape[0]
+        for i in range(1,len(batch_fnames)):
+            x_train = np.load(batch_fnames[i])
+            params['n_samples'] += x_train.shape[0]
         x_train = None
-    
+
     if report_time:
         from datetime import datetime
         start = datetime.now()
@@ -1921,8 +1926,21 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         start = end
 
     # -- decoding -------------------------------------------------------------
-    decoded = cae_decoder(x_train, encoded.output, params)
+    if params['cvae']:
+        decoded = cae_encoder(x_train, encoded.output[2], params)
+        reconstruction_loss = tf.keras.losses.mean_squared_error(model.input,
+                                                                 model.output)
+        reconstruction_loss *= input_dim
+        kl_loss = 1 + encoded.output[1] - K.square(encoded_output[0]) - \
+            K.exp(encoded.output[1])
+        kl_loss = K.sum(kl_loss, axis=-1)
+        kl_loss *= -0.5
+        vae_loss = K.mean(reconstruction_loss + kl_loss)
+        params['loss'] = vae_loss
+    else:
+        decoded = cae_decoder(x_train, encoded.output, params)
 
+    
     if report_time:
         end = datetime.now()
         dur_sec = (end-start).total_seconds()
@@ -1937,7 +1955,7 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     # -- initialize weights ---------------------------------------------------
     if type(model_init) != type(None):
         print('Re-initializing weights')
-        model1 = keras.models.load_model(model_init, custom_objects={'tf': tf}) 
+        model1 = tf.keras.models.load_model(model_init, custom_objects={'tf': tf}) 
         conv_inds1 = np.nonzero(['conv' in x.name for x in model1.layers])[0]
         conv_inds2 = np.nonzero(['conv' in x.name for x in model.layers])[0]
         dense_inds1 = np.nonzero(['dense' in x.name for x in model1.layers])[0]
@@ -1945,32 +1963,7 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         for i in range(len(conv_inds1)):
             model.layers[conv_inds2[i]].set_weights(model1.layers[conv_inds1[i]].get_weights())
         for i in range(len(dense_inds1)):
-            model.layers[conv_inds2[i]].set_weights(model1.layers[conv_inds1[i]].get_weights())
-        
-
-    # # !! tmp
-    # input_dim = params['n_features']
-    # input_img = Input(shape = (input_dim,))
-    # x = Reshape((input_dim, 1))(input_img)
-    # x = MaxPooling1D(params['pool_size'], padding='same')(x)
-    # x = MaxPooling1D(params['pool_size'], padding='same')(x)
-    # x = Conv1D(16, 5, padding='same')(x)
-    # x = MaxPooling1D(params['pool_size'], padding='same')(x)
-    # x = Flatten()(x)
-    # fdim = x.shape[-1]
-    # x = Dense(params['latent_dim'])(x)
-    # x = Dense(fdim)(x)
-    # x = Reshape((int(fdim/16), 16))(x)
-    # x = UpSampling1D(params['pool_size'])(x)
-    # x = Conv1D(1, 5, padding='same')(x)
-    # x = UpSampling1D(params['pool_size'])(x)
-    # x = Dense(int(params['n_features']/2))(x)
-    # x = UpSampling1D(params['pool_size'])(x)
-    # x = Activation(params['last_activation'])(x)
-    # decoded = Reshape((input_dim,))(x)
-    # model = Model(input_img, decoded)
-    # model.summary()
-    # !! tmp
+            model.layers[conv_inds2[i]].set_weights(model1.layers[conv_inds1[i]].get_weights())        
     
     # -- compile model --------------------------------------------------------
     print('Compiling model...')
@@ -1990,13 +1983,13 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         print('Training model...')
         # tf.keras.backend.clear_session()
         time_callback = TimeHistory()
-        # lr_scheduler = LearningRateScheduler(decay_schedule)
+        lr_scheduler = LearningRateScheduler(decay_schedule)
 
         callbacks=[time_callback, lr_scheduler]
         if save_model_epoch:
-            tensorboard_callback = keras.callbacks.TensorBoard(histogram_freq=0)
+            tensorboard_callback = tf.keras.callbacks.TensorBoard(histogram_freq=0)
 
-            checkpoint = keras.callbacks.ModelCheckpoint(output_dir+"model.hdf5",
+            checkpoint = tf.keras.callbacks.ModelCheckpoint(output_dir+"model.hdf5",
                                                          monitor='loss', verbose=1,
                                                          save_best_only=True, mode='auto',
                                                          save_freq='epoch')
@@ -2018,7 +2011,8 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
             gen = generate_batches(batch_fnames, params)
             history = model.fit(gen, epochs=params['epochs'],
                                 batch_size=params['batch_size'], shuffle=True,
-                                callbacks=callbacks)
+                                callbacks=callbacks,
+                                steps_per_epoch=params['n_samples']//params['batch_size'])
         time = time_callback.times
         print('Training time: ' + str(time))
         with open(output_dir+prefix+'training_time.txt', 'w') as f:
@@ -2035,17 +2029,14 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     # -- save model weights, bottleneck, reconstructions -----------------------
         
     print('Saving model...')
-    if save:
-        model.save(output_dir + prefix + 'model.hdf5') 
-        model_summary_txt(output_dir+prefix, model)
-        pt.epoch_plots(history, params, output_dir+prefix)
+    model.save(output_dir + prefix + 'model.hdf5') 
+    model_summary_txt(output_dir+prefix, model)
+    pt.epoch_plots(history, params, output_dir+prefix)
 
-        feats = save_autoencoder_products(model, params, batch_fnames, output_dir,
-                                          prefix, x_train, x_test, ticid_train,
-                                          ticid_test)
-        return model, history, feats
-    else:
-        return model, history
+    feats = save_autoencoder_products(model, params, batch_fnames, output_dir,
+                                      prefix, x_train, x_test, ticid_train,
+                                      ticid_test)
+    return model, history, feats
     
 def cae_encoder(x_train, params, reshape=False):
     '''x_train is an array with shape (num light curves, num data points, 1).
@@ -2121,7 +2112,7 @@ def cae_encoder(x_train, params, reshape=False):
                           bias_regularizer=params['bias_regularizer'],
                           activity_regularizer=params['activity_regularizer'])(x)   
         z = Lambda(sampling, output_shape=(params['latent_dim'],),
-                   name='bottleneck')([z_mean, z_log_var])         
+                   name='bottleneck')([z_mean, z_log_var, params])         
         
     else:
         x = Flatten()(x)
@@ -3711,7 +3702,7 @@ def make_X(flux_train, ticid_train, ticid=[89305963, 147200394, 350716053]):
 def get_activations(model, x_test, input_rms = False, rms_test = False,
                     ind=None):
     '''Returns intermediate activations.'''
-    from keras.models import Model
+    from tensorflow.keras.models import Model
     layer_outputs = [layer.output for layer in model.layers][1:]
     activation_model = Model(inputs=model.input, outputs=layer_outputs)
     if input_rms:
@@ -3796,7 +3787,7 @@ def Conv1DTranspose(input_tensor, filters, kernel_size, strides=2, padding='same
 def swish(x, beta=1):
     '''https://www.bignerdranch.com/blog/implementing-swish-activation-function
     -in-keras/'''
-    from keras.backend import sigmoid
+    from tensorflow.keras.backend import sigmoid
     return (x*sigmoid(beta*x))
 
 def mean_cubic_loss(y_true, y_pred): 

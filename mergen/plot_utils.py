@@ -107,32 +107,33 @@ To Do List:
 
 import numpy as np
 import numpy.ma as ma 
-import pandas as pd 
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)                
+# import pandas as pd 
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)     
+
 import pdb # >> debugging tool
 # import model as ml
 from . import learn_utils as lt
-from astropy.timeseries import LombScargle
+# from astropy.timeseries import LombScargle
 
 
 import scipy.signal as signal
 from scipy.stats import moment
 from scipy import stats
-from pylab import rcParams
-rcParams['figure.figsize'] = 10, 10
-rcParams["lines.markersize"] = 2
+# from pylab import rcParams
+# rcParams['figure.figsize'] = 10, 10
+# rcParams["lines.markersize"] = 2
 # rcParams['lines.color'] = 'k'
 from scipy.signal import argrelextrema
 
-from matplotlib import rc
-rc("text", usetex=False)
+# from matplotlib import rc
+# rc("text", usetex=False)
 
-import sklearn
-from sklearn.cluster import KMeans
-from sklearn.cluster import DBSCAN
-from sklearn.preprocessing import Normalizer
-from sklearn import metrics
+# import sklearn
+# from sklearn.cluster import KMeans
+# from sklearn.cluster import DBSCAN
+# from sklearn.preprocessing import Normalizer
+# from sklearn import metrics
 import fnmatch
 
 from datetime import datetime

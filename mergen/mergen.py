@@ -43,7 +43,8 @@ class mergen(object):
     def __init__(self, datapath, savepath, datatype, sector=None,
                  featgen=None,  metapath=None, timescale=None,
                  mdumpcsv=None, filelabel=None, runiter=False, numiter=1,
-                 numclstr=None, clstrmeth=None, name=None):
+                 numclstr=None, clstrmeth=None, name=None,
+                 parampath=None):
         """Creates mergen object from which most common routines can easily be
         run
         Parameters:
@@ -86,6 +87,8 @@ class mergen(object):
         self.ensbpath = self.savepath # !!
         self.mdumpcsv = mdumpcsv
         self.name = name
+
+        self.parampath = parampath
 
         if filelabel is not None:
             self.filelabel = filelabel
@@ -226,9 +229,10 @@ class mergen(object):
             * rcon : reconstructions of the input light curves"""        
         self.model, self.hist, self.feats = \
                 lt.conv_autoencoder(x_train=self.x_train, y_train=self.x_train, 
-                                    output_dir=featpath+'model/',
+                                    output_dir=self.featpath+'model/',
                                     ticid_train=self.objid,
-                                    batch_fnames=self.batch_fnames)
+                                    batch_fnames=self.batch_fnames,
+                                    params=self.parampath)
 
     def produce_ae_visualizations(self):
         if self.featgen == "DAE":
@@ -328,13 +332,9 @@ class mergen(object):
         """ Load in feature metafiles stored in the datapath"""
         if self.featgen == "ENF":
             self.feats = dt.load_ENF_feature_metafile(self.ENFpath)
-        elif self.featgen == "CAE": 
+        elif self.featgen == "CAE" or self.featgen == "DAE": 
             self.feats = \
-                lt.load_bottleneck_from_fits(self.featpath, self.objid,
-                                             self.runiter, self.numiter)
-        elif self.featgen == "DAE": 
-            self.feats = \
-                lt.load_DAE_bottleneck(self.featpath)
+                lt.load_bottleneck(self.featpath)
 
     def load_gmm_clusters(self):
         """ clstr : array of cluster numbers, shape=(len(objid),)"""

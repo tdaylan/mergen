@@ -89,65 +89,64 @@ To Do List:
 import numpy as np
 from .__init__ import *
 import numpy.ma as ma 
-import pandas as pd 
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)
+# import matplotlib.pyplot as plt
+# from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)
 
-from scipy.stats import moment
-from scipy.stats import sigmaclip
-from scipy.signal import detrend
-from scipy import stats
-from pylab import rcParams
-rcParams['figure.figsize'] = 10, 10
-rcParams["lines.markersize"] = 2
-# rcParams['lines.color'] = 'k'
-from scipy.signal import argrelextrema
-from scipy import signal
+# from scipy.stats import moment
+# from scipy.stats import sigmaclip
+# from scipy.signal import detrend
+# from scipy import stats
+# # from pylab import rcParams
+# # rcParams['figure.figsize'] = 10, 10
+# # rcParams["lines.markersize"] = 2
+# # rcParams['lines.color'] = 'k'
+# from scipy.signal import argrelextrema
+# from scipy import signal
 
 # import plotting_functions as pf
 from . import plot_utils as pt
 
-import sklearn
-from sklearn.cluster import KMeans
-from sklearn.cluster import DBSCAN
-from sklearn.preprocessing import Normalizer
-from sklearn import metrics
-import fnmatch
+# import sklearn
+# from sklearn.cluster import KMeans
+# from sklearn.cluster import DBSCAN
+# from sklearn.preprocessing import Normalizer
+# from sklearn import metrics
+# import fnmatch
 
-from datetime import datetime
-import os
-import shutil
-from scipy.stats import moment, sigmaclip
+# from datetime import datetime
+# import os
+# import shutil
+# from scipy.stats import moment, sigmaclip
 
-import astropy
-from astropy.io import fits
-import scipy.signal as signal
-from astropy.stats import SigmaClip
-from astropy.utils import exceptions
-from astropy.timeseries import LombScargle
+# # import astropy
+# # from astropy.io import fits
+# # import scipy.signal as signal
+# # from astropy.stats import SigmaClip
+# # from astropy.utils import exceptions
+# # from astropy.timeseries import LombScargle
 
-from sklearn.metrics import confusion_matrix
-from sklearn.neighbors import LocalOutlierFactor
-from sklearn.decomposition import PCA
+# from sklearn.metrics import confusion_matrix
+# from sklearn.neighbors import LocalOutlierFactor
+# from sklearn.decomposition import PCA
 
-import astroquery
-from astroquery.simbad import Simbad
-from astroquery.mast import Catalogs
-from astroquery.mast import Observations
-from astroquery import exceptions
-from astroquery.exceptions import RemoteServiceError
-import astropy.coordinates as coord
-import astropy.units as u
-from astroquery.vizier import Vizier
+# # import astroquery
+# from astroquery.simbad import Simbad
+# from astroquery.mast import Catalogs
+# from astroquery.mast import Observations
+# from astroquery import exceptions
+# from astroquery.exceptions import RemoteServiceError
+# import astropy.coordinates as coord
+# import astropy.units as u
+# from astroquery.vizier import Vizier
 
 import pdb
-import fnmatch as fm
+# import fnmatch as fm
 
-import numba
+# import numba
 
-from sklearn.cluster import DBSCAN
-from sklearn.metrics import silhouette_score, calinski_harabasz_score
-from sklearn.metrics import davies_bouldin_score   
+# from sklearn.cluster import DBSCAN
+# from sklearn.metrics import silhouette_score, calinski_harabasz_score
+# from sklearn.metrics import davies_bouldin_score   
 # import batman
 
 # import model as ml
