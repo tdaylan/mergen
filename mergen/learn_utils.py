@@ -1582,7 +1582,7 @@ def hyperparam_optimizer(output_dir, model, x_train=None, batch_fnames=None,
                   'pool_strides': [1, 2],
                   'lr': list(np.logspace(-5, -1, 10)),
                   'num_filters_incr': [True, False],
-                  'cvae': [True], # !!
+                  'cvae': [False], # !!
                   # >> constants
                   'epochs': [10],
                   'loss': ['mean_squared_error'],
@@ -1874,6 +1874,12 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                      train=True, weights_path=None,
                      batch_fnames=None, report_time=True):
     from tensorflow.keras.callbacks import LearningRateScheduler
+
+    from tensorflow.compat.v1 import ConfigProto
+    from tensorflow.compat.v1 import InteractiveSession
+    config = ConfigProto()
+    config.gpu_options.allow_growth = True
+    session = InteractiveSession(config=config)
 
     if type(params) == type(str()):
         with open(params, 'r') as f:
