@@ -74,7 +74,7 @@ To Do List:
 # # import sklearn
 import numpy as np
 # # from sklearn.manifold import TSNE
-# import os
+import os
 import pdb
 # # import matplotlib.pyplot as plt
 # import numpy as np
@@ -548,6 +548,7 @@ def quick_hdbscan_param_search(features, min_samples=[2,3,4,5,6,7,8,15,50],
                                tsne=None):
     
     import hdbscan
+    import sklearn
     from datetime import datetime
 
     with open(output_dir + 'hdbscan_param_search.txt', 'w') as f:
