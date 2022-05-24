@@ -108,8 +108,8 @@ To Do List:
 import numpy as np
 import numpy.ma as ma 
 # import pandas as pd 
-# import matplotlib.pyplot as plt
-# from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)     
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, mark_inset)     
 
 import pdb # >> debugging tool
 # import model as ml
