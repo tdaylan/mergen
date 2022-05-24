@@ -216,7 +216,8 @@ class mergen(object):
         lt.deep_autoencoder(self.x_train, self.x_train,
                             ticid_train=self.objid,
                             output_dir=self.featpath+'model/',
-                            batch_fnames=self.batch_fnames)
+                            batch_fnames=self.batch_fnames,
+                            params=self.parampath)
         
 
     def generate_cae_features(self):

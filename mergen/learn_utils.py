@@ -1808,7 +1808,6 @@ def generate_batches(files, params, trunc_start=True):
         counter = (counter + 1) % len(files)
         X_train = np.load(fname)
         for cbatch in range(0, X_train.shape[0], params['batch_size']):
-            # pdb.set_trace()
             if trunc_start:
                 yield (X_train[cbatch:(cbatch + params['batch_size']),
                                -new_length:],
@@ -1952,13 +1951,19 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     model = Model(encoded.input, decoded)
 
     if params['cvae']:
-        reconstruction_loss = \
-            tf.keras.losses.binary_crossentropy(encoded.input, decoded)
-        reconstruction_loss *= params['n_features']
-        kl_loss = 1 + z_log_sigma - K.square(z_mean) - K.exp(z_log_sigma)
-        kl_loss = K.sum(kl_loss, axis=-1)
-        kl_loss *= 0.5
-        model.add_loss(K.mean(reconstruction_loss + K.abs(kl_loss)))
+        # https://keras.io/examples/generative/vae/
+        reconstruction_loss = tf.reduce_mean(tf.reduce_sum(\
+                tf.keras.losses.binary_crossentropy(encoded.input, decoded)))
+        kl_loss = -0.5*(1+z_log_sigma-tf.square(z_mean)-tf.exp(z_log_sigma))
+        kl_loss = tf.reduce_mean(tf.reduce_sum(kl_loss))
+        model.add_loss(reconstruction_loss+kl_loss)
+        # reconstruction_loss = \
+        #     tf.keras.losses.binary_crossentropy(encoded.input, decoded)
+        # reconstruction_loss *= params['n_features']
+        # kl_loss = 1 + z_log_sigma - K.square(z_mean) - K.exp(z_log_sigma)
+        # kl_loss = K.sum(kl_loss, axis=-1)
+        # kl_loss *= 0.5
+        # model.add_loss(K.mean(reconstruction_loss + K.abs(kl_loss)))
     print(model.summary())
     model_summary_txt(output_dir, model)
     
@@ -1995,8 +2000,8 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         time_callback = TimeHistory()
         lr_scheduler = LearningRateScheduler(decay_schedule)
 
-        callbacks=[time_callback, lr_scheduler,
-                   tf.keras.callbacks.EarlyStopping()]
+        callbacks=[time_callback, lr_scheduler]
+                   # tf.keras.callbacks.EarlyStopping()]
         if save_model_epoch:
             tensorboard_callback = tf.keras.callbacks.TensorBoard(histogram_freq=0)
 
@@ -2251,12 +2256,36 @@ def deep_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         start = datetime.now()
         start_tot = datetime.now()
 
-    if type(params) != type(None):
-        parampath = output_dir+'hyperparam.txt'
-        params = read_hyperparameters_from_txt(parampath)
+    if type(params) == type(str()):
+        with open(params, 'r') as f:
+            lines = f.readlines()
+            params = {}
+            for line in lines[1:]:
+                key = line.split(': ')[0]
+                val = line.split(': ')[1][:-1]
+                try:
+                    val = float(val)
+                    try:
+                        if int(val) == float(val):
+                            val = int(val)
+                    except: pass
+                except: 
+                    if val == 'None':
+                        val = None
+                    elif val == 'True':
+                        val = True
+                    elif val == 'False':
+                        val = False
+                params[key] = val
+
+        
+    # if type(params) != type(None):
+    #     parampath = output_dir+'hyperparam.txt'
+    #     params = read_hyperparameters_from_txt(parampath)
 
     # num_classes = np.shape(y_train)[1]
-    # input_dim = np.shape(x_train)[1]
+    # input_dim = np.shape(x_train)[1]    
+    
     if 'n_features' not in params.keys():
         if type(batch_fnames) == type(None):
             params['n_features'] = x_train.shape[1]
