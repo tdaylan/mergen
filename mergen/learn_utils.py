@@ -1934,9 +1934,15 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     # -- decoding -------------------------------------------------------------
     if params['cvae']:
         # https://blog.keras.io/building-autoencoders-in-keras.html
-        z_mean, z_log_sigma, z_latent = encoded.output
-        decoded = cae_decoder(x_train, z_latent, params)
+        # z_mean, z_log_sigma, z_latent = encoded.output
+        # z_mean, z_log_var = tf.split(encoded.output, num_or_size_splits=2,
+        #                              axis=1)
+        # eps = tf.random.normal(shape=(z_mean.shape[0], params['latent_dim']))
+        # z_sample = eps * tf.exp(z_log_var * 0.5) + z_mean 
+        # decoded = cae_decoder(x_train, z_sample, params)
         # decoder = Model(z_latent, decoded)
+        z_mean, z_log_var, z_sample = encoded.output
+        decoded = cae_decoder(x_train, z_sample, params)
     else:
         decoded = cae_decoder(x_train, encoded.output, params)
 
@@ -1951,12 +1957,25 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     model = Model(encoded.input, decoded)
 
     if params['cvae']:
+        log2pi = tf.math.log(2. * np.pi)
+        cross_ent = tf.nn.sigmoid_cross_entropy_with_logits(logits=decoded,
+                                                            labels=encoded.input)
+        logpx_z = -tf.reduce_sum(cross_ent, axis=1)
+        logpz = tf.reduce_sum(-0.5 * ((z_sample - 0) ** 2. * \
+                                               tf.exp(-0.) + 0. + \
+                                               log2pi),
+                                       axis=1)
+        logqz_x = tf.reduce_sum(-0.5 * ((z_sample - z_mean) ** 2. * \
+                                               tf.exp(-z_log_var) + z_log_var + \
+                                               log2pi),
+                                axis=1)
+        model.add_loss(-tf.reduce_mean(logpx_z+logpz-logqz_x))
         # https://keras.io/examples/generative/vae/
-        reconstruction_loss = tf.reduce_mean(tf.reduce_sum(\
-                tf.keras.losses.binary_crossentropy(encoded.input, decoded)))
-        kl_loss = -0.5*(1+z_log_sigma-tf.square(z_mean)-tf.exp(z_log_sigma))
-        kl_loss = tf.reduce_mean(tf.reduce_sum(kl_loss))
-        model.add_loss(reconstruction_loss+kl_loss)
+        # reconstruction_loss = tf.reduce_mean(tf.reduce_sum(\
+        #         tf.keras.losses.binary_crossentropy(encoded.input, decoded)))
+        # kl_loss = -0.5*(1+z_log_sigma-tf.square(z_mean)-tf.exp(z_log_sigma))
+        # kl_loss = tf.reduce_mean(tf.reduce_sum(kl_loss))
+        # model.add_loss(reconstruction_loss+kl_loss)
         # reconstruction_loss = \
         #     tf.keras.losses.binary_crossentropy(encoded.input, decoded)
         # reconstruction_loss *= params['n_features']
@@ -2117,19 +2136,32 @@ def cae_encoder(x_train, params, reshape=False):
         
     if params['cvae']:
         x = Flatten()(x)
-        z_mean = Dense(int(params['latent_dim']), activation=params['activation'],
+        # z_mean = Dense(int(params['latent_dim']), activation=params['activation'],
+        #                 kernel_initializer=params['initializer'],
+        #                 kernel_regularizer=params['kernel_regularizer'],
+        #                 bias_regularizer=params['bias_regularizer'],
+        #                 activity_regularizer=params['activity_regularizer'])(x)
+        # z_log_var = Dense(int(params['latent_dim']), activation=params['activation'],
+        #                   kernel_initializer=params['initializer'],
+        #                   kernel_regularizer=params['kernel_regularizer'],
+        #                   bias_regularizer=params['bias_regularizer'],
+        #                   activity_regularizer=params['activity_regularizer'])(x)   
+        # z = Lambda(sampling, output_shape=(params['latent_dim'],),
+        #            name='bottleneck')([z_mean, z_log_var, params])         
+        # encoder = Model(input_img, [z_mean, z_log_var, z])
+
+        x = Dense(int(params['latent_dim'])*2,
+                        activation=params['activation'],
                         kernel_initializer=params['initializer'],
                         kernel_regularizer=params['kernel_regularizer'],
                         bias_regularizer=params['bias_regularizer'],
                         activity_regularizer=params['activity_regularizer'])(x)
-        z_log_var = Dense(int(params['latent_dim']), activation=params['activation'],
-                          kernel_initializer=params['initializer'],
-                          kernel_regularizer=params['kernel_regularizer'],
-                          bias_regularizer=params['bias_regularizer'],
-                          activity_regularizer=params['activity_regularizer'])(x)   
-        z = Lambda(sampling, output_shape=(params['latent_dim'],),
+
+        z_mean, z_log_var = tf.split(x, num_or_size_splits=2,
+                                     axis=1)
+        z_sample = Lambda(sampling, output_shape=(params['latent_dim'],),
                    name='bottleneck')([z_mean, z_log_var, params])         
-        encoder = Model(input_img, [z_mean, z_log_var, z])        
+        encoder = Model(input_img, [z_mean, z_log_var, z_sample])
     else:
         x = Flatten()(x)
         
@@ -2241,6 +2273,66 @@ def cae_decoder(x_train, bottleneck, params):
                 x = Activation(params['activation'])(x)
 
     return decoded
+
+# :: Convolutional variational autoencoder :::::::::::::::::::::::::::::::::::::
+
+# class CVAE(tf.keras.Model):
+#     """Convolutional variational autoencoder.
+#     https://www.tensorflow.org/tutorials/generative/cvae"""
+
+#     def __init__(self, params):
+#         super(CVAE, self).__init__()
+#         self.params = params
+#         self.encoder = tf.keras.Sequential(
+#         [
+#             tf.keras.layers.InputLayer(input_shape=(28, 28, 1)),
+#             tf.keras.layers.Conv2D(
+#                 filters=32, kernel_size=3, strides=(2, 2), activation='relu'),
+#             tf.keras.layers.Conv2D(
+#                 filters=64, kernel_size=3, strides=(2, 2), activation='relu'),
+#             tf.keras.layers.Flatten(),
+#             # No activation
+#             tf.keras.layers.Dense(latent_dim + latent_dim),
+#         ]
+#     )
+
+#     self.decoder = tf.keras.Sequential(
+#         [
+#             tf.keras.layers.InputLayer(input_shape=(latent_dim,)),
+#             tf.keras.layers.Dense(units=7*7*32, activation=tf.nn.relu),
+#             tf.keras.layers.Reshape(target_shape=(7, 7, 32)),
+#             tf.keras.layers.Conv2DTranspose(
+#                 filters=64, kernel_size=3, strides=2, padding='same',
+#                 activation='relu'),
+#             tf.keras.layers.Conv2DTranspose(
+#                 filters=32, kernel_size=3, strides=2, padding='same',
+#                 activation='relu'),
+#             # No activation
+#             tf.keras.layers.Conv2DTranspose(
+#                 filters=1, kernel_size=3, strides=1, padding='same'),
+#         ]
+#     )
+
+#   @tf.function
+#   def sample(self, eps=None):
+#     if eps is None:
+#       eps = tf.random.normal(shape=(100, self.latent_dim))
+#     return self.decode(eps, apply_sigmoid=True)
+
+#   def encode(self, x):
+#     mean, logvar = tf.split(self.encoder(x), num_or_size_splits=2, axis=1)
+#     return mean, logvar
+
+#   def reparameterize(self, mean, logvar):
+#     eps = tf.random.normal(shape=mean.shape)
+#     return eps * tf.exp(logvar * .5) + mean
+
+#   def decode(self, z, apply_sigmoid=False):
+#     logits = self.decoder(z)
+#     if apply_sigmoid:
+#       probs = tf.sigmoid(logits)
+#       return probs
+#     return logits
 
 # :: Deep fully-connected autoencoder ::::::::::::::::::::::::::::::::::::::::::
 
@@ -2674,9 +2766,12 @@ def conv_variational_autoencoder(x_train, y_train, x_test, y_test, params):
 def sampling(args):
     '''https://blog.keras.io/building-autoencoders-in-keras.html'''
     z_mean, z_log_sigma, params = args
-    epsilon = K.random_normal(shape=(K.shape(z_mean)[0], params['latent_dim']),
-                              mean=0., stddev=0.1)
-    return z_mean + K.exp(z_log_sigma) * epsilon
+    # epsilon = K.random_normal(shape=(K.shape(z_mean)[0], params['latent_dim']),
+    #                           mean=0., stddev=0.1)
+    # return z_mean + K.exp(z_log_sigma) * epsilon
+
+    epsilon = K.random_normal(shape=(K.shape(z_mean)[0], params['latent_dim']))
+    return z_mean + K.exp(z_log_sigma * 0.5) * epsilon
 
 # :: VAEGAN ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -3772,7 +3867,7 @@ def compile_model(model, params):
     if params['optimizer'] == 'adam':
         # opt = optimizers.adam(lr = params['lr'], 
         #                       decay=params['lr']/params['epochs'])
-        opt = optimizers.Adam(lr = params['lr'], 
+        opt = optimizers.Adam(learning_rate = params['lr'], 
                               decay=params['lr']/params['epochs'])        
     elif params['optimizer'] == 'adadelta':
         # opt = optimizers.adadelta(lr = params['lr'])
