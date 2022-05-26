@@ -167,10 +167,8 @@ def run_tsne(features, n_components=2, perplexity=30, early_exaggeration=12,
     X = TSNE(n_components=n_components).fit_transform(features)
 
     if save:
-        hdr=fits.Header()
-        hdu=fits.PrimaryHDU(X, header=hdr)
-        hdu.writeto(savepath+'tsne.fits', overwrite=True)
-
+        np.save(savepath+'tsne.npy', X)
+        
         fig, ax = plt.subplots()
         ax.plot(X[:,0], X[:,1], '.k', alpha=0.5, ms=2)
         ax.set_xlabel('t-SNE Component 1')
@@ -183,6 +181,10 @@ def run_tsne(features, n_components=2, perplexity=30, early_exaggeration=12,
 def load_tsne_from_fits(ensbpath):
     with fits.open(ensbpath+'tsne.fits') as hdul:
         X = hdul[0].data
+    return X
+
+def load_tsne(ensbpath):
+    X = np.load(ensbpath+'tsne.npy')
     return X
 
 def label_clusters(ensbpath, sectors, ticid, clstr, totype, numtot, otdict):
@@ -1672,15 +1674,28 @@ def hyperparam_optimizer(output_dir, model, x_train=None, batch_fnames=None,
 def save_autoencoder_products(model=None, params=None, batch_fnames=None,
                               output_dir='', parampath=None,
                               prefix='', x_train=None, x_test=None, 
-                              ticid_train=None, ticid_test=None):
+                              ticid_train=None, ticid_test=None,
+                              reconstruct=True):
 
     from datetime import datetime
 
     if type(params) == type(None):
         params = read_hyperparameters_from_txt(parampath)
-
+        
     if type(model) == type(None):
         model = load_model(output_dir+'model.hdf5')
+
+    if type(batch_fnames) == type(None):
+        params['n_features'] = x_train.shape[1]
+        # params['n_samples'] = x_train.shape[0]
+    else:
+        x_train = np.load(batch_fnames[0])
+        params['n_features'] = x_train.shape[1]
+        # params['n_samples'] = x_train.shape[0]
+        # for i in range(1,len(batch_fnames)):
+        #     x_train = np.load(batch_fnames[i])
+        #     params['n_samples'] += x_train.shape[0]
+        x_train = None
 
     if type(x_train) == type(None): # >> load x_train in batches
         bottleneck_train = []
@@ -1707,16 +1722,18 @@ def save_autoencoder_products(model=None, params=None, batch_fnames=None,
                 bottleneck_chunk.extend(get_bottleneck(model, batch, params,
                                                        save=False))
 
-                print('Retrieving reconstructions...')
-                x_predict_chunk.extend(model.predict(batch))
+                if reconstruct:
+                    print('Retrieving reconstructions...')
+                    x_predict_chunk.extend(model.predict(batch))
 
                 end = datetime.now()
                 print((end-start).total_seconds())
 
             np.save(output_dir+'chunk%02d'%i+'_bottleneck_train.npy',
                     np.array(bottleneck_chunk))
-            np.save(output_dir+'chunk%02d'%i+'_x_predict_train.npy',
-                    np.array(x_predict_chunk))
+            if reconstruct:
+                np.save(output_dir+'chunk%02d'%i+'_x_predict_train.npy',
+                        np.array(x_predict_chunk))
             bottleneck_train.extend(bottleneck_chunk)
 
         return np.array(bottleneck_train)

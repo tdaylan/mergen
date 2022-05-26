@@ -239,10 +239,11 @@ class mergen(object):
         else:
             self.model, self.hist = res
 
-    def save_ae_features(self):
+    def save_ae_features(self, reconstruct=True):
         self.feats = lt.save_autoencoder_products(parampath=self.parampath,
                                                   output_dir=self.featpath+'model/',
-                                                  batch_fnames=self.batch_fnames)
+                                                  batch_fnames=self.batch_fnames,
+                                                  reconstruct=reconstruct)
 
     def produce_ae_visualizations(self):
         if self.featgen == "DAE":
@@ -392,7 +393,7 @@ class mergen(object):
                                                   self.sector, self.objid)
 
     def load_tsne(self):
-        self.tsne = lt.load_tsne_from_fits(self.featpath+'model/')
+        self.tsne = lt.load_tsne(self.featpath+'model/')
             
     def load(self):
         self.load_features()
