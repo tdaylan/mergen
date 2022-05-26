@@ -220,7 +220,7 @@ class mergen(object):
                             params=self.parampath)
         
 
-    def generate_cae_features(self):
+    def generate_cae_features(self, save=True):
         """Train convolutional autoencoder to extract representative
         features from lightcurves.
         Returns: 
@@ -228,12 +228,21 @@ class mergen(object):
             * hist : Keras history dictionary
             * feats : CAE-derived features
             * rcon : reconstructions of the input light curves"""        
-        self.model, self.hist, self.feats = \
-                lt.conv_autoencoder(x_train=self.x_train, y_train=self.x_train, 
-                                    output_dir=self.featpath+'model/',
-                                    ticid_train=self.objid,
-                                    batch_fnames=self.batch_fnames,
-                                    params=self.parampath)
+        res = lt.conv_autoencoder(x_train=self.x_train, y_train=self.x_train, 
+                                  output_dir=self.featpath+'model/',
+                                  ticid_train=self.objid,
+                                  batch_fnames=self.batch_fnames,
+                                  params=self.parampath, save=save)
+
+        if save:
+            self.model, self.hist, self.feats = res
+        else:
+            self.model, self.hist = res
+
+    def save_ae_features(self):
+        self.feats = lt.save_autoencoder_products(parampath=self.parampath,
+                                                  output_dir=self.featpath+'model/',
+                                                  batch_fnames=self.batch_fnames)
 
     def produce_ae_visualizations(self):
         if self.featgen == "DAE":

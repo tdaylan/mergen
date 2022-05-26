@@ -1874,6 +1874,7 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
                      train=True, weights_path=None,
                      batch_fnames=None, report_time=True):
     from tensorflow.keras.callbacks import LearningRateScheduler
+    from tensorflow.keras.callbacks import ModelCheckpoint
 
     from tensorflow.compat.v1 import ConfigProto
     from tensorflow.compat.v1 import InteractiveSession
@@ -2018,8 +2019,10 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
         # tf.keras.backend.clear_session()
         time_callback = TimeHistory()
         lr_scheduler = LearningRateScheduler(decay_schedule)
+        cp_callback = ModelCheckpoint(filepath=output_dir+'cp.ckpt',
+                                      save_weights_only=True, verbose=1)
 
-        callbacks=[time_callback, lr_scheduler]
+        callbacks=[time_callback, lr_scheduler, cp_callback]
                    # tf.keras.callbacks.EarlyStopping()]
         if save_model_epoch:
             tensorboard_callback = tf.keras.callbacks.TensorBoard(histogram_freq=0)
@@ -2068,10 +2071,13 @@ def conv_autoencoder(x_train, y_train, x_test=None, y_test=None, params=None,
     model_summary_txt(output_dir+prefix, model)
     pt.epoch_plots(history, params, output_dir+prefix)
 
-    feats = save_autoencoder_products(model, params, batch_fnames, output_dir,
-                                      prefix, x_train, x_test, ticid_train,
-                                      ticid_test)
-    return model, history, feats
+    if save:
+        feats = save_autoencoder_products(model, params, batch_fnames, output_dir,
+                                          prefix, x_train, x_test, ticid_train,
+                                          ticid_test)
+        return model, history, feats
+    else:
+        return model, history
     
 def cae_encoder(x_train, params, reshape=False):
     '''x_train is an array with shape (num light curves, num data points, 1).
