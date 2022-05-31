@@ -350,7 +350,7 @@ class mergen(object):
     def load_gmm_clusters(self):
         """ clstr : array of cluster numbers, shape=(len(objid),)"""
         self.clstr = \
-            lt.load_gmm_from_txt(self.ensbpath+self.featgen+'/', self.objid,
+            lt.load_gmm_from_txt(self.featpath, self.objid,
                                  self.runiter, self.numiter, self.numclstr)
 
     def load_reconstructions(self):

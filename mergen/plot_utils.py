@@ -153,7 +153,7 @@ def produce_feature_visualizations():
 def produce_clustering_visualizations(feats, numtot, numpot, tsne, output_dir,
                                       otdict, objid, sector, datapath, metapath,
                                       prefix='', anim=False, elev=45,
-                                      crot_analysis=False):
+                                      crot_analysis=True):
     # prefix = 'perplexity'+str(perplexity)+'_elev'+str(elev)+'_'
     output_dir = output_dir + 'imgs/'
     dt.create_dir(output_dir)
@@ -163,14 +163,14 @@ def produce_clustering_visualizations(feats, numtot, numpot, tsne, output_dir,
     # pdb.set_trace()
 
     # >> color with clustering results
-    prefix = 'pred_'
-    plot_tsne(feats, numpot, X=tsne, output_dir=output_dir,
-              prefix=prefix, animate=anim, elev=elev, otypedict=otdict)
+    # prefix = 'pred_'
+    # plot_tsne(feats, numpot, X=tsne, output_dir=output_dir,
+    #           prefix=prefix, animate=anim, elev=elev, otypedict=otdict)
 
     # >> color with classifications from GCVS, SIMBAD, ASAS-SN
-    prefix = 'true_'
-    plot_tsne(feats, numtot, X=tsne, output_dir=output_dir,
-              prefix=prefix, animate=anim, elev=elev, otypedict=otdict)
+    # prefix = 'true_'
+    # plot_tsne(feats, numtot, X=tsne, output_dir=output_dir,
+    #           prefix=prefix, animate=anim, elev=elev, otypedict=otdict)
 
     # >> specific science case: complex rotators
     # !! TODO : input list of objects [CROT, ...]
@@ -190,7 +190,8 @@ def produce_clustering_visualizations(feats, numtot, numpot, tsne, output_dir,
                 numcot.append(0)
         plot_tsne(feats, numcot, X=tsne, output_dir=output_dir,
                   prefix=prefix, animate=anim, elev=elev, otypedict=cotd,
-                  class_marker='x', class_ms=20, debug=True)
+                  class_marker='x', class_ms=20, debug=True, objid=objid,
+                  plot_insets=True, lcpath=datapath+'clip/')
 
     return
 
@@ -673,13 +674,26 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
     
     
 def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
-              prefix='', animate=False, elev=10, otypedict=None, alpha=0.5,
-              class_marker='.', class_ms=5, debug=False):
+              prefix='', animate=False, elev=10, otypedict=None, alpha=0.1,
+              class_marker='.', class_ms=3, debug=False, plot_insets=False,
+              lcpath=None, objid=None, max_insets=300, n_bins=1000, figsize=(15,15),
+              inset_label=None, zoom=False, zoom_ind=None, n_zoom=15):
     if type(X) == type(None):
         from sklearn.manifold import TSNE
         X = TSNE(n_components=n_components).fit_transform(bottleneck)
+    labels = np.array(labels)
     unique_classes = np.unique(labels)
     # unique_classes = np.array(list(otypedict.keys()))
+
+    if type(otypedict) != type(None):
+        if 'NONE' in otypedict.values():
+            ind = [*otypedict.values()].index('NONE')
+            none_label = [*otypedict.keys()][ind]
+            unique_classes = np.delete(unique_classes,
+                                       np.nonzero(unique_classes == none_label))
+            unique_classes = np.insert(unique_classes, 0, none_label) 
+
+
     colors = get_colors()
 
     # >> find 'center' of t-SNE
@@ -688,47 +702,59 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
     minlim = np.min(X, axis=0)
     rad = 0.5 * np.sqrt(np.sum((maxlim - minlim)**2)) # >> radius of tSNE 
 
-    fig = plt.figure()
+    fig = plt.figure(figsize=figsize)
     if X.shape[1] == 2:
         ax = fig.add_subplot()
     elif X.shape[1] == 3:
         ax = fig.add_subplot(projection='3d')
+
+    if X.shape[1] == 2 and zoom:
+        if type(zoom_ind) == type(None):
+            zoom_ind = np.random.choice(np.arange(X.shape[0]))
+        if X[zoom_ind][0] < np.mean(ax.get_xlim()):
+            x0 = 0.5
+        else:
+            x0 = 0.03
+        if X[zoom_ind][1] < np.mean(ax.get_ylim()):
+            y0 = 0.5
+        else:
+            y0 = 0.03
+        in_ax = ax.inset_axes([x0, y0, 0.47, 0.47])
         
     for i in unique_classes:
         # >> find all light curves with this  class
         class_inds = np.nonzero(labels == i)
 
         # >> assign color
-        if i < len(colors) - 1:
+        if i > len(colors):
+            color='black'
+            marker = '.'
+            ms = 1
+        else:
             color = colors[i]
             al = alpha
             marker = class_marker
             ms = class_ms
             # if debug:pdb.set_trace()
-        else:
-            color='black'
-            marker = '.'
-            ms = 5
         if type(otypedict) != type(None):
             if otypedict[i] == 'NONE':
                 color = 'black'
-                al = 0.01
+                al = alpha
                 marker='.'
-                ms = 5
+                ms = 1
 
         # >> plot all datapoints
         if X.shape[1] == 2:
             ax.plot(X[class_inds][:,0], X[class_inds][:,1], marker, color=color,
                     alpha=al, ms=ms)
-            ax.set_xlabel('t-SNE Component 1')
-            ax.set_ylabel('t-SNE Component 2')
-        else:
+            if zoom:
+                in_ax.plot(X[class_inds][:,0], X[class_inds][:,1], marker,
+                           color=color, ms=ms*4)
+            
+        elif X.shape[1] == 3:
             ax.scatter(X[class_inds][:,0], X[class_inds][:,1], X[class_inds][:,2],
                        marker='.', c=color, alpha=al)
-            ax.set_xlabel('t-SNE Component 1')
-            ax.set_ylabel('t-SNE Component 2')
-            ax.set_zlabel('t-SNE Component 3')
-
+            
         # >> plot labels
         if type(otypedict) != type(None):
             cntpt = np.median(X[class_inds], axis=0) # >> center of cluster
@@ -757,6 +783,97 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
                 ax.text(xp, yp, zp, otypedict[i], color=color, size='large')
                 xv, yv, zv = [cntpt[0], xp], [cntpt[1], yp], [cntpt[2], zp]
                 ax.plot(xv, yv, zv, '-', color=color)
+
+    if X.shape[1] == 2 and plot_insets:
+        inset_width = 0.1 * (np.max(X[:,0]) - np.min(X[:,0]))
+        inset_height = 3/8 * inset_width
+        if type(inset_label) != type(None):
+            max_insets = np.min([max_insets,
+                                 len(np.nonzero(labels==inset_label)[0])])
+
+        for j in range(max_insets):
+            if type(inset_label) == type(None):
+                ind = np.random.choice(np.arange(X.shape[0]))
+            else:
+                ind = np.nonzero(labels==inset_label)[0][j]
+            
+            if labels[ind] < len(colors) - 1:
+                color = colors[labels[ind]]
+            else:
+                color='black'
+
+
+            plot_lc_inset(X[ind][0], X[ind][1], inset_width, inset_height, ax,
+                          lcpath, objid[ind], n_bins, color)
+
+            # in_ax = ax.inset_axes([X[ind][0], X[ind][1], inset_width,
+            #                        inset_height],
+            #                       transform=ax.transData)# ax.get_xaxis_transform())
+            # t, y = get_lc(lcpath, objid[ind], rmv_nan=True, norm=True)
+            # # in_ax.plot(t, y,'.k',  ms=0.05)
+            # # >> bin light curve
+            # bin_size = len(y) // n_bins
+            # binned_y = np.mean(np.split(y[:bin_size*n_bins], n_bins), axis=1)
+            # binned_y = np.append(binned_y, np.mean(y[bin_size*n_bins:]))
+
+            # in_ax.plot(binned_y, '.k', ms=0.5)
+            # in_ax.set_xticklabels([])
+            # in_ax.set_yticklabels([])
+            # in_ax.spines['bottom'].set_color(color)
+            # in_ax.spines['top'].set_color(color)
+            # in_ax.spines['right'].set_color(color)
+            # in_ax.spines['left'].set_color(color)
+            # in_ax.tick_params(axis='both', colors=color)
+
+    if X.shape[1] == 2 and zoom:    
+        # sub region of the original image
+        # x1 = X[zoom_ind][0]-0.01*np.diff(ax.get_xlim())
+        # x2 = X[zoom_ind][0]+0.01*np.diff(ax.get_xlim())
+        # y1 = X[zoom_ind][1]-0.01*np.diff(ax.get_ylim())
+        # y2 = X[zoom_ind][1]+0.01*np.diff(ax.get_ylim())
+
+        # show nearest n_zoom points
+        # dist = np.sqrt((X[:,0]-X[zoom_ind,0])**2 + (X[:,1]-X[zoom_ind,1])**2)
+        dist = np.sum((bottleneck - bottleneck[zoom_ind])**2, axis=1)
+        width = np.sqrt(np.sum((X[np.argsort(dist)[n_zoom]] - X[zoom_ind])**2))
+        x1 = X[zoom_ind][0]-width
+        x2 = X[zoom_ind][0]+width
+        y1 = X[zoom_ind][1]-width
+        y2 = X[zoom_ind][1]+width
+
+        in_ax.set_xlim(x1, x2)
+        in_ax.set_ylim(y1, y2)
+        in_ax.set_xticklabels([])
+        in_ax.set_yticklabels([])    
+        ax.indicate_inset_zoom(in_ax, edgecolor="black")
+
+        inset_width = 0.2 * (x2-x1)
+        inset_height = 3/8 * inset_width
+        for i in range(n_zoom):
+            ind = np.argsort(dist)[i+1]
+            if labels[ind] < len(colors) - 1:
+                color = colors[labels[ind]]
+            else:
+                color='black'
+            plot_lc_inset(X[ind][0], X[ind][1], inset_width, inset_height, in_ax,
+                          lcpath, objid[ind], n_bins, color)
+
+
+        # fig.savefig('/scratch/echickle/tmp/foo.png')
+        # pdb.set_trace()
+
+    if X.shape[1] == 2:
+        ax.set_xlabel('t-SNE Component 1')
+        ax.set_ylabel('t-SNE Component 2')
+    elif X.shape[1] == 3:
+        ax.set_xlabel('t-SNE Component 1')
+        ax.set_ylabel('t-SNE Component 2')
+        ax.set_zlabel('t-SNE Component 3')
+
+    ax.set_rasterized(True)
+    ax.xaxis.label.set_size(20)
+    ax.yaxis.label.set_size(20)
+    ax.tick_params(axis='both', which='major', labelsize=20)
 
     plt.savefig(output_dir + prefix + 't-sne.png', dpi=300)
     print('Saved '+output_dir+prefix+'t-sne.png')
@@ -3964,4 +4081,96 @@ def plot_lc(ticid, sector, output_dir='./',
     if verbose:
         print('Wrote '+fname)
     plt.close(fig)
+
+
+def get_lc(lcpath, ticid, timescale=13, norm=False, method='median', rmv_nan=False,
+           detrend=False, plot=False, savepath=None, return_sector=False,
+           sector=None, memmap=False):
+
+    ticid = int(ticid)
+
+    # -- load raw light curve data ---------------------------------------------
+
+    fnames = []
+    for s in os.listdir(lcpath): # >> loop through sectors
+        fnames.extend([lcpath+s+'/'+f for f in \
+                       os.listdir(lcpath+s) \
+                       if str(ticid) in f])
+
+    if type(sector) != type(None):
+        fnames = [lcpath+'sector-%02d'%sector+'/'+str(ticid)+'.fits']
+
+    t, y = [], []
+    for fname in fnames:
+        data, meta = dt.open_fits(fname=fname, memmap=memmap)  
+        if rmv_nan:
+            inds = np.nonzero(~np.isnan(data['FLUX']))
+            t.append(data['TIME'][inds])
+            y.append(data['FLUX'][inds])
+        else:
+            t.append(data['TIME'])
+            y.append(data['FLUX'])
+    if plot:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        plot_lc(ax, np.concatenate(t), np.concatenate(y), c='k', ms=2,
+                label='raw')
+
+    if norm: # -- normalization ------------------------------------------------
+        for i in range(len(y)):
+            y[i] = dt.normalize(y[i], axis=0, method=method)
+
+        if plot:
+            plot_lc(ax, np.concatenate(t), np.concatenate(y), c='r', ms=2,
+                    label='normalized')            
+
+    if detrend: # -- linearly detrending ---------------------------------------
+        for i in range(len(y)):
+            y[i] = detrend_lc(t[i], y[i])
+        if plot:
+            plot_lc(ax, np.concatenate(t), np.concatenate(y),
+                    label='detrend', ms=2)
+
+    # -- concatenate -----------------------------------------------------------
+
+    if plot:
+        fig.tight_layout()
+        out_f = savepath+'lightcurve_TIC'+str(ticid)+'.png'
+        fig.savefig(out_f)
+        print('Saved '+out_f)
+
+    if timescale == 1:
+        if return_sector:
+            return t, y
+        t, y = np.concatenate(t), np.concatenate(y)
+    else:
+        t = np.concatenate(t[:timescale])
+        y = np.concatenate(y[:timescale])
+
+    if rmv_nan:
+        inds = np.nonzero(~np.isnan(y))
+        t=t[inds]
+        y=y[inds]
+
+    return t, y
+
+def plot_lc_inset(x0, y0, inset_width, inset_height, ax, lcpath, ticid, n_bins,
+                  color):
+    in_ax = ax.inset_axes([x0, y0, inset_width, inset_height],
+                          transform=ax.transData)
+    t, y = get_lc(lcpath, ticid, rmv_nan=True, norm=True)
+    # in_ax.plot(t, y,'.k',  ms=0.05)
+    # >> bin light curve
+    bin_size = len(y) // n_bins
+    binned_y = np.mean(np.split(y[:bin_size*n_bins], n_bins), axis=1)
+    binned_y = np.append(binned_y, np.mean(y[bin_size*n_bins:]))
+
+    in_ax.plot(binned_y, '.k', ms=0.5)
+    in_ax.set_xticklabels([])
+    in_ax.set_yticklabels([])
+    in_ax.spines['bottom'].set_color(color)
+    in_ax.spines['top'].set_color(color)
+    in_ax.spines['right'].set_color(color)
+    in_ax.spines['left'].set_color(color)
+    in_ax.tick_params(axis='both', colors=color)
+
 

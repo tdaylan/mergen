@@ -119,7 +119,7 @@ from . import plot_utils as pt
 # from scipy.stats import moment, sigmaclip
 
 # # import astropy
-# # from astropy.io import fits
+from astropy.io import fits
 # # import scipy.signal as signal
 # # from astropy.stats import SigmaClip
 # # from astropy.utils import exceptions
@@ -647,7 +647,7 @@ def normalize_robust(x):
 
 # -- Open and write light curve Fits files -------------------------------------
 
-def open_fits(lcdir='', objid=None, fname=None):
+def open_fits(lcdir='', objid=None, fname=None, memmap=False):
     """Loads preprocessed light curves from Fits file. Must either supply
     objid or fname."""
 
@@ -657,33 +657,35 @@ def open_fits(lcdir='', objid=None, fname=None):
         fname = str(int(objid))+'.fits'
     fname = lcdir + fname
 
-    try:
-        with fits.open(fname, memmap=False) as hdul:
-            data = hdul[1].data
-            meta = hdul[0].header
-        # hdul = fits.open(fname)
-        # data = hdul[1].data
-        # meta = hdul[0].header
-        # fits.close(fname)
-        # gc.collect()
-        return [data, meta]
-    except:
-        # gc.collect()
-        # try: # >> try a second time after gc.collect()
-        #     with fits.open(fname, memmap=False) as hdul:
-        #         data = hdul[1].data
-        #         meta = hdul[0].header
-        #     # hdul = fits.open(fname)
-        #     # data = hdul[1].data
-        #     # meta = hdul[0].header
-        #     # fits.close(fname)
-        #     # gc.collect()
-        #     return [data, meta]
+    n_iter = 5
+    for i in range(n_iter):
+        try:
+            with fits.open(fname, memmap=True) as hdul:
+                data = hdul[1].data
+                meta = hdul[0].header
+            # hdul = fits.open(fname)
+            # data = hdul[1].data
+            # meta = hdul[0].header
+            # fits.close(fname)
+            # gc.collect()
+            return [data, meta]
+        except:
+            # gc.collect()
+            # try: # >> try a second time after gc.collect()
+            #     with fits.open(fname, memmap=False) as hdul:
+            #         data = hdul[1].data
+            #         meta = hdul[0].header
+            #     # hdul = fits.open(fname)
+            #     # data = hdul[1].data
+            #     # meta = hdul[0].header
+            #     # fits.close(fname)
+            #     # gc.collect()
+            #     return [data, meta]
 
-        # except:
-        print('Failed to open the following FITS file:')
-        print(lcdir+fname)
-        return [None, None]
+            # except:
+            print('Failed to open the following FITS file:')
+            print(lcdir+fname)
+    return [None, None]
 
     gc.collect()
 
