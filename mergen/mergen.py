@@ -290,10 +290,11 @@ class mergen(object):
         """Predicts object types using known classifications.
         Returns:
             * potype : array of predicted object types, shape=(len(objid),)"""
-        self.potype = \
-            lt.label_clusters(self.ensbpath+self.featgen+'/', self.sector,
-                              self.objid, self.clstr, self.totype, self.numtot,
-                              self.otdict)
+        lt.label_clusters(self)
+        # self.potype = \
+        #     lt.label_clusters(self.featpath, self.sector,
+        #                       self.objid, self.clstr, self.totype, self.numtot,
+        #                       self.otdict)
 
     def produce_clustering_visualizations(self):
         '''Produces t-SNEs, confusion matrices, distribution plots, ensemble
@@ -389,7 +390,7 @@ class mergen(object):
 
     def load_pred_otypes(self):
         """ potype : predicted object types"""
-        self.potype = dt.load_otype_pred_from_txt(self.ensbpath+self.featgen+'/',
+        self.potype = dt.load_otype_pred_from_txt(self.featpath,
                                                   self.sector, self.objid)
 
     def load_tsne(self):

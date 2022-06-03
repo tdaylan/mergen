@@ -100,8 +100,8 @@ from tensorflow.keras import metrics
 from tensorflow.keras.models import load_model
 
 # from sklearn.mixture import GaussianMixture
-# from sklearn.metrics import confusion_matrix
-# from scipy.optimize import linear_sum_assignment
+from sklearn.metrics import confusion_matrix
+from scipy.optimize import linear_sum_assignment
 
 #import talos
 
@@ -187,15 +187,16 @@ def load_tsne(ensbpath):
     X = np.load(ensbpath+'tsne.npy')
     return X
 
-def label_clusters(ensbpath, sectors, ticid, clstr, totype, numtot, otdict):
+# def label_clusters(ensbpath, sectors, ticid, clstr, totype, numtot, otdict):
+def label_clusters(mg):
 
     # >> classified inds
-    inds = np.nonzero(totype != 'NONE')
-    cm  = confusion_matrix(clstr[inds], numtot[inds])
+    inds = np.nonzero(mg.totype != 'NONE')
+    cm  = confusion_matrix(mg.clstr[inds], mg.numtot[inds])
 
     # >> make the matrix square so that we can apply linear_sum_assignment
-    unqpot = np.unique(clstr[inds])         # >> unique predicted otypes
-    unqtot = np.array(list(otdict.values()))  # >> unique true otypes
+    unqpot = np.unique(mg.clstr[inds])         # >> unique predicted otypes
+    unqtot = np.unique(mg.totype)  # >> unique true otypes
     unqtot = np.delete(unqtot, np.nonzero(unqtot=='NONE')[0][0])
     while len(unqpot) < len(cm):
         unqpot = np.append(unqpot, 'NONE')     
@@ -208,31 +209,37 @@ def label_clusters(ensbpath, sectors, ticid, clstr, totype, numtot, otdict):
     unqpot = unqpot[col_ind]
 
     # >> create a dictionary [cluster number, variability type]
-    potd = {} # >> predicted otype dictionary
+    otdict = {} # >> predicted otype dictionary
     for i in range(len(unqpot)):
         # >> check if there is a real label assigned
         if unqpot[i] != 'NONE':
-            potd[int(unqpot[i])] = unqtot[i]
-    for i in np.unique(clstr):
-        if i not in list(potd.keys()):
-            potd[i] = 'NONE'
+            otdict[int(unqpot[i])] = unqtot[i]
+    for i in np.unique(mg.clstr):
+        if i not in list(otdict.keys()):
+            otdict[i] = 'NONE'
+
+    pdb.set_trace()
 
     # >> create list of predicted otypes (potype)
     potype = []
     # fname = ensbpath+'Sector'+str(sector)+'-ticid_to_label.txt'
-    fname = ensbpath+'s-'+'-'.join(np.unique(sectors).astype('str'))+\
-            '-ticid_to_label.txt'
+    # fname = mg.featpath+'s-'+'-'.join(np.unique(mg.sector).astype('str'))+\
+    #         '-ticid_to_label.txt'
+    fname = mg.featpath+'ticid_to_label.txt'
     with open(fname, 'w') as f:
-        f.write('TICID,OTYPE,SECTOR\n')
-        for i in range(len(ticid)):
-            otype = potd[clstr[i]]
+        # f.write('TICID,OTYPE,SECTOR\n')
+        f.write('TICID,OTYPE\n')
+        for i in range(len(mg.objid)):
+            otype = otdict[mg.clstr[i]]
             potype.append(otype)
             # !! tmp
             # f.write(str(ticid[i])+','+otype+','+str(sectors[i])+'\n')
-            f.write(str(ticid[i])+','+otype+',0\n')
+            f.write(str(mg.objid[i])+','+otype+'\n')
     print('Saved '+fname)
 
-    return potype
+    mg.cm = cm
+    mg.otdict = otdict
+    mg.potype = potype
 
 
 ##### PARAM SCANS #####

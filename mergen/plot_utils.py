@@ -677,7 +677,8 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
               prefix='', animate=False, elev=10, otypedict=None, alpha=0.1,
               class_marker='.', class_ms=3, debug=False, plot_insets=False,
               lcpath=None, objid=None, max_insets=300, n_bins=1000, figsize=(15,15),
-              inset_label=None, zoom=False, zoom_ind=None, n_zoom=15):
+              inset_label=None, zoom=False, zoom_ind=None, n_zoom=15,
+              numtot=None, otdict=None):
     if type(X) == type(None):
         from sklearn.manifold import TSNE
         X = TSNE(n_components=n_components).fit_transform(bottleneck)
@@ -784,7 +785,7 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
                 xv, yv, zv = [cntpt[0], xp], [cntpt[1], yp], [cntpt[2], zp]
                 ax.plot(xv, yv, zv, '-', color=color)
 
-    if X.shape[1] == 2 and plot_insets:
+    if X.shape[1] == 2 and plot_insets: # -- global insets ---------------------
         inset_width = 0.1 * (np.max(X[:,0]) - np.min(X[:,0]))
         inset_height = 3/8 * inset_width
         if type(inset_label) != type(None):
@@ -825,7 +826,7 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
             # in_ax.spines['left'].set_color(color)
             # in_ax.tick_params(axis='both', colors=color)
 
-    if X.shape[1] == 2 and zoom:    
+    if X.shape[1] == 2 and zoom: # -- zoom insets ------------------------------
         # sub region of the original image
         # x1 = X[zoom_ind][0]-0.01*np.diff(ax.get_xlim())
         # x2 = X[zoom_ind][0]+0.01*np.diff(ax.get_xlim())
@@ -834,8 +835,12 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
 
         # show nearest n_zoom points
         # dist = np.sqrt((X[:,0]-X[zoom_ind,0])**2 + (X[:,1]-X[zoom_ind,1])**2)
+
+        # >> find points closest (in euclidean distance) to zoom_ind
         dist = np.sum((bottleneck - bottleneck[zoom_ind])**2, axis=1)
         width = np.sqrt(np.sum((X[np.argsort(dist)[n_zoom]] - X[zoom_ind])**2))
+        
+        # >> specify inset axis location and size
         x1 = X[zoom_ind][0]-width
         x2 = X[zoom_ind][0]+width
         y1 = X[zoom_ind][1]-width
@@ -849,19 +854,27 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
 
         inset_width = 0.2 * (x2-x1)
         inset_height = 3/8 * inset_width
+
+        # >> plot light curve in inset axis
         for i in range(n_zoom):
             ind = np.argsort(dist)[i+1]
             if labels[ind] < len(colors) - 1:
                 color = colors[labels[ind]]
             else:
                 color='black'
-            plot_lc_inset(X[ind][0], X[ind][1], inset_width, inset_height, in_ax,
-                          lcpath, objid[ind], n_bins, color)
+            # if X[ind][0] < x2 and X[ind][0] > x1 and X[ind][1] < y2 and \
+            #    X[ind][1] > y1:
+            lc_ax = plot_lc_inset(X[ind][0], X[ind][1], inset_width, inset_height,
+                                  in_ax, lcpath, objid[ind], n_bins, color) 
+            if type(numtot) != type(None):
+                ot = otdict[numtot[ind]]
+                lc_ax.set_title(ot, color=color, size=6)
+                # in_ax.text(0.02, 0.02,ot, color='k', size=6,
+                #            transform=in_ax.transAxes)
+                # fig.savefig('/scratch/echickle/tmp/foo.png')
+                # pdb.set_trace()
 
-
-        # fig.savefig('/scratch/echickle/tmp/foo.png')
-        # pdb.set_trace()
-
+    # -- axis labels -----------------------------------------------------------
     if X.shape[1] == 2:
         ax.set_xlabel('t-SNE Component 1')
         ax.set_ylabel('t-SNE Component 2')
@@ -2211,15 +2224,14 @@ def plot_clusters(savepath, datapath, clstr, objid, sector, feats,
                     bbox_inches='tight')
         plt.close(fig)
 
-def evaluate_classifications(cm, row_labels):
+def evaluate_classifications(cm):
     recall = []
     false_discovery_rate = []
     precision = []
     accuracy = []
     counts_true = []
     counts_pred = []
-    for i in range(len(row_labels)):
-        ind = i
+    for ind in range(len(cm)):
         counts_true.append(np.sum(cm[ind]))
         counts_pred.append(np.sum(cm[:,ind]))
         
@@ -4173,4 +4185,5 @@ def plot_lc_inset(x0, y0, inset_width, inset_height, ax, lcpath, ticid, n_bins,
     in_ax.spines['left'].set_color(color)
     in_ax.tick_params(axis='both', colors=color)
 
+    return in_ax
 
