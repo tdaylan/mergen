@@ -368,10 +368,32 @@ class mergen(object):
         #     self.totype = np.loadtxt(self.savepath+'totype.txt', skiprows=1,
         #                            dtype='str', delimiter=',')[:,2]
         # else:
-        self.totype = dt.load_otype_true_from_datadir(self.metapath,
-                                                      self.objid,
-                                                      self.sector,
-                                                      self.savepath)
+        # self.totype = dt.load_otype_true_from_datadir(self.metapath,
+        #                                               self.objid,
+        #                                               self.sector,
+        #                                               self.savepath)
+
+        # >> load from textfile
+        cat = np.loadtxt(self.metapath+'spoc/otypes_S1_26.txt', skiprows=2,
+                         delimiter=',', dtype='str')
+    
+        # >> reorder to match objid
+        inter, comm1, comm2 = np.intersect1d(cat[:,0].astype('int'), self.objid,
+                                             return_indices=True)
+        cat = cat[:,1][comm1]
+
+        # >> remove Pec (peculiar) label for classification
+        for i in range(len(cat)):
+            if 'Pec' in cat[i]:
+                if cat[i] == 'Pec':
+                    cat[i] = 'UNCLASSIFIED'
+                else:
+                    ot = cat[i].split('|')
+                    ot.pop(ot.index('Pec'))
+                    cat[i] = '|'.join(ot)
+
+        self.totype = cat
+
         unqtot = np.unique(self.totype)
         self.otdict = {i: unqtot[i] for i in range(len(unqtot))}
         self.numtot = np.array([np.nonzero(unqtot == ot)[0][0] for \

@@ -147,14 +147,13 @@ from scipy.stats import moment, sigmaclip
 from . import data_utils as dt
 import random
 
-def produce_feature_visualizations():
+def produce_latent_space_visualizations():
     return
 
 def produce_clustering_visualizations(feats, numtot, numpot, tsne, output_dir,
                                       otdict, objid, sector, datapath, metapath,
                                       prefix='', anim=False, elev=45,
                                       crot_analysis=True):
-    # prefix = 'perplexity'+str(perplexity)+'_elev'+str(elev)+'_'
     output_dir = output_dir + 'imgs/'
     dt.create_dir(output_dir)
 
@@ -174,24 +173,24 @@ def produce_clustering_visualizations(feats, numtot, numpot, tsne, output_dir,
 
     # >> specific science case: complex rotators
     # !! TODO : input list of objects [CROT, ...]
-    if crot_analysis:
-        prefix='crot_'
-        # >> known complex rotators (sectors 1, 2)
-        # targets      = [38820496, 177309964, 206544316, 234295610, 289840928,
-        #                 425933644, 425937691] # >> sector 1 only
-        targets = [38820496, 177309964, 201789285, 206544316, 224283342,\
-                   234295610, 289840928, 332517282, 425933644, 425937691]
-        numcot = [] # >> numerized complex rotator ensemble object type
-        cotd = {0: 'NONE', 1:'CROT'}
-        for ticid in objid:
-            if int(ticid) in targets:
-                numcot.append(1)
-            else:
-                numcot.append(0)
-        plot_tsne(feats, numcot, X=tsne, output_dir=output_dir,
-                  prefix=prefix, animate=anim, elev=elev, otypedict=cotd,
-                  class_marker='x', class_ms=20, debug=True, objid=objid,
-                  plot_insets=True, lcpath=datapath+'clip/')
+    # if crot_analysis:
+    #     prefix='crot_'
+    #     # >> known complex rotators (sectors 1, 2)
+    #     # targets      = [38820496, 177309964, 206544316, 234295610, 289840928,
+    #     #                 425933644, 425937691] # >> sector 1 only
+    #     targets = [38820496, 177309964, 201789285, 206544316, 224283342,\
+    #                234295610, 289840928, 332517282, 425933644, 425937691]
+    #     numcot = [] # >> numerized complex rotator ensemble object type
+    #     cotd = {0: 'NONE', 1:'CROT'}
+    #     for ticid in objid:
+    #         if int(ticid) in targets:
+    #             numcot.append(1)
+    #         else:
+    #             numcot.append(0)
+    #     plot_tsne(feats, numcot, X=tsne, output_dir=output_dir,
+    #               prefix=prefix, animate=anim, elev=elev, otypedict=cotd,
+    #               class_marker='x', class_ms=20, debug=True, objid=objid,
+    #               plot_insets=True, lcpath=datapath+'clip/')
 
     return
 
@@ -673,6 +672,7 @@ def latent_space_plot(activation, out='./latent_space.png', n_bins = 50,
     # return fig, axes
     
     
+
 def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
               prefix='', animate=False, elev=10, otypedict=None, alpha=0.1,
               class_marker='.', class_ms=3, debug=False, plot_insets=False,
@@ -836,9 +836,15 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
         # show nearest n_zoom points
         # dist = np.sqrt((X[:,0]-X[zoom_ind,0])**2 + (X[:,1]-X[zoom_ind,1])**2)
 
-        # >> find points closest (in euclidean distance) to zoom_ind
-        dist = np.sum((bottleneck - bottleneck[zoom_ind])**2, axis=1)
-        width = np.sqrt(np.sum((X[np.argsort(dist)[n_zoom]] - X[zoom_ind])**2))
+        # # >> find points closest (in euclidean distance) to zoom_ind
+        # dist = np.sum((bottleneck - bottleneck[zoom_ind])**2, axis=1)
+        # width = np.sqrt(np.sum((X[np.argsort(dist)[n_zoom]] - X[zoom_ind])**2))
+        
+        # >> find cluster members closets to zoom_ind 
+        clstr_inds = np.nonzero(labels == labels[zoom_ind])
+        dist = np.sum((bottleneck[clstr_inds] - bottleneck[zoom_ind])**2, axis=1)
+        width = np.sqrt(np.sum((X[clstr_inds][np.argsort(dist)[n_zoom]] - \
+                                X[zoom_ind])**2))
         
         # >> specify inset axis location and size
         x1 = X[zoom_ind][0]-width
@@ -856,21 +862,23 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
         inset_height = 3/8 * inset_width
 
         # >> plot light curve in inset axis
-        for i in range(n_zoom):
-            ind = np.argsort(dist)[i+1]
+        for i in range(n_zoom, -1, -1):
+            ind = clstr_inds[0][np.argsort(dist)[i]]
+            if labels[ind] != labels[zoom_ind]: pdb.set_trace()
             if labels[ind] < len(colors) - 1:
                 color = colors[labels[ind]]
             else:
                 color='black'
             # if X[ind][0] < x2 and X[ind][0] > x1 and X[ind][1] < y2 and \
             #    X[ind][1] > y1:
-            lc_ax = plot_lc_inset(X[ind][0], X[ind][1], inset_width, inset_height,
-                                  in_ax, lcpath, objid[ind], n_bins, color) 
+            lc_ax = plot_lc_inset(X[ind][0], X[ind][1], inset_width,
+                                  inset_height, in_ax, lcpath, objid[ind],
+                                  n_bins, color) 
             if type(numtot) != type(None):
                 ot = otdict[numtot[ind]]
-                lc_ax.set_title(ot, color=color, size=6)
-                # in_ax.text(0.02, 0.02,ot, color='k', size=6,
-                #            transform=in_ax.transAxes)
+                # lc_ax.set_title(ot, color=color, size=6)
+                lc_ax.text(0.02, 0.02, ot, color=color, size=6,
+                           transform=lc_ax.transAxes)
                 # fig.savefig('/scratch/echickle/tmp/foo.png')
                 # pdb.set_trace()
 
@@ -1788,6 +1796,7 @@ def ensemble_budget(ticid_pred, y_pred, cm, assignments, y_true_labels,
 def plot_confusion_matrix(cm, rows, columns, output_dir='./', prefix='',
                           figsize=(30,30)):
     import pandas as pd
+    import seaborn as sn
     print('Plotting confusion matrix...')
     df_cm = pd.DataFrame(cm, index=rows, columns=columns)
     fig, ax = plt.subplots(figsize=figsize)

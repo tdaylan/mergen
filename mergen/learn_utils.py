@@ -140,9 +140,10 @@ def run_gmm(ticid, feats, numclstr=100, runiter=False, numiter=1, save=True,
             suffix = '-n'+str(numclstr)+'.txt'
         else:
             prefix = ''
-            suffix = '.txt'
+            suffix = '_'+str(numclstr)+'.txt'
         np.savetxt(savepath+prefix+'gmm_labels'+suffix, np.array([ticid, clstr]),
                    header='TICID,ClusterNumber')
+        print('Saved '+savepath+prefix+'gmm_labels'+suffix)
     return clstr
     
 def run_LOF(features, n_neighbors = 20, p = 2, metric = 'minkowski', contamination = 0.1,
@@ -218,7 +219,18 @@ def label_clusters(mg):
         if i not in list(otdict.keys()):
             otdict[i] = 'NONE'
 
-    pdb.set_trace()
+    fname = mg.featpath+'label_eval.txt'
+    rec, fdr, pre, acc, cnts_true, cnts_pred = pt.evaluate_classifications(cm)
+    with open(fname,'w') as f:
+        f.write('OTYPE,CLSTR,RECALL,FDR,PRECISION,ACCURACY,COUNTS_TRUE,COUNTS_PRED\n')
+        for i in range(len(unqpot)):
+            if unqpot[i] != 'NONE':
+                ot = otdict[int(unqpot[i])]
+                f.write(ot+','+unqpot[i]+
+                        ',{},{},{},{},{},{}\n'.format(rec[i], fdr[i], pre[i],
+                                                      acc[i], cnts_true[i], 
+                                                      cnts_pred[i]))
+    print('Saved '+fname)
 
     # >> create list of predicted otypes (potype)
     potype = []
@@ -1316,7 +1328,7 @@ def load_gmm_from_txt(output_dir, ticid, runIter=False, numIter=1,
         suffix = '-n'+str(numClusters)+'.txt'
     else:
         prefix = ''
-        suffix = '.txt'
+        suffix = '_'+str(numClusters)+'.txt'
     txt = np.loadtxt(output_dir+prefix+'gmm_labels'+suffix)
     ticid_cluster = txt[0].astype('int')
     clusters = txt[1]
