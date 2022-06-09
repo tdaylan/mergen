@@ -86,7 +86,6 @@ from . import data_utils as dt
 # from astropy.timeseries import LombScargle
 # import random
 import time
-# # from sklearn.cluster import KMeans    
 # import fnmatch as fm
 # # import pandas as pd
 
@@ -98,10 +97,6 @@ from tensorflow.keras.layers import *
 from tensorflow.keras import optimizers
 from tensorflow.keras import metrics
 from tensorflow.keras.models import load_model
-
-# from sklearn.mixture import GaussianMixture
-from sklearn.metrics import confusion_matrix
-from scipy.optimize import linear_sum_assignment
 
 #import talos
 
@@ -188,22 +183,54 @@ def load_tsne(ensbpath):
     X = np.load(ensbpath+'tsne.npy')
     return X
 
-# def label_clusters(ensbpath, sectors, ticid, clstr, totype, numtot, otdict):
-def label_clusters(mg):
+def clstr_centr(feats, method='median'):
+    """Computes distance from each data point to center of data points."""
+    if method == 'density':
+        from scipy.stats import gaussian_kde
+        kde = gaussian_kde(mg.feats[inds].T)
+        density = kde(mg.feats[inds].T)
+        centr = mg.feats[inds][np.argmax(density)]
+    elif method == 'mean':
+        centr = np.median(mg.feats, axis=0)
+    elif method == 'median':
+        centr = np.median(mg.feats, axis=0)
+    else:
+        print('Provided unknown cluster center method: '+method)
 
-    # >> classified inds
-    inds = np.nonzero(mg.totype != 'NONE')
+    dist = np.sum((mg.feats - centr)**2, axis=1)
+    return centr, dist
+
+
+
+def label_clusters(mg, c0='UNCLASSIFIED', t_std=2):
+
+    from sklearn.metrics import confusion_matrix
+    from scipy.optimize import linear_sum_assignment 
+    
+    # >> find classified inds within thresholds
+    totype_cut = np.copy(mg.totype)
+    for i in np.unique(mg.clstr):
+        inds = np.nonzero(mg.clstr == i)
+
+        # >> find cluster center
+        centr, dist = lt.clstr_centr(mg.feats[inds])
+
+        # >> threshold 
+        thresh = np.median(dist) + t_std*np.std(dist)
+        totype_cut[inds][np.nonzero(dist > thresh)] = c0
+                
+    inds = np.nonzero(totype_cut != c0)    
     cm  = confusion_matrix(mg.clstr[inds], mg.numtot[inds])
-
+    
     # >> make the matrix square so that we can apply linear_sum_assignment
     unqpot = np.unique(mg.clstr[inds])         # >> unique predicted otypes
     unqtot = np.unique(mg.totype)  # >> unique true otypes
-    unqtot = np.delete(unqtot, np.nonzero(unqtot=='NONE')[0][0])
+    unqtot = np.delete(unqtot, np.nonzero(unqtot==c0)[0][0])
     while len(unqpot) < len(cm):
-        unqpot = np.append(unqpot, 'NONE')     
+        unqpot = np.append(unqpot, c0)     
     while len(unqtot) < len(cm):
-        unqtot = np.append(unqtot, 'NONE')
-
+        unqtot = np.append(unqtot, c0)
+        
     # >> make confusion matrix diagonal by re-ordering columns
     row_ind, col_ind = linear_sum_assignment(-1*cm)
     cm = cm[:,col_ind]
@@ -213,18 +240,18 @@ def label_clusters(mg):
     otdict = {} # >> predicted otype dictionary
     for i in range(len(unqpot)):
         # >> check if there is a real label assigned
-        if unqpot[i] != 'NONE':
+        if unqpot[i] != c0:
             otdict[int(unqpot[i])] = unqtot[i]
     for i in np.unique(mg.clstr):
         if i not in list(otdict.keys()):
-            otdict[i] = 'NONE'
+            otdict[i] = c0
 
     fname = mg.featpath+'label_eval.txt'
     rec, fdr, pre, acc, cnts_true, cnts_pred = pt.evaluate_classifications(cm)
     with open(fname,'w') as f:
         f.write('OTYPE,CLSTR,RECALL,FDR,PRECISION,ACCURACY,COUNTS_TRUE,COUNTS_PRED\n')
         for i in range(len(unqpot)):
-            if unqpot[i] != 'NONE':
+            if unqpot[i] != c0:
                 ot = otdict[int(unqpot[i])]
                 f.write(ot+','+unqpot[i]+
                         ',{},{},{},{},{},{}\n'.format(rec[i], fdr[i], pre[i],
@@ -252,6 +279,80 @@ def label_clusters(mg):
     mg.cm = cm
     mg.otdict = otdict
     mg.potype = potype
+
+
+
+def label_clusters_2(mg):
+
+    unq_clstr = sorted(np.unique(mg.clstr))
+    cen_clstr = []
+    thr_clstr = []
+    label = []
+    for i in unq_clstr:
+        if i % 10 == 0:
+            print(i)
+        inds = np.nonzero(mg.clstr == unq_clstr[i])
+
+        # >> find center
+        centr, dist = lt.clstr_centr(feats[ind])
+        cen_clstr.append(centr)
+
+        # >> threshold distance from center
+        # thresh = np.median(dist) + 2* np.std(dist)
+        thresh = np.median(dist) + np.std(dist)
+        thr_clstr.append(thresh)
+
+        # >> superimpose histograms of classified 
+        ot, cnts = np.unique(mg.totype[inds], return_counts=True)
+        ot_true = [] 
+        ot_cnts = []
+        for j in range(len(ot)):
+            if ot[j] != 'UNCLASSIFIED':
+                inds_ot = np.nonzero(mg.totype[inds] == ot[j])
+                ax.hist(dist[inds_ot], bins, alpha=0.5, label=ot[j])
+                ot_true.append(ot[j])
+                ot_cnts.append(np.count_nonzero(dist[inds_ot] < thresh))
+
+        # pdb.set_trace()
+
+        # >> method 1: label cluster (most abundant label within threshold)
+        if len(ot_true) == 0:
+            label.append('UNCLASSIFIED')
+        elif len(ot_true) == 1:
+            label.append(ot_true[0])
+        else:
+            if np.sort(ot_cnts)[-1] > np.sort(ot_cnts)[-2]+3*np.std(ot_cnts):
+                label.append(ot_true[np.argmax(ot_cnts)])
+            else:
+                label.append('UNCLASSIFIED')
+
+
+    numpot = []
+    for i in range(len(mg.objid)):
+        dist = np.sum((mg.feats[i] - cen_clstr[mg.clstr[i]])**2)
+        if dist < thr_clstr[mg.clstr[i]]:
+            class_ind = list(mg.otdict.values()).index(label[mg.clstr[i]])
+            numpot.append(class_ind)
+        else:
+            unclassified_ind = list(mg.otdict.values()).index('UNCLASSIFIED')
+            numpot.append(unclassified_ind)
+    numpot = np.array(numpot)
+
+    from sklearn.metrics import confusion_matrix
+    row_labels = []
+    inds = []
+    for i in np.unique(numpot):
+        if mg.otdict[i] != 'UNCLASSIFIED':
+            inds.extend(np.nonzero(mg.numtot == i)[0])
+            row_labels.append(mg.otdict[i])
+    row_labels.append('UNCLASSIFIED')
+    inds = np.array(inds)
+    cm = confusion_matrix(mg.numtot[inds], numpot[inds])
+    pt.plot_confusion_matrix(cm, row_labels, row_labels, mg.featpath+'cm/',
+                             'gmm'+str(numclstr)+'-',
+                             figsize=(7,7))
+
+    rec, fdr, pre, acc, cnts_true, cnts_pred = pt.evaluate_classifications(cm)
 
 
 ##### PARAM SCANS #####
@@ -1543,6 +1644,8 @@ def param_summary(history, x_train, x_test, x_predict_train, x_predict, p,
                   output_dir, param_set_num,
                   title, supervised=False, y_test=False):
     '''Saves text file *param_summary.txt with model parameters and metrics.'''
+    from sklearn.metrics import confusion_matrix
+    
     with open(output_dir + 'param_summary.txt', 'a') as f:
         f.write('parameter set ' + str(param_set_num) + ' - ' + title +'\n')
         f.write(str(p.items()) + '\n')
@@ -1694,52 +1797,48 @@ def save_autoencoder_products(model=None, params=None, batch_fnames=None,
                               output_dir='', parampath=None,
                               prefix='', x_train=None, x_test=None, 
                               ticid_train=None, ticid_test=None,
-                              reconstruct=True):
-
+                              reconstruct=True, bottleneck=True):
+    '''Get latent space and reconstructions after training.'''
     from datetime import datetime
 
+    # -- hyperparameter dictionary ---------------------------------------------
     if type(params) == type(None):
         params = read_hyperparameters_from_txt(parampath)
-        
-    if type(model) == type(None):
-        model = load_model(output_dir+'model.hdf5')
-
     if type(batch_fnames) == type(None):
         params['n_features'] = x_train.shape[1]
-        # params['n_samples'] = x_train.shape[0]
     else:
         x_train = np.load(batch_fnames[0])
         params['n_features'] = x_train.shape[1]
-        # params['n_samples'] = x_train.shape[0]
-        # for i in range(1,len(batch_fnames)):
-        #     x_train = np.load(batch_fnames[i])
-        #     params['n_samples'] += x_train.shape[0]
         x_train = None
 
+    # -- load model ------------------------------------------------------------    
+    if type(model) == type(None):
+        model = load_model(output_dir+'model.hdf5')
+
+    # -- feed data through model -----------------------------------------------
     if type(x_train) == type(None): # >> load x_train in batches
         bottleneck_train = []
-        for i in range(len(batch_fnames)):
+        for i in range(6, len(batch_fnames)):
             print('Loading '+batch_fnames[i])
             chunk = np.load(batch_fnames[i])
 
             new_length = truncate(params)
             chunk = chunk[:,-new_length:]
-
             
-            n_batch = chunk.shape[0] // params['batch_size'] # !! 'batch'
+            n_batch = chunk.shape[0] // params['batch_size'] 
             bottleneck_chunk = []
             x_predict_chunk = []
             for n in range(n_batch):
                 start=datetime.now()
-
                 if n == n_batch-1:
                     batch = chunk[n*params['batch_size']:]
                 else:
                     batch = chunk[n*params['batch_size']:(n+1)*params['batch_size']]
 
-                print('Retrieving bottlneck...')
-                bottleneck_chunk.extend(get_bottleneck(model, batch, params,
-                                                       save=False))
+                if bottleneck:
+                    print('Retrieving bottlneck...')
+                    bottleneck_chunk.extend(get_bottleneck(model, batch, params,
+                                                           save=False))
 
                 if reconstruct:
                     print('Retrieving reconstructions...')
@@ -1748,14 +1847,18 @@ def save_autoencoder_products(model=None, params=None, batch_fnames=None,
                 end = datetime.now()
                 print((end-start).total_seconds())
 
-            np.save(output_dir+'chunk%02d'%i+'_bottleneck_train.npy',
-                    np.array(bottleneck_chunk))
             if reconstruct:
                 np.save(output_dir+'chunk%02d'%i+'_x_predict_train.npy',
                         np.array(x_predict_chunk))
-            bottleneck_train.extend(bottleneck_chunk)
+                print
 
-        return np.array(bottleneck_train)
+            if bottleneck:
+                np.save(output_dir+'chunk%02d'%i+'_bottleneck_train.npy',
+                        np.array(bottleneck_chunk))
+                bottleneck_train.extend(bottleneck_chunk)
+
+        if bottleneck:
+            return np.array(bottleneck_train)
 
     else: # >> x_train already in memory
         print('Retrieving bottlneck...')

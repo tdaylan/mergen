@@ -119,7 +119,7 @@ from . import plot_utils as pt
 # from scipy.stats import moment, sigmaclip
 
 # # import astropy
-from astropy.io import fits
+# from astropy.io import fits
 # # import scipy.signal as signal
 # # from astropy.stats import SigmaClip
 # # from astropy.utils import exceptions
@@ -457,6 +457,7 @@ def get_lc_file_and_data(yourpath, target):
         * yourpath, where you want the files saved to. must end in /
         * targets, target list of all TICs 
     modified [lcg 07082020] - fixed handling no results, fixed deleting download folder"""
+    from astropy.io import fits
     fitspath = yourpath + 'mastDownload/TESS/' # >> download directory
     targ = "TIC " + str(int(target))
     print(targ)
@@ -652,6 +653,7 @@ def open_fits(lcdir='', objid=None, fname=None, memmap=False):
     objid or fname."""
 
     import gc
+    from astropy.io import fits
 
     if type(fname) == type(None):
         fname = str(int(objid))+'.fits'
@@ -663,42 +665,13 @@ def open_fits(lcdir='', objid=None, fname=None, memmap=False):
             with fits.open(fname, memmap=True) as hdul:
                 data = hdul[1].data
                 meta = hdul[0].header
-            # hdul = fits.open(fname)
-            # data = hdul[1].data
-            # meta = hdul[0].header
-            # fits.close(fname)
-            # gc.collect()
             return [data, meta]
         except:
-            # gc.collect()
-            # try: # >> try a second time after gc.collect()
-            #     with fits.open(fname, memmap=False) as hdul:
-            #         data = hdul[1].data
-            #         meta = hdul[0].header
-            #     # hdul = fits.open(fname)
-            #     # data = hdul[1].data
-            #     # meta = hdul[0].header
-            #     # fits.close(fname)
-            #     # gc.collect()
-            #     return [data, meta]
-
-            # except:
             print('Failed to open the following FITS file:')
             print(lcdir+fname)
     return [None, None]
 
     gc.collect()
-
-
-    # lchdu = fits.open(lcdir+fname)
-    # data = []
-    # for data_name in data_names:
-    #     data.append(lchdu[1].data[data_name])
-
-    # meta = lchdu[0].header
-    # data.append(meta)
-
-    # lchdu.close()
 
 
 def write_fits(savepath, meta, data, data_names, table_meta=[],
@@ -712,6 +685,8 @@ def write_fits(savepath, meta, data, data_names, table_meta=[],
     * table_meta : list of tuples (header_name, value) for the Fits table header
     """
 
+    from astropy.io import fits
+    
     if type(fname) == type(None):
         objid = meta['TICID']
         fname = str(objid)+'.fits' # >> filename
@@ -798,6 +773,8 @@ def qual_mask_lc(lcfile, savepath, verbose=True, verbose_msg=''):
     * lcfile : light curve file
     '''
 
+    from astropy.io import fits
+    
     # >> open light curve file
     lchdu = fits.open(lcfile)
 
@@ -1146,6 +1123,9 @@ def nan_mask(flux, time, flux_err=False, DEBUG=False, debug_ind=1042,
 # -- FEATURE LOADING -----------------------------------------------------------
 
 def load_ENF_feature_metafile(folderpath):
+
+    from astropy.io import fits
+    
     print("Loading engineered features...")
 
     filepaths = []
@@ -1172,6 +1152,8 @@ def load_ENF_feature_metafile(folderpath):
 # -- QUATERNION HANDLING -------------------------------------------------------
 
 def convert_to_quat_metafile(file, fileoutput):
+    from astropy.io import fits
+    
     f = fits.open(file, memmap=False)
     
     t = f[1].data['TIME']
@@ -1254,6 +1236,7 @@ def metafile_load_smooth_quaternions(sector, maintimeaxis,
 def extract_smooth_quaterions(path, file, momentum_dump_csv, kernal, maintimeaxis, plot = False):
 
     from scipy.signal import medfilt
+    from astropy.io import fits
     f = fits.open(file, memmap=False)
 
     t = f[1].data['TIME']
@@ -1531,88 +1514,15 @@ def combine_sectors_by_lc(sectors, data_dir, custom_mask=[],
 
     return flux, x, ticid, np.array(target_info)
 
-# def load_data_from_metafiles(data_dir, sector, cams=[1,2,3,4],
-#                              ccds=[[1,2,3,4]]*4, data_type='SPOC',
-#                              cadence='2-minute', DEBUG=False, fast=False,
-#                              output_dir='./', debug_ind=0,
-#                              nan_mask_check=True,
-#                              custom_mask=[]):
-#     '''Pulls light curves from fits files, and applies nan mask.
-    
-#     Parameters:
-#         * data_dir : folder containing fits files for each group
-#         * sector : sector, given as int, or as a list
-#         * cams : list of cameras
-#         * ccds : list of CCDs
-#         * data_type : 'SPOC', 'FFI'
-#         * cadence : '2-minute', '20-second'
-#         * DEBUG : makes nan_mask debugging plots. If True, the following are
-#                   required:
-#             * output_dir
-#             * debug_ind
-#         * nan_mask_check : if True, applies NaN mask
-    
-#     Returns:
-#         * flux : array of light curve PDCSAP_FLUX,
-#                  shape=(num light curves, num data points)
-#         * x : time array, shape=(num data points)
-#         * ticid : list of TICIDs, shape=(num light curves)
-#         * target_info : [sector, cam, ccd, data_type, cadence] for each light
-#                         curve, shape=(num light curves, 5)
-#     '''
-    
-#     # >> get file names for each group
-#     fnames = []
-#     fname_info = []
-#     for i in range(len(cams)):
-#         cam = cams[i]
-#         for ccd in ccds[i]:
-#             if fast:
-#                 s = 'Sector{sector}_20s/Sector{sector}Cam{cam}CCD{ccd}/' + \
-#                     'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
-#             else:
-#                 s = 'Sector{sector}/Sector{sector}Cam{cam}CCD{ccd}/' + \
-#                     'Sector{sector}Cam{cam}CCD{ccd}_lightcurves.fits'
-#             fnames.append(s.format(sector=sector, cam=cam, ccd=ccd))
-#             fname_info.append([sector, cam, ccd, data_type, cadence])
-                
-#     # >> pull data from each fits file
-#     print('Pulling data')
-#     flux_list = []
-#     ticid = np.empty((0, 1))
-#     target_info = [] # >> [sector, cam, ccd, data_type, cadence]
-#     for i in range(len(fnames)):
-#         print('Loading ' + fnames[i] + '...')
-#         with fits.open(data_dir + fnames[i], memmap=False) as hdul:
-#             if i == 0:
-#                 x = hdul[0].data
-#             flux = hdul[1].data
-#             ticid_list = hdul[2].data
-    
-#         flux_list.append(flux)
-#         ticid = np.append(ticid, ticid_list)
-#         target_info.extend([fname_info[i]] * len(flux))
-
-#     # >> concatenate flux array         
-#     flux = np.concatenate(flux_list, axis=0)
-        
-#     # >> apply nan mask
-#     if nan_mask_check:
-#         print('Applying nan mask')
-#         flux, x = nan_mask(flux, x, DEBUG=DEBUG, ticid=ticid,
-#                            debug_ind=debug_ind, target_info=target_info,
-#                            output_dir=output_dir, custom_mask=custom_mask)
-
-#     return flux, x, ticid, np.array(target_info)
-    
-    
 def load_group_from_fits(path, sector, camera, ccd): 
     """ pull the light curves and target def qlist from fits metafiles
     path is the folder in which all the metafiles are saved. ends in a backslash 
     sector camera ccd are integers you want the info from
     modified [lcg 07032020]
     """
-    filename_lc = path + "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+str(ccd) + "_lightcurves.fits"
+    from astropy.io import fits
+    filename_lc = path + "Sector"+str(sector)+"Cam"+str(camera)+"CCD"+\
+        str(ccd) + "_lightcurves.fits"
    
     f = fits.open(filename_lc, memmap=False)
     
@@ -1779,6 +1689,8 @@ def data_access_by_group_fits(yourpath, sectorfile, sector, camera, ccd,
         
 def follow_up_on_missed_targets_fits(yourpath, sector, camera, ccd):
     """ function to follow up on rejected TIC ids"""
+    from astropy.io import fits
+    
     folder_name = "Sector" + str(sector) + "Cam" + str(camera) + "CCD" + str(ccd)
     path = yourpath + folder_name
     fname_time_intensities = path + "/" + folder_name + "_lightcurves.fits"
@@ -1823,6 +1735,9 @@ def lc_from_target_list(yourpath, targetList, fname_time_intensities_raw,
     that can later be accessed
     modified [lcg 07092020]
     """
+
+    from astropy.io import fits
+    
     intensity = []
     ticids = []
     for n in range(len(targetList)): #for each item on the list
@@ -1891,6 +1806,8 @@ def get_lc_file_and_data(yourpath, target):
         * yourpath, where you want the files saved to. must end in /
         * targets, target list of all TICs 
     modified [lcg 07082020] - fixed handling no results, fixed deleting download folder"""
+    from astropy.io import fits
+    
     fitspath = yourpath + 'mastDownload/TESS/' # >> download directory
     targ = "TIC " + str(int(target))
     print(targ)
@@ -1974,6 +1891,7 @@ def lc_from_bulk_download(fits_path, target_list, fname_out, fname_targets,
     '''
     import fnmatch
     import gc
+    from astropy.io import fits
     
     # >> get list of all light curve fits files
     fnames_all = os.listdir(fits_path)
@@ -2074,6 +1992,8 @@ def tic_list_by_magnitudes(path, lowermag, uppermag, n, filelabel):
         * file label (what to call the fits file)
     modified [lcg 07082020]
     """
+    from astropy.io import fits
+    
     catalog_data = Catalogs.query_criteria(catalog="Tic", Tmag=[uppermag, lowermag], objType="STAR")
 
     T_mags = np.asarray(catalog_data["Tmag"], dtype= float)
@@ -2190,6 +2110,7 @@ def interpolate_lc(i, time, flux_err=False, interp_tol=20./(24*60),
     '''
     from astropy.stats import SigmaClip
     from scipy import interpolate
+    from astropy.io import fits
     
     # >> plot original light curve
     if DEBUG_INTERP:
@@ -2543,6 +2464,8 @@ def targetwise_lc(yourpath, target_list, fname_time_intensities,fname_notes):
     modified [lcg 07112020]
     """
 
+    from astropy.io import fits
+
     ticids = []
     for n in range(len(target_list)): #for each item on the list
         
@@ -2608,7 +2531,8 @@ def create_save_featvec_homogenous_time(yourpath, times, intensities, filelabel,
     returns: list of feature vectors + fits file containing all feature vectors
     requires: featvec()
     modified: [lcg 08212020]"""
-    
+
+    from astropy.io import fits
 
     fname_features = yourpath + "/"+ filelabel + "_features_v"+str(version)+".fits"
     feature_list = []
@@ -2803,6 +2727,7 @@ def feature_gen_from_lc_fits(path, sector, feature_version=0):
     
     import datetime
     from datetime import datetime
+    from astropy.io import fits
     
     now = datetime.now()
     dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
@@ -4500,6 +4425,8 @@ def hdbscan_param_search(features, time, flux, ticid, target_info,
         * optional to plot pca & tsne coloring for it
         
     '''
+    from astropy.io import fits
+    
     import hdbscan         
     classes = []
     num_classes = []

@@ -321,6 +321,10 @@ class mergen(object):
                                           self.datapath, mdumpcsv=self.mdumpcsv,
                                           tsne=self.tsne,
                                           datatype=self.datatype)
+
+    def evaluate_classification(self):
+        rec, fdr, pre, acc, cnts_t, cnts_p = pt.evaluate_classifications(mg.cm)
+        return rec, fdr, pre, acc, cnts_t, cnts_p
         
     def run_feature_analysis(self):
         self.load_true_otypes()
@@ -333,8 +337,12 @@ class mergen(object):
         self.generate_novelty_scores()
         
     def run_vis(self):
-        self.produce_clustering_visualizations()
-        self.produce_novelty_visualizations()
+        pt.produce_latent_space_vis(self.feats, self.clstr, self.tsne,
+                                    self.featpath+'imgs/', self.clstrmeth,
+                                    self.clstrnum, self.numtot, self.objid,
+                                    self.datapath)
+        # self.produce_clustering_visualizations()
+        # self.produce_novelty_visualizations()
 
     # ==========================================================================
     # == Loading Mergen Products ===============================================

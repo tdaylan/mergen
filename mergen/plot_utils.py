@@ -147,9 +147,71 @@ from scipy.stats import moment, sigmaclip
 from . import data_utils as dt
 import random
 
-def produce_latent_space_visualizations():
-    return
+def produce_latent_space_vis(feats, clstr, tsne, output_dir,
+                             clstrmeth, clstrnum, numtot, otdict, objid,
+                             datapath):
+    prefix=clstrmeth+str(clstrnum)+'/'
+    plot_tsne(feats, clstr, X=tsne, output_dir=output_dir, prefix=prefix)
 
+    unq_clstr = sorted(np.unique(clstr))
+    for i in unq_clstr:
+        if i % 10 == 0:
+            print('Cluster '+str(i))
+
+        # >> find cluster members
+        inds = np.nonzero(clstr == unq_clstr[i])
+            
+        prefix = 'zoom_clstr'+str(i)+'_'
+        cntr, dist = lt.clstr_centr(feats[inds])
+        cntr_ind = np.argmin(dist)
+        
+        pt.plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
+                     prefix=prefix, objid=objid, 
+                     lcpath=datapath+'clip/', zoom=True, zoom_ind=centr_ind,
+                     numtot=numtot, otdict=otdict)            
+    
+    # >> random
+    # for i in range(10):
+    #     prefix = 'zoom_'+str(i)+'_'
+    #     pt.plot_tsne(mg.feats, mg.clstr, X=mg.tsne, output_dir=mg.featpath+'imgs/',
+    #                  prefix=prefix, objid=mg.objid, 
+    #                  lcpath=mg.datapath+'clip/', zoom=True)
+
+    
+    # prefix = 'inset_'
+    # plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
+    #              prefix=prefix, plot_insets=True, objid=objid, 
+    #              lcpath=datapath+'clip/', 
+    #              max_insets=300)
+
+    # prefix='crot_'
+    # # >> known complex rotators (sectors 1, 2)
+    # # targets      = [38820496, 177309964, 206544316, 234295610, 289840928,
+    # #                 425933644, 425937691] # >> sector 1 only
+    # targets = [38820496, 177309964, 201789285, 206544316, 224283342,\
+    #            234295610, 289840928, 332517282, 425933644, 425937691]
+    # numcot = [] # >> numerized complex rotator ensemble object type
+    # cotd = {3000: 'NONE', 1:'CROT'}
+    # for ticid in mg.objid:
+    #     if int(ticid) in targets:
+    #         numcot.append(1)
+    #     else:
+    #         numcot.append(3000)
+    # pt.plot_tsne(mg.feats, numcot, X=mg.tsne, output_dir=mg.featpath+'imgs/',
+    #              prefix=prefix, otypedict=cotd, alpha =1,
+    #              class_marker='x', class_ms=20, objid=mg.objid,
+    #              plot_insets=True, lcpath=mg.datapath+'clip/', inset_label=1)
+
+    
+    
+    # unique, counts = np.unique(numtot, return_counts=True)
+    # inds = np.nonzero(numtot == np.argmax(counts))
+    # numtot[inds] = 3000
+    # prefix = 'true_'
+    # plot_tsne(feats, numtot, X=tsne, output_dir=output_dir,
+    #           prefix=prefix)
+
+    
 def produce_clustering_visualizations(feats, numtot, numpot, tsne, output_dir,
                                       otdict, objid, sector, datapath, metapath,
                                       prefix='', anim=False, elev=45,
@@ -237,6 +299,46 @@ def produce_ae_visualizations(x, x_train, x_pred, output_dir, ticid, target_info
     plot_reconstruction_error(x, x_train, x_pred, ticid, output_dir=output_dir,
                               target_info=target_info, psd=psd)
 
+def clstr_centr_hist(clstr, totype, output_dir, bins=40, t_std=1):
+    unq_clstr = sorted(np.unique(clstr))
+    cen_clstr = []
+    thr_clstr = []
+    label = []
+    for i in unq_clstr:
+        if i % 10 == 0:
+            print('Cluster '+str(i))
+
+        # >> find cluster members
+        inds = np.nonzero(clstr == unq_clstr[i])
+
+        # >> find center
+        centr, dist = lt.clstr_centr(feats[ind])
+        cen_clstr.append(centr)
+
+        # >> threshold distance from center
+        thresh = np.median(dist) + t_std*np.std(dist)
+        thr_clstr.append(thresh)
+
+        # >> create histogram
+        fig, ax = plt.subplots()
+        ax.hist(dist, bins)
+        ax.set_xlabel('Distance from cluster median')
+        ax.set_ylabel('Number of cluster members')
+        ax.axvline(thresh)
+
+        # >> superimpose histograms of classified 
+        ot, cnts = np.unique(totype[inds], return_counts=True)
+        for j in range(len(ot)):
+            if ot[j] != 'UNCLASSIFIED':
+                inds_ot = np.nonzero(mg.totype[inds] == ot[j])
+                ax.hist(dist[inds_ot], bins, alpha=0.5, label=ot[j])
+
+        ax.legend()
+        ax.set_title(label[-1])
+        fig.savefig(mg.featpath+'dist/hist_clstr_'+str(unq_clstr[i])+'.png')
+        plt.close()
+
+    
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # :: Feature Space Visualizations ::::::::::::::::::::::::::::::::::::::::::::::
