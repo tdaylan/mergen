@@ -187,17 +187,17 @@ def clstr_centr(feats, method='median'):
     """Computes distance from each data point to center of data points."""
     if method == 'density':
         from scipy.stats import gaussian_kde
-        kde = gaussian_kde(mg.feats[inds].T)
-        density = kde(mg.feats[inds].T)
-        centr = mg.feats[inds][np.argmax(density)]
+        kde = gaussian_kde(feats[inds].T)
+        density = kde(feats[inds].T)
+        centr = feats[inds][np.argmax(density)]
     elif method == 'mean':
-        centr = np.median(mg.feats, axis=0)
+        centr = np.median(feats, axis=0)
     elif method == 'median':
-        centr = np.median(mg.feats, axis=0)
+        centr = np.median(feats, axis=0)
     else:
         print('Provided unknown cluster center method: '+method)
 
-    dist = np.sum((mg.feats - centr)**2, axis=1)
+    dist = np.sum((feats - centr)**2, axis=1)
     return centr, dist
 
 
@@ -213,7 +213,7 @@ def label_clusters(mg, c0='UNCLASSIFIED', t_std=2):
         inds = np.nonzero(mg.clstr == i)
 
         # >> find cluster center
-        centr, dist = lt.clstr_centr(mg.feats[inds])
+        centr, dist = clstr_centr(mg.feats[inds])
 
         # >> threshold 
         thresh = np.median(dist) + t_std*np.std(dist)
@@ -279,10 +279,11 @@ def label_clusters(mg, c0='UNCLASSIFIED', t_std=2):
     mg.cm = cm
     mg.otdict = otdict
     mg.potype = potype
+    mg.unqpot = unqpot
 
 
 
-def label_clusters_2(mg):
+def label_clusters_2(mg, t_std=2, n_std=1):
 
     unq_clstr = sorted(np.unique(mg.clstr))
     cen_clstr = []
@@ -294,12 +295,11 @@ def label_clusters_2(mg):
         inds = np.nonzero(mg.clstr == unq_clstr[i])
 
         # >> find center
-        centr, dist = lt.clstr_centr(feats[ind])
+        centr, dist = clstr_centr(mg.feats[inds])
         cen_clstr.append(centr)
 
         # >> threshold distance from center
-        # thresh = np.median(dist) + 2* np.std(dist)
-        thresh = np.median(dist) + np.std(dist)
+        thresh = np.median(dist) + t_std*np.std(dist)
         thr_clstr.append(thresh)
 
         # >> superimpose histograms of classified 
@@ -309,7 +309,7 @@ def label_clusters_2(mg):
         for j in range(len(ot)):
             if ot[j] != 'UNCLASSIFIED':
                 inds_ot = np.nonzero(mg.totype[inds] == ot[j])
-                ax.hist(dist[inds_ot], bins, alpha=0.5, label=ot[j])
+                # ax.hist(dist[inds_ot], bins, alpha=0.5, label=ot[j])
                 ot_true.append(ot[j])
                 ot_cnts.append(np.count_nonzero(dist[inds_ot] < thresh))
 
@@ -321,7 +321,7 @@ def label_clusters_2(mg):
         elif len(ot_true) == 1:
             label.append(ot_true[0])
         else:
-            if np.sort(ot_cnts)[-1] > np.sort(ot_cnts)[-2]+3*np.std(ot_cnts):
+            if np.sort(ot_cnts)[-1] > np.sort(ot_cnts)[-2]+n_std*np.std(ot_cnts):
                 label.append(ot_true[np.argmax(ot_cnts)])
             else:
                 label.append('UNCLASSIFIED')
@@ -339,17 +339,21 @@ def label_clusters_2(mg):
     numpot = np.array(numpot)
 
     from sklearn.metrics import confusion_matrix
+    # none_ind = list(mg.otdict.values()).index('UNCLASSIFIED')
+    # inds = np.nonzero((mg.numtot != none_ind) * (numpot != none_ind))
+    # pdb.set_trace()
+
     row_labels = []
     inds = []
-    for i in np.unique(numpot):
+    for i in np.unique(numpot[inds]):
         if mg.otdict[i] != 'UNCLASSIFIED':
-            inds.extend(np.nonzero(mg.numtot == i)[0])
+            inds.extend(np.nonzero(mg.numtot[inds] == i)[0])
             row_labels.append(mg.otdict[i])
-    row_labels.append('UNCLASSIFIED')
     inds = np.array(inds)
     cm = confusion_matrix(mg.numtot[inds], numpot[inds])
+    # cm = cm[:-1][:,:-1]
     pt.plot_confusion_matrix(cm, row_labels, row_labels, mg.featpath+'cm/',
-                             'gmm'+str(numclstr)+'-',
+                             'gmm'+str(mg.numclstr)+'-',
                              figsize=(7,7))
 
     rec, fdr, pre, acc, cnts_true, cnts_pred = pt.evaluate_classifications(cm)
@@ -588,11 +592,14 @@ def load_paramscan_txt(path):
     
     return cleaned_params, number_classes, metric_scores
 
-def gmm_param_search(features, output_dir='./',
-                     n_components=list(range(50, 500, 50)),
+def gmm_param_search(features, ticid, output_dir='./',
+                     n_components=[200,150, 250, 50],
                      tsne=None):
     
     from datetime import datetime
+    from sklearn.mixture import GaussianMixture
+    from sklearn.metrics import silhouette_score, calinski_harabasz_score, \
+        davies_bouldin_score
 
     out = output_dir+'gmm_param_search.txt'
     with open(out, 'w') as f:
@@ -606,17 +613,21 @@ def gmm_param_search(features, output_dir='./',
         gmm = GaussianMixture(n_components=n_components[i])
         labels = gmm.fit_predict(features) # >> assigns clusters
 
+        suffix = '_'+str(n_components[i])+'.txt'
+        np.savetxt(output_dir+'gmm_labels'+suffix, np.array([ticid, labels]),
+                   header='TICID,ClusterNumber')
+
         end = datetime.now() # >> end timer
         dur_sec = (end-start).total_seconds()
 
         # >> compute silhouette score
-        silhouette = sklearn.metrics.silhouette_score(features, labels)
+        silhouette = silhouette_score(features, labels)
 
         # >> compute calinski harabasz score
-        ch_score = sklearn.metrics.calinski_harabasz_score(features, labels)
+        ch_score = calinski_harabasz_score(features, labels)
 
         # >> compute davies-bouldin score
-        db_score = sklearn.metrics.davies_bouldin_score(features, labels)
+        db_score = davies_bouldin_score(features, labels)
 
         scores.append([silhouette, ch_score, db_score])
 

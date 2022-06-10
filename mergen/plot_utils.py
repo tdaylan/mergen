@@ -150,25 +150,26 @@ import random
 def produce_latent_space_vis(feats, clstr, tsne, output_dir,
                              clstrmeth, clstrnum, numtot, otdict, objid,
                              datapath):
-    prefix=clstrmeth+str(clstrnum)+'/'
-    plot_tsne(feats, clstr, X=tsne, output_dir=output_dir, prefix=prefix)
+    # prefix=clstrmeth+str(clstrnum)+'/'
+    # plot_tsne(feats, clstr, X=tsne, output_dir=output_dir, prefix=prefix)
 
-    unq_clstr = sorted(np.unique(clstr))
-    for i in unq_clstr:
-        if i % 10 == 0:
-            print('Cluster '+str(i))
+    # unq_clstr = sorted(np.unique(clstr))
+    # for i in unq_clstr:
+    #     if i % 10 == 0:
+    #         print('Cluster '+str(i))
 
-        # >> find cluster members
-        inds = np.nonzero(clstr == unq_clstr[i])
+    #     # >> find cluster members
+    #     inds = np.nonzero(clstr == unq_clstr[i])
             
-        prefix = 'zoom_clstr'+str(i)+'_'
-        cntr, dist = lt.clstr_centr(feats[inds])
-        cntr_ind = np.argmin(dist)
+    #     prefix = 'zoom_clstr'+str(i)+'_'
+    #     cntr, dist = lt.clstr_centr(feats[inds])
+    #     cntr_ind = np.argmin(dist)
         
-        pt.plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
-                     prefix=prefix, objid=objid, 
-                     lcpath=datapath+'clip/', zoom=True, zoom_ind=centr_ind,
-                     numtot=numtot, otdict=otdict)            
+    #     plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
+    #                  prefix=prefix, objid=objid, 
+    #                  lcpath=datapath+'clip/', zoom=True, zoom_ind=cntr_ind,
+    #                  numtot=numtot, otdict=otdict, figsize=(15, 6),
+    #                  lspmpath=datapath+'timescale-1sector/ae/')   
     
     # >> random
     # for i in range(10):
@@ -178,11 +179,11 @@ def produce_latent_space_vis(feats, clstr, tsne, output_dir,
     #                  lcpath=mg.datapath+'clip/', zoom=True)
 
     
-    # prefix = 'inset_'
-    # plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
-    #              prefix=prefix, plot_insets=True, objid=objid, 
-    #              lcpath=datapath+'clip/', 
-    #              max_insets=300)
+    prefix = 'inset_'
+    plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
+                 prefix=prefix, plot_insets=True, objid=objid, 
+                 lcpath=datapath+'clip/', lspmpath=datapath+'timescale-1sector/ae/',
+                 max_insets=300, figsize=(15,6))
 
     # prefix='crot_'
     # # >> known complex rotators (sectors 1, 2)
@@ -779,6 +780,7 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
               prefix='', animate=False, elev=10, otypedict=None, alpha=0.1,
               class_marker='.', class_ms=3, debug=False, plot_insets=False,
               lcpath=None, objid=None, max_insets=300, n_bins=1000, figsize=(15,15),
+              lspmpath=None,
               inset_label=None, zoom=False, zoom_ind=None, n_zoom=15,
               numtot=None, otdict=None):
     if type(X) == type(None):
@@ -907,7 +909,7 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
 
 
             plot_lc_inset(X[ind][0], X[ind][1], inset_width, inset_height, ax,
-                          lcpath, objid[ind], n_bins, color)
+                          lcpath, objid[ind], n_bins, color, lspmpath=lspmpath)
 
             # in_ax = ax.inset_axes([X[ind][0], X[ind][1], inset_width,
             #                        inset_height],
@@ -960,6 +962,7 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
         in_ax.set_yticklabels([])    
         ax.indicate_inset_zoom(in_ax, edgecolor="black")
 
+
         inset_width = 0.2 * (x2-x1)
         inset_height = 3/8 * inset_width
 
@@ -975,7 +978,8 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
             #    X[ind][1] > y1:
             lc_ax = plot_lc_inset(X[ind][0], X[ind][1], inset_width,
                                   inset_height, in_ax, lcpath, objid[ind],
-                                  n_bins, color) 
+                                  n_bins, color, lspmpath=lspmpath) 
+                
             if type(numtot) != type(None):
                 ot = otdict[numtot[ind]]
                 # lc_ax.set_title(ot, color=color, size=6)
@@ -4277,7 +4281,7 @@ def get_lc(lcpath, ticid, timescale=13, norm=False, method='median', rmv_nan=Fal
     return t, y
 
 def plot_lc_inset(x0, y0, inset_width, inset_height, ax, lcpath, ticid, n_bins,
-                  color):
+                  color, lspmpath=None):
     in_ax = ax.inset_axes([x0, y0, inset_width, inset_height],
                           transform=ax.transData)
     t, y = get_lc(lcpath, ticid, rmv_nan=True, norm=True)
@@ -4296,5 +4300,28 @@ def plot_lc_inset(x0, y0, inset_width, inset_height, ax, lcpath, ticid, n_bins,
     in_ax.spines['left'].set_color(color)
     in_ax.tick_params(axis='both', colors=color)
 
+    if type(lspmpath) != type(None):
+        import fnmatch
+        for f in fnmatch.filter(os.listdir(lspmpath), '*_ticid.npy'):
+            tic_list = np.load(lspmpath+f)
+            if ticid in tic_list:
+                chunk = int(f[5:7])
+        ind = np.nonzero(np.load(lspmpath+'chunk%02d'%chunk+'_train_ticid.npy') \
+                         == ticid)[0][0]
+        lspm = np.load(lspmpath+'chunk%02d'%chunk+'_train_lspm.npy')
+        in_ax1 = ax.inset_axes([x0, y0-inset_height, inset_width, inset_height],
+                              transform=ax.transData)
+                                        
+        in_ax1.plot(lspm[ind], '.k', ms=0.5)
+        in_ax1.set_xscale('log')
+        in_ax1.set_xticklabels([])
+        in_ax1.set_yticklabels([])
+        in_ax1.spines['bottom'].set_color(color)
+        in_ax1.spines['top'].set_color(color)
+        in_ax1.spines['right'].set_color(color)
+        in_ax1.spines['left'].set_color(color)
+        in_ax1.tick_params(axis='both', colors=color)
+
+        
     return in_ax
 

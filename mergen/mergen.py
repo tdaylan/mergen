@@ -271,7 +271,8 @@ class mergen(object):
         print('Performing clustering analysis in feature space...')
         if self.clstrmeth == 'gmm':
             if type(self.numclstr) == type(None):
-                self.numclstr = lt.gmm_param_search(self.feats, self.featpath,
+                self.numclstr = lt.gmm_param_search(self.feats, self.objid,
+                                                    self.featpath,
                                                     tsne=self.tsne)
 
             self.clstr = lt.run_gmm(self.objid, self.feats,
@@ -323,7 +324,7 @@ class mergen(object):
                                           datatype=self.datatype)
 
     def evaluate_classification(self):
-        rec, fdr, pre, acc, cnts_t, cnts_p = pt.evaluate_classifications(mg.cm)
+        rec, fdr, pre, acc, cnts_t, cnts_p = pt.evaluate_classifications(self.cm)
         return rec, fdr, pre, acc, cnts_t, cnts_p
         
     def run_feature_analysis(self):
@@ -339,7 +340,8 @@ class mergen(object):
     def run_vis(self):
         pt.produce_latent_space_vis(self.feats, self.clstr, self.tsne,
                                     self.featpath+'imgs/', self.clstrmeth,
-                                    self.clstrnum, self.numtot, self.objid,
+                                    self.numclstr, self.numtot, self.otdict, 
+                                    self.objid,
                                     self.datapath)
         # self.produce_clustering_visualizations()
         # self.produce_novelty_visualizations()
