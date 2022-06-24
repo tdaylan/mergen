@@ -40,7 +40,9 @@ class mergen(object):
     # == Initialization ========================================================
     # ==========================================================================
 
-    def __init__(self, datapath, savepath, datatype, sector=None,
+    def __init__(self, datapath=None, savepath=None, datatype=None,
+                 setup=None,
+                 sector=None, batch_fnames=None, 
                  featgen=None,  metapath=None, timescale=None,
                  mdumpcsv=None, filelabel=None, runiter=False, numiter=1,
                  numclstr=None, clstrmeth=None, name=None,
@@ -72,33 +74,24 @@ class mergen(object):
             * numclstr : int, number of clusters assumed by the GMM clustering
                          algorithm
         """
-        
-        self.featgen = featgen
-        
-        self.sector   = sector
-        self.numclstr = numclstr
-        self.clstrmeth = clstrmeth
 
-        self.datapath = datapath
-        self.savepath = savepath
-        self.metapath = metapath
-        self.datatype = datatype # >> SPOC or FFI
-        # self.ensbpath = self.savepath+'Ensemble-Sector_'+str(self.sector)+'/'
-        self.ensbpath = self.savepath # !!
-        self.mdumpcsv = mdumpcsv
-        self.name = name
+        # >> initialize Mergen attributes based on provided arguments
+        for i, j in zip(locals().keys(), locals().values()):
+            setattr(self, i, j)
 
-        self.parampath = parampath
+        # >> read setup file, if available
+        if self.setup != None:
+            skiprows = int(np.loadtxt(self.setup, dtype='str', max_rows=1)[-1])
+            fwf = pd.read_fwf(self.setup, skiprows=skiprows)
+            for i, j in zip(fwf['ATTR'], fwf['VAL']):
+                if j.isnumeric():
+                    setattr(self, i, int(j))
+                else:
+                    setattr(self, i, j)
 
-        if filelabel is not None:
-            self.filelabel = filelabel
-        else:
+        if self.filelabel == None:
             self.filelabel = "mergen"
-
-        # >> iterative scheme
-        self.runiter = runiter
-        self.numiter = numiter
-        self.batch_fnames = None
+        self.ensbpath = self.savepath
         
         self.initiate_folder()
 
@@ -281,7 +274,8 @@ class mergen(object):
                                     runiter=self.runiter, numiter=self.numiter)
 
         elif self.clstrmeth == 'hdbscan':
-            lt.quick_hdbscan_param_search(self.feats, output_dir=self.featpath)
+            lt.quick_hdbscan_param_search(self.feats, self.objid, output_dir=self.featpath,
+                                          tsne=self.tsne)
 
     def generate_tsne(self):
         """Reduces dimensionality of feature space for visualization."""
@@ -403,6 +397,15 @@ class mergen(object):
                     cat[i] = '|'.join(ot)
 
         self.totype = cat
+
+        # >> add specific paper classifications
+        obj_dir = self.metapath+'spoc/obj/'
+        fnames = fnmatch.filter(os.listdir(obj_dir), '*.txt')
+        for f in fnames:
+            ticid_f = np.loadtxt(obj_dir+f)
+            otype_f = f.split('_')[0]
+            inter, comm1, comm2 = np.intersect1d(self.objid, ticid_f, return_indices=True)
+            self.totype[comm1] = otype_f
 
         unqtot = np.unique(self.totype)
         self.otdict = {i: unqtot[i] for i in range(len(unqtot))}

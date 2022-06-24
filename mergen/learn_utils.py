@@ -675,9 +675,10 @@ def gmm_param_search(features, ticid, output_dir='./',
     return n_components[np.argmax(scores[:,0])]
 
 
-def quick_hdbscan_param_search(features, min_samples=[2,3,4,5,6,7,8,15,50],
-                               min_cluster_size=[50,100,500,1000],
-                               metric=['all'], p0=[1,2,3,4], output_dir='./',
+def quick_hdbscan_param_search(features, ticid, min_samples=[10, 15,50],
+                               min_cluster_size=[10, 50,100,500,1000],
+                               metric=['euclidean'],
+                               p0=[1,2,3,4], output_dir='./',
                                tsne=None):
     
     import hdbscan
@@ -718,21 +719,29 @@ def quick_hdbscan_param_search(features, min_samples=[2,3,4,5,6,7,8,15,50],
                     clusterer.fit(features)
                     labels = clusterer.labels_
 
+                    suffix = '_'+str(count)+'.txt'
+                    np.savetxt(output_dir+'hdbscan_labels'+suffix, np.array([ticid, labels]),
+                               header='TICID,ClusterNumber')
+                    print('Save '+output_dir+'hdbscan_labels'+suffix)
+
                     end = datetime.now() # >> end timer
                     dur_sec = (end-start).total_seconds()
 
                     classes, counts = np.unique(clusterer.labels_,
                                                 return_counts=True)
-                    
-                    # >> compute silhouette score
-                    silhouette = sklearn.metrics.silhouette_score(features,
-                                                                  labels)
-                    # >> compute calinski harabasz score
-                    ch_score = sklearn.metrics.calinski_harabasz_score(features,
-                                                                       labels)
-                    # >> compute davies-bouldin score
-                    db_score = sklearn.metrics.davies_bouldin_score(features,
-                                                                    labels)
+        
+                    if len(classes) > 1:
+                        # >> compute silhouette score
+                        silhouette = sklearn.metrics.silhouette_score(features,
+                                                                      labels)
+                        # >> compute calinski harabasz score
+                        ch_score = sklearn.metrics.calinski_harabasz_score(features,
+                                                                           labels)
+                        # >> compute davies-bouldin score
+                        db_score = sklearn.metrics.davies_bouldin_score(features,
+                                                                        labels)
+                    else:
+                        silhouette, ch_score, db_score=None, None, None
                     scores.append([silhouette, ch_score, db_score])
                     line = [str(count),str(len(np.unique(classes)-1)),
                             str(dur_sec),str(silhouette),str(ch_score),
@@ -1419,7 +1428,7 @@ def load_bottleneck(savepath):
         bottleneck_train.extend(np.load(savepath+'model/'+fname))    
     return np.array(bottleneck_train)
 
-def load_reconstructions(output_dir, ticid):
+def load_reconstructions(featpath):
     filo = fits.open(output_dir + 'x_predict_train.fits')
     rcon = filo[0].data
     ticid_filo = filo[1].data

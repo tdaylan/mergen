@@ -142,34 +142,76 @@ import shutil
 from scipy.stats import moment, sigmaclip
 
 # import seaborn as sn
-
 # import data_functions as df
 from . import data_utils as dt
+
+
 import random
 
 def produce_latent_space_vis(feats, clstr, tsne, output_dir,
                              clstrmeth, clstrnum, numtot, otdict, objid,
                              datapath):
-    # prefix=clstrmeth+str(clstrnum)+'/'
-    # plot_tsne(feats, clstr, X=tsne, output_dir=output_dir, prefix=prefix)
+    # zoom_dim = 0.67
+
+    # prefix=clstrmeth+str(clstrnum)+'_'
+    # plot_tsne(feats, clstr, X=tsne, output_dir=output_dir, prefix=prefix,
+    #           figsize=(15,8), facecolor='k', textcolor='w')
+    # plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
+    #              prefix=prefix, plot_insets=True, objid=objid, 
+    #              lcpath=datapath+'clip/', lspmpath=datapath+'timescale-1sector/ae/',
+    #               figsize=(15,8), max_insets=200, facecolor='k', textcolor='w')
+
+
+    # >> plot nearest neighbors for specific targets
+    # obj_dir = '/scratch/data/tess/meta/spoc/obj/'
+    # fnames = fnmatch.filter(os.listdir(obj_dir), '*.txt')
+    # targets = []
+    # for f in fnames:
+    #     ticid_f = np.loadtxt(obj_dir+f)
+    #     targets.extend(ticid_f)
+    # targets.pop(targets.index(182294086))
+    # for i in range(len(targets)):
+    #     prefix = 'zoom_TIC'+str(int(targets[i]))+'_'
+    #     try:
+    #         ind = np.nonzero(objid == targets[i])[0][0]
+    #         plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
+    #                      prefix=prefix, objid=objid, n_zoom=30,
+    #                      lcpath=datapath+'clip/', zoom=True, zoom_ind=ind,
+    #                      numtot=numtot, otdict=otdict, figsize=(9, 7),
+    #                      lspmpath=datapath+'timescale-1sector/ae/',
+    #                   facecolor='k', textcolor='w', zoom_clstr=False)   
+    #     except:
+    #         pass
+
+
+
 
     # unq_clstr = sorted(np.unique(clstr))
-    # for i in unq_clstr:
-    #     if i % 10 == 0:
-    #         print('Cluster '+str(i))
+    unq_clstr = [218]
+    for i in unq_clstr:
+        if i % 10 == 0:
+            print('Cluster '+str(i))
 
-    #     # >> find cluster members
-    #     inds = np.nonzero(clstr == unq_clstr[i])
+        # >> find cluster members
+        inds = np.nonzero(clstr == i)
             
-    #     prefix = 'zoom_clstr'+str(i)+'_'
-    #     cntr, dist = lt.clstr_centr(feats[inds])
-    #     cntr_ind = np.argmin(dist)
+        prefix = 'zoom_clstr'+str(i)+'_'
+        cntr, dist = lt.clstr_centr(feats[inds])
+        cntr_ind = np.argmin(dist)
         
     #     plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
     #                  prefix=prefix, objid=objid, 
     #                  lcpath=datapath+'clip/', zoom=True, zoom_ind=cntr_ind,
-    #                  numtot=numtot, otdict=otdict, figsize=(15, 6),
-    #                  lspmpath=datapath+'timescale-1sector/ae/')   
+    #                  figsize=(9, 7), zoom_dim=0.67,
+    #                  lspmpath=datapath+'timescale-1sector/ae/',
+    #               facecolor='k', textcolor='w')   
+
+        plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
+                     prefix=prefix, objid=objid,  zoom_dim=0.67,
+                     lcpath=datapath+'clip/', zoom=True, zoom_ind=cntr_ind,
+                     numtot=numtot, otdict=otdict, figsize=(9, 7),
+                     lspmpath=datapath+'timescale-1sector/ae/',
+                  facecolor='k', textcolor='w', n_zoom=10)   
     
     # >> random
     # for i in range(10):
@@ -179,11 +221,11 @@ def produce_latent_space_vis(feats, clstr, tsne, output_dir,
     #                  lcpath=mg.datapath+'clip/', zoom=True)
 
     
-    prefix = 'inset_'
-    plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
-                 prefix=prefix, plot_insets=True, objid=objid, 
-                 lcpath=datapath+'clip/', lspmpath=datapath+'timescale-1sector/ae/',
-                 max_insets=300, figsize=(15,6))
+    # prefix = 'inset_'
+    # plot_tsne(feats, clstr, X=tsne, output_dir=output_dir,
+    #              prefix=prefix, plot_insets=True, objid=objid, 
+    #              lcpath=datapath+'clip/', lspmpath=datapath+'timescale-1sector/ae/',
+    #               figsize=(15,8), max_insets=200, facecolor='k', textcolor='w')
 
     # prefix='crot_'
     # # >> known complex rotators (sectors 1, 2)
@@ -300,7 +342,8 @@ def produce_ae_visualizations(x, x_train, x_pred, output_dir, ticid, target_info
     plot_reconstruction_error(x, x_train, x_pred, ticid, output_dir=output_dir,
                               target_info=target_info, psd=psd)
 
-def clstr_centr_hist(clstr, totype, output_dir, bins=40, t_std=1):
+def clstr_centr_hist(feats, clstr, totype, output_dir, bins=40, t_std=1, facecolor='w',
+                     textcolor='w', histcolor='b', scale=10):
     unq_clstr = sorted(np.unique(clstr))
     cen_clstr = []
     thr_clstr = []
@@ -313,7 +356,7 @@ def clstr_centr_hist(clstr, totype, output_dir, bins=40, t_std=1):
         inds = np.nonzero(clstr == unq_clstr[i])
 
         # >> find center
-        centr, dist = lt.clstr_centr(feats[ind])
+        centr, dist = lt.clstr_centr(feats[inds])
         cen_clstr.append(centr)
 
         # >> threshold distance from center
@@ -321,22 +364,24 @@ def clstr_centr_hist(clstr, totype, output_dir, bins=40, t_std=1):
         thr_clstr.append(thresh)
 
         # >> create histogram
-        fig, ax = plt.subplots()
-        ax.hist(dist, bins)
-        ax.set_xlabel('Distance from cluster median')
-        ax.set_ylabel('Number of cluster members')
+        fig, ax = plt.subplots(facecolor=facecolor)
+        ax.hist(dist, bins, color=histcolor)
+        ax.set_facecolor(color=facecolor)
+        ax.set_xlabel('Distance from cluster median', color=textcolor)
+        ax.set_ylabel('Number of cluster members', color=textcolor)
         ax.axvline(thresh)
 
         # >> superimpose histograms of classified 
         ot, cnts = np.unique(totype[inds], return_counts=True)
         for j in range(len(ot)):
             if ot[j] != 'UNCLASSIFIED':
-                inds_ot = np.nonzero(mg.totype[inds] == ot[j])
+                inds_ot = np.nonzero(totype[inds] == ot[j])
                 ax.hist(dist[inds_ot], bins, alpha=0.5, label=ot[j])
 
         ax.legend()
-        ax.set_title(label[-1])
-        fig.savefig(mg.featpath+'dist/hist_clstr_'+str(unq_clstr[i])+'.png')
+        # ax.set_title(label[-1])
+        fig.savefig(output_dir+'hist_clstr_'+str(unq_clstr[i])+'.png')
+        print('Saved '+output_dir+'hist_clstr_'+str(unq_clstr[i])+'.png')
         plt.close()
 
     
@@ -780,9 +825,10 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
               prefix='', animate=False, elev=10, otypedict=None, alpha=0.1,
               class_marker='.', class_ms=3, debug=False, plot_insets=False,
               lcpath=None, objid=None, max_insets=300, n_bins=1000, figsize=(15,15),
-              lspmpath=None,
+              lspmpath=None, zoom_dim=0.47,
               inset_label=None, zoom=False, zoom_ind=None, n_zoom=15,
-              numtot=None, otdict=None):
+              zoom_clstr=True,
+              numtot=None, otdict=None, facecolor='w', textcolor='k'):
     if type(X) == type(None):
         from sklearn.manifold import TSNE
         X = TSNE(n_components=n_components).fit_transform(bottleneck)
@@ -807,24 +853,24 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
     minlim = np.min(X, axis=0)
     rad = 0.5 * np.sqrt(np.sum((maxlim - minlim)**2)) # >> radius of tSNE 
 
-    fig = plt.figure(figsize=figsize)
+    fig = plt.figure(figsize=figsize, facecolor=facecolor)
     if X.shape[1] == 2:
-        ax = fig.add_subplot()
+        ax = fig.add_subplot(facecolor=facecolor)
     elif X.shape[1] == 3:
-        ax = fig.add_subplot(projection='3d')
+        ax = fig.add_subplot(projection='3d', facecolor=facecolor)
 
     if X.shape[1] == 2 and zoom:
         if type(zoom_ind) == type(None):
             zoom_ind = np.random.choice(np.arange(X.shape[0]))
         if X[zoom_ind][0] < np.mean(ax.get_xlim()):
-            x0 = 0.5
+            x0 = 1 - zoom_dim - 0.03
         else:
             x0 = 0.03
         if X[zoom_ind][1] < np.mean(ax.get_ylim()):
-            y0 = 0.5
+            y0 = 1 - zoom_dim - 0.03
         else:
             y0 = 0.03
-        in_ax = ax.inset_axes([x0, y0, 0.47, 0.47])
+        in_ax = ax.inset_axes([x0, y0, zoom_dim, zoom_dim])
         
     for i in unique_classes:
         # >> find all light curves with this  class
@@ -853,8 +899,9 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
             ax.plot(X[class_inds][:,0], X[class_inds][:,1], marker, color=color,
                     alpha=al, ms=ms)
             if zoom:
+                npt = len(class_inds[0])
                 in_ax.plot(X[class_inds][:,0], X[class_inds][:,1], marker,
-                           color=color, ms=ms*4)
+                           color=color, ms=ms)
             
         elif X.shape[1] == 3:
             ax.scatter(X[class_inds][:,0], X[class_inds][:,1], X[class_inds][:,2],
@@ -895,7 +942,6 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
         if type(inset_label) != type(None):
             max_insets = np.min([max_insets,
                                  len(np.nonzero(labels==inset_label)[0])])
-
         for j in range(max_insets):
             if type(inset_label) == type(None):
                 ind = np.random.choice(np.arange(X.shape[0]))
@@ -945,10 +991,15 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
         # width = np.sqrt(np.sum((X[np.argsort(dist)[n_zoom]] - X[zoom_ind])**2))
         
         # >> find cluster members closets to zoom_ind 
-        clstr_inds = np.nonzero(labels == labels[zoom_ind])
-        dist = np.sum((bottleneck[clstr_inds] - bottleneck[zoom_ind])**2, axis=1)
-        width = np.sqrt(np.sum((X[clstr_inds][np.argsort(dist)[n_zoom]] - \
-                                X[zoom_ind])**2))
+        if zoom_clstr:
+            clstr_inds = np.nonzero(labels == labels[zoom_ind])
+            dist = np.sum((bottleneck[clstr_inds] - bottleneck[zoom_ind])**2, axis=1)
+            width = np.sqrt(np.sum((X[clstr_inds][np.argsort(dist)[n_zoom]] - \
+                                    X[zoom_ind])**2))
+        else:
+            dist = np.sum((bottleneck - bottleneck[zoom_ind])**2, axis=1)
+            width = np.sqrt(np.sum((X[np.argsort(dist)[n_zoom]] - X[zoom_ind])**2))
+
         
         # >> specify inset axis location and size
         x1 = X[zoom_ind][0]-width
@@ -960,42 +1011,52 @@ def plot_tsne(bottleneck, labels, X=None, n_components=2, output_dir='./',
         in_ax.set_ylim(y1, y2)
         in_ax.set_xticklabels([])
         in_ax.set_yticklabels([])    
-        ax.indicate_inset_zoom(in_ax, edgecolor="black")
+        ax.indicate_inset_zoom(in_ax, edgecolor=textcolor)
 
 
-        inset_width = 0.2 * (x2-x1)
+        inset_width = 0.4 * (x2-x1)
         inset_height = 3/8 * inset_width
 
         # >> plot light curve in inset axis
         for i in range(n_zoom, -1, -1):
-            ind = clstr_inds[0][np.argsort(dist)[i]]
-            if labels[ind] != labels[zoom_ind]: pdb.set_trace()
+            if zoom_clstr:
+                inds = np.nonzero(numtot[clstr_inds] == 54)[0]
+                ind = clstr_inds[0][inds[i]]
+                # ind = clstr_inds[0][np.argsort(dist)[i]]
+            else:
+                ind = np.argsort(dist)[i]
+            # if labels[ind] != labels[zoom_ind]: pdb.set_trace()
             if labels[ind] < len(colors) - 1:
                 color = colors[labels[ind]]
             else:
                 color='black'
-            # if X[ind][0] < x2 and X[ind][0] > x1 and X[ind][1] < y2 and \
-            #    X[ind][1] > y1:
-            lc_ax = plot_lc_inset(X[ind][0], X[ind][1], inset_width,
+            if X[ind][0] < x2 and X[ind][0] > x1 and X[ind][1] < y2 and \
+               X[ind][1] > y1:
+                lc_ax = plot_lc_inset(X[ind][0], X[ind][1], inset_width,
                                   inset_height, in_ax, lcpath, objid[ind],
-                                  n_bins, color, lspmpath=lspmpath) 
+                                      n_bins, color, lspmpath=lspmpath, alpha=0.9,
+                                      ms=1) 
                 
-            if type(numtot) != type(None):
-                ot = otdict[numtot[ind]]
-                # lc_ax.set_title(ot, color=color, size=6)
-                lc_ax.text(0.02, 0.02, ot, color=color, size=6,
-                           transform=lc_ax.transAxes)
-                # fig.savefig('/scratch/echickle/tmp/foo.png')
-                # pdb.set_trace()
+                if type(numtot) != type(None):
+                    ot = otdict[numtot[ind]]
+                    # lc_ax.set_title(ot, color=color, size=6)
+                    lc_ax.text(0.02, 0.02, ot, color=color, size=6,
+                               transform=lc_ax.transAxes)
+                    # fig.savefig('/scratch/echickle/tmp/foo.png')o
+                    # pdb.set_trace()
+                if type(objid) != type(None):
+                    lc_ax.text(0.98, 0.02, str(objid[ind]), color=color, size=6,
+                               transform=lc_ax.transAxes, ha='right')
+
 
     # -- axis labels -----------------------------------------------------------
     if X.shape[1] == 2:
-        ax.set_xlabel('t-SNE Component 1')
-        ax.set_ylabel('t-SNE Component 2')
+        ax.set_xlabel('t-SNE Component 1', color=textcolor)
+        ax.set_ylabel('t-SNE Component 2', color=textcolor)
     elif X.shape[1] == 3:
-        ax.set_xlabel('t-SNE Component 1')
-        ax.set_ylabel('t-SNE Component 2')
-        ax.set_zlabel('t-SNE Component 3')
+        ax.set_xlabel('t-SNE Component 1', color=textcolor)
+        ax.set_ylabel('t-SNE Component 2', color=textcolor)
+        ax.set_zlabel('t-SNE Component 3', color=textcolor)
 
     ax.set_rasterized(True)
     ax.xaxis.label.set_size(20)
@@ -4210,7 +4271,7 @@ def plot_lc(ticid, sector, output_dir='./',
     plt.close(fig)
 
 
-def get_lc(lcpath, ticid, timescale=13, norm=False, method='median', rmv_nan=False,
+def get_lc(lcpath, ticid, timescale=None, norm=False, method='median', rmv_nan=False,
            detrend=False, plot=False, savepath=None, return_sector=False,
            sector=None, memmap=False):
 
@@ -4265,7 +4326,7 @@ def get_lc(lcpath, ticid, timescale=13, norm=False, method='median', rmv_nan=Fal
         fig.savefig(out_f)
         print('Saved '+out_f)
 
-    if timescale == 1:
+    if type(timescale) == type(None):
         if return_sector:
             return t, y
         t, y = np.concatenate(t), np.concatenate(y)
@@ -4280,8 +4341,50 @@ def get_lc(lcpath, ticid, timescale=13, norm=False, method='median', rmv_nan=Fal
 
     return t, y
 
+def plot_lc_lspm(ticid, lcpath, lspmpath, output_dir, figsize=(3,1.4), timescale=1,
+                 recnpath=None):
+    import fnmatch
+    for f in fnmatch.filter(os.listdir(lspmpath), '*_ticid.npy'):
+        tic_list = np.load(lspmpath+f)
+        if ticid in tic_list:
+            chunk = int(f[5:7])
+    ind = np.nonzero(np.load(lspmpath+'chunk%02d'%chunk+'_train_ticid.npy') \
+                     == ticid)[0][0]
+    freq = np.load(lspmpath+'chunk%02d'%chunk+'_train_freq.npy')
+    lspm = np.load(lspmpath+'chunk%02d'%chunk+'_train_lspm.npy')
+    t, y = get_lc(lcpath, ticid, rmv_nan=True, norm=True, timescale=timescale)
+    if type(recnpath) != type(None):
+        lspm_r = np.load(recnpath+'chunk%02d'%chunk+'_x_predict_train.npy')
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(freq, lspm[ind], '.k', ms=0.5)
+    ax.set_xscale('log')
+    ax.set_xlabel('Frequency [1/days]')
+    ax.set_ylabel('Power')
+    fig.tight_layout()
+    fig.savefig(output_dir+'TIC'+str(int(ticid))+'_lspm.png', dpi=300)
+
+    if type(recnpath) != type(None):
+        fig_r, ax_r = plt.subplots(figsize=figsize)
+        ax_r.plot(freq[-len(lspm_r[ind]):], lspm_r[ind], '.k', ms=0.5)
+        ax_r.set_xscale('log')
+        ax_r.set_xlim(ax.get_xlim())
+        ax_r.set_ylim(ax.get_ylim())
+        ax_r.set_xlabel('Frequency [1/days]')
+        ax_r.set_ylabel('Power')
+        fig_r.tight_layout()
+        fig_r.savefig(output_dir+'TIC'+str(int(ticid))+'_recn.png', dpi=300)
+
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(t, y, '.k', ms=0.5, alpha=0.8)
+    ax.set_xlabel('Time [BJD - 2457000]')
+    ax.set_ylabel('Relative Flux')
+    fig.tight_layout()
+    fig.savefig(output_dir+'TIC'+str(int(ticid))+'_lc.png', dpi=300)    
+ 
 def plot_lc_inset(x0, y0, inset_width, inset_height, ax, lcpath, ticid, n_bins,
-                  color, lspmpath=None):
+                  color, lspmpath=None, ms=0.2, alpha=0.5):
     in_ax = ax.inset_axes([x0, y0, inset_width, inset_height],
                           transform=ax.transData)
     t, y = get_lc(lcpath, ticid, rmv_nan=True, norm=True)
@@ -4291,7 +4394,7 @@ def plot_lc_inset(x0, y0, inset_width, inset_height, ax, lcpath, ticid, n_bins,
     binned_y = np.mean(np.split(y[:bin_size*n_bins], n_bins), axis=1)
     binned_y = np.append(binned_y, np.mean(y[bin_size*n_bins:]))
 
-    in_ax.plot(binned_y, '.k', ms=0.5)
+    in_ax.plot(binned_y, '.k', ms=ms, alpha=alpha)
     in_ax.set_xticklabels([])
     in_ax.set_yticklabels([])
     in_ax.spines['bottom'].set_color(color)
@@ -4312,7 +4415,7 @@ def plot_lc_inset(x0, y0, inset_width, inset_height, ax, lcpath, ticid, n_bins,
         in_ax1 = ax.inset_axes([x0, y0-inset_height, inset_width, inset_height],
                               transform=ax.transData)
                                         
-        in_ax1.plot(lspm[ind], '.k', ms=0.5)
+        in_ax1.plot(lspm[ind], '.k', ms=ms, alpha=alpha)
         in_ax1.set_xscale('log')
         in_ax1.set_xticklabels([])
         in_ax1.set_yticklabels([])

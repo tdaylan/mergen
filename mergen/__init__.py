@@ -4,7 +4,7 @@ from .mergen import *
 #utilities
 import numpy as np
 import numpy.ma as ma 
-# import pandas as pd 
+import pandas as pd 
 from datetime import datetime
 import os
 import shutil
