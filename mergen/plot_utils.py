@@ -4175,39 +4175,41 @@ def plot_light_curves(targets, sector, output_dir='', prefix='', figsize=(8,8)):
     fig.tight_layout()
     fig.savefig(output_dir+prefix+'lightcurves.png', dpi=300)    
              
-def plot_lc(ticid, sector, output_dir='./',
+def plot_lc(ticid, sector, output_dir='./', 
             datapath='/scratch/data/tess/lcur/spoc/',
             mdumpcsv='/scratch/data/tess/meta/Table_of_momentum_dumps.csv',
-            plot_mdump=True, plot_lspgram=True,
+            plot_mdump=True, plot_lspgram=True, title='',
             max_freq=1/(8/1440.), min_freq=1/27., n_freq=50000,
             prefix='', suffix='', verbose=True):
                 
     ticid=int(ticid)
     # >> load light curve
-    lchdu = fits.open(datapath+'clip/sector-%02d'%sector+\
-                           '/'+str(ticid)+'.fits')
-    time = lchdu[1].data['TIME']
-    flux = lchdu[1].data['FLUX']
-    meta = lchdu[0].header
+    # lchdu = fits.open(datapath+'clip/sector-%02d'%sector+\
+    #                        '/'+str(ticid)+'.fits')
+    # time = lchdu[1].data['TIME']
+    # flux = lchdu[1].data['FLUX']
+    # meta = lchdu[0].header
+    data = np.load(datapath+'clip/sector-%02d'%sector+'/'+str(ticid)+'.npy')
+    time = data[0]
+    flux = data[1]
 
-    # >> make title for plot
-    target_info = [sector, meta['CAMERA'],
-                   meta['CCD'], 'SPOC', '2-min']
-    meta = dict(meta)
-    for key in meta.keys():
-        if type(meta[key]) == type(None):
-            meta[key] = np.nan
+    # # >> make title for plot
+    # target_info = [sector, meta['CAMERA'],
+    #                meta['CCD'], 'SPOC', '2-min']
+    # meta = dict(meta)
+    # for key in meta.keys():
+    #     if type(meta[key]) == type(None):
+    #         meta[key] = np.nan
 
-    target_desc = ['TIC', 'Sector', 'Cam', 'CCD', 'DTYPE', 'Cadence\n',
-                   'RA', 'DEC', 'Teff', 'rad', 'logG', 'Tmag']
-    target_prop = [str(ticid), str(sector), str(meta['CAMERA']),
-                   str(meta['CCD']), 'SPOC', '2-min',
-                   '%.6g'%meta['RA_OBJ'], '%.6g'%meta['DEC_OBJ'], 
-                   str(meta['TEFF']), '%.2g'%meta['RADIUS'], 
-                   '%.2g'%meta['LOGG'], '%.3g'%meta['TESSMAG']]
-    title = ''
-    for i in range(len(target_desc)):
-        title += target_desc[i]+' '+target_prop[i]+', '
+    # target_desc = ['TIC', 'Sector', 'Cam', 'CCD', 'DTYPE', 'Cadence\n',
+    #                'RA', 'DEC', 'Teff', 'rad', 'logG', 'Tmag']
+    # target_prop = [str(ticid), str(sector), str(meta['CAMERA']),
+    #                str(meta['CCD']), 'SPOC', '2-min',
+    #                '%.6g'%meta['RA_OBJ'], '%.6g'%meta['DEC_OBJ'], 
+    #                str(meta['TEFF']), '%.2g'%meta['RADIUS'], 
+    #                '%.2g'%meta['LOGG'], '%.3g'%meta['TESSMAG']]
+    # for i in range(len(target_desc)):
+    #     title += ' '+target_desc[i]+' '+target_prop[i]+', '
 
 
     # >> make frequency grid

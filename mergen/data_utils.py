@@ -793,8 +793,9 @@ def qual_mask_lc(lcfile, savepath, verbose=True, verbose_msg=''):
     flux[flagged_inds] = np.nan
 
     # >> save masked light curve
-    write_fits(savepath, meta, [time, flux], ['TIME', 'FLUX'], verbose=verbose,
-               verbose_msg=verbose_msg)
+    np.save(savepath+str(ticid)+'.npy', np.array([time, flux]))
+    # write_fits(savepath, meta, [time, flux], ['TIME', 'FLUX'], verbose=verbose,
+    #            verbose_msg=verbose_msg)
     lchdu.close()
 
 
