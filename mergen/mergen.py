@@ -28,7 +28,6 @@ To Do List:
 from .__init__ import *
 from . import data_utils    as dt
 from . import catalog_utils as ct
-from . import learn_utils   as lt
 from . import plot_utils    as pt
 from . import feature_utils as ft
 
@@ -188,8 +187,10 @@ class mergen(object):
         if self.featgen == "ENF":
             self.generate_engineered()
         elif self.featgen == "DAE":
+            from . import learn_utils   as lt            
             self.generate_dae_features()
         elif self.featgen == "CAE":
+            from . import learn_utils   as lt            
             self.generate_cae_features()
 
     def generate_engineered(self, version = 0, save = True):

@@ -4,7 +4,7 @@ from .mergen import *
 #utilities
 import numpy as np
 import numpy.ma as ma 
-import pandas as pd 
+# import pandas as pd 
 from datetime import datetime
 import os
 import shutil
@@ -55,7 +55,7 @@ from scipy.optimize import linear_sum_assignment
 # from sklearn.neighbors import LocalOutlierFactor
 
 #tensorflow
-import tensorflow as tf
+#import tensorflow as tf
 
 # from tf_keras_vis.saliency import Saliency
 # import ephesus.ephesus.util as ephesus

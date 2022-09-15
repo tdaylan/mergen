@@ -113,7 +113,7 @@ from mpl_toolkits.axes_grid1.inset_locator import (inset_axes, InsetPosition, ma
 
 import pdb # >> debugging tool
 # import model as ml
-from . import learn_utils as lt
+# from . import learn_utils as lt
 # from astropy.timeseries import LombScargle
 
 
@@ -151,6 +151,8 @@ import random
 def produce_latent_space_vis(feats, clstr, tsne, output_dir,
                              clstrmeth, clstrnum, numtot, otdict, objid,
                              datapath):
+
+    from . import learn_utils as lt
     # zoom_dim = 0.67
 
     # prefix=clstrmeth+str(clstrnum)+'_'
